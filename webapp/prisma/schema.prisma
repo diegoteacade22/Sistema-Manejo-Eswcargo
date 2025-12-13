@@ -1,0 +1,148 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id            Int       @id @default(autoincrement())
+  old_id        Int?      // Para mapear con COD_CLI del excel
+  name          String
+  document_id   String?   // DNI/CUIT
+  email         String?
+  phone         String?
+  address       String?
+  type          String?   // TIPO CLI
+  notes         String?
+  orders        Order[]
+  transactions  Transaction[]
+  shipments     Shipment[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Product {
+  id            Int       @id @default(autoincrement())
+  sku           String    @unique
+  name          String
+  // Fields from 'ARTICULOS TECNO'
+  color_grade   String?   // COLOR/GRADE
+  type          String?   // TIPO
+  model         String?   // MODELO
+  brand         String?   // MARCA
+  weight        Float?    // PESO KG
+  volum         Float?    // VOLUM
+  status        String?   // ESTADO
+  last_purchase_cost Float? // ULT CPRA
+  active        Boolean   @default(true) // ACTIVO
+  webpage       String?   // WEBPAGE
+  lp1           Float?    // LP1
+  lp2           Float?    // LP2
+  lp3           Float?    // LP3
+  
+  description   String?
+  stock         Int       @default(0) // Mantener campo por compatibilidad, pero ignorar visualmente si 'no hay stock interno'
+  
+  orderItems    OrderItem[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model SparePart {
+  id            Int       @id @default(autoincrement())
+  sku           String    @unique
+  name          String
+  description   String?
+  cost          Float?
+  price         Float?
+  stock         Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Supplier {
+  id            Int       @id @default(autoincrement())
+  name          String
+  contact       String?
+  email         String?
+  phone         String?
+  address       String?
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Order {
+  id            Int       @id @default(autoincrement())
+  order_number  Int?      @unique // NRO_PEDIDO
+  client        Client    @relation(fields: [clientId], references: [id])
+  clientId      Int
+  date          DateTime
+  status        String    // PENDIENTE, EN_TRANSITO, ENTREGADO, CANCELADO
+  total_amount  Float
+  currency      String    @default("USD")
+  notes         String?
+  forwarder     String?   // Datos logisticos
+  tracking_number String?
+  items         OrderItem[]
+  shipment      Shipment? @relation(fields: [shipmentId], references: [id])
+  shipmentId    Int?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model OrderItem {
+  id            Int       @id @default(autoincrement())
+  order         Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId       Int
+  product       Product?  @relation(fields: [productId], references: [id]) // Opcional si es item ad-hoc
+  productId     Int?
+  productName   String    // Persistem nombre al momento de venta
+  quantity      Int
+  unit_price    Float     // VTA UNI
+  unit_cost     Float     // COSTO
+  shipping_cost Float?    // Costo logistico prorrateado
+  subtotal      Float
+}
+
+model Transaction {
+  id            Int       @id @default(autoincrement())
+  client        Client    @relation(fields: [clientId], references: [id])
+  clientId      Int
+  date          DateTime
+  type          String    // PAGO, CARGO, AJUSTE
+  paymentMethod String?   // USDT, WIRE, EFECTIVO, ETC
+  amount        Float     // Positivo aumenta deuda (Cargo), Negativo disminuye (Pago)
+  description   String?
+  reference     String?   // Nro Comprobante
+  createdAt     DateTime  @default(now())
+}
+
+model Shipment {
+  id              Int       @id @default(autoincrement())
+  shipment_number Int?      @unique // NRO ENVIO
+  client          Client?   @relation(fields: [clientId], references: [id])
+  clientId        Int?
+  orders          Order[]
+  forwarder       String?   // FORWARDER
+  date_shipped    DateTime? // FECHA SAL
+  date_arrived    DateTime? // FECHA LLEG
+  weight_fw       Float?    // PESO FW
+  weight_cli      Float?    // PESO CLI
+  type_load       String?   // TIPO CARGA
+  item_count      Int?      // CANT ART
+  cost_total      Float?    // COSTO TOT
+  price_total     Float?    // ENVIO COB (Venta total del envio)
+  profit          Float?    // GANANCIA
+  invoice         String?   // INVOICE
+  status          String?   // LLEGO? / ESTADO
+  notes           String?   // OBSERVACION
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
