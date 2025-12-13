@@ -31,7 +31,8 @@ async function getDashboardData() {
 
   // 3. Calculate Monthly Sales (JS Grouping)
   const monthlyData: Record<string, number> = {};
-  orders.forEach(order => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  orders.forEach((order: any) => {
     const date = new Date(order.date);
     const key = `${date.toLocaleString('default', { month: 'short' })}`.toUpperCase(); // e.g., DIC
     monthlyData[key] = (monthlyData[key] || 0) + order.total_amount;
@@ -50,14 +51,17 @@ async function getDashboardData() {
     _count: { _all: true }
   });
 
-  const statusData = statusGroups.map(g => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const statusData = statusGroups.map((g: any) => ({
     name: g.status,
     value: g._count._all
   }));
 
   const activeOrdersCount = statusData
-    .filter(d => d.name !== 'ENTREGADO' && d.name !== 'CANCELADO')
-    .reduce((acc, curr) => acc + curr.value, 0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .filter((d: any) => d.name !== 'ENTREGADO' && d.name !== 'CANCELADO')
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .reduce((acc: number, curr: any) => acc + curr.value, 0);
 
 
   // 5. Top Debtors
