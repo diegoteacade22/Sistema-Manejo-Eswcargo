@@ -7,7 +7,18 @@ interface OrderStatusPieProps {
     data: { name: string; value: number }[];
 }
 
-const COLORS = ['#10b981', '#f59e0b', '#ef4444', '#3b82f6']; // Green, Amber, Red, Blue
+const COLORS = [
+    '#10b981', // Emerald (Entregado/Finalizado)
+    '#3b82f6', // Blue (Encargado/Stock)
+    '#f59e0b', // Amber (Saliendo/Llegando)
+    '#ef4444', // Red (Comprar/Cancelado)
+    '#8b5cf6', // Violet
+    '#ec4899', // Pink
+    '#06b6d4', // Cyan
+    '#f97316', // Orange
+    '#84cc16', // Lime
+    '#6366f1', // Indigo
+];
 
 export function OrderStatusPie({ data }: OrderStatusPieProps) {
     return (

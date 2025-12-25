@@ -35,7 +35,8 @@ export function OrderStatusDialog({ orderId, currentStatus, currentShipmentId, s
         });
     };
 
-    const showShipmentSelect = status === 'EN_TRANSITO' || status === 'SALIENDO' || status === 'ENTREGADO';
+    const statusesWithShipment = ['SALIENDO', 'LLEGANDO', 'ENTREGADO', 'EN TRANSITO', 'EN 🇦🇷', 'MIAMI', 'PARCIAL'];
+    const showShipmentSelect = statusesWithShipment.includes(status);
 
     return (
         <Dialog open={open} onOpenChange={setOpen}>
@@ -62,11 +63,19 @@ export function OrderStatusDialog({ orderId, currentStatus, currentShipmentId, s
                                 <SelectValue placeholder="Seleccione estado" />
                             </SelectTrigger>
                             <SelectContent className="bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
-                                <SelectItem value="PENDIENTE">PENDIENTE</SelectItem>
-                                <SelectItem value="SALIENDO">SALIENDO</SelectItem>
-                                <SelectItem value="EN_TRANSITO">EN TRANSITO</SelectItem>
+                                <SelectItem value="COMPRAR">COMPRAR</SelectItem>
+                                <SelectItem value="ENCARGADO">ENCARGADO</SelectItem>
                                 <SelectItem value="ENTREGADO">ENTREGADO</SelectItem>
+                                <SelectItem value="LLEGANDO">LLEGANDO</SelectItem>
+                                <SelectItem value="RESERVADO">RESERVADO</SelectItem>
+                                <SelectItem value="SALIENDO">SALIENDO</SelectItem>
+                                <SelectItem value="VENDIDO">VENDIDO</SelectItem>
                                 <SelectItem value="CANCELADO">CANCELADO</SelectItem>
+                                <SelectItem value="EN 🇦🇷">EN 🇦🇷</SelectItem>
+                                <SelectItem value="2023">2023</SelectItem>
+                                <SelectItem value="PARCIAL">PARCIAL</SelectItem>
+                                <SelectItem value="CONCESION">CONCESION</SelectItem>
+                                <SelectItem value="MIAMI">MIAMI</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>

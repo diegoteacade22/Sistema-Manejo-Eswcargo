@@ -1,10 +1,10 @@
 'use client';
-
+import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Server, Database, RefreshCw, HardDrive, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Server, Database, RefreshCw, HardDrive, AlertTriangle, CheckCircle2, FileSpreadsheet, Cloud, Users } from "lucide-react";
 import { useState, useTransition } from 'react';
-import { revalidateSystem, resetDatabase } from './actions';
+import { revalidateSystem, resetDatabase, syncExcel } from './actions';
 import { DeleteEntityCard } from '@/components/delete-entity-card';
 
 export default function MaintenancePage() {
@@ -34,6 +34,18 @@ export default function MaintenancePage() {
                 setMessage({ text: res.message, type: 'success' });
             } else {
                 setMessage({ text: res.message || 'Error al resetear', type: 'error' });
+            }
+        });
+    };
+
+    const handleSync = () => {
+        setMessage(null);
+        startTransition(async () => {
+            const res = await syncExcel();
+            if (res.success) {
+                setMessage({ text: res.message, type: 'success' });
+            } else {
+                setMessage({ text: res.message, type: 'error' });
             }
         });
     };
@@ -112,8 +124,37 @@ export default function MaintenancePage() {
                             <AlertTriangle className="mr-2 h-4 w-4" />
                             {isPending ? 'Reseteando...' : 'Resetear Base de Datos (Seed)'}
                         </Button>
+                        <Button
+                            variant="outline"
+                            className="w-full justify-start text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950 border-emerald-200 dark:border-emerald-800"
+                            onClick={handleSync}
+                            disabled={isPending}
+                        >
+                            <Cloud className={`mr-2 h-4 w-4 ${isPending ? 'animate-bounce' : ''}`} />
+                            {isPending ? 'Descargando desde Drive...' : 'Sincronizar con Google Sheets'}
+                        </Button>
                     </CardContent>
                 </Card>
+
+                {/* User Management */}
+                <Link href="/maintenance/users">
+                    <Card className="dark:bg-slate-900 dark:border-slate-800 hover:border-indigo-500 transition-colors cursor-pointer h-full">
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <Users className="h-5 w-5 text-indigo-500" /> Usuarios
+                            </CardTitle>
+                            <CardDescription>Gestión de accesos y roles</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <p className="text-sm text-muted-foreground mb-4">
+                                Cree y administre usuarios. Vincule cuentas a clientes para acceso restringido.
+                            </p>
+                            <Button variant="secondary" className="w-full">
+                                Gestionar Usuarios
+                            </Button>
+                        </CardContent>
+                    </Card>
+                </Link>
 
                 {/* Backups */}
                 <Card className="dark:bg-slate-900 dark:border-slate-800 relative overflow-hidden">

@@ -1,25 +1,34 @@
 
 import { prisma } from '@/lib/prisma';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { Plus, UserCircle } from 'lucide-react';
 import { SearchInput } from '@/components/search-input';
 import { Suspense } from 'react';
-
-import { ArrowUpDown } from 'lucide-react';
 import { EditClientDialog } from '@/components/edit-client-dialog';
+import { SortableColumn, SortOrder } from '@/components/ui/sortable-column';
 
-async function getClients(query: string, sortOrder: string) {
+async function getClients(query: string, sortField: string = 'operations', sortOrder: SortOrder = 'desc') {
+    let orderBy: any = {};
+    if (sortField === 'name') orderBy = { name: sortOrder };
+    else if (sortField === 'email') orderBy = { email: sortOrder };
+    else if (sortField === 'id') orderBy = { id: sortOrder };
+    else if (sortField === 'operations') orderBy = { orders: { _count: sortOrder } };
+    else if (sortField !== 'balance') orderBy = { orders: { _count: 'desc' } }; // Default
+
+    // 'balance' is handled in memory
+
     const clients = await prisma.client.findMany({
         where: {
             OR: [
                 { name: { contains: query } },
-                { email: { contains: query } }
+                { email: { contains: query } },
+                { id: !isNaN(Number(query)) ? Number(query) : undefined } // Allow search by ID
             ]
         },
-        orderBy: { name: 'asc' },
+        orderBy: sortField !== 'balance' ? orderBy : { name: 'asc' },
         include: {
             transactions: true
         }
@@ -35,24 +44,23 @@ async function getClients(query: string, sortOrder: string) {
         };
     });
 
-    if (sortOrder === 'balance_desc') {
+    if (sortField === 'balance') {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return clientsWithBalance.sort((a: any, b: any) => b.balance - a.balance);
-    } else if (sortOrder === 'balance_asc') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return clientsWithBalance.sort((a: any, b: any) => a.balance - b.balance);
+        clientsWithBalance.sort((a: any, b: any) => {
+            return sortOrder === 'asc' ? a.balance - b.balance : b.balance - a.balance;
+        });
     }
 
     return clientsWithBalance;
 }
 
-export default async function ClientsPage(props: { searchParams: Promise<{ q?: string, sort?: string }> }) {
+export default async function ClientsPage(props: { searchParams: Promise<{ q?: string, sort?: string, order?: string }> }) {
     const searchParams = await props.searchParams;
     const query = searchParams?.q || '';
-    const sort = searchParams?.sort || '';
-    const clients = await getClients(query, sort);
+    const sort = searchParams?.sort || 'operations';
+    const order = (searchParams?.order as SortOrder) || 'desc';
 
-    const toggleSort = sort === 'balance_desc' ? 'balance_asc' : 'balance_desc';
+    const clients = await getClients(query, sort, order);
 
     return (
         <div className="p-8 space-y-8">
@@ -88,14 +96,10 @@ export default async function ClientsPage(props: { searchParams: Promise<{ q?: s
                     <Table>
                         <TableHeader>
                             <TableRow className="hover:bg-transparent">
-                                <TableHead className="w-[300px]">Nombre</TableHead>
-                                <TableHead>Contacto</TableHead>
-                                <TableHead className="text-right">
-                                    <Link href={`/clients?q=${query}&sort=${toggleSort}`} className="flex items-center justify-end hover:text-violet-600">
-                                        Saldo (Deuda)
-                                        <ArrowUpDown className="ml-2 h-4 w-4" />
-                                    </Link>
-                                </TableHead>
+                                <SortableColumn field="id" label="Código" currentSort={sort} currentOrder={order} query={query} baseUrl="/clients" />
+                                <SortableColumn field="name" label="Nombre" currentSort={sort} currentOrder={order} query={query} baseUrl="/clients" />
+                                <SortableColumn field="email" label="Contacto" currentSort={sort} currentOrder={order} query={query} baseUrl="/clients" />
+                                <SortableColumn field="balance" label="Saldo (Deuda)" currentSort={sort} currentOrder={order} query={query} baseUrl="/clients" alignRight />
                                 <TableHead className="w-[100px]"></TableHead>
                             </TableRow>
                         </TableHeader>
@@ -103,24 +107,27 @@ export default async function ClientsPage(props: { searchParams: Promise<{ q?: s
                             {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                             {clients.map((client: any) => (
                                 <TableRow key={client.id} className="hover:bg-muted/50 transition-colors cursor-pointer dark:border-slate-800">
+                                    <TableCell className="font-mono text-xs text-slate-400 font-bold">
+                                        #{client.id}
+                                    </TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-3">
-                                            <div className="h-9 w-9 rounded-full bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center text-violet-700 dark:text-violet-300">
+                                            <div className="h-9 w-9 rounded-full bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center text-violet-700 dark:text-violet-200 shadow-sm">
                                                 <UserCircle className="h-5 w-5" />
                                             </div>
-                                            <div className="font-medium text-slate-900 dark:text-slate-100">{client.name}</div>
+                                            <div className="font-bold text-slate-900 dark:text-slate-50 text-base">{client.name}</div>
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <div className="flex flex-col text-sm">
-                                            <span>{client.email || '-'}</span>
-                                            <span className="text-muted-foreground text-xs">{client.phone}</span>
+                                        <div className="flex flex-col text-sm text-slate-600 dark:text-slate-300">
+                                            <span className="font-medium">{client.email || '-'}</span>
+                                            <span className="text-slate-500 dark:text-slate-500 text-xs">{client.phone}</span>
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-right">
-                                        <span className={`font-bold px-3 py-1 rounded-full text-xs ${client.balance > 0
-                                            ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                                            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                                        <span className={`font-black px-3 py-1 rounded-full text-sm font-mono ${client.balance > 0
+                                            ? 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-200'
+                                            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-200'
                                             }`}>
                                             {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(client.balance)}
                                         </span>
@@ -149,5 +156,3 @@ export default async function ClientsPage(props: { searchParams: Promise<{ q?: s
         </div>
     );
 }
-
-

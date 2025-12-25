@@ -1,6 +1,6 @@
 
 import { prisma } from '@/lib/prisma';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
 import { Plus, Truck } from 'lucide-react';
@@ -8,8 +8,18 @@ import { SearchInput } from '@/components/search-input';
 import { Suspense } from 'react';
 import Link from 'next/link';
 import { EditSupplierDialog } from '@/components/edit-supplier-dialog';
+import { SortableColumn, SortOrder } from '@/components/ui/sortable-column';
 
-async function getSuppliers(query: string) {
+async function getSuppliers(query: string, sortField: string = 'operations', sortOrder: SortOrder = 'desc') {
+    let orderBy: any = {};
+    switch (sortField) {
+        case 'name': orderBy = { name: sortOrder }; break;
+        case 'contact': orderBy = { contact: sortOrder }; break;
+        case 'email': orderBy = { email: sortOrder }; break;
+        case 'operations': orderBy = { orderItems: { _count: sortOrder } }; break;
+        default: orderBy = { orderItems: { _count: 'desc' } };
+    }
+
     return await (prisma as any).supplier.findMany({
         where: {
             OR: [
@@ -18,14 +28,17 @@ async function getSuppliers(query: string) {
                 { email: { contains: query } }
             ]
         },
-        orderBy: { name: 'asc' }
+        orderBy
     });
 }
 
-export default async function SuppliersPage(props: { searchParams: Promise<{ q?: string }> }) {
+export default async function SuppliersPage(props: { searchParams: Promise<{ q?: string, sort?: string, order?: string }> }) {
     const searchParams = await props.searchParams;
     const query = searchParams?.q || '';
-    const suppliers = await getSuppliers(query);
+    const sort = searchParams?.sort || 'operations';
+    const order = (searchParams?.order as SortOrder) || 'desc';
+
+    const suppliers = await getSuppliers(query, sort, order);
 
     return (
         <div className="p-8 space-y-8">
@@ -58,9 +71,9 @@ export default async function SuppliersPage(props: { searchParams: Promise<{ q?:
                     <Table>
                         <TableHeader>
                             <TableRow className="hover:bg-transparent">
-                                <TableHead className="w-[300px]">Nombre</TableHead>
-                                <TableHead>Contacto</TableHead>
-                                <TableHead>Email</TableHead>
+                                <SortableColumn field="name" label="Nombre" currentSort={sort} currentOrder={order} query={query} baseUrl="/suppliers" />
+                                <SortableColumn field="contact" label="Contacto" currentSort={sort} currentOrder={order} query={query} baseUrl="/suppliers" />
+                                <SortableColumn field="email" label="Email" currentSort={sort} currentOrder={order} query={query} baseUrl="/suppliers" />
                                 <TableHead className="w-[50px]"></TableHead>
                             </TableRow>
                         </TableHeader>
@@ -68,17 +81,17 @@ export default async function SuppliersPage(props: { searchParams: Promise<{ q?:
                             {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                             {suppliers.map((supplier: any) => (
                                 <TableRow key={supplier.id} className="hover:bg-muted/50 dark:border-slate-800">
-                                    <TableCell className="font-medium text-slate-700 dark:text-slate-200">
+                                    <TableCell className="font-bold text-slate-900 dark:text-slate-50 text-base">
                                         <Link href={`/suppliers/${supplier.id}`} className="hover:underline hover:text-orange-600 block w-full h-full">
                                             {supplier.name}
                                         </Link>
                                     </TableCell>
-                                    <TableCell>
+                                    <TableCell className="text-slate-700 dark:text-slate-200 font-medium">
                                         <Link href={`/suppliers/${supplier.id}`} className="block w-full h-full">
                                             {supplier.contact || '-'}
                                         </Link>
                                     </TableCell>
-                                    <TableCell>{supplier.email || '-'}</TableCell>
+                                    <TableCell className="text-slate-600 dark:text-slate-300 font-mono">{supplier.email || '-'}</TableCell>
                                     <TableCell>
                                         <div className="flex items-center justify-end gap-2">
                                             <EditSupplierDialog mode="edit" supplier={supplier} />

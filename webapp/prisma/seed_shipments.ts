@@ -28,6 +28,12 @@ async function main() {
 
     let created = 0;
 
+    // Clear existing Shipment transactions to avoid double-billing (assuming Orders cover the cost)
+    console.log("Clearing shipment financial transactions...");
+    await prisma.transaction.deleteMany({
+        where: { reference: { startsWith: 'ENVIO #' } }
+    });
+
     for (const s of shipments) {
         if (!s.shipment_number) continue;
 
@@ -77,32 +83,9 @@ async function main() {
             }
         });
 
-        // Billing: Create Transaction (Cargo) for Shipment Service
-        if (dbClientId && s.price_total && s.price_total > 0) {
-            const ref = `ENVIO #${s.shipment_number}`;
-
-            // Check if transaction exists to avoid duplicates (idempotency)
-            const existingTx = await prisma.transaction.findFirst({
-                where: {
-                    clientId: dbClientId,
-                    reference: ref,
-                    type: 'CARGO'
-                }
-            });
-
-            if (!existingTx) {
-                await prisma.transaction.create({
-                    data: {
-                        clientId: dbClientId,
-                        date: arriveDate || shipDate || new Date(),
-                        type: 'CARGO',
-                        amount: s.price_total,
-                        description: `Cargos por Envío #${s.shipment_number} (${s.forwarder || 'Logst'})`,
-                        reference: ref
-                    }
-                });
-            }
-        }
+        // NOTE: We do NOT create Transactions for Shipments anymore.
+        // The financial tracking is assumed to be handled in the Orders (CABE_VENTAS).
+        // If specific shipment billing is needed, it should be added here carefully to avoid duplicates.
 
         created++;
     }

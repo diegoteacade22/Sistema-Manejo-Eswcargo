@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 
-file_path = '/Users/diegorodriguez/.gemini/antigravity/scratch/sistema_gestion_importaciones/VENTAS COMPRAS 2023 al 2025 Para Sistema en Gemini.xlsx'
+file_path = '/Users/diegorodriguez/sistema_gestion_importaciones/VENTAS COMPRAS 2023 al 2025 Para Sistema en Gemini.xlsx'
 
 try:
     xl = pd.ExcelFile(file_path)

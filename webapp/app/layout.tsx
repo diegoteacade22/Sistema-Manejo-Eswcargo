@@ -1,9 +1,10 @@
-
-import type { Metadata } from "next";
+import { AuthProvider } from "@/components/auth-provider";
+import { auth } from "@/lib/auth";
 import { Inter } from "next/font/google";
-import "./globals.css";
-import { Sidebar } from "@/components/sidebar";
+import type { Metadata } from "next";
 import { ThemeProvider } from "@/components/theme-provider";
+import { Sidebar } from "@/components/sidebar";
+import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -12,29 +13,36 @@ export const metadata: Metadata = {
   description: "Gestión de Importaciones y Cuentas Corrientes",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await auth();
+  const isPublicRoute = !session; // Middleware handles redirection, but layout needs to know for UI
+
   return (
     <html lang="es" suppressHydrationWarning>
-      <body className={inter.className}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
-          <div className="h-full relative">
-            <div className="hidden h-full md:flex md:w-72 md:flex-col md:fixed md:inset-y-0 z-[80] bg-gray-900">
-              <Sidebar />
+      <body className={inter.className} suppressHydrationWarning>
+        <AuthProvider>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+          >
+            <div className="h-full relative">
+              {!isPublicRoute && (
+                <div className="hidden h-full md:flex md:w-72 md:flex-col md:fixed md:inset-y-0 z-[80] bg-gray-900">
+                  <Sidebar />
+                </div>
+              )}
+              <main className={!isPublicRoute ? "md:pl-72 min-h-screen" : "min-h-screen"}>
+                {children}
+              </main>
             </div>
-            <main className="md:pl-72 min-h-screen">
-              {children}
-            </main>
-          </div>
-        </ThemeProvider>
+          </ThemeProvider>
+        </AuthProvider>
       </body>
     </html>
   );

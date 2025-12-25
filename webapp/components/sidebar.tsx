@@ -13,12 +13,15 @@ import {
     Plane,
     Moon,
     Sun,
+    DollarSign,
     Wrench,
-    PlusCircle
+    PlusCircle,
+    LogOut
 } from 'lucide-react';
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
+import { useSession, signOut } from "next-auth/react";
 
 const routes = [
     {
@@ -26,77 +29,95 @@ const routes = [
         icon: LayoutDashboard,
         href: '/',
         color: 'text-sky-500',
+        roles: ['ADMIN', 'CLIENT']
     },
     {
-        label: 'Envíos',
+        label: 'Mis Envíos',
         icon: Plane,
         href: '/shipments',
         color: 'text-fuchsia-500',
+        roles: ['ADMIN', 'CLIENT']
     },
     {
         label: 'Clientes',
         icon: Users,
         href: '/clients',
         color: 'text-violet-500',
+        roles: ['ADMIN']
+    },
+    {
+        label: 'Cobranzas',
+        icon: DollarSign,
+        href: '/collections',
+        color: 'text-emerald-500',
+        roles: ['ADMIN']
     },
     {
         label: 'Artículos',
         icon: Package,
         href: '/products',
         color: 'text-cyan-500',
+        roles: ['ADMIN']
     },
     {
-        label: 'Pedidos',
+        label: 'Mis Pedidos',
         icon: ShoppingCart,
         href: '/orders',
         color: 'text-pink-700',
+        roles: ['ADMIN', 'CLIENT']
     },
     {
         label: 'Proveedores',
         icon: Truck,
         href: '/suppliers',
         color: 'text-orange-600',
+        roles: ['ADMIN']
     },
     {
         label: 'Mantenimiento',
         icon: Wrench,
         href: '/maintenance',
         color: 'text-slate-500',
+        roles: ['ADMIN']
     },
     {
         label: 'Nueva Venta',
         icon: PlusCircle,
         href: '/orders/new',
         color: 'text-emerald-500',
+        roles: ['ADMIN']
     },
 ];
 
 export function Sidebar() {
     const pathname = usePathname();
-    const { setTheme, theme, resolvedTheme } = useTheme();
+    const { setTheme, resolvedTheme } = useTheme();
     const [mounted, setMounted] = useState(false);
+    const { data: session } = useSession();
 
     // Avoid hydration mismatch
     useEffect(() => {
         setMounted(true);
     }, []);
 
+    const userRole = (session?.user as any)?.role || 'CLIENT';
+    const filteredRoutes = routes.filter(route => route.roles.includes(userRole));
+
     return (
         <div className="space-y-4 py-4 flex flex-col h-full bg-slate-900 text-white">
             <div className="px-3 py-2 flex-1">
                 <Link href="/" className="flex items-center pl-3 mb-14">
                     <div className="relative w-8 h-8 mr-4">
-                        {/* Logo placeholder */}
                         <div className="absolute bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-lg w-full h-full flex items-center justify-center font-bold text-xl">
-                            I
+                            {session?.user?.name?.[0] || 'I'}
                         </div>
                     </div>
                     <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">
-                        ImportSys
+                        {userRole === 'ADMIN' ? 'ImportSys' : 'Mi Portal'}
                     </h1>
                 </Link>
                 <div className="space-y-1">
-                    {routes.map((route) => (
+                    {filteredRoutes.map((route) => (
                         <Link
                             key={route.href}
                             href={route.href}
@@ -137,13 +158,26 @@ export function Sidebar() {
 
                 <div className="bg-white/5 rounded-xl p-4">
                     <h4 className="text-xs font-semibold text-zinc-400 mb-2">Usuario</h4>
-                    <div className="flex items-center gap-x-2">
-                        <div className="h-8 w-8 rounded-full bg-indigo-500 flex items-center justify-center text-sm font-bold">DR</div>
+                    <div className="flex items-center gap-x-2 mb-4">
+                        <div className="h-8 w-8 rounded-full bg-indigo-500 flex items-center justify-center text-sm font-bold">
+                            {session?.user?.name?.[0] || 'U'}
+                        </div>
                         <div className="text-sm">
-                            <p className="font-medium text-white">Diego R.</p>
-                            <p className="text-xs text-zinc-500">Admin</p>
+                            <p className="font-medium text-white truncate max-w-[120px]">
+                                {session?.user?.name || 'Usuario'}
+                            </p>
+                            <p className="text-xs text-zinc-500 capitalize">{userRole.toLowerCase()}</p>
                         </div>
                     </div>
+                    <Button
+                        variant="destructive"
+                        size="sm"
+                        className="w-full bg-red-950/50 hover:bg-red-900 border border-red-900/50 text-red-500"
+                        onClick={() => signOut({ callbackUrl: '/login' })}
+                    >
+                        <LogOut className="h-4 w-4 mr-2" />
+                        Cerrar Sesión
+                    </Button>
                 </div>
             </div>
         </div>

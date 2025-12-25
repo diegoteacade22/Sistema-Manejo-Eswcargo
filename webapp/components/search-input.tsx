@@ -21,7 +21,7 @@ export function SearchInput({ placeholder = 'Buscar...' }: { placeholder?: strin
     }, 300);
 
     return (
-        <div className="flex items-center space-x-2 bg-white/50 p-1 rounded-lg border focus-within:ring-2 ring-primary/50 transition-all">
+        <div className="flex items-center space-x-2 bg-white dark:bg-slate-800 p-1 rounded-lg border border-slate-200 dark:border-slate-700 focus-within:ring-2 ring-primary/50 transition-all shadow-sm">
             <Search className="h-4 w-4 text-muted-foreground ml-2" />
             <Input
                 placeholder={placeholder}

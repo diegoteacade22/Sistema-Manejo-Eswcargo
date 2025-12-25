@@ -4,8 +4,8 @@ import json
 import os
 
 # CONFIG
-excel_path = '/Users/diegorodriguez/.gemini/antigravity/scratch/sistema_gestion_importaciones/VENTAS COMPRAS 2023 al 2025 Para Sistema en Gemini.xlsx'
-output_path = '/Users/diegorodriguez/.gemini/antigravity/scratch/sistema_gestion_importaciones/webapp/prisma/suppliers_seed.json'
+excel_path = '/Users/diegorodriguez/sistema_gestion_importaciones/VENTAS COMPRAS 2023 al 2025 Para Sistema en Gemini.xlsx'
+output_path = '/Users/diegorodriguez/sistema_gestion_importaciones/webapp/prisma/suppliers_seed.json'
 sheet_name = 'PROVEEDORES'
 
 def extract():

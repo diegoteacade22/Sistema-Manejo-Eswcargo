@@ -1,3 +1,4 @@
+
 import { clsx, type ClassValue } from "clsx"
 import { twMerge } from "tailwind-merge"
 
@@ -18,4 +19,44 @@ export function getProductColorClass(color: string | null) {
   if (c.includes('pink') || c.includes('rosa')) return 'text-pink-500 dark:text-pink-400 font-semibold';
   if (c.includes('titanium') || c.includes('tit')) return 'text-stone-500 dark:text-stone-300 font-semibold';
   return 'text-muted-foreground';
+}
+
+export function getStatusColorClass(status: string | null) {
+  if (!status || status.toLowerCase() === 'nan' || status === '0') {
+    return 'bg-slate-100 text-slate-500 border-slate-200 opacity-50 font-medium';
+  }
+
+  const s = status.toUpperCase();
+
+  // Commercial / Process (Based on provided image)
+  if (s === 'COMPRAR')
+    return 'bg-red-600 text-white border-red-700 font-black shadow-sm';
+  if (s === 'ENCARGADO')
+    return 'bg-green-700 text-white border-green-800 font-black shadow-sm';
+  if (s === 'RESERVADO')
+    return 'bg-[#D9F99D] text-[#365314] border-[#BEF264] font-black'; // Light Lime
+  if (s === 'VENDIDO')
+    return 'bg-blue-600 text-white border-blue-700 font-black shadow-sm';
+  if (s === 'CANCELADO' || s === '2023')
+    return 'bg-slate-300 text-slate-700 border-slate-400 font-bold';
+  if (s === 'PARCIAL')
+    return 'bg-rose-200 text-rose-800 border-rose-300 font-bold';
+  if (s === 'CONCESION')
+    return 'bg-blue-900 text-white border-blue-950 font-black';
+  if (s === 'MIAMI')
+    return 'bg-yellow-400 text-yellow-950 border-yellow-500 font-black';
+  if (s === 'STOCK 🇦🇷')
+    return 'bg-blue-50 text-blue-700 border-blue-100 font-bold';
+
+  // Logistics (Shipment & Order Statuses)
+  if (s === 'ENTREGADO')
+    return 'bg-sky-200 text-sky-800 border-sky-300 font-black uppercase';
+  if (s === 'SALIENDO' || s === 'SALIENDO MIAMI')
+    return 'bg-orange-200 text-orange-800 border-orange-300 font-black uppercase';
+  if (s === 'LLEGANDO')
+    return 'bg-purple-200 text-purple-800 border-purple-300 font-black uppercase';
+  if (s === 'EN 🇦🇷' || s === 'EN BSAS' || s === 'RECIBIDO BSAS')
+    return 'bg-cyan-200 text-cyan-800 border-cyan-300 font-black uppercase';
+
+  return 'bg-slate-100 text-slate-800 border-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:border-slate-700 font-bold';
 }

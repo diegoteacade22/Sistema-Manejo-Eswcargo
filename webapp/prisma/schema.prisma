@@ -1,148 +1,180 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model Client {
-  id            Int       @id @default(autoincrement())
-  old_id        Int?      // Para mapear con COD_CLI del excel
-  name          String
-  document_id   String?   // DNI/CUIT
-  email         String?
-  phone         String?
-  address       String?
-  type          String?   // TIPO CLI
-  notes         String?
-  orders        Order[]
-  transactions  Transaction[]
-  shipments     Shipment[]
+  id           Int           @id @default(autoincrement())
+  old_id       Int?          @unique
+  name         String
+  document_id  String?
+  email        String?
+  phone        String?
+  instagram    String?
+  webpage      String?
+  address      String?
+  type         String?
+  notes        String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  city         String?
+  country      String?
+  state        String?
+  zipCode      String?
+  userId       String?       @unique
+  user         User?         @relation(fields: [userId], references: [id])
+  orders       Order[]
+  shipments    Shipment[]
+  transactions Transaction[]
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  username      String?   @unique
+  email         String?   @unique
+  password      String?
+  role          String    @default("CLIENT") // ADMIN or CLIENT
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  client        Client?
 }
 
 model Product {
-  id            Int       @id @default(autoincrement())
-  sku           String    @unique
-  name          String
-  // Fields from 'ARTICULOS TECNO'
-  color_grade   String?   // COLOR/GRADE
-  type          String?   // TIPO
-  model         String?   // MODELO
-  brand         String?   // MARCA
-  weight        Float?    // PESO KG
-  volum         Float?    // VOLUM
-  status        String?   // ESTADO
-  last_purchase_cost Float? // ULT CPRA
-  active        Boolean   @default(true) // ACTIVO
-  webpage       String?   // WEBPAGE
-  lp1           Float?    // LP1
-  lp2           Float?    // LP2
-  lp3           Float?    // LP3
-  
-  description   String?
-  stock         Int       @default(0) // Mantener campo por compatibilidad, pero ignorar visualmente si 'no hay stock interno'
-  
-  orderItems    OrderItem[]
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                 Int         @id @default(autoincrement())
+  sku                String      @unique
+  name               String
+  color_grade        String?
+  type               String?
+  model              String?
+  brand              String?
+  weight             Float?
+  volum              Float?
+  status             String?
+  last_purchase_cost Float?
+  active             Boolean     @default(true)
+  webpage            String?
+  lp1                Float?
+  lp2                Float?
+  lp3                Float?
+  description        String?
+  stock              Int         @default(0)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  orderItems         OrderItem[]
 }
 
 model SparePart {
-  id            Int       @id @default(autoincrement())
-  sku           String    @unique
-  name          String
-  description   String?
-  cost          Float?
-  price         Float?
-  stock         Int       @default(0)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id          Int      @id @default(autoincrement())
+  sku         String   @unique
+  name        String
+  description String?
+  cost        Float?
+  price       Float?
+  stock       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model Supplier {
-  id            Int       @id @default(autoincrement())
-  name          String
-  contact       String?
-  email         String?
-  phone         String?
-  address       String?
-  notes         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id         Int         @id @default(autoincrement())
+  name       String
+  contact    String?
+  email      String?
+  phone      String?
+  address    String?
+  notes      String?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  city       String?
+  country    String?
+  state      String?
+  zipCode    String?
+  orderItems OrderItem[]
 }
 
 model Order {
-  id            Int       @id @default(autoincrement())
-  order_number  Int?      @unique // NRO_PEDIDO
-  client        Client    @relation(fields: [clientId], references: [id])
-  clientId      Int
-  date          DateTime
-  status        String    // PENDIENTE, EN_TRANSITO, ENTREGADO, CANCELADO
-  total_amount  Float
-  currency      String    @default("USD")
-  notes         String?
-  forwarder     String?   // Datos logisticos
+  id              Int         @id @default(autoincrement())
+  order_number    Int?        @unique
+  clientId        Int
+  date            DateTime
+  status          String
+  total_amount    Float
+  currency        String      @default("USD")
+  notes           String?
+  forwarder       String?
   tracking_number String?
-  items         OrderItem[]
-  shipment      Shipment? @relation(fields: [shipmentId], references: [id])
-  shipmentId    Int?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  shipmentId      Int?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  type            String?
+  paymentMethod   String?
+  email_sent_at   DateTime?
+  shipment        Shipment?   @relation(fields: [shipmentId], references: [id])
+  client          Client      @relation(fields: [clientId], references: [id])
+  items           OrderItem[]
 }
 
 model OrderItem {
-  id            Int       @id @default(autoincrement())
-  order         Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  orderId       Int
-  product       Product?  @relation(fields: [productId], references: [id]) // Opcional si es item ad-hoc
-  productId     Int?
-  productName   String    // Persistem nombre al momento de venta
-  quantity      Int
-  unit_price    Float     // VTA UNI
-  unit_cost     Float     // COSTO
-  shipping_cost Float?    // Costo logistico prorrateado
-  subtotal      Float
+  id               Int       @id @default(autoincrement())
+  orderId          Int
+  productId        Int?
+  productName      String
+  quantity         Int
+  unit_price       Float
+  unit_cost        Float
+  shipping_cost    Float?
+  subtotal         Float
+  profit           Float     @default(0)
+  supplierId       Int?
+  purchase_invoice String?
+  shipmentId       Int?
+  status           String?
+  shipment         Shipment? @relation(fields: [shipmentId], references: [id])
+  supplier         Supplier? @relation(fields: [supplierId], references: [id])
+  product          Product?  @relation(fields: [productId], references: [id])
+  order            Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }
 
 model Transaction {
-  id            Int       @id @default(autoincrement())
-  client        Client    @relation(fields: [clientId], references: [id])
+  id            Int      @id @default(autoincrement())
   clientId      Int
   date          DateTime
-  type          String    // PAGO, CARGO, AJUSTE
-  paymentMethod String?   // USDT, WIRE, EFECTIVO, ETC
-  amount        Float     // Positivo aumenta deuda (Cargo), Negativo disminuye (Pago)
+  type          String
+  amount        Float
   description   String?
-  reference     String?   // Nro Comprobante
-  createdAt     DateTime  @default(now())
+  reference     String?
+  createdAt     DateTime @default(now())
+  paymentMethod String?
+  client        Client   @relation(fields: [clientId], references: [id])
 }
 
 model Shipment {
-  id              Int       @id @default(autoincrement())
-  shipment_number Int?      @unique // NRO ENVIO
-  client          Client?   @relation(fields: [clientId], references: [id])
+  id              Int         @id @default(autoincrement())
+  shipment_number Int?        @unique
   clientId        Int?
+  forwarder       String?
+  date_shipped    DateTime?
+  date_arrived    DateTime?
+  weight_fw       Float?
+  weight_cli      Float?
+  type_load       String?
+  item_count      Int?
+  cost_total      Float?
+  price_total     Float?
+  profit          Float?
+  invoice         String?
+  status          String?
+  notes           String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  email_sent_at   DateTime?
   orders          Order[]
-  forwarder       String?   // FORWARDER
-  date_shipped    DateTime? // FECHA SAL
-  date_arrived    DateTime? // FECHA LLEG
-  weight_fw       Float?    // PESO FW
-  weight_cli      Float?    // PESO CLI
-  type_load       String?   // TIPO CARGA
-  item_count      Int?      // CANT ART
-  cost_total      Float?    // COSTO TOT
-  price_total     Float?    // ENVIO COB (Venta total del envio)
-  profit          Float?    // GANANCIA
-  invoice         String?   // INVOICE
-  status          String?   // LLEGO? / ESTADO
-  notes           String?   // OBSERVACION
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  items           OrderItem[]
+  client          Client?     @relation(fields: [clientId], references: [id])
 }

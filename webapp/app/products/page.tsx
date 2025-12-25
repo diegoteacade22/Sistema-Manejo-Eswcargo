@@ -1,24 +1,26 @@
 
 import { prisma } from '@/lib/prisma';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
-import { Plus, Package, History, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, History, ChevronLeft, ChevronRight } from 'lucide-react';
 import { SearchInput } from '@/components/search-input';
 import { Suspense } from 'react';
 import { getProductColorClass } from '@/lib/utils';
 import { EditProductDialog } from '@/components/edit-product-dialog';
+import { ProductSortSelect } from '@/app/products/product-sort-select';
+import { SortableColumn, SortOrder } from '@/components/ui/sortable-column';
 
-async function getProducts(query: string, page: number = 1, pageSize: number = 20) {
+
+async function getProducts(query: string, page: number = 1, pageSize: number = 20, sortField: string = 'popular', sortOrder: SortOrder = 'desc') {
     const skip = (page - 1) * pageSize;
 
     // 1. Where Clause
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const where: any = {
         AND: [
-            { active: true }, // Filter out inactive (e.g. REPUESTO if marked as such)
+            { active: true },
             {
                 OR: [
                     { name: { contains: query } },
@@ -31,24 +33,58 @@ async function getProducts(query: string, page: number = 1, pageSize: number = 2
     // 2. Count Total
     const totalCount = await prisma.product.count({ where });
 
-    // 3. Fetch Page
-    const products = await prisma.product.findMany({
+    // 3. OrderBy Logic
+    let orderBy: any = {};
+
+    // Handle specific sort fields including 'popular' legacy/default
+    if (sortField === 'popular') {
+        orderBy = { orderItems: { _count: 'desc' } };
+    } else {
+        switch (sortField) {
+            case 'sku': orderBy = { sku: sortOrder }; break;
+            case 'name': orderBy = { name: sortOrder }; break;
+            case 'color': orderBy = { color_grade: sortOrder }; break;
+            case 'price': orderBy = { lp1: sortOrder }; break;
+            default: orderBy = { orderItems: { _count: 'desc' } };
+        }
+    }
+
+    // 4. Fetch Page with Last Price
+    const rawProducts = await prisma.product.findMany({
         where,
-        orderBy: { name: 'asc' },
+        orderBy,
         take: pageSize,
-        skip: skip
+        skip: skip,
+        include: {
+            orderItems: {
+                take: 1,
+                orderBy: { id: 'desc' },
+                select: { unit_price: true }
+            }
+        }
     });
+
+    const products = rawProducts.map(p => ({
+        ...p,
+        last_sale_price: p.orderItems[0]?.unit_price ?? null
+    }));
 
     return { products, totalCount, totalPages: Math.ceil(totalCount / pageSize) };
 }
 
-export default async function ProductsPage(props: { searchParams: Promise<{ q?: string, page?: string }> }) {
+export default async function ProductsPage(props: { searchParams: Promise<{ q?: string, page?: string, sort?: string, order?: string }> }) {
     const searchParams = await props.searchParams;
     const query = searchParams?.q || '';
     const page = parseInt(searchParams?.page || '1');
+    const sort = searchParams?.sort || 'popular';
+    // If order param is not present, default based on sort field
+    let defaultOrder: SortOrder = 'desc';
+    if (sort === 'name' || sort === 'sku' || sort === 'color') defaultOrder = 'asc';
+
+    const order = (searchParams?.order as SortOrder) || defaultOrder;
     const pageSize = 20;
 
-    const { products, totalCount, totalPages } = await getProducts(query, page, pageSize);
+    const { products, totalCount, totalPages } = await getProducts(query, page, pageSize, sort, order);
 
     return (
         <div className="p-8 space-y-8">
@@ -71,12 +107,18 @@ export default async function ProductsPage(props: { searchParams: Promise<{ q?: 
 
             <Card className="border-t-4 border-t-cyan-500 shadow-lg">
                 <CardHeader>
-                    <div className="flex items-center justify-between">
-                        <Suspense fallback={<div>Cargando buscador...</div>}>
-                            <SearchInput placeholder="Buscar por SKU o Nombre..." />
-                        </Suspense>
-                        <div className="text-sm text-muted-foreground">
-                            {products.length}+ artículos disponibles
+                    <div className="flex flex-col md:flex-row gap-4 justify-between items-center">
+                        <div className="flex items-center gap-4 w-full md:w-auto">
+                            <Suspense fallback={<div>Cargando buscador...</div>}>
+                                <SearchInput placeholder="Buscar por SKU o Nombre..." />
+                            </Suspense>
+
+                            <form className="flex-shrink-0">
+                                <ProductSortSelect currentSort={sort} />
+                            </form>
+                        </div>
+                        <div className="text-sm text-muted-foreground whitespace-nowrap">
+                            {products.length}+ artículos
                         </div>
                     </div>
                 </CardHeader>
@@ -84,10 +126,10 @@ export default async function ProductsPage(props: { searchParams: Promise<{ q?: 
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead className="w-[100px]">SKU</TableHead>
-                                <TableHead>Descripción</TableHead>
-                                <TableHead>Color/Grade</TableHead>
-                                <TableHead className="text-right">Precio Venta</TableHead>
+                                <SortableColumn field="sku" label="SKU" currentSort={sort} currentOrder={order} query={query} page={page} baseUrl="/products" />
+                                <SortableColumn field="name" label="Descripción" currentSort={sort} currentOrder={order} query={query} page={page} baseUrl="/products" />
+                                <SortableColumn field="color" label="Color/Grade" currentSort={sort} currentOrder={order} query={query} page={page} baseUrl="/products" />
+                                <SortableColumn field="price" label="Precio Venta" currentSort={sort} currentOrder={order} query={query} page={page} baseUrl="/products" alignRight />
                                 <TableHead className="w-[50px]"></TableHead>
                             </TableRow>
                         </TableHeader>
@@ -105,7 +147,11 @@ export default async function ProductsPage(props: { searchParams: Promise<{ q?: 
                                         )}
                                     </TableCell>
                                     <TableCell className="text-right font-bold text-slate-700 dark:text-slate-200">
-                                        {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(product.lp1 || 0)}
+                                        {/* Show Last Sale Price if available, else LP1 */}
+                                        {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(product.last_sale_price ?? product.lp1 ?? 0)}
+                                        {product.last_sale_price !== null && (
+                                            <span className="block text-[10px] font-normal text-muted-foreground">Ult. Venta</span>
+                                        )}
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex items-center justify-end gap-2">
@@ -142,7 +188,7 @@ export default async function ProductsPage(props: { searchParams: Promise<{ q?: 
                         disabled={page <= 1}
                         asChild
                     >
-                        <Link href={`/products?q=${query}&page=${page - 1}`} scroll={false}>
+                        <Link href={`/products?q=${query}&page=${page - 1}&sort=${sort}&order=${order}`} scroll={false}>
                             <ChevronLeft className="h-4 w-4 mr-2" /> Anterior
                         </Link>
                     </Button>
@@ -152,8 +198,8 @@ export default async function ProductsPage(props: { searchParams: Promise<{ q?: 
                         disabled={page >= totalPages}
                         asChild
                     >
-                        <Link href={`/products?q=${query}&page=${page + 1}`} scroll={false}>
-                            Siguiente <ChevronRight className="h-4 w-4 ml-2" />
+                        <Link href={`/products?q=${query}&page=${page + 1}&sort=${sort}&order=${order}`} scroll={false}>
+                            <ChevronLeft className="h-4 w-4 mr-2" /> Siguiente
                         </Link>
                     </Button>
                 </div>
