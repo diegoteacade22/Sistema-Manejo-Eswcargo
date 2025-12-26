@@ -1,0 +1,7 @@
+google_credentials.json
+*.db
+*.db-journal
+node_modules/
+.next/
+.env.local
+.vercel
