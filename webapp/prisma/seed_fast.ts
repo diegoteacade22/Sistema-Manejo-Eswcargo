@@ -108,12 +108,20 @@ async function main() {
         const dbClientId = o.client_old_id ? clientOldIdMap.get(o.client_old_id)?.id : (o.client_name_match ? clientNameMap.get(o.client_name_match.trim().toUpperCase())?.id : null);
 
         const orderDate = parseSafeDate(o.date) || new Date();
+        const items = o.items || [];
+        let totalAmount = o.total_amount || 0;
+
+        // Doble verificación: si el total es 0 pero hay items, recalculamos
+        if (totalAmount === 0 && items.length > 0) {
+            totalAmount = items.reduce((sum: number, i: any) => sum + (i.unit_price * i.quantity), 0);
+        }
+
         const orderData = {
             order_number: o.order_number,
             clientId: dbClientId || 1, // Fallback to unknown if needed
             date: orderDate,
             status: o.status,
-            total_amount: o.total_amount,
+            total_amount: totalAmount,
             paymentMethod: o.payment_method
         };
 

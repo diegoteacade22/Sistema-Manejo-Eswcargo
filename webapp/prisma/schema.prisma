@@ -20,6 +20,7 @@ model Client {
   address      String?
   type         String?
   notes        String?
+  segment      String?       // VIP, Regular, Low
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   city         String?
@@ -110,6 +111,7 @@ model Order {
   forwarder       String?
   tracking_number String?
   shipmentId      Int?
+  source          String?     // Facebook, Instagram, Referral, Manual
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
   type            String?
@@ -177,4 +179,17 @@ model Shipment {
   orders          Order[]
   items           OrderItem[]
   client          Client?     @relation(fields: [clientId], references: [id])
+}
+
+model Expense {
+  id             Int      @id @default(autoincrement())
+  date           DateTime
+  category       String   // Rent, Salary, Marketing, Cloud, etc.
+  description    String?
+  amount         Float
+  paymentMethod  String?
+  status         String   @default("PAID")
+  businessUnit   String   @default("GENERAL") // LOGISTICS, SALES, GENERAL
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }

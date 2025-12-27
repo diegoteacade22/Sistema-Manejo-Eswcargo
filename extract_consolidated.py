@@ -241,7 +241,13 @@ def extract_all():
         try: onum = int(onum)
         except: continue
         
+        items = det_map.get(onum, [])
         total = clean_num(row.get('TOTAL'))
+        
+        # Si el total es 0 o NaN pero hay items, sumamos los items
+        if (pd.isna(total) or total == 0) and items:
+            total = sum(i['unit_price'] * i['quantity'] for i in items)
+            
         saldo = clean_num(row.get('SALDO'))
         
         orders.append({
@@ -250,10 +256,10 @@ def extract_all():
             'client_name_match': clean_text(row.get('CLIENTE')) if not str(row.get('CLIENTE')).isdigit() else None,
             'date': clean_date(row.get('FECHA')),
             'total_amount': total,
-            'payment_amount': max(0, total - saldo),
+            'payment_amount': max(0, total - saldo) if pd.notna(saldo) else total,
             'payment_method': clean_text(row.get('METODO')),
             'status': order_status_map.get(onum) or normalize_status(clean_text(row.get('ESTADO'))),
-            'items': det_map.get(onum, [])
+            'items': items
         })
     with open(os.path.join(output_dir, 'orders_seed.json'), 'w', encoding='utf-8') as f:
         json.dump(orders, f, indent=2, ensure_ascii=False)
