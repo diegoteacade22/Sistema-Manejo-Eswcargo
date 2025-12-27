@@ -38,10 +38,10 @@ export default function MaintenancePage() {
         });
     };
 
-    const handleSync = () => {
+    const handleSync = (days: number) => {
         setMessage(null);
         startTransition(async () => {
-            const res = await syncExcel();
+            const res = await syncExcel(days);
             if (res.success) {
                 setMessage({ text: res.message, type: 'success' });
             } else {
@@ -124,15 +124,44 @@ export default function MaintenancePage() {
                             <AlertTriangle className="mr-2 h-4 w-4" />
                             {isPending ? 'Reseteando...' : 'Resetear Base de Datos (Seed)'}
                         </Button>
-                        <Button
-                            variant="outline"
-                            className="w-full justify-start text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950 border-emerald-200 dark:border-emerald-800"
-                            onClick={handleSync}
-                            disabled={isPending}
-                        >
-                            <Cloud className={`mr-2 h-4 w-4 ${isPending ? 'animate-bounce' : ''}`} />
-                            {isPending ? 'Descargando desde Drive...' : 'Sincronizar con Google Sheets'}
-                        </Button>
+                        <div className="pt-2 border-t dark:border-slate-800 space-y-3">
+                            <h4 className="text-sm font-semibold flex items-center gap-2">
+                                <RefreshCw className="h-4 w-4 text-emerald-500" /> Sincronizar con Excel (Drive)
+                            </h4>
+                            <p className="text-xs text-muted-foreground">Seleccione la velocidad de actualización:</p>
+
+                            <div className="grid grid-cols-1 gap-2">
+                                <Button
+                                    variant="outline"
+                                    className="justify-start text-emerald-600 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-50"
+                                    onClick={() => handleSync(7)}
+                                    disabled={isPending}
+                                >
+                                    <Cloud className={`mr-2 h-4 w-4 ${isPending ? 'animate-bounce' : ''}`} />
+                                    ⚡ FLASH (Últimos 7 días)
+                                </Button>
+
+                                <Button
+                                    variant="outline"
+                                    className="justify-start text-blue-600 border-blue-200 dark:border-blue-800 hover:bg-blue-50"
+                                    onClick={() => handleSync(30)}
+                                    disabled={isPending}
+                                >
+                                    <Cloud className={`mr-2 h-4 w-4 ${isPending ? 'animate-bounce' : ''}`} />
+                                    🏃 RÁPIDA (Últimos 30 días)
+                                </Button>
+
+                                <Button
+                                    variant="outline"
+                                    className="justify-start text-slate-600 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                    onClick={() => handleSync(0)}
+                                    disabled={isPending}
+                                >
+                                    <Cloud className={`mr-2 h-4 w-4 ${isPending ? 'animate-bounce' : ''}`} />
+                                    🐢 COMPLETA (Histórico)
+                                </Button>
+                            </div>
+                        </div>
                     </CardContent>
                 </Card>
 

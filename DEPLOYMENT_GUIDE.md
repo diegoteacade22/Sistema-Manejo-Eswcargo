@@ -1,5 +1,5 @@
 # 🚀 Guía de Despliegue - Sistema de Gestión de Importaciones
-## Desplegar en eswcargo.com
+## Desplegar en app.eswcargo.com
 
 ---
 
@@ -67,13 +67,13 @@ SMTP_PASS=Ironman.3
 
 ---
 
-### **Paso 3: Conectar Dominio Personalizado (eswcargo.com)**
+### **Paso 3: Conectar Subdominio Personalizado (app.eswcargo.com)**
 
 #### 3.1 En Vercel
 1. Ve a tu proyecto desplegado
 2. Click en "Settings" → "Domains"
-3. Agrega tu dominio: `eswcargo.com`
-4. También agrega: `www.eswcargo.com`
+3. Agrega tu subdominio: `app.eswcargo.com`
+4. Vercel generará automáticamente el certificado SSL
 5. Vercel te mostrará los registros DNS que necesitas configurar
 
 #### 3.2 En Hostinger (Panel de Control)
@@ -82,18 +82,18 @@ SMTP_PASS=Ironman.3
 3. Click en "DNS / Nameservers"
 4. Agrega/Modifica estos registros:
 
-**Registro A:**
+**Registro A para subdominio app:**
 ```
 Type: A
-Name: @
+Name: app
 Value: 76.76.21.21 (IP de Vercel)
 TTL: 3600
 ```
 
-**Registro CNAME para www:**
+**O Registro CNAME (alternativa recomendada):**
 ```
 Type: CNAME
-Name: www
+Name: app
 Value: cname.vercel-dns.com
 TTL: 3600
 ```

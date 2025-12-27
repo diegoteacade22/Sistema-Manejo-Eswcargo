@@ -27,6 +27,9 @@ export default function LoginPage() {
         const result = await authenticate(undefined, formData);
         if (result) {
             setError(result);
+        } else {
+            // Force hard redirect to clear client-side cache and show correct sidebar
+            window.location.href = '/';
         }
     }
 

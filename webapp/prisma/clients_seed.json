@@ -2,2633 +2,2633 @@
   {
     "old_id": 1,
     "name": "Adolfo Ponce",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 2,
     "name": "Adrian Adroza",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "AMIGO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 3,
     "name": "Adrian Dario Ponce",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 4,
     "name": "Adriel",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 5,
     "name": "Agustina Cioffi",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "FAMILIA",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 6,
     "name": "Alberto Rebecchi",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 7,
     "name": "Alberto Gentile",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "REFERIDO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 8,
     "name": "Alejandro Dellasta",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CONOCIDO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 9,
     "name": "Alejandro Esenserio",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 10,
     "name": "Alejandro Hernandez",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 11,
     "name": "Alejandro Waibsnaider",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 12,
     "name": "Alexia Sobri Seba",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 13,
     "name": "Alfredo Baldo",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 14,
     "name": "Amigo Juancho",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 15,
     "name": "Angel Diez",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 16,
     "name": "Angelo Security",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 17,
     "name": "Anibal Muzzin",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 18,
     "name": "Diegote",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 19,
     "name": "Antonio",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 20,
     "name": "Ariel Rubino",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "AMIGO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 21,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 22,
     "name": "Axel Saravia",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 23,
     "name": "Bernard Parado",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "PERU",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 24,
     "name": "Braulio",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 25,
     "name": "Bruno Cattaneo",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 26,
     "name": "Cambio X Bloqueado",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 27,
     "name": "Camila X Oscar",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 28,
     "name": "Camlem",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 29,
     "name": "Carlos Favaloro",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 30,
     "name": "Carolina",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 31,
     "name": "Carolina Quiroga",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 32,
     "name": "Cel Express Arg",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 33,
     "name": "Cell-One",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 34,
     "name": "Cesar Vasta",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "PESADO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 35,
     "name": "Cioffis",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 36,
     "name": "Claudia X Esteban",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 37,
     "name": "Cliente Facu",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 38,
     "name": "Consuelo Tobias",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 39,
     "name": "Credito En Usmp",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 40,
     "name": "Cristian Caceres",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "REVENTA",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 41,
     "name": "Dario Amaretto",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 42,
     "name": "Dario X Franky",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 43,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 44,
     "name": "David Grilli",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "PESADO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 45,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 46,
     "name": "Devolucion",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 47,
     "name": "Diego Eric Maximiliano",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 48,
     "name": "Diego Frazer",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "GRAN CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 49,
     "name": "Diego Monteiro",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "15 AÑOS",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 50,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 51,
     "name": "Disponible Vta",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 52,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 53,
     "name": "Ebay",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 54,
     "name": "Edwin",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "RARO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 55,
     "name": "Elian Iphones",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 56,
     "name": "Elian Obregon",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 57,
     "name": "Elio Pereyra",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 58,
     "name": "Emilio Grupo Iphone",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 59,
     "name": "Emmanuel Kurpas",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 60,
     "name": "Eze Ibañez",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "AMIGO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 61,
     "name": "Ezequiel Copa",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 62,
     "name": "Ezequiel Juarez",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 63,
     "name": "Ezequiel Perez",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 64,
     "name": "Fabiana",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 65,
     "name": "Facu Cdba",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "MARGEN AGRESIVO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 66,
     "name": "Facu Fabriccini",
-    "email": "",
+    "email": null,
     "phone": "REFERIDO MARCOS",
     "type": "MARGEN AGRESIVO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 67,
     "name": "Facundo Andriach",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "EX-CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 68,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 69,
     "name": "Facundo Madeira",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 70,
     "name": "Aylen Gentiletti",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "NUEVA",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 71,
     "name": "Facundo X Hugo",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 72,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 73,
     "name": "Fede - Julio",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 74,
     "name": "Federico Soba",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "15 AÑOS",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 75,
     "name": "Fede-David",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 76,
     "name": "Federico Gauna",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 77,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 78,
     "name": "Federico X Flavio",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 79,
     "name": "Fernando Castell Huerta",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 80,
     "name": "Fernando Import All",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "RATA",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 81,
     "name": "Fernando Plata",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 82,
     "name": "Fiona Chiavero",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 83,
     "name": "Franco Farias",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 84,
     "name": "Franco Pepe",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "AGRESIVO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 85,
     "name": "Franco Visciarelli",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "AGRESIVO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 86,
     "name": "Franky Polanco",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "GRAN CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 87,
     "name": "Franstore",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "AGRESIVO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 88,
     "name": "Fritz",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 89,
     "name": "Fue",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 90,
     "name": "Gabriel K",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "BUENO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 91,
     "name": "Gaby Beck",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CONOCIDO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 92,
     "name": "Gaston Gm Store",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "BUENO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 93,
     "name": "Gerardo Safe Mode",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 94,
     "name": "German Lombardo",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 95,
     "name": "Gladys Mama",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CONOCIDO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 96,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 97,
     "name": "Gonza Imports",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 98,
     "name": "Gonzalo Gl",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 99,
     "name": "Guadalupe Terrada",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 100,
     "name": "Guglielmi",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 101,
     "name": "Guille Viola",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 102,
     "name": "Guillermo Lacopi",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 103,
     "name": "Guillermo Pinardi",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 104,
     "name": "Gustavo Juancho",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 105,
     "name": "Gustavo Mesa",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 106,
     "name": "Hard Digital Congreso",
-    "email": "",
+    "email": null,
     "phone": "X",
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 107,
     "name": "Haydee High Tech",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 108,
     "name": "Hector La Era",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 109,
     "name": "Hgs Service",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 110,
     "name": "Hugo Gimeno",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "RATA",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 111,
     "name": "Ignacio Ilzarbe",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 112,
     "name": "Ignacio Llermanos",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "RARO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 113,
     "name": "Ignacio X Damonte",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 114,
     "name": "Igor Galuk",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "ENVIOS",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 115,
     "name": "Isaac Escalante",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 116,
     "name": "Ivana Medina",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 117,
     "name": "Javier Bolivia",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 118,
     "name": "Javier German",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 119,
     "name": "Tomas Rodriguez",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "REFERIDO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 120,
     "name": "Javier Ippoliti",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "EX-CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 121,
     "name": "Jay",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 122,
     "name": "Jeremias Inalef",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 123,
     "name": "Joaquin Garcia",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 124,
     "name": "Joaquin Menino",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 125,
     "name": "Jonatan Bonzini",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 126,
     "name": "Jonatan Waibsnaider",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 127,
     "name": "Jorge Andres Monje",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 128,
     "name": "Jorge Giosa",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 129,
     "name": "Claudio x Jorge Giosa",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "AGRESIVO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 130,
     "name": "Jorge Ledec",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 131,
     "name": "Jorge Ledesma",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 132,
     "name": "Jorge Ragusa",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 133,
     "name": "Jose Rodas",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 134,
     "name": "Jose Urquiola",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "AMIGO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 135,
     "name": "Juan Cruz",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 136,
     "name": "Juan Cruz Nahuel Lopez",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 137,
     "name": "Juan Ignacio Garcia Perea",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 138,
     "name": "Juan Jose Duca",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 139,
     "name": "Juan Siri",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 140,
     "name": "Juan Techno",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "RATA",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 141,
     "name": "Juancho",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 142,
     "name": "Juano Juan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "BUENO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 143,
     "name": "Julian Ruiz",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 144,
     "name": "Kevin Instagram",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 145,
     "name": "Lautaro Cicka",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "ML EPOCA",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 146,
     "name": "Leo X Lucas",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "RATA",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 147,
     "name": "Sebastian x Lucas",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "MACANUDO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 148,
     "name": "Lionel Barbieri",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 149,
     "name": "Lucas",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 150,
     "name": "Lucas Chidors",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 151,
     "name": "Lucas Cly Store",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "DIFICIL",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 152,
     "name": "Lucas Isidro Casanova",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 153,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 154,
     "name": "Lucas Pereyra Epoint",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 155,
     "name": "Lucio Real Beron",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 156,
     "name": "Luis Avellaneda",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 157,
     "name": "Luis Favilla",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 158,
     "name": "Luis Iphone Argentina",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 159,
     "name": "Lunita",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "FAMILIA",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 160,
     "name": "Marco Dabas",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "REFERIDO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 161,
     "name": "Marcos Prochosky",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "REFERIDO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 162,
     "name": "Marcos Roku",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "BUENO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 163,
     "name": "Maria Emilia Martinez",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 164,
     "name": "Mariano Lozano",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 165,
     "name": "Mariano Sanchez",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 166,
     "name": "Martin Aquino",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 167,
     "name": "Martin Castillo",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 168,
     "name": "Martin Colegiales",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 169,
     "name": "Martin Heiffel",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 170,
     "name": "Martin Ponte",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 171,
     "name": "Martin X Samu",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 172,
     "name": "Alan Montanari",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 173,
     "name": "Matheus Vinicius",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "RARO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 174,
     "name": "Gonzalo Lemesoff",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 175,
     "name": "Matias Pechieu",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 176,
     "name": "Matias Ulanosky",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "INSOPORTABLE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 177,
     "name": "Mauro",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 178,
     "name": "Mauro Loredan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 179,
     "name": "Mauro Preckel",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 180,
     "name": "Mauro Ramos",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 181,
     "name": "Maxi Aguirre",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 182,
     "name": "Maximiliano Del Valle",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 183,
     "name": "Mercadolibre",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 184,
     "name": "Miguel Vanadia",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 185,
     "name": "Mundo Apple",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 186,
     "name": "Nacho Ilzarbe",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 187,
     "name": "Nahuel Cabildo",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 188,
     "name": "Nahuel Horrach",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 189,
     "name": "Nahuel Neuquen",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 190,
     "name": "Nahuel Rodriguez",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 191,
     "name": "Nahuel Vergara",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 192,
     "name": "Natalia Harosteguy",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 193,
     "name": "Nico Aguilera",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "EXCELENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 194,
     "name": "Nicolas Barac",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 195,
     "name": "Nicolas Endrizzi",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 196,
     "name": "Nicolas Fernandez",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 197,
     "name": "Nicolas Iphone Bsas",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 198,
     "name": "Nicolas Villa",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 199,
     "name": "Oscar Cioffi",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 200,
     "name": "Oscar Garcia",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 201,
     "name": "Pablo Carreño",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "FALSO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 202,
     "name": "Pablo Cesar Becerra",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 203,
     "name": "Pablo Gimenez",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 204,
     "name": "Pablo Javier Lopez",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 205,
     "name": "Pablo Lluch",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 206,
     "name": "Pablo Rufino",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 207,
     "name": "Pamela Laborde",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 208,
     "name": "Pato Rey",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 209,
     "name": "Patricio Bonin",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 210,
     "name": "Ciro Dapero",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "TARADO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 211,
     "name": "Patricio X Igor",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 212,
     "name": "Pendientes",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 213,
     "name": "Raul Goni",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "MAL TIPO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 214,
     "name": "Luca Sta Fe Nahuel",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 215,
     "name": "Revisar Bien",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 216,
     "name": "Ricardo Mierez",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 217,
     "name": "Rma",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 218,
     "name": "Rocio Otero",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 219,
     "name": "Rodrigo Colissi",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 220,
     "name": "Rodrigo Osses",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 221,
     "name": "Roly",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "AMIGO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 222,
     "name": "Roman",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 223,
     "name": "Agustin",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 224,
     "name": "Salvador Escobar",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 225,
     "name": "Santiago De C Parts",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 226,
     "name": "Santiago Fitzsimons",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 227,
     "name": "Santiago Virtual",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 228,
     "name": "Santiago/Diego",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 229,
     "name": "Sebas Braun",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "AMIGO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 230,
     "name": "Sebastian Gerace",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 231,
     "name": "Sebastian Powercell",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 232,
     "name": "Sebastian X Envios",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 233,
     "name": "Sergio Hoffman",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "RARO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 234,
     "name": "Soledad Costa",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "FAMILIA",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 235,
     "name": "Steve Barrio",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 236,
     "name": "Tech Digital",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 237,
     "name": "Tecnophos",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 238,
     "name": "Thiago Alvarado",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 239,
     "name": "Todos",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 240,
     "name": "Tomas Alvarez",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 241,
     "name": "Tomas Lautersztein",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "AMIGO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 242,
     "name": "Federico Milovic",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "AMIGO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 243,
     "name": "Tomas Mdq",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "GARCA",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 244,
     "name": "Tomy Fiona",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 245,
     "name": "Trish Barrio",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 246,
     "name": "Ulises David Cota",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 247,
     "name": "Valentin Primo",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 248,
     "name": "Veronica",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 249,
     "name": "Fernando Lanzarotti",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "FINAL",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 250,
     "name": "Franco Valve",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "FINAL",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 251,
     "name": "Barbieri Family",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "PARTNER",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 252,
     "name": "Tomas Lopez",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 253,
     "name": "Pablo Caro",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "REFERIDO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 254,
     "name": "Mayorga Family",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "GREMIO INI",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 255,
     "name": "Andres Farall (Ref Igor)",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "FINAL",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 256,
     "name": "ESW Tech",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 257,
     "name": "Gabriel x Nico Miami",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "REFERIDO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 258,
     "name": "Augusto Touch Argentina",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 259,
     "name": "Maxx",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CONOCIDO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 260,
     "name": "Matias Ref Alaska",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "REFERIDO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 261,
     "name": "Claudio Molina x IG",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "REDES",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 262,
     "name": "Edi",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 263,
     "name": "Matias Astillero",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "PROBLEMATICO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 264,
     "name": "Mauro Carabajal",
-    "email": "",
+    "email": null,
     "phone": "APPLEMTEC",
     "type": "NUEVO",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 265,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 266,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 267,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 268,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 269,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 270,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 271,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 272,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 273,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 274,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 275,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 276,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 277,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 278,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 279,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 280,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 281,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 282,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 283,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 284,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 285,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 286,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 287,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 288,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 289,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 290,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 291,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 292,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 293,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 294,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 295,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 296,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 297,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 298,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 289,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 290,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 291,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 292,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 293,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 294,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 295,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 296,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 297,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 298,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 299,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 300,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 301,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 302,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 303,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 304,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 305,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 306,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 307,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 308,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 309,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 310,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 311,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 312,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 313,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 314,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 315,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 316,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 317,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 318,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   },
   {
     "old_id": 319,
     "name": "nan",
-    "email": "",
-    "phone": "",
+    "email": null,
+    "phone": null,
     "type": "CLIENTE",
-    "address": ""
+    "address": null
   }
 ]

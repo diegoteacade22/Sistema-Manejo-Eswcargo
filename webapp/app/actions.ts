@@ -473,16 +473,36 @@ export async function syncShipmentStatus(shipmentId: number) {
         }
     }
 
-    // If status changed, update DB and cascade
+    // If status changed, update DB directly without calling updateShipment
     if (newStatus !== shipment.status) {
-        await updateShipment({
-            id: shipmentId,
-            status: newStatus,
-            forwarder: shipment.forwarder,
-            date_shipped: shipment.date_shipped,
-            date_arrived: shipment.date_arrived,
-            notes: shipment.notes
+        // Update shipment status
+        await (prisma as any).shipment.update({
+            where: { id: shipmentId },
+            data: { status: newStatus }
         });
+
+        // Sync Orders Status
+        let targetOrderStatus = '';
+        const s = newStatus.toUpperCase();
+
+        if (s === 'SALIENDO') targetOrderStatus = 'SALIENDO';
+        else if (s === 'LLEGANDO') targetOrderStatus = 'LLEGANDO';
+        else if (s === 'EN BSAS' || s === 'ARRIBADO' || s === 'EN 🇦🇷') targetOrderStatus = 'EN 🇦🇷';
+        else if (s === 'ENTREGADO' || s === 'FINALIZADO') targetOrderStatus = 'ENTREGADO';
+        else if (s === 'MIAMI') targetOrderStatus = 'MIAMI';
+
+        if (targetOrderStatus) {
+            await prisma.order.updateMany({
+                where: { shipmentId: shipmentId },
+                data: { status: targetOrderStatus }
+            });
+
+            await prisma.orderItem.updateMany({
+                where: { shipmentId: shipmentId },
+                data: { status: targetOrderStatus }
+            });
+        }
+
         return newStatus;
     }
 

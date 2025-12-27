@@ -1,4 +1,5 @@
 
+
 import { prisma } from '@/lib/prisma';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -7,8 +8,9 @@ import Link from 'next/link';
 import { Plus, UserCircle } from 'lucide-react';
 import { SearchInput } from '@/components/search-input';
 import { Suspense } from 'react';
-import { EditClientDialog } from '@/components/edit-client-dialog';
+import { EditClientDialogWrapper as EditClientDialog } from '@/components/edit-client-dialog-wrapper';
 import { SortableColumn, SortOrder } from '@/components/ui/sortable-column';
+
 
 async function getClients(query: string, sortField: string = 'operations', sortOrder: SortOrder = 'desc') {
     let orderBy: any = {};
@@ -115,7 +117,7 @@ export default async function ClientsPage(props: { searchParams: Promise<{ q?: s
                                             <div className="h-9 w-9 rounded-full bg-violet-100 dark:bg-violet-900/40 flex items-center justify-center text-violet-700 dark:text-violet-200 shadow-sm">
                                                 <UserCircle className="h-5 w-5" />
                                             </div>
-                                            <div className="font-bold text-slate-900 dark:text-slate-50 text-base">{client.name}</div>
+                                            <div className="font-bold text-white text-base">{client.name}</div>
                                         </div>
                                     </TableCell>
                                     <TableCell>
