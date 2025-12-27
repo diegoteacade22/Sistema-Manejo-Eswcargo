@@ -9,17 +9,26 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Plus, Upload, Trash2, DollarSign, PieChart, Landmark } from 'lucide-react';
 import { getExpenses, createExpense, deleteExpense, importExpensesFromCsv, deleteAllExpenses } from './actions';
 import { toast } from 'sonner';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
+import { ArrowUpDown, Filter, TrendingDown, TrendingUp, AlertTriangle } from 'lucide-react';
 
 export default function ExpensesPage() {
     const [expenses, setExpenses] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [isImporting, setIsImporting] = useState(false);
 
+    // Filtros y Ordenamiento
+    const [categoryFilter, setCategoryFilter] = useState<string>('all');
+    const [monthFilter, setMonthFilter] = useState<string>('all');
+    const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
+
     useEffect(() => {
         loadExpenses();
     }, []);
 
     const loadExpenses = async () => {
+        setLoading(true);
         const data = await getExpenses();
         setExpenses(data);
         setLoading(false);
@@ -80,7 +89,89 @@ export default function ExpensesPage() {
         loadExpenses();
     };
 
+    const handleSort = (key: string) => {
+        let direction: 'asc' | 'desc' = 'asc';
+        if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+            direction = 'desc';
+        }
+        setSortConfig({ key, direction });
+    };
+
+    // Lógica de Filtrado
+    const filteredExpenses = expenses.filter(e => {
+        const date = new Date(e.date);
+        const monthYear = `${date.getMonth() + 1}-${date.getFullYear()}`;
+        const matchCategory = categoryFilter === 'all' || e.category === categoryFilter;
+        const matchMonth = monthFilter === 'all' || monthYear === monthFilter;
+        return matchCategory && matchMonth;
+    });
+
+    // Lógica de Ordenamiento
+    const sortedExpenses = [...filteredExpenses].sort((a, b) => {
+        if (!sortConfig) return 0;
+        const { key, direction } = sortConfig;
+
+        let valA = a[key];
+        let valB = b[key];
+
+        if (key === 'date') {
+            valA = new Date(a.date).getTime();
+            valB = new Date(b.date).getTime();
+        }
+
+        if (valA < valB) return direction === 'asc' ? -1 : 1;
+        if (valA > valB) return direction === 'asc' ? 1 : -1;
+        return 0;
+    });
+
+    const categories = Array.from(new Set(expenses.map(e => e.category))).sort();
+    const months = Array.from(new Set(expenses.map(e => {
+        const d = new Date(e.date);
+        return `${d.getMonth() + 1}-${d.getFullYear()}`;
+    }))).sort((a, b) => {
+        const [mA, yA] = a.split('-').map(Number);
+        const [mB, yB] = b.split('-').map(Number);
+        return yA !== yB ? yB - yA : mB - mA;
+    });
+
     const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+    const subTotal = filteredExpenses.reduce((sum, e) => sum + e.amount, 0);
+
+    // Análisis Financiero Simple
+    const getFinancialAnalysis = () => {
+        if (expenses.length === 0) return null;
+
+        const sortedByDate = [...expenses].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        const latestDate = new Date(sortedByDate[0].date);
+        const currentMonth = latestDate.getMonth();
+        const currentYear = latestDate.getFullYear();
+
+        const thisMonthTotal = expenses
+            .filter(e => {
+                const d = new Date(e.date);
+                return d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+            })
+            .reduce((sum, e) => sum + e.amount, 0);
+
+        const lastMonthTotal = expenses
+            .filter(e => {
+                const d = new Date(e.date);
+                const lastM = currentMonth === 0 ? 11 : currentMonth - 1;
+                const lastY = currentMonth === 0 ? currentYear - 1 : currentYear;
+                return d.getMonth() === lastM && d.getFullYear() === lastY;
+            })
+            .reduce((sum, e) => sum + e.amount, 0);
+
+        const trend = lastMonthTotal > 0 ? ((thisMonthTotal - lastMonthTotal) / lastMonthTotal) * 100 : 0;
+        const topCategory = categories.map(cat => ({
+            name: cat,
+            total: expenses.filter(e => e.category === cat).reduce((sum, ex) => sum + ex.amount, 0)
+        })).sort((a, b) => b.total - a.total)[0];
+
+        return { thisMonthTotal, lastMonthTotal, trend, topCategory };
+    };
+
+    const analysis = getFinancialAnalysis();
 
     const formatAmount = (amount: number) => {
         if (amount >= 1e15) return `USD ${amount.toExponential(2)}`; // Notación científica para extremos
@@ -137,7 +228,7 @@ export default function ExpensesPage() {
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                 <Card className="bg-gradient-to-br from-red-50 to-white dark:from-red-950/20 dark:to-slate-900 border-red-100 dark:border-red-900 shadow-xl overflow-hidden">
                     <CardHeader className="pb-2">
                         <CardTitle className="text-sm font-bold text-red-600 uppercase tracking-widest flex items-center gap-2">
@@ -145,10 +236,24 @@ export default function ExpensesPage() {
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="overflow-hidden">
-                        <div className="text-xl md:text-2xl lg:text-3xl font-black text-slate-900 dark:text-white break-all leading-tight" title={totalExpenses.toLocaleString()}>
+                        <div className="text-xl md:text-2xl font-black text-slate-900 dark:text-white break-all leading-tight">
                             {formatAmount(totalExpenses)}
                         </div>
-                        <p className="text-xs text-slate-500 mt-1">Acumulado según registros actuales</p>
+                        <p className="text-xs text-slate-500 mt-1">Histórico completo</p>
+                    </CardContent>
+                </Card>
+
+                <Card className="bg-gradient-to-br from-indigo-50 to-white dark:from-indigo-950/20 dark:to-slate-900 border-indigo-100 dark:border-indigo-900 shadow-xl">
+                    <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-bold text-indigo-600 uppercase tracking-widest flex items-center gap-2">
+                            <Filter className="h-4 w-4" /> Subtotal Filtrado
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-xl md:text-2xl font-black text-slate-900 dark:text-white">
+                            {formatAmount(subTotal)}
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">Según filtros aplicados</p>
                     </CardContent>
                 </Card>
 
@@ -159,38 +264,135 @@ export default function ExpensesPage() {
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-3xl font-black text-slate-900 dark:text-white">
+                        <div className="text-xl md:text-2xl font-black text-slate-900 dark:text-white">
                             {new Set(expenses.map(e => e.category)).size}
                         </div>
-                        <p className="text-xs text-slate-500 mt-1">Sectores de gasto identificados</p>
+                        <p className="text-xs text-slate-500 mt-1">Sectores identificados</p>
                     </CardContent>
                 </Card>
 
-                <Card className="bg-gradient-to-br from-slate-50 to-white dark:from-slate-800/20 dark:to-slate-900 border-slate-200 dark:border-slate-800 shadow-xl">
+                <Card className="bg-gradient-to-br from-orange-50 to-white dark:from-orange-950/20 dark:to-slate-900 border-orange-100 dark:border-orange-900 shadow-xl">
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-sm font-bold text-slate-600 uppercase tracking-widest flex items-center gap-2">
-                            <Upload className="h-4 w-4" /> Formato Requerido
+                        <CardTitle className="text-sm font-bold text-orange-600 uppercase tracking-widest flex items-center gap-2">
+                            <TrendingUp className="h-4 w-4" /> Mayor Gasto
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-[10px] font-mono text-slate-500 leading-tight">
-                            Columna A: Fecha<br />
-                            Columna C: Descripción<br />
-                            Columna D: Monto<br />
-                            <span className="text-red-600 font-bold">Columna G: CATEGORIA (Filtro 'ESW')</span>
+                        <div className="text-sm font-black text-slate-900 dark:text-white truncate" title={analysis?.topCategory?.name}>
+                            {analysis?.topCategory?.name || 'N/A'}
                         </div>
+                        <p className="text-[10px] text-slate-500 mt-1">{analysis?.topCategory ? formatAmount(analysis.topCategory.total) : '-'}</p>
                     </CardContent>
                 </Card>
             </div>
+
+            {/* Barra de Filtros */}
+            <Card className="p-4 border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 backdrop-blur-sm">
+                <div className="flex flex-wrap gap-4 items-center">
+                    <div className="flex items-center gap-2">
+                        <Filter className="h-4 w-4 text-slate-400" />
+                        <span className="text-sm font-bold text-slate-500 uppercase tracking-tighter">Filtrar por:</span>
+                    </div>
+
+                    <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                        <SelectTrigger className="w-[200px] bg-white dark:bg-slate-950">
+                            <SelectValue placeholder="Todas las categorías" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Todas las categorías</SelectItem>
+                            {categories.map(cat => (
+                                <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+
+                    <Select value={monthFilter} onValueChange={setMonthFilter}>
+                        <SelectTrigger className="w-[180px] bg-white dark:bg-slate-950">
+                            <SelectValue placeholder="Todos los meses" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">Todos los meses</SelectItem>
+                            {months.map(m => {
+                                const [month, year] = m.split('-');
+                                const date = new Date(Number(year), Number(month) - 1);
+                                const label = date.toLocaleString('es-ES', { month: 'long', year: 'numeric' });
+                                return <SelectItem key={m} value={m}>{label}</SelectItem>;
+                            })}
+                        </SelectContent>
+                    </Select>
+
+                    {(categoryFilter !== 'all' || monthFilter !== 'all') && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => { setCategoryFilter('all'); setMonthFilter('all'); }}
+                            className="text-slate-500 hover:text-red-500"
+                        >
+                            Limpiar Filtros
+                        </Button>
+                    )}
+
+                    <div className="ml-auto flex items-center gap-4 text-xs font-bold text-slate-400 mr-4">
+                        <span>MOSTRANDO: <span className="text-slate-900 dark:text-white">{filteredExpenses.length}</span> REGISTROS</span>
+                    </div>
+                </div>
+            </Card>
+
+            {/* Análisis Financiero */}
+            {analysis && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Card className="border-emerald-100 dark:border-emerald-900/30 bg-emerald-50/10 backdrop-blur-sm">
+                        <CardHeader className="py-3 px-4 flex flex-row items-center justify-between">
+                            <CardTitle className="text-xs font-bold text-emerald-600 uppercase tracking-widest flex items-center gap-2">
+                                <TrendingUp className="h-3 w-3" /> Tendencia Mensual
+                            </CardTitle>
+                            {analysis.trend > 0 ? (
+                                <Badge className="bg-red-100 text-red-600 hover:bg-red-100 border-none">
+                                    <TrendingUp className="h-3 w-3 mr-1" /> +{analysis.trend.toFixed(1)}%
+                                </Badge>
+                            ) : (
+                                <Badge className="bg-emerald-100 text-emerald-600 hover:bg-emerald-100 border-none">
+                                    <TrendingDown className="h-3 w-3 mr-1" /> {analysis.trend.toFixed(1)}%
+                                </Badge>
+                            )}
+                        </CardHeader>
+                        <CardContent className="px-4 pb-3">
+                            <p className="text-xs text-slate-500">
+                                El gasto este mes es de <span className="font-bold text-slate-900 dark:text-white">{formatAmount(analysis.thisMonthTotal)}</span> frente a <span className="font-bold">{formatAmount(analysis.lastMonthTotal)}</span> del mes pasado.
+                            </p>
+                        </CardContent>
+                    </Card>
+
+                    <Card className="border-blue-100 dark:border-blue-900/30 bg-blue-50/10 backdrop-blur-sm">
+                        <CardHeader className="py-3 px-4">
+                            <CardTitle className="text-xs font-bold text-blue-600 uppercase tracking-widest flex items-center gap-2">
+                                <AlertTriangle className="h-3 w-3" /> Insight de Gestión
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="px-4 pb-3">
+                            <p className="text-xs text-slate-500">
+                                La categoría <span className="font-bold text-blue-600 underline">{analysis.topCategory?.name}</span> representa la mayor fuga de capital histórico ({((analysis.topCategory?.total / (totalExpenses || 1)) * 100).toFixed(1)}% del total).
+                                Sugerencia: Renegociar proveedores en este sector.
+                            </p>
+                        </CardContent>
+                    </Card>
+                </div>
+            )}
 
             <Card className="border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
                 <Table>
                     <TableHeader className="bg-slate-50 dark:bg-slate-900">
                         <TableRow>
-                            <TableHead className="font-bold">Fecha</TableHead>
-                            <TableHead className="font-bold">Categoría</TableHead>
+                            <TableHead className="font-bold cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('date')}>
+                                <div className="flex items-center gap-2">Fecha <ArrowUpDown className="h-3 w-3" /></div>
+                            </TableHead>
+                            <TableHead className="font-bold cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('category')}>
+                                <div className="flex items-center gap-2">Categoría <ArrowUpDown className="h-3 w-3" /></div>
+                            </TableHead>
                             <TableHead className="font-bold">Descripción</TableHead>
-                            <TableHead className="font-bold text-right">Monto</TableHead>
+                            <TableHead className="font-bold text-right cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => handleSort('amount')}>
+                                <div className="flex items-center gap-2 justify-end">Monto <ArrowUpDown className="h-3 w-3" /></div>
+                            </TableHead>
                             <TableHead className="font-bold text-center">Unidad</TableHead>
                             <TableHead className="w-[100px]"></TableHead>
                         </TableRow>
@@ -198,10 +400,10 @@ export default function ExpensesPage() {
                     <TableBody>
                         {loading ? (
                             <TableRow><TableCell colSpan={6} className="text-center py-10">Cargando egresos...</TableCell></TableRow>
-                        ) : expenses.length === 0 ? (
-                            <TableRow><TableCell colSpan={6} className="text-center py-10 italic text-slate-400">No hay gastos registrados. Importe un CSV para comenzar.</TableCell></TableRow>
+                        ) : sortedExpenses.length === 0 ? (
+                            <TableRow><TableCell colSpan={6} className="text-center py-10 italic text-slate-400">No hay gastos que coincidan con los filtros.</TableCell></TableRow>
                         ) : (
-                            expenses.map((expense) => (
+                            sortedExpenses.map((expense) => (
                                 <TableRow key={expense.id} className="hover:bg-slate-50 dark:hover:bg-slate-900/50">
                                     <TableCell className="font-medium">{new Date(expense.date).toLocaleDateString()}</TableCell>
                                     <TableCell>
