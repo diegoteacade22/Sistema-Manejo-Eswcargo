@@ -90,7 +90,13 @@ export async function importExpensesFromCsv(csvText: string) {
             }
 
             const amount = parseFloat(cleanAmount);
-            if (isNaN(amount)) continue;
+
+            // VALIDACIÓN CRÍTICA: Ignorar si el monto parece un número de tarjeta o referencia larga 
+            // (Si es un número entero de más de 10 dígitos, probablemente no es un monto de gasto real)
+            if (isNaN(amount) || (Number.isInteger(amount) && String(Math.abs(amount)).length > 10)) {
+                console.log(`Línea ${i}: Omitiendo monto sospechoso/inválido: ${rawAmount}`);
+                continue;
+            }
 
             // 3. Descripción (C = índice 2)
             const description = values[2] || 'Sin descripción';
