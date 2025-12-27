@@ -18,7 +18,15 @@ export default async function PackingListPage(props: { params: Promise<{ id: str
             items: {
                 include: {
                     product: true,
-                    order: true
+                    order: {
+                        include: {
+                            items: {
+                                include: {
+                                    product: true
+                                }
+                            }
+                        }
+                    }
                 }
             },
             orders: {

@@ -22,6 +22,7 @@ export default async function NewCollectionPage() {
             country: true,
             zipCode: true,
             type: true,
+            segment: true,
             notes: true,
             userId: true,
             createdAt: true,
