@@ -29,20 +29,41 @@ export default function ExpensesPage() {
         const file = e.target.files?.[0];
         if (!file) return;
 
+        console.log("Iniciando lectura de archivo:", file.name);
         setIsImporting(true);
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-            const text = event.target?.result as string;
-            const res = await importExpensesFromCsv(text);
-            if (res.success) {
-                toast.success(`Importados ${res.count} gastos correctamente`);
-                loadExpenses();
-            } else {
-                toast.error('Error al importar CSV');
-            }
+
+        try {
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                const text = event.target?.result as string;
+                console.log("Archivo leído, enviando al servidor...");
+
+                try {
+                    const res = await importExpensesFromCsv(text);
+                    if (res.success) {
+                        toast.success(`¡Éxito! Importados ${res.count} gastos.`);
+                        loadExpenses();
+                    } else {
+                        toast.error('El servidor no pudo procesar el archivo');
+                    }
+                } catch (error) {
+                    console.error("Error en Server Action:", error);
+                    toast.error('Error de comunicación con el servidor');
+                } finally {
+                    setIsImporting(false);
+                    // Reset input so the same file can be uploaded again
+                    e.target.value = '';
+                }
+            };
+            reader.onerror = () => {
+                toast.error('Error al leer el archivo local');
+                setIsImporting(false);
+            };
+            reader.readAsText(file);
+        } catch (error) {
+            console.error("Error en FileReader:", error);
             setIsImporting(false);
-        };
-        reader.readAsText(file);
+        }
     };
 
     const handleDelete = async (id: number) => {
@@ -89,15 +110,23 @@ export default function ExpensesPage() {
                     </Button>
                     <div className="relative">
                         <input
+                            id="csv-upload"
                             type="file"
                             accept=".csv"
                             onChange={handleFileUpload}
-                            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            className="hidden"
                             disabled={isImporting}
                         />
-                        <Button variant="outline" className="gap-2 border-red-200 hover:bg-red-50 text-red-600 dark:border-red-900 dark:hover:bg-red-950">
-                            <Upload className="h-4 w-4" />
-                            {isImporting ? 'Importando...' : 'Importar CSV'}
+                        <Button
+                            variant="outline"
+                            className="gap-2 border-red-200 hover:bg-red-50 text-red-600 dark:border-red-900 dark:hover:bg-red-950"
+                            asChild
+                            disabled={isImporting}
+                        >
+                            <label htmlFor="csv-upload" className="cursor-pointer flex items-center gap-2">
+                                <Upload className="h-4 w-4" />
+                                {isImporting ? 'Procesando...' : 'Importar CSV'}
+                            </label>
                         </Button>
                     </div>
                     <Button className="gap-2 bg-red-600 hover:bg-red-700 text-white">

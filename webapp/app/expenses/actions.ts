@@ -114,10 +114,21 @@ export async function importExpensesFromCsv(csvText: string) {
     }
 
     if (expensesToStore.length > 0) {
-        // Inserción atómica masiva (Bases de datos optimizan esto internamente)
-        await prisma.expense.createMany({
-            data: expensesToStore
-        });
+        try {
+            console.log(`Intentando insertar ${expensesToStore.length} registros en la base de datos...`);
+            // Inserción atómica masiva
+            await prisma.expense.createMany({
+                data: expensesToStore,
+                skipDuplicates: true // Por si acaso hay registros exactamente iguales
+            });
+            console.log("Inserción exitosa");
+        } catch (dbError) {
+            console.error("ERROR CRÍTICO EN BASE DE DATOS:", dbError);
+            return { success: false, error: "Error de base de datos al guardar los registros." };
+        }
+    } else {
+        console.log("No se encontraron gastos que cumplan los criterios (ESW + Monto válido)");
+        return { success: true, count: 0, message: "No se encontraron gastos válidos para importar." };
     }
 
     console.log(`Importación finalizada. Éxito: ${expensesToStore.length}`);
