@@ -71,8 +71,9 @@ export default function ExpensesPage() {
                     </h1>
                     <p className="text-slate-500 mt-2 text-lg">Administración de egresos operativos y análisis de burn-rate.</p>
                 </div>
-                    <Button 
-                        variant="ghost" 
+                <div className="flex gap-4 items-center">
+                    <Button
+                        variant="ghost"
                         onClick={handleDeleteAll}
                         className="text-slate-400 hover:text-red-600 hover:bg-red-50"
                         title="Borrar todos los gastos"
