@@ -83,6 +83,7 @@ export default function ExpensesPage() {
     const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
 
     const formatAmount = (amount: number) => {
+        if (amount >= 1e15) return `USD ${amount.toExponential(2)}`; // Notación científica para extremos
         if (amount >= 1e12) return `USD ${(amount / 1e12).toFixed(1)}T`;
         if (amount >= 1e9) return `USD ${(amount / 1e9).toFixed(1)}B`;
         if (amount >= 1e6) return `USD ${(amount / 1e6).toFixed(1)}M`;

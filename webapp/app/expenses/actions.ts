@@ -91,10 +91,17 @@ export async function importExpensesFromCsv(csvText: string) {
 
             const amount = parseFloat(cleanAmount);
 
-            // VALIDACIÓN CRÍTICA: Ignorar si el monto parece un número de tarjeta o referencia larga 
-            // (Si es un número entero de más de 10 dígitos, probablemente no es un monto de gasto real)
-            if (isNaN(amount) || (Number.isInteger(amount) && String(Math.abs(amount)).length > 10)) {
-                console.log(`Línea ${i}: Omitiendo monto sospechoso/inválido: ${rawAmount}`);
+            // FILTRO DE SEGURIDAD ESTRICTO:
+            // 1. Un gasto operativo no debería superar los 10 millones de USD habitualmente.
+            // 2. Si la cadena original es muy larga (>12 chars) y no tiene separadores, es un ID, no un monto.
+            const isSuspicious =
+                isNaN(amount) ||
+                Math.abs(amount) > 10000000 ||
+                rawAmount.toLowerCase().includes('e') ||
+                (rawAmount.length > 12 && !rawAmount.includes('.') && !rawAmount.includes(','));
+
+            if (isSuspicious) {
+                console.log(`Línea ${i}: Omitiendo dato sospechoso (Monto: ${rawAmount})`);
                 continue;
             }
 
@@ -109,7 +116,7 @@ export async function importExpensesFromCsv(csvText: string) {
                 businessUnit: 'GENERAL'
             });
         } catch (e) {
-            // Ignorar líneas corruptas en modo masivo para no frenar el proceso
+            // Ignorar líneas corruptas
         }
     }
 
