@@ -1,0 +1,42 @@
+name: 🔄 Sincronización Automática (Cloud)
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # Cada 6 horas
+  workflow_dispatch: # Permite ejecutarlo manualmente desde GitHub
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: 🐍 Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: 📦 Instalar dependencias Python
+        run: |
+          pip install pandas openpyxl google-api-python-client google-auth-httplib2 google-auth-oauthlib
+
+      - name: 🔑 Configurar Credenciales Google
+        run: |
+          echo '${{ secrets.GOOGLE_CREDENTIALS }}' > google_credentials.json
+
+      - name: 📥 Descargar Excel desde Google Drive
+        run: python3 download_sheet.py
+
+      - name: 📊 Procesar Datos (Extract)
+        run: python3 extract_consolidated.py
+
+      - name: 🚀 Configurar Node.js y Actualizar BD (Supabase)
+        working-directory: ./webapp
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          npm install
+          npx prisma generate
+          npx tsx prisma/seed_fast.ts

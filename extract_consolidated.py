@@ -7,8 +7,9 @@ import sys
 from datetime import datetime
 
 # Configuration
-excel_path = '/Users/diegorodriguez/sistema_gestion_importaciones/VENTAS COMPRAS 2023 al 2025 Para Sistema en Gemini.xlsx'
-output_dir = '/Users/diegorodriguez/sistema_gestion_importaciones/webapp/prisma'
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+excel_path = os.path.join(SCRIPT_DIR, 'VENTAS COMPRAS 2023 al 2025 Para Sistema en Gemini.xlsx')
+output_dir = os.path.join(SCRIPT_DIR, 'webapp/prisma')
 
 def clean_num(n):
     try: 
