@@ -36,15 +36,15 @@ export async function deleteAllExpenses() {
 
 export async function importExpensesFromCsv(csvText: string) {
     const lines = csvText.split(/\r?\n/);
-    let count = 0;
+    const expensesToStore: any[] = [];
 
-    console.log(`Iniciando importación. Total líneas: ${lines.length}`);
+    console.log(`Iniciando importación masiva. Total líneas: ${lines.length}`);
 
     for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
 
-        // Parser robusto para CSV (manejando comas dentro de comillas)
+        // Parser robusto para CSV
         const values: string[] = [];
         let current = '';
         let inQuotes = false;
@@ -58,65 +58,64 @@ export async function importExpensesFromCsv(csvText: string) {
         }
         values.push(current.trim().replace(/^"|"$/g, ''));
 
-        // Necesitamos al menos 7 columnas para llegar a la G (índice 6)
+        // Filtro G (índice 6)
         if (values.length < 7) continue;
-
         const categoria = values[6] || '';
         if (!categoria.toUpperCase().includes('ESW')) continue;
 
         try {
-            // 1. Parsing de Fecha (A)
+            // 1. Fecha (A)
             let dateVal = values[0];
             let date: Date;
             if (dateVal.includes('/')) {
                 const parts = dateVal.split('/');
-                if (parts[0].length === 4) date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-                else date = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-            } else date = new Date(dateVal);
+                if (parts[0].length === 4) {
+                    date = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                } else {
+                    date = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+                }
+            } else {
+                date = new Date(dateVal);
+            }
 
             if (isNaN(date.getTime())) continue;
 
-            console.log(`Procesando línea ${i}: Fecha=${date.toISOString()}, Cat=${categoria}`);
-
-            // 2. Parsing de Monto (D = índice 3)
+            // 2. Monto (D = índice 3)
             let rawAmount = values[3] || '0';
             let cleanAmount = rawAmount.replace(/[^0-9,.-]/g, '');
-
-            // Normalización de separadores
             if (cleanAmount.includes('.') && cleanAmount.includes(',')) {
-                // Formato con ambos: assumir . para miles y , para decimal
                 cleanAmount = cleanAmount.replace(/\./g, '').replace(',', '.');
             } else if (cleanAmount.includes(',')) {
-                // Solo coma: tratar como decimal
                 cleanAmount = cleanAmount.replace(',', '.');
             }
 
             const amount = parseFloat(cleanAmount);
-            if (isNaN(amount)) {
-                console.log(`Línea ${i}: Monto inválido (${rawAmount})`);
-                continue;
-            }
+            if (isNaN(amount)) continue;
 
             // 3. Descripción (C = índice 2)
             const description = values[2] || 'Sin descripción';
 
-            await prisma.expense.create({
-                data: {
-                    date: date,
-                    category: categoria,
-                    description: description,
-                    amount: Math.abs(amount),
-                    businessUnit: 'GENERAL'
-                }
+            expensesToStore.push({
+                date,
+                category: categoria,
+                description,
+                amount: Math.abs(amount),
+                businessUnit: 'GENERAL'
             });
-            count++;
         } catch (e) {
-            console.error(`Error procesando línea ${i}:`, e);
+            // Ignorar líneas corruptas en modo masivo para no frenar el proceso
         }
     }
 
-    console.log(`Importación finalizada. Éxito: ${count}`);
+    if (expensesToStore.length > 0) {
+        // Inserción atómica masiva (Bases de datos optimizan esto internamente)
+        await prisma.expense.createMany({
+            data: expensesToStore
+        });
+    }
+
+    console.log(`Importación finalizada. Éxito: ${expensesToStore.length}`);
     revalidatePath('/expenses');
     revalidatePath('/analytics/financial');
-    return { success: true, count };
+    return { success: true, count: expensesToStore.length };
 }
