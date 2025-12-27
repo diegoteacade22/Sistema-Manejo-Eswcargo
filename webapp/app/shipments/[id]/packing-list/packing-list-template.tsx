@@ -97,7 +97,39 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
     // Orange: #F4AB3D
 
     return (
-        <div className="min-h-screen bg-white text-black p-8 font-sans print:p-0">
+        <div className="min-h-screen bg-white text-black p-8 font-sans print:p-0 print:m-0">
+            <style jsx global>{`
+                @media print {
+                    @page {
+                        margin: 0.2cm;
+                        size: auto;
+                    }
+                    html, body {
+                        height: 100%;
+                        margin: 0 !important;
+                        padding: 0 !important;
+                        overflow: hidden;
+                    }
+                    .print-container {
+                        width: 100%;
+                        height: 100%;
+                        transform: scale(0.92);
+                        transform-origin: top center;
+                        padding: 0;
+                        margin: 0 auto;
+                    }
+                    /* Forzar colores de fondo y bordes */
+                    * {
+                        -webkit-print-color-adjust: exact !important;
+                        print-color-adjust: exact !important;
+                        color-adjust: exact !important;
+                    }
+                    .page-break-inside-avoid {
+                        page-break-inside: avoid;
+                    }
+                }
+            `}</style>
+
             {/* Print Controls */}
             <div className="max-w-[850px] mx-auto mb-8 flex flex-col items-end gap-2 print:hidden">
                 <div className="flex gap-4">
@@ -122,7 +154,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
             </div>
 
             {/* A4 Container */}
-            <div className="max-w-[850px] mx-auto bg-white print:w-full print:max-w-none">
+            <div className="max-w-[850px] mx-auto bg-white print:w-full print:max-w-none print-container">
 
                 {/* Header Section */}
                 <div className="flex justify-between items-start mb-8">
@@ -139,7 +171,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                                 ESW
                             </h1>
                             {/* CARGO Text */}
-                            <h2 className="text-xl font-bold tracking-[0.2em] text-[#72C4B7] uppercase leading-none mt-0">
+                            <h2 className="text-lg print:text-base font-bold tracking-[0.2em] text-[#72C4B7] uppercase leading-none mt-0">
                                 CARGO
                             </h2>
                         </div>
@@ -161,15 +193,15 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
 
                     {/* Right: Document Label */}
                     <div className="text-right">
-                        <h2 className="text-[#0D3B4C] text-3xl font-bold uppercase tracking-wide mb-2">PACKING LIST</h2>
+                        <h2 className="text-[#0D3B4C] text-2xl print:text-xl font-bold uppercase tracking-wide mb-1">PACKING LIST</h2>
                         <div className="inline-block bg-[#F4AB3D] text-[#0D3B4C] px-3 py-1 rounded-sm shadow-sm">
-                            <p className="font-bold text-xl tracking-wider">ENVÍO #{shipment.shipment_number}</p>
+                            <p className="font-bold text-lg print:text-base tracking-wider">ENVÍO #{shipment.shipment_number}</p>
                         </div>
                     </div>
                 </div>
 
                 {/* Info Grid */}
-                <div className="grid grid-cols-2 gap-8 mb-8 border-t-2 border-[#0D3B4C] pt-6">
+                <div className="grid grid-cols-2 gap-8 mb-4 print:mb-2 border-t-2 border-[#0D3B4C] pt-4 print:pt-2">
                     {/* Consignee */}
                     <div>
                         <div className="bg-[#0D3B4C] text-white px-3 py-1.5 font-bold text-sm uppercase mb-2 rounded-sm shadow-sm">
@@ -229,7 +261,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
 
                 {/* Items Table */}
                 <div className="mb-0">
-                    <div className="bg-[#0D3B4C] text-white px-3 py-1.5 font-bold text-sm uppercase mb-0 rounded-t-sm">
+                    <div className="bg-[#0D3B4C] text-white px-3 py-1 font-bold text-xs uppercase mb-0 rounded-t-sm">
                         CONTENT DESCRIPTION
                     </div>
                     <table className="w-full text-sm border-collapse border border-gray-200 shadow-sm">
@@ -287,9 +319,9 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                                     <td colSpan={4} className="py-8 text-center text-gray-500 italic">No items listed in orders.</td>
                                 </tr>
                             )}
-                            {/* Spacer Rows */}
-                            {[...Array(Math.max(0, 10 - shipmentItems.length))].map((_, i) => (
-                                <tr key={`empty-${i}`} className="border-b border-gray-100 h-8">
+                            {/* Spacer Rows - Dynamic and smaller */}
+                            {[...Array(Math.max(0, (shipmentItems.length > 15 ? 0 : 8 - shipmentItems.length)))].map((_, i) => (
+                                <tr key={`empty-${i}`} className="border-b border-gray-100 h-6 print:h-4">
                                     <td className="border-r border-gray-100"></td>
                                     <td className="border-r border-gray-100"></td>
                                     <td className="border-r border-gray-100"></td>
@@ -301,18 +333,18 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                 </div>
 
                 {/* Footer / Totals Section */}
-                <div className="mt-8 flex justify-end">
+                <div className="mt-4 print:mt-2 flex justify-end">
                     <div className="w-1/2 rounded border border-[#0D3B4C] overflow-hidden shadow-sm">
-                        <div className="bg-[#0D3B4C] text-white px-3 py-1.5 font-bold text-center text-sm uppercase">
+                        <div className="bg-[#0D3B4C] text-white px-3 py-1 font-bold text-center text-xs uppercase">
                             SHIPPING SUMMARY
                         </div>
-                        <div className="p-4 space-y-3 bg-white">
-                            <div className="flex justify-between items-center text-lg border-b border-gray-200 pb-2">
-                                <span className="font-bold text-gray-700">TOTAL WEIGHT (KG)</span>
+                        <div className="p-3 print:p-2 space-y-2 bg-white">
+                            <div className="flex justify-between items-center text-base border-b border-gray-200 pb-1">
+                                <span className="font-bold text-gray-700">TOTAL WEIGHT</span>
                                 <span className="font-bold text-[#0D3B4C]">{shipment.weight_cli ? shipment.weight_cli.toFixed(2) : '0.00'} kg</span>
                             </div>
-                            <div className="flex justify-between items-center text-xl bg-orange-50 p-2 rounded border border-[#F4AB3D]/20">
-                                <span className="font-bold text-[#0D3B4C]">SHIPPING COST</span>
+                            <div className="flex justify-between items-center text-lg bg-orange-50 p-1.5 rounded border border-[#F4AB3D]/20">
+                                <span className="font-bold text-[#0D3B4C]">TOTAL DUE</span>
                                 <span className="font-bold text-[#0D3B4C]">
                                     USD {new Intl.NumberFormat('en-US', { minimumFractionDigits: 2 }).format(shipment.price_total || 0)}
                                 </span>
@@ -323,9 +355,9 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
 
                 {/* Remarks */}
                 {shipment.notes && (
-                    <div className="mt-8">
-                        <span className="font-bold text-sm block mb-1 text-[#0D3B4C]">REMARKS / OBSERVACIONES:</span>
-                        <div className="border border-gray-300 p-2 text-sm text-gray-600 min-h-[60px] bg-slate-50 rounded-sm italic">
+                    <div className="mt-4 print:mt-1 page-break-inside-avoid">
+                        <span className="font-bold text-sm print:text-xs block mb-1 text-[#0D3B4C]">REMARKS / OBSERVACIONES:</span>
+                        <div className="border border-gray-300 p-2 text-sm text-gray-600 min-h-[40px] print:min-h-0 bg-slate-50 rounded-sm italic">
                             {shipment.notes}
                         </div>
                     </div>

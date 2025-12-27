@@ -39,6 +39,13 @@ const routes = [
         roles: ['ADMIN', 'CLIENT']
     },
     {
+        label: 'Mis Pedidos',
+        icon: ShoppingCart,
+        href: '/orders',
+        color: 'text-pink-700',
+        roles: ['ADMIN', 'CLIENT']
+    },
+    {
         label: 'Clientes',
         icon: Users,
         href: '/clients',
@@ -58,13 +65,6 @@ const routes = [
         href: '/products',
         color: 'text-cyan-500',
         roles: ['ADMIN']
-    },
-    {
-        label: 'Mis Pedidos',
-        icon: ShoppingCart,
-        href: '/orders',
-        color: 'text-pink-700',
-        roles: ['ADMIN', 'CLIENT']
     },
     {
         label: 'Proveedores',
@@ -106,15 +106,20 @@ export function Sidebar() {
     return (
         <div className="space-y-4 py-4 flex flex-col h-full bg-slate-900 text-white">
             <div className="px-3 py-2 flex-1">
-                <Link href="/" className="flex items-center pl-3 mb-14">
-                    <div className="relative w-8 h-8 mr-4">
-                        <div className="absolute bg-gradient-to-tr from-indigo-500 to-purple-500 rounded-lg w-full h-full flex items-center justify-center font-bold text-xl">
-                            {session?.user?.name?.[0] || 'I'}
+                <Link href="/" className="flex items-center pl-3 mb-14 group">
+                    <div className="relative w-10 h-10 mr-4">
+                        <div className="absolute bg-gradient-to-tr from-indigo-500 to-purple-600 rounded-xl w-full h-full flex items-center justify-center font-bold text-xl shadow-lg group-hover:scale-105 transition-transform">
+                            {userRole === 'ADMIN' ? 'A' : (session?.user?.name?.[0] || 'C')}
                         </div>
                     </div>
-                    <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400">
-                        {userRole === 'ADMIN' ? 'ImportSys' : 'Mi Portal'}
-                    </h1>
+                    <div className="flex flex-col">
+                        <h1 className="text-xl font-black bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-cyan-400 tracking-tighter leading-tight">
+                            {userRole === 'ADMIN' ? 'ImportSys' : 'Mi Portal'}
+                        </h1>
+                        <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-slate-500 -mt-0.5">
+                            {userRole === 'ADMIN' ? 'Control Panel' : 'Gestión Internacional'}
+                        </span>
+                    </div>
                 </Link>
                 <div className="space-y-1">
                     {filteredRoutes.map((route) => (

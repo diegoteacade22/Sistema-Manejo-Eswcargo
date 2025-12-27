@@ -104,11 +104,12 @@ async function getDashboardData() {
     // Total Sales
     monthlyStats[key].sales += order.total_amount;
 
-    // Sales Profit Calculation
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const orderProfit = order.items.reduce((acc: number, item: any) => {
-      return acc + (item.profit || 0); // Use explicit profit from Excel
-    }, 0);
+    // Sales Profit Calculation - ONLY FOR ADMIN
+    const orderProfit = userRole === 'ADMIN'
+      ? order.items.reduce((acc: number, item: any) => {
+        return acc + (item.profit || 0);
+      }, 0)
+      : 0; // Client sees ZERO profit data
 
     monthlyStats[key].salesProfit += orderProfit;
   });
@@ -122,8 +123,11 @@ async function getDashboardData() {
 
     if (!monthlyStats[key]) monthlyStats[key] = { sales: 0, salesProfit: 0, shipmentProfit: 0 };
 
-    // Shipment Profit: Use 'profit' field first, then fallback to calculation
-    const profit = shipment.profit ?? ((shipment.price_total || 0) - (shipment.cost_total || 0));
+    // Shipment Profit: ONLY FOR ADMIN
+    const profit = userRole === 'ADMIN'
+      ? (shipment.profit ?? ((shipment.price_total || 0) - (shipment.cost_total || 0)))
+      : 0;
+
     monthlyStats[key].shipmentProfit += profit;
   });
 
@@ -138,10 +142,11 @@ async function getDashboardData() {
 
     chartData.push({
       name: key,
-      total: stats.sales, // For SalesTrendChart (legacy)
-      salesProfit: stats.salesProfit,
-      shipmentProfit: stats.shipmentProfit,
-      totalProfit: stats.salesProfit + stats.shipmentProfit
+      total: stats.sales, // Mis Compras
+      // Sensible data sent as 0 if not admin
+      salesProfit: userRole === 'ADMIN' ? stats.salesProfit : 0,
+      shipmentProfit: userRole === 'ADMIN' ? stats.shipmentProfit : 0,
+      totalProfit: userRole === 'ADMIN' ? (stats.salesProfit + stats.shipmentProfit) : 0
     });
   }
 

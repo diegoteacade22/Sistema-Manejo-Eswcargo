@@ -12,7 +12,7 @@ import { ShipmentStatusDialog } from '@/components/shipment-status-dialog';
 
 type SortOrder = 'asc' | 'desc';
 
-async function getShipments(query: string, page: number = 1, pageSize: number = 20, sortField: string = 'date_shipped', sortOrder: SortOrder = 'desc') {
+async function getShipments(query: string, page: number = 1, pageSize: number = 20, sortField: string = 'shipment_number', sortOrder: SortOrder = 'desc') {
     const session = await auth();
     if (!session?.user) return { shipments: [], totalCount: 0, totalPages: 0 };
 
@@ -82,7 +82,7 @@ export default async function ShipmentsPage(props: { searchParams: Promise<{ q?:
     const searchParams = await props.searchParams;
     const query = searchParams?.q || '';
     const page = parseInt(searchParams?.page || '1');
-    const sort = searchParams?.sort || 'date_shipped';
+    const sort = searchParams?.sort || 'shipment_number';
     const order = (searchParams?.order as SortOrder) || 'desc';
     const pageSize = 20;
 

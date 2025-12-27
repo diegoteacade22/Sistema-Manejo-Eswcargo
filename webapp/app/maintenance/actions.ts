@@ -41,15 +41,15 @@ export async function resetDatabase() {
     }
 }
 
-export async function syncExcel() {
+export async function syncExcel(days: number = 0) {
     try {
-        console.log("Starting Excel Sync...");
-        const { stdout, stderr } = await execAsync('./sync_excel.sh');
+        console.log(`Starting Excel Sync (${days} days)...`);
+        const { stdout, stderr } = await execAsync(`./sync_excel.sh ${days}`);
         console.log("Sync Output:", stdout);
         if (stderr) console.error("Sync Errors:", stderr);
 
         revalidatePath('/', 'layout');
-        return { success: true, message: 'Actualización OK: Datos sincronizados desde Excel.' };
+        return { success: true, message: `Sincronización finalizada (${days === 0 ? 'Completa' : days + ' días'}).` };
     } catch (error: any) {
         console.error("Sync Error:", error);
         return { success: false, message: `Error al sincronizar: ${error.message}` };

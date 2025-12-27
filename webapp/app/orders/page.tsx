@@ -115,7 +115,7 @@ export default async function OrdersPage(props: { searchParams: Promise<{ q?: st
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-slate-600 dark:text-slate-300">{new Date(order.date).toLocaleDateString()}</TableCell>
-                                    <TableCell className="font-semibold text-slate-900 dark:text-slate-100">{order.client.name}</TableCell>
+                                    {isAdmin && <TableCell className="font-semibold text-slate-900 dark:text-slate-100">{order.client.name}</TableCell>}
                                     <TableCell>
                                         <Badge
                                             variant="outline"

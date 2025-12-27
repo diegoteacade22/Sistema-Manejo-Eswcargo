@@ -1,7 +1,7 @@
 
 import nodemailer from 'nodemailer';
 
-export async function sendEmail(to: string, subject: string, html: string) {
+export async function sendEmail(to: string, subject: string, html: string, attachments?: any[]) {
     const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env;
 
     if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
@@ -27,6 +27,7 @@ export async function sendEmail(to: string, subject: string, html: string) {
             to,
             subject,
             html,
+            attachments,
         });
 
         console.log('Message sent: %s', info.messageId);

@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { ShipmentStatusDialog } from '@/components/shipment-status-dialog';
+import { ShipmentNotesEditor } from '@/components/shipment-notes-editor';
 
 interface Props {
     params: Promise<{ id: string }>;
@@ -232,7 +233,7 @@ export default async function ShipmentPage(props: Props) {
                                 <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${isAdmin ? 'text-emerald-800/60' : 'text-emerald-600'}`}>
                                     Total a Cobrar Servicio
                                 </span>
-                                <div className={`${isAdmin ? 'text-7xl' : 'text-8xl'} font-mono font-black text-emerald-600 dark:text-emerald-400 mt-2 drop-shadow-sm`}>
+                                <div className={`${isAdmin ? 'text-5xl' : 'text-6xl'} font-mono font-black text-emerald-600 dark:text-emerald-400 mt-2 drop-shadow-sm`}>
                                     {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(shipment.price_total || 0)}
                                 </div>
                                 {!isAdmin && <p className="text-sm text-emerald-500 font-bold mt-4 italic bg-emerald-100/50 dark:bg-emerald-900/30 py-1 px-6 rounded-full inline-block">Valor fijado por peso y categoría de carga.</p>}
@@ -269,18 +270,27 @@ export default async function ShipmentPage(props: Props) {
                                 {shipment.date_arrived ? new Date(shipment.date_arrived).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }) : 'En proceso de tránsito'}
                             </p>
                         </div>
-                        {shipment.notes && (
+                        {isAdmin && (
                             <div className="col-span-2">
-                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Observaciones Especiales</span>
+                                <ShipmentNotesEditor
+                                    shipmentId={shipment.id}
+                                    initialNotes={shipment.notes}
+                                    currentStatus={shipment.status}
+                                />
+                            </div>
+                        )}
+                        {!isAdmin && shipment.notes && shipment.notes !== 'nan' && (
+                            <div className="col-span-2">
+                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Observaciones</span>
                                 <p className="text-sm bg-amber-50/30 dark:bg-slate-900 p-5 rounded-2xl mt-1 border border-amber-100/50 dark:border-slate-800 italic text-slate-600 dark:text-slate-400 shadow-sm leading-relaxed">
                                     "{shipment.notes}"
                                 </p>
                             </div>
                         )}
-                        <div className="col-span-2 flex flex-col md:flex-row items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-8 gap-6">
+                        <div className="col-span-2 flex flex-col md:flex-row items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4 gap-4">
                             <div className="flex flex-col">
                                 <span className="text-xs font-black text-slate-500 uppercase tracking-[0.3em]">Referencia Interna de Pago (Invoice ID)</span>
-                                <div className="text-8xl font-black text-emerald-600 dark:text-emerald-500 mt-2 tracking-tighter drop-shadow-sm">
+                                <div className="text-5xl font-black text-emerald-600 dark:text-emerald-500 mt-2 tracking-tighter drop-shadow-sm">
                                     {shipment.invoice ? Math.floor(parseFloat(shipment.invoice.replace(/[^0-9.]/g, ''))) : '---'}
                                 </div>
                             </div>
