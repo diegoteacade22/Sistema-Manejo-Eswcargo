@@ -61,6 +61,13 @@ export default function ExpensesPage() {
 
     const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
 
+    const formatAmount = (amount: number) => {
+        if (amount >= 1e12) return `USD ${(amount / 1e12).toFixed(1)}T`;
+        if (amount >= 1e9) return `USD ${(amount / 1e9).toFixed(1)}B`;
+        if (amount >= 1e6) return `USD ${(amount / 1e6).toFixed(1)}M`;
+        return `USD ${new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(amount)}`;
+    };
+
     return (
         <div className="p-8 space-y-8 animate-in fade-in duration-500">
             <div className="flex justify-between items-center">
@@ -107,9 +114,9 @@ export default function ExpensesPage() {
                             <DollarSign className="h-4 w-4" /> Egresos Totales
                         </CardTitle>
                     </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white truncate" title={totalExpenses.toString()}>
-                            USD {new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(totalExpenses)}
+                    <CardContent className="overflow-hidden">
+                        <div className="text-xl md:text-2xl lg:text-3xl font-black text-slate-900 dark:text-white break-all leading-tight" title={totalExpenses.toLocaleString()}>
+                            {formatAmount(totalExpenses)}
                         </div>
                         <p className="text-xs text-slate-500 mt-1">Acumulado según registros actuales</p>
                     </CardContent>
@@ -172,9 +179,13 @@ export default function ExpensesPage() {
                                             {expense.category}
                                         </span>
                                     </TableCell>
-                                    <TableCell className="text-slate-600 dark:text-slate-400">{expense.description}</TableCell>
-                                    <TableCell className="text-right font-black text-red-600">
-                                        USD {expense.amount.toFixed(2)}
+                                    <TableCell className="text-slate-600 dark:text-slate-400 max-w-[200px] truncate" title={expense.description}>
+                                        {expense.description}
+                                    </TableCell>
+                                    <TableCell className="text-right font-bold text-red-500 font-mono">
+                                        <span title={expense.amount.toString()}>
+                                            {formatAmount(expense.amount)}
+                                        </span>
                                     </TableCell>
                                     <TableCell className="text-center">
                                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
