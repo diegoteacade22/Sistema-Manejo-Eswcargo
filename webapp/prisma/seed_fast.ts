@@ -152,17 +152,17 @@ async function main() {
 
                 await prisma.orderItem.create({
                     data: {
-                        orderId: dbOrder.id,
-                        productId: prod?.id || null,
+                        order: { connect: { id: dbOrder.id } },
+                        product: item.sku ? { connect: { sku: item.sku } } : undefined,
                         productName: item.product_name || item.sku,
                         quantity: item.quantity,
                         unit_price: item.unit_price,
                         unit_cost: item.unit_cost,
                         subtotal: item.unit_price * item.quantity,
                         profit: item.profit,
-                        shipmentId: shipId,
+                        shipment: shipId ? { connect: { id: shipId } } : undefined,
                         status: item.status
-                    }
+                    } as any
                 });
             }
 
