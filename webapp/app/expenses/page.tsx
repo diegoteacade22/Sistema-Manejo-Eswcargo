@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Plus, Upload, Trash2, DollarSign, PieChart, Landmark } from 'lucide-react';
-import { getExpenses, createExpense, deleteExpense, importExpensesFromCsv } from './actions';
+import { getExpenses, createExpense, deleteExpense, importExpensesFromCsv, deleteAllExpenses } from './actions';
 import { toast } from 'sonner';
 
 export default function ExpensesPage() {
@@ -52,6 +52,13 @@ export default function ExpensesPage() {
         loadExpenses();
     };
 
+    const handleDeleteAll = async () => {
+        if (!confirm('⚠️ ATENCIÓN: ¿Seguro que desea eliminar TODOS los gastos? Esta acción no se puede deshacer.')) return;
+        await deleteAllExpenses();
+        toast.success('Todos los gastos han sido eliminados');
+        loadExpenses();
+    };
+
     const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
 
     return (
@@ -64,7 +71,14 @@ export default function ExpensesPage() {
                     </h1>
                     <p className="text-slate-500 mt-2 text-lg">Administración de egresos operativos y análisis de burn-rate.</p>
                 </div>
-                <div className="flex gap-4">
+                    <Button 
+                        variant="ghost" 
+                        onClick={handleDeleteAll}
+                        className="text-slate-400 hover:text-red-600 hover:bg-red-50"
+                        title="Borrar todos los gastos"
+                    >
+                        <Trash2 className="h-4 w-4" />
+                    </Button>
                     <div className="relative">
                         <input
                             type="file"
@@ -86,15 +100,15 @@ export default function ExpensesPage() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <Card className="bg-gradient-to-br from-red-50 to-white dark:from-red-950/20 dark:to-slate-900 border-red-100 dark:border-red-900 shadow-xl">
+                <Card className="bg-gradient-to-br from-red-50 to-white dark:from-red-950/20 dark:to-slate-900 border-red-100 dark:border-red-900 shadow-xl overflow-hidden">
                     <CardHeader className="pb-2">
                         <CardTitle className="text-sm font-bold text-red-600 uppercase tracking-widest flex items-center gap-2">
                             <DollarSign className="h-4 w-4" /> Egresos Totales
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-3xl font-black text-slate-900 dark:text-white">
-                            USD {new Intl.NumberFormat('en-US').format(totalExpenses)}
+                        <div className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white truncate" title={totalExpenses.toString()}>
+                            USD {new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(totalExpenses)}
                         </div>
                         <p className="text-xs text-slate-500 mt-1">Acumulado según registros actuales</p>
                     </CardContent>
@@ -182,6 +196,6 @@ export default function ExpensesPage() {
                     </TableBody>
                 </Table>
             </Card>
-        </div>
+        </div >
     );
 }

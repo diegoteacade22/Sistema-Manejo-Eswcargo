@@ -29,6 +29,11 @@ export async function deleteExpense(id: number) {
     revalidatePath('/expenses');
 }
 
+export async function deleteAllExpenses() {
+    await prisma.expense.deleteMany({});
+    revalidatePath('/expenses');
+}
+
 export async function importExpensesFromCsv(csvText: string) {
     const lines = csvText.split(/\r?\n/);
     let count = 0;
@@ -71,25 +76,29 @@ export async function importExpensesFromCsv(csvText: string) {
 
             if (isNaN(date.getTime())) continue;
 
-            // 2. Parsing de Monto (Intentar E y luego D)
-            // Limpiar todo lo que no sea número, coma o punto
-            let rawAmount = values[4] || values[3] || '0';
+            console.log(`Procesando línea ${i}: Fecha=${date.toISOString()}, Cat=${categoria}`);
+
+            // 2. Parsing de Monto (D = índice 3)
+            let rawAmount = values[3] || '0';
             let cleanAmount = rawAmount.replace(/[^0-9,.-]/g, '');
 
-            // Si hay coma y punto, asumimos punto miles y coma decimal (estilo Arg/ES)
-            // Si solo hay coma, podría ser decimal. 
-            // Para ser más robustos con "USD 30.00":
+            // Normalización de separadores
             if (cleanAmount.includes('.') && cleanAmount.includes(',')) {
+                // Formato con ambos: assumir . para miles y , para decimal
                 cleanAmount = cleanAmount.replace(/\./g, '').replace(',', '.');
             } else if (cleanAmount.includes(',')) {
+                // Solo coma: tratar como decimal
                 cleanAmount = cleanAmount.replace(',', '.');
             }
 
             const amount = parseFloat(cleanAmount);
-            if (isNaN(amount)) continue;
+            if (isNaN(amount)) {
+                console.log(`Línea ${i}: Monto inválido (${rawAmount})`);
+                continue;
+            }
 
-            // 3. Descripción (D o C)
-            const description = values[3] || values[2] || 'Sin descripción';
+            // 3. Descripción (C = índice 2)
+            const description = values[2] || 'Sin descripción';
 
             await prisma.expense.create({
                 data: {
