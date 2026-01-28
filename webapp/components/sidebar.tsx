@@ -19,7 +19,10 @@ import {
     LogOut,
     ChevronRight,
     Briefcase,
-    BadgePercent
+    BadgePercent,
+    ShieldCheck,
+    Globe,
+    Terminal
 } from 'lucide-react';
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
@@ -167,8 +170,31 @@ export function Sidebar() {
     const filteredStandalone = standaloneRoutes.filter(route => route.roles.includes(userRole));
     const filteredGroups = groups.filter(group => group.roles.includes(userRole));
 
+    // Environment Detection
+    const env = process.env.NEXT_PUBLIC_APP_ENV || (process.env.NODE_ENV === 'development' ? 'local' : 'system');
+    const isLocal = env === 'local';
+    const isProduction = process.env.NEXT_PUBLIC_VERCEL_ENV === 'production';
+    const isAdminEnv = !isLocal && !isProduction;
+
     return (
         <div className="space-y-4 py-4 flex flex-col h-full bg-[#0a0a0c] text-white border-r border-white/5 shadow-2xl">
+            {/* Environment Badge */}
+            <div className="px-6 flex items-center justify-center">
+                {isLocal ? (
+                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-[10px] font-black tracking-widest text-amber-500 uppercase">
+                        <Terminal className="h-3 w-3" /> Localhost / Dev
+                    </div>
+                ) : isAdminEnv ? (
+                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-[10px] font-black tracking-widest text-blue-500 uppercase">
+                        <ShieldCheck className="h-3 w-3" /> Entorno Admin
+                    </div>
+                ) : (
+                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-black tracking-widest text-emerald-500 uppercase">
+                        <Globe className="h-3 w-3" /> Producción
+                    </div>
+                )}
+            </div>
+
             <div className="px-3 py-2 flex-1">
                 <Link href="/" className="flex items-center pl-3 mb-10 group">
                     <div className="relative w-10 h-10 mr-3">
