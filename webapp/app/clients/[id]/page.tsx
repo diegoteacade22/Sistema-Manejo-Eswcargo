@@ -136,7 +136,7 @@ export default async function ClientPage(props: Props) {
                                     <TableRow>
                                         <TableHead className="w-[120px] font-bold text-slate-700 dark:text-slate-200">FECHA</TableHead>
                                         <TableHead className="font-bold text-slate-700 dark:text-slate-200">CONCEPTO</TableHead>
-                                        <TableHead className="text-center font-bold text-slate-700 dark:text-slate-200">REF</TableHead>
+                                        <TableHead className="font-bold text-slate-700 dark:text-slate-200">REF</TableHead>
                                         <TableHead className="text-right font-bold text-slate-700 dark:text-slate-200">MONTO</TableHead>
                                         <TableHead className="text-right font-bold text-slate-700 dark:text-slate-200">SALDO</TableHead>
                                     </TableRow>
@@ -157,18 +157,18 @@ export default async function ClientPage(props: Props) {
                                                 <TableCell className="font-medium text-slate-700 dark:text-slate-200">
                                                     {tx.description}
                                                 </TableCell>
-                                                <TableCell className="text-center text-xs text-muted-foreground">
+                                                <TableCell className="text-left text-xs text-muted-foreground">
                                                     {tx.reference || '-'}
                                                 </TableCell>
                                                 <TableCell className={`text-right font-bold font-mono ${tx.amount > 0
-                                                        ? 'text-red-600 dark:text-red-400' // Charges (Inv/Carga)
-                                                        : 'text-slate-900 dark:text-white'   // Payments (Cobros) - Black/White
+                                                    ? 'text-red-600 dark:text-red-400' // Charges (Inv/Carga)
+                                                    : 'text-slate-900 dark:text-white'   // Payments (Cobros) - Black/White
                                                     }`}>
                                                     {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Math.abs(tx.amount))}
                                                 </TableCell>
                                                 <TableCell className={`text-right font-bold font-mono ${tx.balance > 0
-                                                        ? 'text-red-600 dark:text-red-400'
-                                                        : 'text-emerald-600 dark:text-emerald-400'
+                                                    ? 'text-red-600 dark:text-red-400'
+                                                    : 'text-emerald-600 dark:text-emerald-400'
                                                     }`}>
                                                     {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(tx.balance)}
                                                 </TableCell>
