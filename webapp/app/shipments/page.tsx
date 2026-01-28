@@ -134,14 +134,16 @@ export default async function ShipmentsPage(props: { searchParams: Promise<{ q?:
                             {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                             {shipments.map((shipment: any) => (
                                 <TableRow key={shipment.id} className="hover:bg-muted/50 dark:border-slate-800 h-16 transition-colors">
-                                    <TableCell className="font-mono font-black text-slate-400 dark:text-slate-500 text-xs">#{shipment.shipment_number}</TableCell>
+                                    <TableCell className="font-bold text-violet-600 dark:text-violet-400 text-sm">#{shipment.shipment_number}</TableCell>
                                     <TableCell className="text-slate-900 dark:text-white font-black text-sm">
                                         {shipment.date_shipped ? new Date(shipment.date_shipped).toLocaleDateString() : '-'}
                                     </TableCell>
                                     <TableCell className="text-slate-900 dark:text-slate-200 font-bold text-sm">
                                         {shipment.date_arrived ? new Date(shipment.date_arrived).toLocaleDateString() : '-'}
                                     </TableCell>
-                                    <TableCell className="font-black text-slate-950 dark:text-white text-base tracking-tight">{shipment.forwarder || '-'}</TableCell>
+                                    <TableCell className="font-black text-slate-950 dark:text-white text-base tracking-tight">
+                                        {shipment.forwarder === 'UNLIMITED' ? '' : (shipment.forwarder || '-')}
+                                    </TableCell>
                                     <TableCell className="text-slate-800 dark:text-slate-100 font-bold text-sm">{shipment.client?.name || 'Varios/Stock'}</TableCell>
                                     <TableCell className="text-right font-mono font-black text-slate-950 dark:text-white text-base">
                                         {shipment.weight_fw > 0 ? shipment.weight_fw.toFixed(2) : '-'}
