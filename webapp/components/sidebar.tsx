@@ -16,6 +16,7 @@ import {
     DollarSign,
     Wrench,
     PlusCircle,
+    LogOut,
     ChevronRight,
     Briefcase,
     BadgePercent
