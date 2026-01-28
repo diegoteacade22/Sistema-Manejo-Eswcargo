@@ -18,7 +18,7 @@ export function ProfitChart({ data }: ProfitChartProps) {
         <Card className="col-span-full border-emerald-100 dark:border-emerald-900 dark:bg-slate-900 border-l-4 border-l-emerald-500 shadow-md">
             <CardHeader>
                 <CardTitle>Rentabilidad Mensual</CardTitle>
-                <CardDescription>Ganancias netas por Ventas y Envíos (Últimos 6 Meses)</CardDescription>
+                <CardDescription>Evolución histórica de ganancias netas por Ventas y Envíos</CardDescription>
             </CardHeader>
             <CardContent className="pl-2">
                 <ResponsiveContainer width="100%" height={350}>

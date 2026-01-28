@@ -353,10 +353,10 @@
   },
   {
     "old_id": 45,
-    "name": "nan",
+    "name": "Jonathan albornoz",
     "email": null,
     "phone": null,
-    "type": "CLIENTE",
+    "type": "DARLON",
     "address": null
   },
   {
@@ -409,10 +409,10 @@
   },
   {
     "old_id": 52,
-    "name": "nan",
+    "name": "WWT GROUP INC",
     "email": null,
     "phone": null,
-    "type": "CLIENTE",
+    "type": "DOMESTICO",
     "address": null
   },
   {
@@ -761,7 +761,7 @@
   },
   {
     "old_id": 96,
-    "name": "nan",
+    "name": "Nahuel Nuevo",
     "email": null,
     "phone": null,
     "type": "CLIENTE",
@@ -1217,7 +1217,7 @@
   },
   {
     "old_id": 153,
-    "name": "nan",
+    "name": "Nicolas - AudioPhones",
     "email": null,
     "phone": null,
     "type": "CLIENTE",

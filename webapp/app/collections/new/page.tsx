@@ -25,6 +25,7 @@ export default async function NewCollectionPage() {
             segment: true,
             notes: true,
             userId: true,
+            canAccess: true,
             createdAt: true,
             updatedAt: true
         },

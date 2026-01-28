@@ -17,7 +17,7 @@ echo -e "1. Verificando configuración..."
 if [ ! -f .env ]; then
     echo -e "${RED}Error: No se encuentra el archivo .env${NC}"
     echo "Creando uno por defecto apuntando a la base de datos interna..."
-    echo 'DATABASE_URL="file:/Users/diegorodriguez/sistema_gestion_importaciones/webapp/prisma/dev.db"' > .env
+    echo 'DATABASE_URL="file:/Users/diegorodriguez/02_DESARROLLO/Proyectos_Activos/sistema_gestion_importaciones/webapp/prisma/dev.db"' > .env
     echo -e "${GREEN}Archivo .env creado.${NC}"
 else
     echo -e "${GREEN}Configuración encontrada.${NC}"

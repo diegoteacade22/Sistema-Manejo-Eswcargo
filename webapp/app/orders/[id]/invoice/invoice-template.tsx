@@ -76,7 +76,7 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
                         </div>
                         <div>
                             <h3 className="font-bold text-slate-800">Invoice #{order.order_number}</h3>
-                            <p className="text-sm text-slate-500">Generado el {new Date().toLocaleDateString()}</p>
+                            <p className="text-sm text-slate-500" suppressHydrationWarning>Generado el {new Date().toLocaleDateString()}</p>
                         </div>
                     </div>
                     <div className="flex gap-3">

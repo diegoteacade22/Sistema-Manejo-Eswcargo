@@ -28,6 +28,7 @@ model Client {
   state        String?
   zipCode      String?
   userId       String?       @unique
+  canAccess    Boolean       @default(true)
   user         User?         @relation(fields: [userId], references: [id])
   orders       Order[]
   shipments    Shipment[]

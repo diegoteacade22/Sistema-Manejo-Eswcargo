@@ -98,6 +98,15 @@ export async function submitOrder(data: {
             return order;
         });
 
+        // Recalculate Shipment Stats for all affected shipments
+        // (Do this OUTSIDE the transaction for performance/deadlock safety, as it's a recalibration)
+        if (shipmentMap.size > 0) {
+            // We can iterate the map values (shipment IDs)
+            for (const sId of shipmentMap.values()) {
+                await recalculateShipmentStats(sId);
+            }
+        }
+
         revalidatePath('/orders');
         revalidatePath('/clients');
         revalidatePath('/');
@@ -134,74 +143,83 @@ export async function registerPayment(clientId: number, amount: number, descript
     }
 }
 
+export async function registerShipmentCharge(shipmentId: number, clientId: number, amount: number, notes?: string) {
+    try {
+        const shipment = await prisma.shipment.findUnique({
+            where: { id: shipmentId },
+            select: { shipment_number: true }
+        });
+
+        if (!shipment) return { success: false, message: 'Envío no encontrado' };
+
+        // Create Debit Transaction
+        await prisma.transaction.create({
+            data: {
+                clientId,
+                type: 'CARGO', // Debit/Charge
+                amount: amount, // Positive = Debt
+                date: new Date(),
+                description: `CARGA #${shipment.shipment_number} ${notes ? '- ' + notes : ''}`,
+                reference: `SHIP-${shipment.shipment_number}`
+            } as any
+        });
+
+        revalidatePath(`/clients/${clientId}`);
+        revalidatePath('/shipments');
+        return { success: true };
+
+    } catch (error) {
+        console.error('Error registering shipment charge:', error);
+        return { success: false, message: 'Error al registrar el cargo del envío' };
+    }
+}
+
 // Helper to recalc shipment stats
 async function recalculateShipmentStats(shipmentId: number) {
     if (!shipmentId) return;
 
-    // Fetch all orders for this shipment
-    const orders = await prisma.order.findMany({
-        where: { shipmentId },
-        include: { items: true }
+    // Fetch all items assigned to this shipment EITHER directly OR via parent Order
+    const shipmentItems = await prisma.orderItem.findMany({
+        where: {
+            OR: [
+                { shipmentId: shipmentId },
+                { order: { shipmentId: shipmentId } }
+            ]
+        },
+        include: { product: true, order: true }
     });
 
-    let totalWeight = 0; // We define weight as purely conceptual or if we had a weight field. 
-    // Current schema has weight_fw and weight_cli on Shipment, 
-    // but Orders don't store weight explicitly per item in schema shown, 
-    // except Product model has 'weight'. 
-    // Let's assume we want to sum price/cost for now as primary stats.
-    // Wait, Schema has 'Shipment.weight_cli' and 'Shipment.weight_fw'.
-    // If we want to auto-update 'weight', we need weight from items.
-    // Let's check Product model. Product has 'weight'.
-
-    // Let's fetch products to get weights if possible, or just sum counts/values for now as user asked for "actualizacion" generally.
-    // User specifically mentioned: "en Pedidos a Marcos Rocu el numero 2255 al envio 808 ... no figura esa actualizacion".
-    // This implies that linking an Order to a Shipment should update the Shipment's summary (Client Name if single client? Total Price? Item Count?).
-
-    // 1. Calculate financial aggregates from Orders
+    let totalWeight = 0;
     let totalCost = 0;
     let totalPrice = 0;
     let itemCount = 0;
     let profit = 0;
 
-    // Also try to guess weight from products?
-    // We need to fetch order items with products.
-    // Let's do a refined query.
+    // We prefer "Client" from the orders. 
+    // If mixed clients, we might set null or keep first.
+    const uniqueClientIds = new Set<number>();
 
-    const shipmentOrders = await prisma.order.findMany({
-        where: { shipmentId },
-        include: {
-            items: {
-                include: { product: true }
-            }
+    for (const item of shipmentItems) {
+        // Sum quantities for "Cantidad Artículos"
+        itemCount += item.quantity;
+
+        // Sum financial totals
+        totalCost += (item.unit_cost * item.quantity);
+        totalPrice += (item.unit_price * item.quantity);
+        profit += (item.profit);
+
+        // Sum weights if product has it
+        if (item.product?.weight) {
+            totalWeight += (item.product.weight * item.quantity);
         }
-    });
 
-    for (const ord of shipmentOrders) {
-        // totalPrice += ord.total_amount; // Use order total or sum items
-        // Let's sum items to be precise
-        for (const item of ord.items) {
-            itemCount += item.quantity;
-            totalCost += (item.unit_cost * item.quantity);
-            totalPrice += (item.unit_price * item.quantity);
-            profit += (item.profit);
-
-            // Weight logic: 
-            // If product has weight, add it.
-            if (item.product?.weight) {
-                totalWeight += (item.product.weight * item.quantity);
-            }
-        }
+        if (item.order?.clientId) uniqueClientIds.add(item.order.clientId);
     }
 
+    // Determine main client
+    const newClientId = uniqueClientIds.size === 1 ? [...uniqueClientIds][0] : undefined;
+
     // Update Shipment
-    // Also, if shipment has only 1 client, maybe update clientId? 
-    // Or if mixed, set to null? 
-    // The user screenshot shows "Marcos Roku" in Client section. 
-    // We should infer Client if all orders belong to same client.
-
-    const uniqueClientIds = new Set(shipmentOrders.map(o => o.clientId));
-    const newClientId = uniqueClientIds.size === 1 ? [...uniqueClientIds][0] : null;
-
     await (prisma as any).shipment.update({
         where: { id: shipmentId },
         data: {
@@ -209,22 +227,11 @@ async function recalculateShipmentStats(shipmentId: number) {
             cost_total: totalCost,
             price_total: totalPrice,
             profit: profit,
-            // If we have calculated weight, maybe update weight_cli or weight_fw? 
-            // Let's update weight_cli as a sum of products weight? 
-            // User manually edits these usually, so maybe only update if 0? 
-            // For now, let's update financial totals which is critical.
-            // And item count.
-            // And Client ID.
             ...(newClientId ? { clientId: newClientId } : {}),
-
-            // Update weight only if we found some, to act as auto-calc? 
-            // Actually, usually users enter weight manually from Fedex/DHL.
-            // But let's leave weight alone unless we are sure.
-            // The prompt implies "no figura esa actualizacion", referring to the Client Name update likely.
-            // Because he assigned order 2255 (Marcos) to Shipment 808.
         }
     });
 }
+
 
 export async function updateOrderStatus(orderId: number, status: string, shipmentId?: number | null) {
     try {
@@ -355,9 +362,24 @@ export async function createClient(data: {
     zipCode?: string;
     country?: string;
     notes?: string;
+    canAccess?: boolean;
 }) {
     try {
-        await prisma.client.create({ data });
+        // canAccess is valid but if the IDE shows red, Restart TS Server (Cmd+Shift+P)
+        await prisma.client.create({
+            data: {
+                name: data.name,
+                document_id: data.document_id,
+                email: data.email,
+                phone: data.phone,
+                address: data.address,
+                city: data.city,
+                state: data.state,
+                country: data.country,
+                notes: data.notes,
+                canAccess: data.canAccess ?? true
+            } as any
+        });
         revalidatePath('/clients');
         return { success: true };
     } catch (error: any) {
@@ -377,11 +399,23 @@ export async function updateClient(id: number, data: {
     zipCode?: string;
     country?: string;
     notes?: string;
+    canAccess?: boolean;
 }) {
     try {
         await prisma.client.update({
             where: { id },
-            data
+            data: {
+                name: data.name,
+                document_id: data.document_id,
+                email: data.email,
+                phone: data.phone,
+                address: data.address,
+                city: data.city,
+                state: data.state,
+                country: data.country,
+                notes: data.notes,
+                canAccess: data.canAccess
+            } as any
         });
         revalidatePath('/clients');
         revalidatePath(`/clients/${id}`);
@@ -550,6 +584,9 @@ export async function updateShipment(data: {
             where: { shipmentId: data.id },
             data: { status: targetOrderStatus }
         });
+
+        // Force recalculate stats to ensure consistency
+        await recalculateShipmentStats(data.id);
 
         revalidatePath('/shipments');
         revalidatePath(`/shipments/${data.id}`);

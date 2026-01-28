@@ -4,7 +4,8 @@ import puppeteer from 'puppeteer';
 export async function generatePdfFromHtml(html: string) {
     const browser = await puppeteer.launch({
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        executablePath: '/Users/diegorodriguez/.cache/puppeteer/chrome/mac_arm-143.0.7499.169/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'
     });
     const page = await browser.newPage();
 

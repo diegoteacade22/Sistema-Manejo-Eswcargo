@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
 
 async function main() {
     console.log("🚀 Iniciando Sembrado Rápido (Consolidado)...");
@@ -22,7 +22,7 @@ async function main() {
     const [dbClients, dbProducts, dbShipments, dbOrders] = await Promise.all([
         prisma.client.findMany({ select: { id: true, old_id: true, name: true, email: true, phone: true } }),
         prisma.product.findMany({ select: { id: true, sku: true, lp1: true, stock: true } }),
-        (prisma as any).shipment.findMany({ select: { id: true, shipment_number: true, status: true, notes: true } }),
+        (prisma as any).shipment.findMany({ select: { id: true, shipment_number: true, status: true, notes: true, forwarder: true, weight_fw: true, price_total: true, cost_total: true, date_shipped: true, date_arrived: true, clientId: true } }),
         prisma.order.findMany({
             select: {
                 id: true,
@@ -51,25 +51,47 @@ async function main() {
     // 3. PROCESAR CLIENTES (Diferencial)
     console.log(`👥 Sincronizando ${clientsData.length} clientes...`);
     for (const c of clientsData) {
-        const existing = clientOldIdMap.get(c.old_id);
+        let existing = clientOldIdMap.get(c.old_id);
         if (!existing) {
-            await prisma.client.create({ data: c });
+            existing = await prisma.client.create({ data: c });
+            if (c.old_id) clientOldIdMap.set(c.old_id, existing);
+            if (c.name) clientNameMap.set(c.name.trim().toUpperCase(), existing);
         } else {
             // Solo actualizar si hay cambios en campos básicos
             if (existing.name !== c.name) {
-                await prisma.client.update({ where: { id: existing.id }, data: { name: c.name, type: c.type } });
+                existing = await prisma.client.update({ where: { id: existing.id }, data: { name: c.name, type: c.type } });
+                if (c.old_id) clientOldIdMap.set(c.old_id, existing);
+                if (c.name) clientNameMap.set(c.name.trim().toUpperCase(), existing);
             }
         }
     }
 
+    // 3.5 Asegurar que existe CLIENTE DESCONOCIDO para fallbacks
+    let unknownClient = clientNameMap.get("CLIENTE DESCONOCIDO");
+    if (!unknownClient) {
+        console.log("⚠️ Creando 'CLIENTE DESCONOCIDO' para asignaciones fallidas...");
+        unknownClient = await prisma.client.create({
+            data: {
+                name: "CLIENTE DESCONOCIDO",
+                type: "SYSTEM",
+                notes: "Cliente generado automáticamente para pedidos sin cliente identificado"
+            }
+        });
+        clientNameMap.set("CLIENTE DESCONOCIDO", unknownClient);
+    }
+    const unknownClientId = unknownClient.id;
+
+
     // 4. PROCESAR PRODUCTOS
     console.log(`📦 Sincronizando ${productsData.length} productos...`);
     for (const p of productsData) {
-        const existing = productSkuMap.get(p.sku);
+        let existing = productSkuMap.get(p.sku);
         if (!existing) {
-            await prisma.product.create({ data: p });
+            existing = await prisma.product.create({ data: p });
+            productSkuMap.set(p.sku, existing);
         } else if (existing.lp1 !== p.lp1 || existing.stock !== p.stock) {
-            await prisma.product.update({ where: { id: existing.id }, data: p });
+            existing = await prisma.product.update({ where: { id: existing.id }, data: p });
+            productSkuMap.set(p.sku, existing);
         }
     }
 
@@ -83,7 +105,9 @@ async function main() {
     console.log(`🚛 Sincronizando ${shipmentsData.length} envíos...`);
     for (const s of shipmentsData) {
         const existing = shipmentNumMap.get(s.shipment_number);
-        const dbClientId = s.old_client_id ? clientOldIdMap.get(s.old_client_id)?.id : null;
+        const dbClientId = s.old_client_id
+            ? clientOldIdMap.get(s.old_client_id)?.id
+            : (s.client_name_match ? clientNameMap.get(s.client_name_match.trim().toUpperCase())?.id : null);
 
         const data = {
             ...s,
@@ -92,11 +116,32 @@ async function main() {
             date_arrived: parseSafeDate(s.date_arrived)
         };
         delete (data as any).old_client_id;
+        delete (data as any).client_name_match;
 
         if (!existing) {
-            await (prisma as any).shipment.create({ data });
-        } else if (existing.status !== s.status || existing.notes !== s.notes) {
-            await (prisma as any).shipment.update({ where: { id: existing.id }, data });
+            const created = await (prisma as any).shipment.create({ data });
+            shipmentNumMap.set(s.shipment_number, created);
+        } else {
+            // Check for relevant changes to avoid unnecessary writes, but include ALL visible fields
+            const shippedTime = data.date_shipped?.getTime() || 0;
+            const arrivedTime = data.date_arrived?.getTime() || 0;
+            const existingShipped = existing.date_shipped?.getTime() || 0;
+            const existingArrived = existing.date_arrived?.getTime() || 0;
+
+            const hasChanges =
+                existing.status !== s.status ||
+                existing.notes !== s.notes ||
+                existing.forwarder !== s.forwarder ||
+                existing.weight_fw !== s.weight_fw ||
+                existing.price_total !== s.price_total ||
+                existing.cost_total !== s.cost_total ||
+                shippedTime !== existingShipped ||
+                arrivedTime !== existingArrived ||
+                existing.clientId !== dbClientId; // Also update if client changed
+
+            if (hasChanges) {
+                await (prisma as any).shipment.update({ where: { id: existing.id }, data });
+            }
         }
     }
 
@@ -118,7 +163,7 @@ async function main() {
 
         const orderData = {
             order_number: o.order_number,
-            clientId: dbClientId || 1, // Fallback to unknown if needed
+            clientId: dbClientId || unknownClientId, // Fallback to 'Unknown Client' instead of ID 1
             date: orderDate,
             status: o.status,
             total_amount: totalAmount,
@@ -132,7 +177,7 @@ async function main() {
             });
         } else {
             // Comparación simple de cabecera
-            if (existing.status !== o.status || existing.total_amount !== o.total_amount) {
+            if (existing.status !== o.status || existing.total_amount !== o.total_amount || existing.clientId !== (dbClientId || unknownClientId)) {
                 dbOrder = await prisma.order.update({
                     where: { id: existing.id },
                     data: orderData as any
@@ -144,7 +189,9 @@ async function main() {
 
         // ITEMS: Solo si el pedido es nuevo o hubo cambios (simplificado: siempre sync items si queremos ser precisos, pero vamos a optimizar)
         // Para ir "enorme", solo borramos si cambió el total o si es nuevo
-        if (!existing || existing.total_amount !== o.total_amount) {
+        // Always sync items for processed orders to ensure linkage/updates
+        // (Removing the existing.total_amount check because we need to fix relations even if total is same)
+        if (true) {
             await prisma.orderItem.deleteMany({ where: { orderId: dbOrder.id } });
             for (const item of o.items) {
                 const prod = productSkuMap.get(item.sku);
@@ -153,8 +200,8 @@ async function main() {
                 await prisma.orderItem.create({
                     data: {
                         order: { connect: { id: dbOrder.id } },
-                        product: item.sku ? { connect: { sku: item.sku } } : undefined,
-                        productName: item.product_name || item.sku,
+                        product: (item.sku && productSkuMap.has(item.sku)) ? { connect: { sku: item.sku } } : undefined,
+                        productName: item.product_name || item.sku || "Producto sin Nombre",
                         quantity: item.quantity,
                         unit_price: item.unit_price,
                         unit_cost: item.unit_cost,
@@ -195,7 +242,7 @@ async function main() {
         }
 
         orderCounter++;
-        if (orderCounter % 100 === 0) console.log(`   ...procesados ${orderCounter} pedidos`);
+        console.log(`   ...procesados ${orderCounter} pedidos (Order ${o.order_number})`);
     }
 
     const endTime = Date.now();

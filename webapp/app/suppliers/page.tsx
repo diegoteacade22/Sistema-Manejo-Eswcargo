@@ -23,9 +23,9 @@ async function getSuppliers(query: string, sortField: string = 'operations', sor
     return await (prisma as any).supplier.findMany({
         where: {
             OR: [
-                { name: { contains: query } },
-                { contact: { contains: query } },
-                { email: { contains: query } }
+                { name: { contains: query, mode: 'insensitive' } },
+                { contact: { contains: query, mode: 'insensitive' } },
+                { email: { contains: query, mode: 'insensitive' } }
             ]
         },
         orderBy

@@ -37,7 +37,8 @@ async function getOrderDetails(id: string, userSession: any) {
             shipment: true,
             items: {
                 include: {
-                    product: true
+                    product: true,
+                    shipment: true // Include shipment for items
                 }
             }
         }
@@ -62,6 +63,12 @@ export default async function OrderPage(props: Props) {
     }
 
     const isAdmin = (session.user as any).role === 'ADMIN';
+
+    // Determine effective shipment (Order level or Item level fallback)
+    // We assume if items have different shipments, we show the first one or logic to indicate split?
+    // For now, usually all items go together.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const effectiveShipment = (order as any).shipment || (order as any).items.find((i: any) => i.shipment)?.shipment;
 
     // Fetch active shipments for the dropdown (Admin only)
     let shipments: any[] = [];
@@ -156,7 +163,7 @@ export default async function OrderPage(props: Props) {
                                     <OrderStatusDialog
                                         orderId={order.id}
                                         currentStatus={order.status}
-                                        currentShipmentId={order.shipmentId}
+                                        currentShipmentId={effectiveShipment?.id}
                                         shipments={shipments}
                                     />
                                 ) : (
@@ -169,9 +176,9 @@ export default async function OrderPage(props: Props) {
                         <div>
                             <span className="text-sm font-medium text-muted-foreground">Envío Asignado</span>
                             <div className="mt-1">
-                                {(order as any).shipment ? (
-                                    <Link href={`/shipments/${(order as any).shipment.id}`} className="inline-flex items-center px-4 py-1.5 rounded-xl text-xs font-black bg-fuchsia-600 text-white hover:bg-fuchsia-700 transition-colors uppercase tracking-wider shadow-lg shadow-fuchsia-500/20">
-                                        Envío #{(order as any).shipment.shipment_number}
+                                {effectiveShipment ? (
+                                    <Link href={`/shipments/${effectiveShipment.id}`} className="inline-flex items-center px-4 py-1.5 rounded-xl text-xs font-black bg-fuchsia-600 text-white hover:bg-fuchsia-700 transition-colors uppercase tracking-wider shadow-lg shadow-fuchsia-500/20">
+                                        Envío #{effectiveShipment.shipment_number}
                                     </Link>
                                 ) : (
                                     <span className="text-sm text-muted-foreground italic bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">Sin asignar aún</span>

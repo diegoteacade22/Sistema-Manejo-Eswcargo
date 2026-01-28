@@ -35,12 +35,30 @@ async function getOrders(query: string, sortField: string = 'date', sortOrder: S
 
     if (query) {
         const asNumber = parseInt(query);
+        const orConditions: any[] = [];
+
+        // Always search client name (insensitive) if not a specific client user
+        if (!clientId) {
+            orConditions.push({
+                client: {
+                    name: { contains: query, mode: 'insensitive' }
+                }
+            });
+        }
+
+        // If query looks like a number, allowing searching by exact order number
         if (!isNaN(asNumber)) {
-            whereClause.order_number = asNumber;
-        } else if (!clientId) {
-            whereClause.client = {
-                name: { contains: query }
-            };
+            orConditions.push({ order_number: asNumber });
+        }
+
+        // If simple string search, maybe we want to support 'partial' order number? 
+        // Prisma/Postgres integer fields don't support 'contains'. 
+        // But users often search '66' expecting order '66'. 
+        // Logic above handles exact '66'. 
+        // If they want '166', they must type '166'.
+
+        if (orConditions.length > 0) {
+            whereClause.OR = orConditions;
         }
     }
 

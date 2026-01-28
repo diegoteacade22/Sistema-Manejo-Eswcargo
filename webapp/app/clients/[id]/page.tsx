@@ -20,7 +20,7 @@ async function getClientDetails(id: string) {
         where: { id: clientId },
         include: {
             transactions: {
-                orderBy: { date: 'desc' },
+                orderBy: { date: 'asc' }, // Ascending for Check Register style
             },
             orders: {
                 orderBy: { date: 'desc' },
@@ -40,9 +40,26 @@ export default async function ClientPage(props: Props) {
         return <div>Cliente no encontrado</div>;
     }
 
-    // Calculate Balance
+    // Calculate Balance and Running Balances
+    let runningBalance = 0;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const balance = client.transactions.reduce((acc: any, t: any) => acc + t.amount, 0);
+    const transactionsWithBalance = client.transactions.map((tx: any) => {
+        runningBalance += tx.amount;
+        return { ...tx, balance: runningBalance };
+    });
+
+    // Sort descending for display if preferred, OR keep ascending to match Excel.
+    // User Excel shows OLD -> NEW (Ascending). 
+    // Usually web apps show NEW -> OLD. 
+    // IF we show NEW -> OLD (Desc), the logic is: 
+    // Top Row Balance = Final Balance.
+    // Next Row Balance = Top Row Balance - Top Row Amount.
+    // BUT the user excel is explicitly Ascending. I will stick to Ascending as requested for "Cuenta Corriente".
+
+    // Actually, looking at the excel, it ends on 01/14/2026. It is chronological.
+    // I will render Ascending.
+
+    const finalBalance = runningBalance;
 
     return (
         <div className="p-8 space-y-8">
@@ -83,16 +100,16 @@ export default async function ClientPage(props: Props) {
                 </Card>
 
                 {/* Balance Card */}
-                <Card className={balance > 0 ? "border-red-500 bg-red-50 dark:bg-red-900/10" : "border-green-500 bg-green-50 dark:bg-green-900/10"}>
+                <Card className={finalBalance > 0 ? "border-red-500 bg-red-50 dark:bg-red-900/10" : "border-green-500 bg-green-50 dark:bg-green-900/10"}>
                     <CardHeader>
                         <CardTitle>Saldo Actual (Cta Cte)</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className={`text-4xl font-bold ${balance > 0 ? 'text-red-700 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}>
-                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(balance)}
+                        <div className={`text-4xl font-bold ${finalBalance > 0 ? 'text-red-700 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}>
+                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(finalBalance)}
                         </div>
                         <p className="text-sm text-muted-foreground mt-2">
-                            {balance > 0 ? 'El cliente DEBE este monto' : 'El cliente tiene saldo A FAVOR'}
+                            {finalBalance > 0 ? 'El cliente DEBE este monto' : 'El cliente tiene saldo A FAVOR'}
                         </p>
                         <div className="mt-4 flex flex-wrap gap-2">
                             <Button size="sm" variant="secondary"><Printer className="mr-2 h-4 w-4" /> Estado Cuenta</Button>
@@ -105,39 +122,62 @@ export default async function ClientPage(props: Props) {
 
             {/* Transactions History */}
             <div className="grid gap-4 md:grid-cols-1">
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Movimientos de Cuenta Corriente</CardTitle>
+                <Card className="shadow-md">
+                    <CardHeader className="bg-slate-100 dark:bg-slate-800/50">
+                        <CardTitle className="flex justify-between items-center">
+                            <span>Cuenta Corriente</span>
+                            <span className="text-sm font-normal text-muted-foreground">Movimientos Históricos</span>
+                        </CardTitle>
                     </CardHeader>
-                    <CardContent>
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Fecha</TableHead>
-                                    <TableHead>Descripción</TableHead>
-                                    <TableHead>Tipo</TableHead>
-                                    <TableHead className="text-right">Monto</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                                {client.transactions.map((tx: any) => (
-                                    <TableRow key={tx.id}>
-                                        <TableCell>{new Date(tx.date).toLocaleDateString()}</TableCell>
-                                        <TableCell>{tx.description}</TableCell>
-                                        <TableCell>
-                                            <Badge variant={tx.type === 'CARGO' ? 'destructive' : 'default'}>
-                                                {tx.type}
-                                            </Badge>
-                                        </TableCell>
-                                        <TableCell className={`text-right font-medium ${tx.amount > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
-                                            {tx.amount > 0 ? '+' : ''}
-                                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(tx.amount)}
-                                        </TableCell>
+                    <CardContent className="p-0">
+                        <div className="rounded-md border">
+                            <Table>
+                                <TableHeader className="bg-slate-200 dark:bg-slate-800">
+                                    <TableRow>
+                                        <TableHead className="w-[120px] font-bold text-slate-700 dark:text-slate-200">FECHA</TableHead>
+                                        <TableHead className="font-bold text-slate-700 dark:text-slate-200">CONCEPTO</TableHead>
+                                        <TableHead className="text-center font-bold text-slate-700 dark:text-slate-200">REF</TableHead>
+                                        <TableHead className="text-right font-bold text-slate-700 dark:text-slate-200">MONTO</TableHead>
+                                        <TableHead className="text-right font-bold text-slate-700 dark:text-slate-200">SALDO</TableHead>
                                     </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
+                                </TableHeader>
+                                <TableBody>
+                                    {transactionsWithBalance.length === 0 ? (
+                                        <TableRow>
+                                            <TableCell colSpan={5} className="text-center h-24 text-muted-foreground">
+                                                No hay movimientos registrados.
+                                            </TableCell>
+                                        </TableRow>
+                                    ) : (
+                                        transactionsWithBalance.map((tx: any) => (
+                                            <TableRow key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                                                <TableCell className="font-mono text-sm">
+                                                    {new Date(tx.date).toLocaleDateString()}
+                                                </TableCell>
+                                                <TableCell className="font-medium text-slate-700 dark:text-slate-200">
+                                                    {tx.description}
+                                                </TableCell>
+                                                <TableCell className="text-center text-xs text-muted-foreground">
+                                                    {tx.reference || '-'}
+                                                </TableCell>
+                                                <TableCell className={`text-right font-bold font-mono ${tx.amount > 0
+                                                        ? 'text-red-600 dark:text-red-400' // Charges (Inv/Carga)
+                                                        : 'text-slate-900 dark:text-white'   // Payments (Cobros) - Black/White
+                                                    }`}>
+                                                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Math.abs(tx.amount))}
+                                                </TableCell>
+                                                <TableCell className={`text-right font-bold font-mono ${tx.balance > 0
+                                                        ? 'text-red-600 dark:text-red-400'
+                                                        : 'text-emerald-600 dark:text-emerald-400'
+                                                    }`}>
+                                                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(tx.balance)}
+                                                </TableCell>
+                                            </TableRow>
+                                        ))
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </div>
                     </CardContent>
                 </Card>
             </div>

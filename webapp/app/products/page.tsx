@@ -23,8 +23,8 @@ async function getProducts(query: string, page: number = 1, pageSize: number = 2
             { active: true },
             {
                 OR: [
-                    { name: { contains: query } },
-                    { sku: { contains: query } }
+                    { name: { contains: query, mode: 'insensitive' } },
+                    { sku: { contains: query, mode: 'insensitive' } }
                 ]
             }
         ]

@@ -9,6 +9,7 @@ import { Suspense } from 'react';
 import { SearchInput } from '@/components/search-input';
 import { SortableColumn } from '@/components/ui/sortable-column';
 import { ShipmentStatusDialog } from '@/components/shipment-status-dialog';
+import { ShipmentChargeDialog } from '@/components/shipment-charge-dialog';
 
 type SortOrder = 'asc' | 'desc';
 
@@ -36,10 +37,10 @@ async function getShipments(query: string, page: number = 1, pageSize: number = 
 
     if (query) {
         where.OR = [
-            { forwarder: { contains: query } },
+            { forwarder: { contains: query, mode: 'insensitive' } },
         ];
         if (!clientId) {
-            where.OR.push({ client: { name: { contains: query } } });
+            where.OR.push({ client: { name: { contains: query, mode: 'insensitive' } } });
         }
         // If query is a number, try exact match on shipment_number
         if (!isNaN(parseInt(query))) {
@@ -150,7 +151,14 @@ export default async function ShipmentsPage(props: { searchParams: Promise<{ q?:
                                     <TableCell>
                                         <ShipmentStatusDialog shipment={shipment} />
                                     </TableCell>
-                                    <TableCell className="text-right">
+                                    <TableCell className="text-right flex items-center justify-end gap-1">
+                                        <ShipmentChargeDialog
+                                            shipmentId={shipment.id}
+                                            shipmentNumber={shipment.shipment_number || 0}
+                                            clientId={shipment.clientId}
+                                            clientName={shipment.client?.name}
+                                            currentCost={shipment.price_total || undefined}
+                                        />
                                         <Button variant="ghost" size="icon" className="h-9 w-9 hover:bg-fuchsia-100 dark:hover:bg-fuchsia-900/40" asChild>
                                             <Link href={`/shipments/${shipment.id}`}>
                                                 <Plane className="h-5 w-5 text-slate-400 hover:text-fuchsia-600 dark:text-slate-500" />

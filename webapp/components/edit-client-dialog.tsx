@@ -6,10 +6,14 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { createClient, updateClient } from '@/app/actions';
+import { generateClientCredentials } from '@/app/user-actions';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Edit2, Loader2 } from 'lucide-react';
+import { Plus, Edit2, Loader2, ShieldCheck, ShieldAlert, Key, Copy, Check } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 
 const PHONE_COUNTRY_MAP: Record<string, string> = {
@@ -53,6 +57,8 @@ interface EditClientDialogProps {
         state?: string | null;
         country?: string | null;
         notes?: string | null;
+        canAccess?: boolean;
+        userId?: string | null;
     };
     mode: 'create' | 'edit';
     trigger?: React.ReactNode;
@@ -73,6 +79,11 @@ export function EditClientDialog({ client, mode, trigger }: EditClientDialogProp
     const [state, setState] = useState('');
     const [country, setCountry] = useState('');
     const [notes, setNotes] = useState('');
+    const [canAccess, setCanAccess] = useState(true);
+
+    // Generated Creds State
+    const [generatedCreds, setGeneratedCreds] = useState<{ username: string, password: string } | null>(null);
+    const [isGenerating, setIsGenerating] = useState(false);
 
     // Control for custom state input
     const [showCustomState, setShowCustomState] = useState(false);
@@ -88,6 +99,8 @@ export function EditClientDialog({ client, mode, trigger }: EditClientDialogProp
             setState(client.state || '');
             setCountry(client.country || '');
             setNotes(client.notes || '');
+            setCanAccess(client.canAccess ?? true);
+            setGeneratedCreds(null); // Reset on open
 
             // If editing and state is not in list but country is Argentina, show custom.
             // Or if country is not Argentina, show custom.
@@ -105,7 +118,9 @@ export function EditClientDialog({ client, mode, trigger }: EditClientDialogProp
             setState('');
             setCountry('');
             setNotes('');
+            setCanAccess(true);
             setShowCustomState(false);
+            setGeneratedCreds(null);
         }
     }, [open, client, mode]);
 
@@ -149,7 +164,7 @@ export function EditClientDialog({ client, mode, trigger }: EditClientDialogProp
 
         startTransition(async () => {
             let result;
-            const data = { name, document_id: documentId, email, phone, address, city, state, country, notes };
+            const data = { name, document_id: documentId, email, phone, address, city, state, country, notes, canAccess };
 
             if (mode === 'create') {
                 result = await createClient(data);
@@ -160,10 +175,48 @@ export function EditClientDialog({ client, mode, trigger }: EditClientDialogProp
             if (result?.success) {
                 setOpen(false);
                 router.refresh(); // Refresh to get updated data
+                toast.success('Cliente guardado correctamente');
             } else {
-                alert(result?.message || 'Error al guardar');
+                toast.error(result?.message || 'Error al guardar');
             }
         });
+    };
+
+    const handleGenerateCredentials = async () => {
+        if (!client || !client.id) return;
+        if (!email) {
+            toast.error("Debe ingresar un email para generar el usuario.");
+            return;
+        }
+
+        setIsGenerating(true);
+        try {
+            // Ensure email is saved first if it changed
+            if (email !== client.email) {
+                await updateClient(client.id, {
+                    name, document_id: documentId, email, phone, address, city, state, country, notes, canAccess
+                });
+            }
+
+            const result = await generateClientCredentials(client.id);
+            if (result.success && result.credentials) {
+                setGeneratedCreds(result.credentials);
+                toast.success("Credenciales generadas exitosamente");
+                router.refresh();
+            } else {
+                toast.error(result.message || "Error generando credenciales");
+            }
+        } catch (error) {
+            console.error(error);
+            toast.error("Ocurrió un error inesperado");
+        } finally {
+            setIsGenerating(false);
+        }
+    };
+
+    const copyToClipboard = (text: string) => {
+        navigator.clipboard.writeText(text);
+        toast.success("Copiado al portapapeles");
     };
 
     return (
@@ -175,7 +228,7 @@ export function EditClientDialog({ client, mode, trigger }: EditClientDialogProp
                     </Button>
                 )}
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[500px] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-slate-700/50 shadow-2xl backdrop-blur-xl">
+            <DialogContent className="sm:max-w-[500px] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-slate-700/50 shadow-2xl backdrop-blur-xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle className="text-2xl font-bold bg-gradient-to-r from-violet-400 to-indigo-400 bg-clip-text text-transparent">
                         {mode === 'create' ? 'Nuevo Cliente' : 'Editar Cliente'}
@@ -185,6 +238,75 @@ export function EditClientDialog({ client, mode, trigger }: EditClientDialogProp
                     </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
+                    <div className={cn(
+                        "flex flex-col gap-3 p-4 rounded-2xl border transition-all duration-300",
+                        canAccess ? "bg-emerald-500/10 border-emerald-500/30" : "bg-red-500/10 border-red-500/30"
+                    )}>
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className={cn(
+                                    "p-2 rounded-xl",
+                                    canAccess ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
+                                )}>
+                                    {canAccess ? <ShieldCheck className="h-5 w-5" /> : <ShieldAlert className="h-5 w-5" />}
+                                </div>
+                                <div>
+                                    <p className={cn("text-sm font-bold leading-none", canAccess ? "text-emerald-400" : "text-red-400")}>Acceso al Portal</p>
+                                    <p className="text-[10px] opacity-70 mt-1 text-slate-300 text-balance">
+                                        {canAccess ? 'Permite el acceso. Usuario requerido.' : 'Acceso suspendido.'}
+                                    </p>
+                                </div>
+                            </div>
+                            <Switch
+                                checked={canAccess}
+                                onCheckedChange={setCanAccess}
+                            />
+                        </div>
+
+                        {/* Credential Generation Section - ONLY in Edit Mode */}
+                        {mode === 'edit' && canAccess && (
+                            <div className="mt-2 text-sm">
+                                {client?.userId ? (
+                                    <div className="flex items-center gap-2 p-2 bg-emerald-500/20 rounded border border-emerald-500/30 text-emerald-300 text-xs font-mono">
+                                        <Check className="h-3 w-3" /> Usuario Vinculado Activado
+                                    </div>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {!generatedCreds ? (
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                className="w-full border-dashed border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10"
+                                                onClick={handleGenerateCredentials}
+                                                disabled={isGenerating}
+                                            >
+                                                {isGenerating ? <Loader2 className="h-3 w-3 animate-spin mr-2" /> : <Key className="h-3 w-3 mr-2" />}
+                                                Generar Credenciales de Acceso
+                                            </Button>
+                                        ) : (
+                                            <div className="p-3 bg-slate-950 rounded border border-indigo-500/50 space-y-2 animate-in fade-in zoom-in-95">
+                                                <p className="text-xs text-indigo-300 font-bold mb-1">¡Credenciales Generadas!</p>
+                                                <div className="flex justify-between items-center bg-slate-900 p-2 rounded">
+                                                    <code className="text-xs text-slate-300">{generatedCreds.username}</code>
+                                                    <Button variant="ghost" size="icon" className="h-5 w-5 ml-2" onClick={() => copyToClipboard(generatedCreds.username)}>
+                                                        <Copy className="h-3 w-3" />
+                                                    </Button>
+                                                </div>
+                                                <div className="flex justify-between items-center bg-slate-900 p-2 rounded">
+                                                    <code className="text-xs text-orange-400 font-bold">{generatedCreds.password}</code>
+                                                    <Button variant="ghost" size="icon" className="h-5 w-5 ml-2" onClick={() => copyToClipboard(generatedCreds.password)}>
+                                                        <Copy className="h-3 w-3" />
+                                                    </Button>
+                                                </div>
+                                                <p className="text-[10px] text-slate-500 text-center mt-1">Comparte estos datos con el cliente.</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+
                     <div className="grid gap-2">
                         <Label htmlFor="name" className="text-slate-200 font-semibold">Nombre Completo *</Label>
                         <Input
@@ -194,6 +316,13 @@ export function EditClientDialog({ client, mode, trigger }: EditClientDialogProp
                             className="bg-slate-800/50 border-slate-600 text-white placeholder:text-slate-500 focus:border-violet-500 focus:ring-violet-500/20"
                         />
                     </div>
+                    {/* ... rest of inputs ... */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="grid gap-2">
+                            {/* ... */}
+                        </div>
+                    </div>
+                    {/* Simplified for brevity in replace, but must keep all original structure */}
                     <div className="grid grid-cols-2 gap-4">
                         <div className="grid gap-2">
                             <Label htmlFor="documentId" className="text-slate-200 font-semibold">DNI / CUIT</Label>

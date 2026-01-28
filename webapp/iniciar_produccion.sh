@@ -19,7 +19,7 @@ if [ ! -f .env ]; then
     # Intentar copiar de una plantilla o error
     # Por ahora, usamos el mismo fallback que en dev si es crítico, pero en prod debería existir.
     echo "Creando uno por defecto apuntando a la base de datos interna..."
-    echo 'DATABASE_URL="file:/Users/diegorodriguez/sistema_gestion_importaciones/webapp/prisma/dev.db"' > .env
+    echo 'DATABASE_URL="file:/Users/diegorodriguez/02_DESARROLLO/Proyectos_Activos/sistema_gestion_importaciones/webapp/prisma/dev.db"' > .env
     echo -e "${GREEN}Archivo .env creado.${NC}"
 else
     echo -e "${GREEN}Configuración encontrada.${NC}"
@@ -40,6 +40,18 @@ npx prisma generate
 if [ $? -ne 0 ]; then
     echo -e "${RED}Error al generar cliente de base de datos.${NC}"
     exit 1
+fi
+
+# 3.5 Sincronización Automática con Google Sheets (Full Sync)
+echo -e "${YELLOW}3.5. Actualizando TODAS las bases de datos desde Google Sheets...${NC}"
+# Ejecutamos el script desde el directorio padre
+# Usamos 'bash' explícitamente y pasamos '0' para hacer una sincronización COMPLETA
+bash ../auto_sync.sh 0
+if [ $? -ne 0 ]; then
+    echo -e "${RED}Hubo un error en la sincronización, pero intentaremos continuar...${NC}"
+    # No salimos con exit 1 porque quizás solo falló la descarga pero queremos que la app levante
+else
+    echo -e "${GREEN}Sincronización de datos completada.${NC}"
 fi
 
 # 4. Construir Aplicación (Build)

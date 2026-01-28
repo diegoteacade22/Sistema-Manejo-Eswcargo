@@ -49,6 +49,12 @@ export async function setupClientAccount(formData: FormData) {
             return { success: false, error: 'Número de cliente no encontrado. Por favor contacte a soporte.' };
         }
 
+        // Solo denegar si es explícitamente false. 
+        // Si es undefined o null (por ejemplo si el cliente de Prisma está desactualizado), permitimos el paso.
+        if ((client as any).canAccess === false) {
+            return { success: false, error: 'Su número de cliente no está autorizado para acceder al portal. Contacte a administración.' };
+        }
+
         if ((client as any).userId) {
             return { success: false, error: 'Esta cuenta ya está activa. Por favor inicie sesión.' };
         }
@@ -83,5 +89,16 @@ export async function setupClientAccount(formData: FormData) {
     } catch (e) {
         console.error(e);
         return { success: false, error: 'Error al crear la cuenta.' };
+    }
+}
+
+export async function getClientByOldId(oldId: number) {
+    try {
+        const client = await prisma.client.findUnique({
+            where: { old_id: oldId }
+        });
+        return { success: true, data: client };
+    } catch (error) {
+        return { success: false, error: 'Error al buscar cliente.' };
     }
 }

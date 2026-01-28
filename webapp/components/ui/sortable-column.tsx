@@ -14,6 +14,7 @@ interface SortableColumnProps {
     page?: number | string;
     alignRight?: boolean;
     baseUrl: string; // e.g. "/orders", "/clients"
+    className?: string;
 }
 
 export function SortableColumn({
@@ -24,7 +25,8 @@ export function SortableColumn({
     query = "",
     page = 1,
     alignRight = false,
-    baseUrl
+    baseUrl,
+    className
 }: SortableColumnProps) {
     const isCurrent = currentSort === field;
     const nextOrder = isCurrent && currentOrder === 'desc' ? 'asc' : 'desc';
@@ -51,7 +53,7 @@ export function SortableColumn({
     // Let's keep it simple: "hover:text-primary" works if valid, otherwise just text-current.
 
     return (
-        <TableHead className={alignRight ? "text-right" : ""}>
+        <TableHead className={`${alignRight ? "text-right" : ""} ${className || ""}`}>
             <Link
                 href={href}
                 scroll={false}

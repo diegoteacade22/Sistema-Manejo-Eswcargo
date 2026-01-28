@@ -2,7 +2,7 @@
 import pandas as pd
 import os
 
-excel_path = '/Users/diegorodriguez/sistema_gestion_importaciones/VENTAS COMPRAS 2023 al 2025 Para Sistema en Gemini.xlsx'
+excel_path = '/Users/diegorodriguez/02_DESARROLLO/Proyectos_Activos/sistema_gestion_importaciones/VENTAS COMPRAS 2023 al 2025 Para Sistema en Gemini.xlsx'
 
 print(f"Reading {excel_path}...")
 df_head = pd.read_excel(excel_path, sheet_name='CABE_VENTAS') # Auto header?

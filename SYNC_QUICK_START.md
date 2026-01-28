@@ -13,7 +13,7 @@
 ### Opción 1: Script Interactivo (Recomendado)
 
 ```bash
-cd /Users/diegorodriguez/sistema_gestion_importaciones
+cd /Users/diegorodriguez/02_DESARROLLO/Proyectos_Activos/sistema_gestion_importaciones
 ./sync.sh
 ```
 

@@ -4,8 +4,8 @@ import json
 import os
 from datetime import datetime
 
-excel_path = '/Users/diegorodriguez/sistema_gestion_importaciones/VENTAS COMPRAS 2023 al 2025 Para Sistema en Gemini.xlsx'
-output_path = '/Users/diegorodriguez/sistema_gestion_importaciones/webapp/prisma/orders_seed.json'
+excel_path = '/Users/diegorodriguez/02_DESARROLLO/Proyectos_Activos/sistema_gestion_importaciones/VENTAS COMPRAS 2023 al 2025 Para Sistema en Gemini.xlsx'
+output_path = '/Users/diegorodriguez/02_DESARROLLO/Proyectos_Activos/sistema_gestion_importaciones/webapp/prisma/orders_seed.json'
 
 def extract_orders():
     # Read Header and Details
@@ -169,10 +169,20 @@ def extract_orders():
                     try:
                         client_old_id = int(client_val) 
                     except:
-                        # It's likely a name
+                        # It's likely a name or "ID - Name" string
                         raw_name = clean_text(client_val)
                         if raw_name:
-                            client_name_match = raw_name
+                            # Try to extract "123 Name" or "123 - Name"
+                            import re
+                            match = re.match(r"^(\d+)\s+[-–]?\s*(.*)$", raw_name)
+                            if match:
+                                try:
+                                    client_old_id = int(match.group(1))
+                                    client_name_match = match.group(2).strip()
+                                except:
+                                    client_name_match = raw_name
+                            else:
+                                client_name_match = raw_name
                                 
                 date_val = row.get(col_date)
                 date_str = date_val.isoformat() if hasattr(date_val, 'isoformat') else str(date_val)

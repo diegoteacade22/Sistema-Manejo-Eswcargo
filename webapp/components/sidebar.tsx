@@ -49,6 +49,7 @@ const groups: RouteGroup[] = [
             { label: 'Mis Envíos', icon: Plane, href: '/shipments', color: 'text-fuchsia-500', roles: ['ADMIN'] },
             { label: 'Artículos', icon: Package, href: '/products', color: 'text-cyan-500', roles: ['ADMIN'] },
             { label: 'Proveedores', icon: Truck, href: '/suppliers', color: 'text-orange-600', roles: ['ADMIN'] },
+            { label: 'BI: Compras', icon: ShoppingCart, href: '/analytics/purchases', color: 'text-emerald-500', roles: ['ADMIN'] },
             { label: 'BI: Logística', icon: Truck, href: '/analytics/logistics', color: 'text-orange-400', roles: ['ADMIN'] },
         ]
     },

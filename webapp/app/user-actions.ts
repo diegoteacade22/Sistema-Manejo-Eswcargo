@@ -73,3 +73,55 @@ export async function getUsers() {
         return { success: false, message: error.message };
     }
 }
+
+export async function generateClientCredentials(clientId: number) {
+    try {
+        const client = await prisma.client.findUnique({
+            where: { id: clientId },
+            include: { user: true }
+        });
+
+        if (!client) return { success: false, message: 'Cliente no encontrado' };
+        if (client.userId) return { success: false, message: 'El cliente ya tiene un usuario asignado.' };
+        if (!client.email) return { success: false, message: 'El cliente necesita un email para generar usuario.' };
+
+        // Generate Username (Email)
+        const username = client.email;
+
+        // Generate Password (Simple for now: Name123!)
+        // Clean name to be first word only, capitalized
+        const cleanName = client.name.split(' ')[0].replace(/[^a-zA-Z]/g, '');
+        const passwordRaw = `${cleanName}123!`;
+        const hashedPassword = await bcrypt.hash(passwordRaw, 10);
+
+        // Create User
+        const newUser = await prisma.user.create({
+            data: {
+                name: client.name,
+                username: username,
+                email: username,
+                password: hashedPassword,
+                role: 'CLIENT'
+            }
+        });
+
+        // Link to Client
+        await prisma.client.update({
+            where: { id: clientId },
+            data: { userId: newUser.id, canAccess: true }
+        });
+
+        revalidatePath('/clients');
+        return {
+            success: true,
+            credentials: {
+                username: username,
+                password: passwordRaw
+            }
+        };
+
+    } catch (error: any) {
+        console.error("Generate Credentials Error:", error);
+        return { success: false, message: error.message };
+    }
+}

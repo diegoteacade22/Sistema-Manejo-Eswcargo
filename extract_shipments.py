@@ -5,8 +5,8 @@ import os
 from datetime import datetime
 
 # Configuration
-excel_path = '/Users/diegorodriguez/sistema_gestion_importaciones/VENTAS COMPRAS 2023 al 2025 Para Sistema en Gemini.xlsx'
-output_path = '/Users/diegorodriguez/sistema_gestion_importaciones/webapp/prisma/shipments_seed.json'
+excel_path = '/Users/diegorodriguez/02_DESARROLLO/Proyectos_Activos/sistema_gestion_importaciones/VENTAS COMPRAS 2023 al 2025 Para Sistema en Gemini.xlsx'
+output_path = '/Users/diegorodriguez/02_DESARROLLO/Proyectos_Activos/sistema_gestion_importaciones/webapp/prisma/shipments_seed.json'
 
 def clean_text(text):
     if pd.isna(text) or str(text).lower() == 'nan': return ""

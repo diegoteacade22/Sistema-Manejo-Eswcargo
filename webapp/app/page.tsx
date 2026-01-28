@@ -4,15 +4,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Users, Package, CreditCard, ArrowRight, TrendingUp, DollarSign } from 'lucide-react';
+import { Users, Package, CreditCard, ArrowRight, TrendingUp, DollarSign, AlertCircle, Lightbulb } from 'lucide-react';
 import { SalesTrendChart } from '@/components/charts/sales-trend-chart';
 import { OrderStatusPie } from '@/components/charts/order-status-pie';
 import { ProfitChart } from '@/components/charts/profit-chart'; // New Component
 import Link from 'next/link';
 
 import { auth } from '@/lib/auth';
+import { DashboardPeriodSelector } from '@/components/analytics/dashboard-period-selector';
 
-async function getDashboardData() {
+async function getDashboardData(monthsToAnalyze: number = 6) {
   const session = await auth();
   if (!session?.user) return null;
 
@@ -50,15 +51,15 @@ async function getDashboardData() {
     totalReceivables = balance._sum.amount || 0;
   }
 
-  // 2. Date Range (Last 6 Months)
-  const sixMonthsAgo = new Date();
-  sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-  sixMonthsAgo.setHours(0, 0, 0, 0);
+  // 2. Date Range
+  const rangeStart = new Date();
+  rangeStart.setMonth(rangeStart.getMonth() - monthsToAnalyze);
+  rangeStart.setHours(0, 0, 0, 0);
 
   // 3. Fetch Orders
   const orders = await prisma.order.findMany({
     where: {
-      date: { gte: sixMonthsAgo },
+      date: { gte: rangeStart },
       status: { not: 'CANCELADO' },
       ...(clientId ? { clientId } : {})
     },
@@ -76,30 +77,38 @@ async function getDashboardData() {
   // 4. Fetch Shipments
   const shipments = await (prisma as any).shipment.findMany({
     where: {
-      date_shipped: { gte: sixMonthsAgo },
+      date_shipped: { gte: rangeStart },
       ...(clientId ? { clientId } : {})
     }
   });
 
   // 5. Data Processing for Charts
-  const monthlyStats: Record<string, { sales: number; salesProfit: number; shipmentProfit: number }> = {};
-  // ... rest of processing is the same, but using the filtered orders/shipments
+  // Use Year-Month as unique key to avoid collisions in multi-year views
+  const monthlyStats: Record<string, { sales: number; salesProfit: number; shipmentProfit: number; label: string }> = {};
 
   // Initialize months to ensure continuity
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < monthsToAnalyze; i++) {
     const d = new Date();
     d.setMonth(d.getMonth() - i);
-    const key = d.toLocaleString('default', { month: 'short' }).toUpperCase();
-    monthlyStats[key] = { sales: 0, salesProfit: 0, shipmentProfit: 0 };
+    // Key format: "YYYY-MM" for sorting/uniqueness
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    // Label format: "FEB 24"
+    const label = d.toLocaleString('default', { month: 'short', year: '2-digit' }).toUpperCase();
+
+    monthlyStats[key] = { sales: 0, salesProfit: 0, shipmentProfit: 0, label };
   }
 
   // Process Orders
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   orders.forEach((order: any) => {
     const date = new Date(order.date);
-    const key = date.toLocaleString('default', { month: 'short' }).toUpperCase();
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
-    if (!monthlyStats[key]) monthlyStats[key] = { sales: 0, salesProfit: 0, shipmentProfit: 0 };
+    // If order is outside initialized range (shouldn't happen due to filter, but safe check)
+    if (!monthlyStats[key]) {
+      const label = date.toLocaleString('default', { month: 'short', year: '2-digit' }).toUpperCase();
+      monthlyStats[key] = { sales: 0, salesProfit: 0, shipmentProfit: 0, label };
+    }
 
     // Total Sales
     monthlyStats[key].sales += order.total_amount;
@@ -119,9 +128,12 @@ async function getDashboardData() {
   shipments.forEach((shipment: any) => {
     if (!shipment.date_shipped) return;
     const date = new Date(shipment.date_shipped);
-    const key = date.toLocaleString('default', { month: 'short' }).toUpperCase();
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 
-    if (!monthlyStats[key]) monthlyStats[key] = { sales: 0, salesProfit: 0, shipmentProfit: 0 };
+    if (!monthlyStats[key]) {
+      const label = date.toLocaleString('default', { month: 'short', year: '2-digit' }).toUpperCase();
+      monthlyStats[key] = { sales: 0, salesProfit: 0, shipmentProfit: 0, label };
+    }
 
     // Shipment Profit: ONLY FOR ADMIN
     const profit = userRole === 'ADMIN'
@@ -133,15 +145,16 @@ async function getDashboardData() {
 
   // Convert to Array and Reverse (Chronological)
   const chartData = [];
-  for (let i = 5; i >= 0; i--) {
+  for (let i = monthsToAnalyze - 1; i >= 0; i--) {
     const d = new Date();
     d.setMonth(d.getMonth() - i);
-    const key = d.toLocaleString('default', { month: 'short' }).toUpperCase();
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
-    const stats = monthlyStats[key] || { sales: 0, salesProfit: 0, shipmentProfit: 0 };
+    const stats = monthlyStats[key] || { sales: 0, salesProfit: 0, shipmentProfit: 0, label: d.toLocaleString('default', { month: 'short', year: '2-digit' }).toUpperCase() };
 
     chartData.push({
-      name: key,
+      // Unique Name/Label
+      name: stats.label || key, // "FEB 24"
       total: stats.sales, // Mis Compras
       // Sensible data sent as 0 if not admin
       salesProfit: userRole === 'ADMIN' ? stats.salesProfit : 0,
@@ -190,8 +203,39 @@ async function getDashboardData() {
     }));
   }
 
-  // Calculate Total Profit for KPI Card (Sum of last 6 months)
+  // Calculate Total Profit for KPI Card (Sum of last X months)
   const totalProfitPeriod = chartData.reduce((acc, curr) => acc + (curr.totalProfit || 0), 0);
+
+  // 8. Business Intelligence Signals (Added)
+  let atRiskCount = 0;
+  let savingsOpportunities = 0;
+  if (userRole === 'ADMIN') {
+    // Clients at risk (> $5k spent, > 60 days inactive)
+    const atRiskClients = await prisma.client.findMany({
+      where: {
+        orders: { some: {} }
+      },
+      include: {
+        orders: { orderBy: { date: 'desc' }, take: 1 }
+      }
+    });
+
+    atRiskCount = atRiskClients.filter(c => {
+      const lastOrder = c.orders[0];
+      if (!lastOrder) return false;
+      const days = Math.floor((new Date().getTime() - lastOrder.date.getTime()) / (1000 * 3600 * 24));
+      return days > 60;
+    }).length;
+
+    // Sourcing Opportunities (Price variations)
+    // Simple count for now to keep it fast
+    const priceVariations = await prisma.orderItem.groupBy({
+      by: ['productName'],
+      _count: { supplierId: true },
+      having: { supplierId: { _count: { gt: 1 } } }
+    });
+    savingsOpportunities = priceVariations.length;
+  }
 
   return {
     totalReceivables,
@@ -201,12 +245,21 @@ async function getDashboardData() {
     chartData,
     statusData,
     totalProfitPeriod,
-    userRole
+    userRole,
+    atRiskCount,
+    savingsOpportunities
   };
 }
 
-export default async function DashboardPage() {
-  const data = await getDashboardData();
+// Client component wrapper for Dashboard to handle state is complex because this is a server component.
+// We will use a small client component for the selector that pushes to URL search params.
+// So we need to make DashboardPage accept searchParams.
+
+export default async function DashboardPage(props: { searchParams: Promise<{ months?: string }> }) {
+  const searchParams = await props.searchParams;
+  const months = searchParams?.months ? parseInt(searchParams.months) : 6;
+
+  const data = await getDashboardData(months);
   if (!data) return null;
 
   const {
@@ -217,7 +270,9 @@ export default async function DashboardPage() {
     chartData,
     statusData,
     totalProfitPeriod,
-    userRole
+    userRole,
+    atRiskCount,
+    savingsOpportunities
   } = data;
 
   const isAdmin = userRole === 'ADMIN';
@@ -235,7 +290,8 @@ export default async function DashboardPage() {
           </p>
         </div>
         {isAdmin && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <DashboardPeriodSelector initialValue={months} />
             <Button asChild className="bg-orange-600 hover:bg-orange-700">
               <Link href="/orders/new">
                 <Package className="mr-2 h-4 w-4" /> Nuevo Pedido
@@ -308,6 +364,49 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Strategy Intelligence Section (Admin Only) */}
+      {isAdmin && (
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card className="bg-red-500/10 border-red-500/20 shadow-none">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-black text-red-600 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4" /> ALERTA DE CLIENTES
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-2xl font-black text-red-700">{atRiskCount}</p>
+                  <p className="text-xs text-red-600/80 font-medium">Clientes VIP inactivos (+60 días)</p>
+                </div>
+                <Button size="sm" variant="outline" className="border-red-500/30 text-red-600 hover:bg-red-500 hover:text-white" asChild>
+                  <Link href="/analytics/sales">Ver Detalles</Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-emerald-500/10 border-emerald-500/20 shadow-none">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-black text-emerald-600 flex items-center gap-2">
+                <Lightbulb className="h-4 w-4" /> COMPRAS INTELIGENTES
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-2xl font-black text-emerald-700">{savingsOpportunities}</p>
+                  <p className="text-xs text-emerald-600/80 font-medium">Oportunidades de ahorro detectadas</p>
+                </div>
+                <Button size="sm" variant="outline" className="border-emerald-500/30 text-emerald-600 hover:bg-emerald-500 hover:text-white" asChild>
+                  <Link href="/analytics/purchases">Optimizar Costos</Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Main Charts Section */}
       <div className="grid gap-4 md:grid-cols-2">

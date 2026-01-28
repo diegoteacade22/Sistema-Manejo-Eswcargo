@@ -8,33 +8,41 @@ import {
     LineChart, Line, AreaChart, Area, ComposedChart
 } from 'recharts';
 import { getFinancialAnalytics } from '@/app/analytics-actions';
-import { DollarSign, TrendingUp, TrendingDown, Target, BrainCircuit, Wallet } from 'lucide-react';
+import { DollarSign, TrendingUp, TrendingDown, Target, BrainCircuit, Wallet, Activity, Zap } from 'lucide-react';
+
+import { PeriodSelector } from '@/components/analytics/period-selector';
 
 export default function FinancialDashboard() {
     const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [months, setMonths] = useState(6);
 
     useEffect(() => {
-        getFinancialAnalytics().then(res => {
+        setLoading(true);
+        getFinancialAnalytics(months).then(res => {
             setData(res);
             setLoading(false);
         });
-    }, []);
+    }, [months]);
 
-    if (loading) return <div className="p-10 text-center">Analizando estados financieros...</div>;
+    if (loading) return <div className="p-10 text-center text-slate-500 animate-pulse">Analizando estados financieros ({months} meses)...</div>;
 
     // Financial Analysis Logic (as an analyst)
+    // Ensure we have enough data points, though with variable months array length handles itself mostly
     const lastMonth = data.monthlyData[data.monthlyData.length - 1];
     const prevMonth = data.monthlyData[data.monthlyData.length - 2];
-    const profitGrowth = ((lastMonth.netProfit - prevMonth.netProfit) / Math.abs(prevMonth.netProfit)) * 100;
+    const profitGrowth = prevMonth && prevMonth.netProfit !== 0 ? ((lastMonth.netProfit - prevMonth.netProfit) / Math.abs(prevMonth.netProfit)) * 100 : 0;
 
     return (
         <div className="p-8 space-y-8 animate-in fade-in slide-in-from-bottom-5 duration-700">
-            <div>
-                <h1 className="text-4xl font-black tracking-tight text-slate-900 dark:text-white">
-                    Estado de Resultados (P&L)
-                </h1>
-                <p className="text-muted-foreground mt-2">Visión ejecutiva de rentabilidad neta y salud financiera.</p>
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-4xl font-black tracking-tight text-slate-900 dark:text-white">
+                        Estado de Resultados (P&L)
+                    </h1>
+                    <p className="text-muted-foreground mt-2">Visión ejecutiva de rentabilidad neta y salud financiera.</p>
+                </div>
+                <PeriodSelector value={months} onChange={setMonths} />
             </div>
 
             {/* Top KPIs */}
@@ -42,50 +50,50 @@ export default function FinancialDashboard() {
                 <Card className="border-l-4 border-l-emerald-500 shadow-lg">
                     <CardHeader className="pb-2">
                         <CardTitle className="text-xs font-bold text-muted-foreground uppercase flex items-center gap-2">
-                            <TrendingUp className="h-4 w-4" /> Margen Neto Promedio
+                            <Activity className="h-4 w-4" /> Crecimiento MoM
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-3xl font-black">{data.summary.avgMargin.toFixed(1)}%</div>
-                        <p className={`text-xs mt-1 font-bold ${profitGrowth >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                            {profitGrowth >= 0 ? '+' : ''}{profitGrowth.toFixed(1)}% vs mes anterior
-                        </p>
+                        <div className={`text-3xl font-black ${data.summary.momGrowth >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                            {data.summary.momGrowth >= 0 ? '+' : ''}{data.summary.momGrowth.toFixed(1)}%
+                        </div>
+                        <p className="text-[10px] text-slate-400 mt-1">Crecimiento de ingresos vs mes anterior</p>
                     </CardContent>
                 </Card>
 
                 <Card className="border-l-4 border-l-indigo-500 shadow-lg">
                     <CardHeader className="pb-2">
                         <CardTitle className="text-xs font-bold text-muted-foreground uppercase flex items-center gap-2">
-                            <DollarSign className="h-4 w-4" /> Ganancia Neta (Total)
+                            <Target className="h-4 w-4" /> Margen Neto
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-3xl font-black">USD {new Intl.NumberFormat('en-US').format(data.summary.totalNetProfit)}</div>
-                        <p className="text-xs text-muted-foreground mt-1 text-[10px]">Acumulado últimos 6 meses</p>
+                        <div className="text-3xl font-black">{data.summary.avgMargin.toFixed(1)}%</div>
+                        <p className="text-[10px] text-slate-400 mt-1">Rentabilidad final del periodo</p>
+                    </CardContent>
+                </Card>
+
+                <Card className="border-l-4 border-l-fuchsia-500 shadow-lg">
+                    <CardHeader className="pb-2">
+                        <CardTitle className="text-xs font-bold text-muted-foreground uppercase flex items-center gap-2">
+                            <Zap className="h-4 w-4" /> Efficiency Ratio
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-3xl font-black text-fuchsia-600">{data.summary.efficiencyRatio.toFixed(1)}%</div>
+                        <p className="text-[10px] text-slate-400 mt-1">Gasto OpEx / Ingresos Totales</p>
                     </CardContent>
                 </Card>
 
                 <Card className="border-l-4 border-l-red-500 shadow-lg">
                     <CardHeader className="pb-2">
                         <CardTitle className="text-xs font-bold text-muted-foreground uppercase flex items-center gap-2">
-                            <Wallet className="h-4 w-4" /> Burn Rate (OpEx)
+                            <Wallet className="h-4 w-4" /> Burn Rate
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
                         <div className="text-3xl font-black text-red-600">USD {new Intl.NumberFormat('en-US').format(data.summary.burnRate)}</div>
-                        <p className="text-xs text-muted-foreground mt-1 text-[10px]">Gasto operativo del último mes</p>
-                    </CardContent>
-                </Card>
-
-                <Card className="border-l-4 border-l-orange-500 shadow-lg bg-orange-50/10">
-                    <CardHeader className="pb-2">
-                        <CardTitle className="text-xs font-bold text-muted-foreground uppercase flex items-center gap-2">
-                            <Target className="h-4 w-4" /> Punto de Equilibrio
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="text-2xl font-black">USD {new Intl.NumberFormat('en-US').format(data.summary.burnRate / (data.summary.avgMargin / 100))}</div>
-                        <p className="text-xs text-muted-foreground mt-1 text-[10px]">Venta necesaria para cubrir OpEx</p>
+                        <p className="text-[10px] text-slate-400 mt-1">Costo de estructura mensual</p>
                     </CardContent>
                 </Card>
             </div>
@@ -102,15 +110,20 @@ export default function FinancialDashboard() {
                             <ComposedChart data={data.monthlyData}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                                 <XAxis dataKey="name" stroke="#94a3b8" />
-                                <YAxis stroke="#94a3b8" />
+                                <YAxis
+                                    stroke="#94a3b8"
+                                    tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
+                                />
                                 <Tooltip
-                                    contentStyle={{ backgroundColor: '#0f172a', border: 'none', borderRadius: '8px' }}
+                                    contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }}
                                     itemStyle={{ color: '#f8fafc' }}
+                                    formatter={(value: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)}
+                                    labelStyle={{ color: '#94a3b8' }}
                                 />
                                 <Legend />
                                 <Bar dataKey="revenue" name="Ingresos Totales" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={40} />
-                                <Bar dataKey="expenses" name="Gastos Operativos" fill="#f43f5e" radius={[4, 4, 0, 0]} barSize={40} />
-                                <Line type="monotone" dataKey="netProfit" name="Ganancia Neta" stroke="#10b981" strokeWidth={3} dot={{ r: 6 }} />
+                                <Bar dataKey="expenses" name="Costos y Gastos Totales" fill="#f43f5e" radius={[4, 4, 0, 0]} barSize={40} />
+                                <Line type="monotone" dataKey="netProfit" name="Ganancia Neta" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} />
                             </ComposedChart>
                         </ResponsiveContainer>
                     </CardContent>

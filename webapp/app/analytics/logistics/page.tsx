@@ -8,34 +8,42 @@ import {
     PieChart, Pie, Cell, ScatterChart, Scatter, ZAxis
 } from 'recharts';
 import { getLogisticsAnalytics } from '@/app/analytics-actions';
-import { Truck, Scale, Anchor, Zap, AlertCircle } from 'lucide-react';
+import { Truck, Scale, Anchor, Zap, AlertCircle, TrendingUp, BarChart3 } from 'lucide-react';
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
+
+import { PeriodSelector } from '@/components/analytics/period-selector';
 
 export default function LogisticsDashboard() {
     const [data, setData] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [months, setMonths] = useState(6);
 
     useEffect(() => {
-        getLogisticsAnalytics().then(res => {
+        setLoading(true);
+        getLogisticsAnalytics(months).then(res => {
             setData(res);
             setLoading(false);
         });
-    }, []);
+    }, [months]);
 
-    if (loading) return <div className="p-10 text-center">Calculando métricas de carga...</div>;
-    if (!data) return <div className="p-10 text-center text-slate-400">No hay suficientes datos de envíos entregados para generar analítica.</div>;
+    if (loading) return <div className="p-10 text-center text-slate-500 animate-pulse">Analizando operaciones logísticas ({months} meses)...</div>;
+
+    if (!data) return <div className="p-10 text-center">No hay datos de envíos entregados para analizar.</div>;
 
     const kpis = data.kpis;
 
     return (
-        <div className="p-8 space-y-8 animate-in fade-in zoom-in-95 duration-700">
-            <div>
-                <h1 className="text-4xl font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-3">
-                    <Anchor className="h-10 w-10 text-blue-600" />
-                    Operaciones Logísticas
-                </h1>
-                <p className="text-muted-foreground mt-2">Eficiencia de transporte, costos por kilo y análisis de carga.</p>
+        <div className="p-8 space-y-8 animate-in fade-in slide-in-from-right-5 duration-700">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-4xl font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-3">
+                        <Truck className="h-10 w-10 text-blue-600" />
+                        Inteligencia Logística
+                    </h1>
+                    <p className="text-muted-foreground mt-2">Rentabilidad por kilo, eficiencia de carga y márgenes operativos.</p>
+                </div>
+                <PeriodSelector value={months} onChange={setMonths} />
             </div>
 
             {/* Logistics KPIs */}
@@ -67,22 +75,22 @@ export default function LogisticsDashboard() {
                 <Card className="shadow-lg border-2 border-indigo-50">
                     <CardHeader className="pb-2">
                         <CardTitle className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
-                            <Truck className="h-4 w-4" /> Margen Logístico
+                            <TrendingUp className="h-4 w-4" /> Rentabilidad x KG
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-3xl font-black text-indigo-700">{kpis.logisticsMargin.toFixed(1)}%</div>
-                        <p className="text-[10px] text-slate-400 mt-1">Eficiencia de intermediación</p>
+                        <div className="text-3xl font-black text-indigo-700">USD {kpis.yieldPerKg.toFixed(2)}</div>
+                        <p className="text-[10px] text-slate-400 mt-1">Ganancia neta promedio / KG</p>
                     </CardContent>
                 </Card>
 
                 <Card className="shadow-lg border-2 border-slate-50">
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-xs font-bold text-slate-500 uppercase">Total KG Procesados</CardTitle>
+                        <CardTitle className="text-xs font-bold text-slate-500 uppercase">Eficiencia General</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-3xl font-black text-slate-800">{new Intl.NumberFormat().format(kpis.totalKgProcessed)} KG</div>
-                        <p className="text-[10px] text-slate-400 mt-1">Volumen histórico analizado</p>
+                        <div className="text-3xl font-black text-slate-800">{kpis.logisticsMargin.toFixed(1)}%</div>
+                        <p className="text-[10px] text-slate-400 mt-1">Margen operativo logística</p>
                     </CardContent>
                 </Card>
             </div>
@@ -91,17 +99,22 @@ export default function LogisticsDashboard() {
                 {/* Distribution by Type */}
                 <Card className="shadow-xl">
                     <CardHeader>
-                        <CardTitle>Rentabilidad por Tipo de Carga</CardTitle>
-                        <CardDescription>Comparativa de ganancia neta según categoría de importación.</CardDescription>
+                        <CardTitle className="flex items-center gap-2">
+                            <BarChart3 className="h-5 w-5 text-blue-500" /> Rendimiento por Segmento
+                        </CardTitle>
+                        <CardDescription>Eficiencia y márgenes según categoría de carga.</CardDescription>
                     </CardHeader>
                     <CardContent className="h-[350px]">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={data.typeSummary}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                                 <XAxis dataKey="name" />
-                                <YAxis />
+                                <YAxis yAxisId="left" orientation="left" stroke="#3b82f6" />
+                                <YAxis yAxisId="right" orientation="right" stroke="#10b981" />
                                 <Tooltip />
-                                <Bar dataKey="profit" name="Ganancia USD" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                                <Legend />
+                                <Bar yAxisId="left" dataKey="profit" name="Ganancia USD" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                                <Bar yAxisId="right" dataKey="margin" name="Margen %" fill="#10b981" radius={[4, 4, 0, 0]} />
                             </BarChart>
                         </ResponsiveContainer>
                     </CardContent>

@@ -150,9 +150,17 @@ def extract_all():
                 if (now - date_val.to_pydatetime() if hasattr(date_val, 'to_pydatetime') else now - date_val).days > days_filter:
                     continue
 
+        try:
+            raw_cli = row.get('COD CLI')
+            if pd.isna(raw_cli): old_client_id = None
+            else: old_client_id = int(float(raw_cli))
+        except:
+            old_client_id = None
+
         shipments.append({
             'shipment_number': s_num,
-            'old_client_id': int(row.get('COD CLI')) if pd.notna(row.get('COD CLI')) else None,
+            'old_client_id': old_client_id,
+            'client_name_match': clean_text(row.get('CLIENTE')),
             'forwarder': clean_text(row.get('FORWARDER')),
             'date_shipped': clean_date(row.get('FECHA SAL')),
             'date_arrived': clean_date(row.get('FECHA LLEG')),
@@ -210,6 +218,7 @@ def extract_all():
 
     # Mapear detalles por pedido (Solo los recientes)
     det_map = {}
+    det_client_map = {} # Map order_id -> {id: ..., name: ...}
     order_status_map = {}
     for _, row in df_dv.iterrows():
         oid = row.get('INV-REM') or row.get('NRO_PEDIDO')
@@ -224,6 +233,13 @@ def extract_all():
         st = normalize_status(clean_text(row.get('ESTADO')))
         if st != 'COMPRAR': order_status_map[oid] = st
         
+        try:
+            raw_env_nro = row.get('ENVIO NRO')
+            if pd.isna(raw_env_nro): sn_val = None
+            else: sn_val = int(float(raw_env_nro))
+        except:
+            sn_val = None
+
         det_map[oid].append({
             'sku': clean_text(row.get('SKU')),
             'quantity': int(clean_num(row.get('CANT') or row.get('CANTIDAD'))),
@@ -231,10 +247,28 @@ def extract_all():
             'unit_cost': clean_num(row.get('COSTO') or row.get('COSTO X ART')),
             'profit': clean_num(row.get('GANANCIA')),
             'product_name': clean_text(row.get('DETALLE')),
-            'shipment_number': int(row.get('ENVIO NRO')) if pd.notna(row.get('ENVIO NRO')) else None,
+            'shipment_number': sn_val,
             'status': st
         })
 
+        # --- NUEVO: Capturar cliente desde Detalles para Fallback ---
+        if oid not in det_client_map: # Solo si no lo tenemos ya (asumimos consistencia por pedido)
+             c_id = None
+             try: 
+                 raw_cli = row.get('COD CLI')
+                 if pd.notna(raw_cli): c_id = int(float(raw_cli))
+             except: pass
+             
+             c_name = clean_text(row.get('NOMBRE')) # En DETA_VENTAS es 'NOMBRE'
+             
+             if c_id or c_name:
+                 det_client_map[oid] = {
+                     'id': c_id,
+                     'name': c_name
+                 }
+    
+    # ... (orders processing)
+    
     orders = []
     for _, row in df_cv.iterrows():
         onum = row.get('NRO_PEDIDO')
@@ -243,7 +277,7 @@ def extract_all():
         except: continue
         
         items = det_map.get(onum, [])
-        total = clean_num(row.get('TOTAL'))
+        total = clean_num(row.get('TOTAL') or row.get('TOTAL USD')) # Headers might vary
         
         # Si el total es 0 o NaN pero hay items, sumamos los items
         if (pd.isna(total) or total == 0) and items:
@@ -251,10 +285,39 @@ def extract_all():
             
         saldo = clean_num(row.get('SALDO'))
         
+        # --- CLIENT EXTRACTION IMPROVED ---
+        # 1. Try CABE_VENTAS
+        client_id_val = None
+        client_name_val = None
+        
+        raw_cli_cabe = row.get('CLIENTE') # Sometimes ID, sometimes Name in this column
+        raw_nro_cli = row.get('NRO CLI')  # Explicit ID column if exists
+        
+        # Logic for 'CLIENTE' column
+        if pd.notna(raw_cli_cabe):
+            s_cli = str(raw_cli_cabe).strip()
+            if s_cli.isdigit():
+                client_id_val = int(s_cli)
+            else:
+                client_name_val = s_cli
+        
+        # Logic for 'NRO CLI' column (Overrides ID if present)
+        if pd.notna(raw_nro_cli):
+             try: client_id_val = int(float(raw_nro_cli))
+             except: pass
+
+        # 2. Fallback to DETA_VENTAS if missing
+        if not client_id_val and not client_name_val:
+            fallback = det_client_map.get(onum)
+            if fallback:
+                client_id_val = fallback['id']
+                client_name_val = fallback['name']
+                # print(f"⚠️ Usando fallback detalle para Order {onum}: {client_name_val}")
+
         orders.append({
             'order_number': onum,
-            'client_old_id': int(row.get('CLIENTE')) if str(row.get('CLIENTE')).isdigit() else None,
-            'client_name_match': clean_text(row.get('CLIENTE')) if not str(row.get('CLIENTE')).isdigit() else None,
+            'client_old_id': client_id_val,
+            'client_name_match': client_name_val,
             'date': clean_date(row.get('FECHA')),
             'total_amount': total,
             'payment_amount': max(0, total - saldo) if pd.notna(saldo) else total,

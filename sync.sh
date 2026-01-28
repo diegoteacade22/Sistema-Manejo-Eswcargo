@@ -8,8 +8,16 @@ echo "=========================================="
 echo ""
 
 # Directorio del proyecto
-PROJECT_DIR="/Users/diegorodriguez/sistema_gestion_importaciones"
+PROJECT_DIR="/Users/diegorodriguez/02_DESARROLLO/Proyectos_Activos/sistema_gestion_importaciones"
 cd "$PROJECT_DIR"
+
+# Detectar Python (Prioridad venv)
+PYTHON_EXEC="python3"
+if [ -f "./venv/bin/python3" ]; then
+    PYTHON_EXEC="./venv/bin/python3"
+elif [ -f "./venv_new/bin/python3" ]; then
+    PYTHON_EXEC="./venv_new/bin/python3"
+fi
 
 # Función para mostrar menú
 show_menu() {
@@ -42,9 +50,19 @@ import_from_excel() {
     echo "🚀 Iniciando sincronización ($DAYS días)..."
     echo ""
     
+    # 0. Descargar última versión de Google Sheets
+    echo "📥 Paso 1/3: Descargando última versión de Google Sheets..."
+    $PYTHON_EXEC download_sheet.py
+    
+    if [ $? -ne 0 ]; then
+        echo "⚠️  Advertencia: No se pudo descargar el Excel. Usando versión local..."
+        # No retornamos error fatal, continuamos con lo que haya
+    fi
+    echo ""
+
     # 1. Extracción Consolidada con filtro
-    echo "📊 Paso 1/2: Extrayendo datos desde Excel..."
-    python3 extract_consolidated.py $DAYS
+    echo "📊 Paso 2/3: Extrayendo datos desde Excel..."
+    $PYTHON_EXEC extract_consolidated.py $DAYS
     
     if [ $? -ne 0 ]; then
         echo "❌ Error en fase de extracción"
@@ -53,7 +71,7 @@ import_from_excel() {
     
     # 2. Sembrado Diferencial
     echo ""
-    echo "💾 Paso 2/2: Aplicando cambios a la base de datos..."
+    echo "💾 Paso 3/3: Aplicando cambios a la base de datos..."
     cd webapp
     npx tsx prisma/seed_fast.ts
     cd ..
@@ -72,7 +90,7 @@ export_to_excel() {
     echo "📤 Exportando datos desde Base de Datos a Excel..."
     echo ""
     
-    python3 export_to_excel.py
+    $PYTHON_EXEC export_to_excel.py
     
     if [ $? -ne 0 ]; then
         echo "❌ Error al exportar a Excel"
