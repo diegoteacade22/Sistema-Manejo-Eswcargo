@@ -180,6 +180,10 @@ export default async function OrderPage(props: Props) {
                                     <Link href={`/shipments/${effectiveShipment.id}`} className="inline-flex items-center px-4 py-1.5 rounded-xl text-xs font-black bg-fuchsia-600 text-white hover:bg-fuchsia-700 transition-colors uppercase tracking-wider shadow-lg shadow-fuchsia-500/20">
                                         Envío #{effectiveShipment.shipment_number}
                                     </Link>
+                                ) : order.status === 'ENTREGADO' ? (
+                                    <span className="text-sm font-black text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-3 py-1 rounded-full uppercase text-[10px] tracking-tight">
+                                        Entrega Directa / Finalizado
+                                    </span>
                                 ) : (
                                     <span className="text-sm text-muted-foreground italic bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">Sin asignar aún</span>
                                 )}
