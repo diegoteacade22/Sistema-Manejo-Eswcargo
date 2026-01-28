@@ -14,6 +14,10 @@ export async function POST(req: Request) {
         const userRole = (session.user as any).role;
         const userId = (session.user as any).id;
 
+        // Debug log for Admin/Dev environment only (Verify key existence)
+        const key = process.env.GEMINI_API_KEY || "";
+        console.log(`[AI Chat] Processing query. Key present: ${!!key}. Length: ${key.length}. Start: ${key.substring(0, 5)}...`);
+
         const response = await processAiQuery(message, userRole, userId);
 
         return NextResponse.json({ response });
