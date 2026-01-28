@@ -2,10 +2,10 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { prisma } from "./prisma";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const genAI = new GoogleGenerativeAI((process.env.GEMINI_API_KEY || "").trim());
 
 export async function processAiQuery(prompt: string, userRole: string, userId: string) {
-    if (!process.env.GEMINI_API_KEY) {
+    if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.trim() === "") {
         return "El asistente IA no está configurado. Por favor, agrega GEMINI_API_KEY al entorno.";
     }
 
@@ -21,7 +21,7 @@ export async function processAiQuery(prompt: string, userRole: string, userId: s
     }
 
     const model = genAI.getGenerativeModel({
-        model: "gemini-1.5-flash",
+        model: "gemini-2.0-flash",
         systemInstruction: `Eres el Asistente Inteligente de Eswcargo. Tu objetivo es ayudar a ${userRole === 'ADMIN' ? 'los administradores' : 'los clientes'} a analizar sus datos de importación y finanzas.
         
         REGLAS CRÍTICAS:
