@@ -10,6 +10,7 @@ import { PaymentDialog } from '@/components/payment-dialog';
 
 interface Props {
     params: Promise<{ id: string }>;
+    searchParams: Promise<{ sort?: string, order?: 'asc' | 'desc' }>;
 }
 
 async function getClientDetails(id: string) {
@@ -20,7 +21,7 @@ async function getClientDetails(id: string) {
         where: { id: clientId },
         include: {
             transactions: {
-                orderBy: { date: 'asc' }, // Ascending for Check Register style
+                orderBy: { date: 'asc' }, // ALWAYS fetch Ascending for perfect chronological ledger calculation
             },
             orders: {
                 orderBy: { date: 'desc' },
@@ -34,30 +35,35 @@ async function getClientDetails(id: string) {
 
 export default async function ClientPage(props: Props) {
     const params = await props.params;
+    const searchParams = await props.searchParams;
     const client = await getClientDetails(params.id);
 
     if (!client) {
         return <div>Cliente no encontrado</div>;
     }
 
-    // Calculate Balance and Running Balances
+    const sortField = searchParams.sort || 'date';
+    const sortOrder = searchParams.order || 'asc';
+
+    // Calculate Balance and Running Balances (Always Chronologically first)
     let runningBalance = 0;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const transactionsWithBalance = client.transactions.map((tx: any) => {
+    let transactionsWithBalance = client.transactions.map((tx: any) => {
         runningBalance += tx.amount;
         return { ...tx, balance: runningBalance };
     });
 
-    // Sort descending for display if preferred, OR keep ascending to match Excel.
-    // User Excel shows OLD -> NEW (Ascending). 
-    // Usually web apps show NEW -> OLD. 
-    // IF we show NEW -> OLD (Desc), the logic is: 
-    // Top Row Balance = Final Balance.
-    // Next Row Balance = Top Row Balance - Top Row Amount.
-    // BUT the user excel is explicitly Ascending. I will stick to Ascending as requested for "Cuenta Corriente".
+    // Apply sorting to the pre-calculated list
+    transactionsWithBalance.sort((a: any, b: any) => {
+        let comparison = 0;
+        if (sortField === 'date') {
+            comparison = new Date(a.date).getTime() - new Date(b.date).getTime();
+        } else if (sortField === 'amount') {
+            comparison = Math.abs(a.amount) - Math.abs(b.amount);
+        }
 
-    // Actually, looking at the excel, it ends on 01/14/2026. It is chronological.
-    // I will render Ascending.
+        return sortOrder === 'asc' ? comparison : -comparison;
+    });
 
     const finalBalance = runningBalance;
 
@@ -134,10 +140,18 @@ export default async function ClientPage(props: Props) {
                             <Table>
                                 <TableHeader className="bg-slate-200 dark:bg-slate-800">
                                     <TableRow>
-                                        <TableHead className="w-[120px] font-bold text-slate-700 dark:text-slate-200">FECHA</TableHead>
+                                        <TableHead className="w-[120px] font-bold text-slate-700 dark:text-slate-200">
+                                            <Link href={`?sort=date&order=${sortField === 'date' && sortOrder === 'asc' ? 'desc' : 'asc'}`} className="flex items-center hover:text-indigo-600 transition-colors">
+                                                FECHA {sortField === 'date' && (sortOrder === 'asc' ? '↑' : '↓')}
+                                            </Link>
+                                        </TableHead>
                                         <TableHead className="font-bold text-slate-700 dark:text-slate-200">CONCEPTO</TableHead>
                                         <TableHead className="font-bold text-slate-700 dark:text-slate-200">REF</TableHead>
-                                        <TableHead className="text-right font-bold text-slate-700 dark:text-slate-200">MONTO</TableHead>
+                                        <TableHead className="text-right font-bold text-slate-700 dark:text-slate-200">
+                                            <Link href={`?sort=amount&order=${sortField === 'amount' && sortOrder === 'asc' ? 'desc' : 'asc'}`} className="flex items-center justify-end hover:text-indigo-600 transition-colors">
+                                                MONTO {sortField === 'amount' && (sortOrder === 'asc' ? '↑' : '↓')}
+                                            </Link>
+                                        </TableHead>
                                         <TableHead className="text-right font-bold text-slate-700 dark:text-slate-200">SALDO</TableHead>
                                     </TableRow>
                                 </TableHeader>

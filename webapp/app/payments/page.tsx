@@ -6,8 +6,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { CreditCard, History } from 'lucide-react';
 import { Suspense } from 'react';
+import Link from 'next/link';
 
-async function getPayments() {
+async function getPayments(sortField: string = 'date', sortOrder: 'asc' | 'desc' = 'desc') {
     const session = await auth();
     if (!session?.user) return [];
 
@@ -28,17 +29,23 @@ async function getPayments() {
             clientId: client.id,
             type: 'PAGO'
         },
-        orderBy: { date: 'desc' }
+        orderBy: sortField === 'amount'
+            ? { amount: sortOrder }
+            : { date: sortOrder }
     });
 
     return payments;
 }
 
-export default async function PaymentsPage() {
+export default async function PaymentsPage(props: { searchParams: Promise<{ sort?: string, order?: 'asc' | 'desc' }> }) {
+    const searchParams = await props.searchParams;
     const session = await auth();
     if (!session?.user) return null;
 
-    const payments = await getPayments();
+    const sortField = searchParams.sort || 'date';
+    const sortOrder = searchParams.order || 'desc';
+
+    const payments = await getPayments(sortField, sortOrder as any);
 
     return (
         <div className="p-8 space-y-8 animate-in fade-in duration-500">
@@ -62,10 +69,18 @@ export default async function PaymentsPage() {
                     <Table>
                         <TableHeader>
                             <TableRow className="hover:bg-transparent border-b border-slate-100 dark:border-slate-800">
-                                <TableHead className="pl-6 py-4 font-bold text-slate-900 dark:text-slate-100">Fecha</TableHead>
+                                <TableHead className="pl-6 py-4 font-bold text-slate-900 dark:text-slate-100">
+                                    <Link href={`?sort=date&order=${sortField === 'date' && sortOrder === 'asc' ? 'desc' : 'asc'}`} className="flex items-center hover:text-emerald-600 transition-colors">
+                                        Fecha {sortField === 'date' && (sortOrder === 'asc' ? '↑' : '↓')}
+                                    </Link>
+                                </TableHead>
                                 <TableHead className="font-bold text-slate-900 dark:text-slate-100">Descripción / Referencia</TableHead>
                                 <TableHead className="font-bold text-slate-900 dark:text-slate-100">Método</TableHead>
-                                <TableHead className="text-right pr-6 font-bold text-slate-900 dark:text-slate-100">Monto</TableHead>
+                                <TableHead className="text-right pr-6 font-bold text-slate-900 dark:text-slate-100">
+                                    <Link href={`?sort=amount&order=${sortField === 'amount' && sortOrder === 'asc' ? 'desc' : 'asc'}`} className="flex items-center justify-end hover:text-emerald-600 transition-colors">
+                                        Monto {sortField === 'amount' && (sortOrder === 'asc' ? '↑' : '↓')}
+                                    </Link>
+                                </TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
