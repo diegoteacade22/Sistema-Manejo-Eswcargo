@@ -103,7 +103,7 @@ export async function submitOrder(data: {
         if (shipmentMap.size > 0) {
             // We can iterate the map values (shipment IDs)
             for (const sId of shipmentMap.values()) {
-                await recalculateShipmentStats(sId);
+                await recalculateShipmentStats(sId as number);
             }
         }
 
