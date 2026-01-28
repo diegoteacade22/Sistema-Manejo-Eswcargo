@@ -16,9 +16,9 @@ import {
     DollarSign,
     Wrench,
     PlusCircle,
-    LogOut,
     ChevronRight,
-    Briefcase
+    Briefcase,
+    BadgePercent
 } from 'lucide-react';
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
@@ -96,6 +96,13 @@ const standaloneRoutes: Route[] = [
         icon: ShoppingCart,
         href: '/orders',
         color: 'text-pink-700',
+        roles: ['CLIENT']
+    },
+    {
+        label: 'Mis Pagos',
+        icon: BadgePercent,
+        href: '/payments',
+        color: 'text-emerald-500',
         roles: ['CLIENT']
     }
 ];
