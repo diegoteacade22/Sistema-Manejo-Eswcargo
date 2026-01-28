@@ -21,7 +21,7 @@ export async function processAiQuery(prompt: string, userRole: string, userId: s
     }
 
     const model = genAI.getGenerativeModel({
-        model: "gemini-2.0-flash",
+        model: "gemini-flash-latest",
         systemInstruction: `Eres el Asistente Inteligente de Eswcargo. Tu objetivo es ayudar a ${userRole === 'ADMIN' ? 'los administradores' : 'los clientes'} a analizar sus datos de importación y finanzas.
         
         REGLAS CRÍTICAS:
