@@ -20,25 +20,24 @@ async function getOrders(query: string, sortField: string = 'date', sortOrder: S
     const userRole = (session.user as any).role;
     const userId = (session.user as any).id;
 
-    let clientId: number | null = null;
+    const whereClause: any = {};
+
     if (userRole === 'CLIENT') {
         const client = await (prisma.client as any).findFirst({
             where: { userId: userId },
             select: { id: true }
         });
-        clientId = client?.id || null;
-    }
 
-    const whereClause: any = {
-        ...(clientId ? { clientId } : {})
-    };
+        if (!client) return []; // Security: If user has CLIENT role but no linked client record, return empty.
+        whereClause.clientId = client.id;
+    }
 
     if (query) {
         const asNumber = parseInt(query);
         const orConditions: any[] = [];
 
-        // Always search client name (insensitive) if not a specific client user
-        if (!clientId) {
+        // Always search client name (insensitive) if admin
+        if (userRole === 'ADMIN') {
             orConditions.push({
                 client: {
                     name: { contains: query, mode: 'insensitive' }

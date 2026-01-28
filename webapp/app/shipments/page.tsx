@@ -20,26 +20,24 @@ async function getShipments(query: string, page: number = 1, pageSize: number = 
     const userRole = (session.user as any).role;
     const userId = (session.user as any).id;
 
-    let clientId: number | null = null;
+    const skip = (page - 1) * pageSize;
+    const where: any = {};
+
     if (userRole === 'CLIENT') {
         const client = await (prisma.client as any).findFirst({
             where: { userId: userId },
             select: { id: true }
         });
-        clientId = client?.id || null;
+
+        if (!client) return { shipments: [], totalCount: 0, totalPages: 0 }; // Security: show nothing if client not linked
+        where.clientId = client.id;
     }
-
-    const skip = (page - 1) * pageSize;
-
-    const where: any = {
-        ...(clientId ? { clientId } : {})
-    };
 
     if (query) {
         where.OR = [
             { forwarder: { contains: query, mode: 'insensitive' } },
         ];
-        if (!clientId) {
+        if (userRole === 'ADMIN') {
             where.OR.push({ client: { name: { contains: query, mode: 'insensitive' } } });
         }
         // If query is a number, try exact match on shipment_number
