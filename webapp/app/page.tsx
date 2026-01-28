@@ -27,7 +27,21 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
       where: { userId: userId },
       select: { id: true }
     });
-    clientId = client?.id || null;
+
+    if (!client) return {
+      totalReceivables: 0,
+      recentOrders: [],
+      debtorsWithNames: [],
+      activeOrdersCount: 0,
+      chartData: [],
+      statusData: [],
+      totalProfitPeriod: 0,
+      userRole,
+      atRiskCount: 0,
+      savingsOpportunities: 0
+    };
+
+    clientId = client.id;
   }
 
   // 1. Total Receivables (Excluya a clientes de ver el total global)
