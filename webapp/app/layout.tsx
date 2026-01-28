@@ -4,6 +4,7 @@ import { Inter } from "next/font/google";
 import type { Metadata } from "next";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Sidebar } from "@/components/sidebar";
+import { AiChatButton } from "@/components/ai-chat-button";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -42,6 +43,7 @@ export default async function RootLayout({
               <main className={!isPublicRoute ? "md:pl-72 min-h-screen print:pl-0" : "min-h-screen"}>
                 {children}
               </main>
+              {!isPublicRoute && <AiChatButton />}
             </div>
             <Toaster position="top-right" richColors />
           </ThemeProvider>
