@@ -71,7 +71,7 @@ export default async function CollectionsPage() {
                                     </TableCell>
                                     <TableCell>
                                         <Link href={`/clients/${tx.clientId}`} className="hover:underline font-medium">
-                                            {tx.client.name}
+                                            {tx.client?.name || 'Cliente no identificado'}
                                         </Link>
                                     </TableCell>
                                     <TableCell>

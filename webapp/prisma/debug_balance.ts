@@ -18,6 +18,7 @@ async function main() {
     console.log(`Found ${clientBalances.length} clients with debt > 1`);
 
     for (const b of clientBalances) {
+        if (!b.clientId) continue;
         const client = await prisma.client.findUnique({ where: { id: b.clientId } });
         console.log(`\nClient: ${client?.name} (ID: ${b.clientId}) - Balance: $${b._sum.amount?.toFixed(2)}`);
 
