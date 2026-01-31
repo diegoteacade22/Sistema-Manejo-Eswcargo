@@ -24,6 +24,7 @@ def clean_text(val):
     if pd.isna(val) or val is None: return None
     s = str(val).strip()
     if s.lower() in ['nan', 'none', 'null', '']: return None
+    if s.endswith('.0'): s = s[:-2]
     return s
 
 def clean_date(d):
@@ -54,13 +55,21 @@ def extract_all():
     
     # Manejo de filtros de fecha por argumento
     days_filter = None
+    force_full = False
     if len(sys.argv) > 1:
-        try:
-            days_filter = int(sys.argv[1])
-            if days_filter > 0:
-                print(f"⏱️ Filtrando datos de los últimos {days_filter} días...")
-        except:
-            pass
+        arg = sys.argv[1]
+        if arg.upper() == 'FULL':
+            force_full = True
+            print("🚀 MODO FULL: Se extraerán TODOS los datos sin filtros de fecha.")
+        else:
+            try:
+                days_filter = int(arg)
+                if days_filter > 0:
+                    print(f"⏱️ Filtrando datos de los últimos {days_filter} días...")
+                else:
+                    force_full = True
+            except:
+                pass
 
     print(f"🚀 Iniciando extracción consolidada desde: {excel_path}")
     
@@ -123,7 +132,31 @@ def extract_all():
     with open(os.path.join(output_dir, 'products_seed.json'), 'w', encoding='utf-8') as f:
         json.dump(products, f, indent=2, ensure_ascii=False)
 
-    # 3. ENVIOS (CABE_ENVIOS) - FILTRADO POR FECHA
+    # 3. PROVEEDORES
+    print("🏢 Extrayendo Proveedores...")
+    df_suppliers = xl.parse('PROVEEDORES')
+    df_suppliers.columns = [str(c).upper().strip() for c in df_suppliers.columns]
+    suppliers = []
+    for _, row in df_suppliers.iterrows():
+        old_id = row.get('COD_PRO')
+        if pd.isna(old_id): continue
+        try: old_id = int(old_id)
+        except: continue
+        name = clean_text(row.get('COMPAÑIA')) or clean_text(row.get('VENDEDOR'))
+        if not name: continue
+        suppliers.append({
+            'old_id': old_id,
+            'name': name,
+            'contact': clean_text(row.get('VENDEDOR')),
+            'phone': clean_text(row.get('TELEFONO')),
+            'city': clean_text(row.get('CIUDAD')),
+            'country': clean_text(row.get('Country')),
+            'notes': clean_text(row.get('OBSERVACIONES'))
+        })
+    with open(os.path.join(output_dir, 'suppliers_seed.json'), 'w', encoding='utf-8') as f:
+        json.dump(suppliers, f, indent=2, ensure_ascii=False)
+
+    # 4. ENVIOS (CABE_ENVIOS) - FILTRADO POR FECHA
     print("🚛 Extrayendo Envíos...")
     df_env_raw = xl.parse('CABE_ENVIOS', header=None, nrows=10)
     h_idx = 0
@@ -270,63 +303,138 @@ def extract_all():
     # ... (orders processing)
     
     orders = []
+    payments_only = []
+    
+    # Headers finder to make it robust
+    col_total = find_col(['TOTAL', 'IMPORTE', 'TOTAL USD'], 'TOTAL')
+    col_pago = find_col(['PAGO', 'COBRO', 'COBRADO'], 'PAGO')
+    col_metodo = find_col(['METODO'], 'METODO')
+    col_product = find_col(['PRODUCTO', 'DETALLE', 'ARTICULO'], 'PRODUCTO')
+
     for _, row in df_cv.iterrows():
         onum = row.get('NRO_PEDIDO')
-        if pd.isna(onum): continue
-        try: onum = int(onum)
-        except: continue
+        total_val = clean_num(row.get(col_total))
+        pago_val = clean_num(row.get(col_pago))
         
-        items = det_map.get(onum, [])
-        total = clean_num(row.get('TOTAL') or row.get('TOTAL USD')) # Headers might vary
-        
-        # Si el total es 0 o NaN pero hay items, sumamos los items
-        if (pd.isna(total) or total == 0) and items:
-            total = sum(i['unit_price'] * i['quantity'] for i in items)
-            
-        saldo = clean_num(row.get('SALDO'))
-        
-        # --- CLIENT EXTRACTION IMPROVED ---
-        # 1. Try CABE_VENTAS
+        # Determine Client
         client_id_val = None
         client_name_val = None
+        raw_cli_cabe = row.get('CLIENTE')
+        raw_nro_cli = row.get('NRO CLI')
         
-        raw_cli_cabe = row.get('CLIENTE') # Sometimes ID, sometimes Name in this column
-        raw_nro_cli = row.get('NRO CLI')  # Explicit ID column if exists
-        
-        # Logic for 'CLIENTE' column
         if pd.notna(raw_cli_cabe):
             s_cli = str(raw_cli_cabe).strip()
-            if s_cli.isdigit():
-                client_id_val = int(s_cli)
-            else:
-                client_name_val = s_cli
-        
-        # Logic for 'NRO CLI' column (Overrides ID if present)
+            if s_cli.isdigit(): client_id_val = int(s_cli)
+            else: client_name_val = s_cli
         if pd.notna(raw_nro_cli):
-             try: client_id_val = int(float(raw_nro_cli))
-             except: pass
-
-        # 2. Fallback to DETA_VENTAS if missing
+            try: client_id_val = int(float(raw_nro_cli))
+            except: pass
+            
         if not client_id_val and not client_name_val:
-            fallback = det_client_map.get(onum)
-            if fallback:
-                client_id_val = fallback['id']
-                client_name_val = fallback['name']
-                # print(f"⚠️ Usando fallback detalle para Order {onum}: {client_name_val}")
+            continue
 
-        orders.append({
-            'order_number': onum,
-            'client_old_id': client_id_val,
-            'client_name_match': client_name_val,
-            'date': clean_date(row.get('FECHA')),
-            'total_amount': total,
-            'payment_amount': max(0, total - saldo) if pd.notna(saldo) else total,
-            'payment_method': clean_text(row.get('METODO')),
-            'status': order_status_map.get(onum) or normalize_status(clean_text(row.get('ESTADO'))),
-            'items': items
-        })
+        # case A: It's an Order (Cargo)
+        if pd.notna(onum) and str(onum).strip().isdigit():
+            onum = int(float(onum))
+            items = det_map.get(onum, [])
+            if total_val == 0 and items:
+                total_val = sum(i['unit_price'] * i['quantity'] for i in items)
+            
+            if not client_id_val and not client_name_val:
+                fallback = det_client_map.get(onum)
+                if fallback:
+                    client_id_val = fallback['id']
+                    client_name_val = fallback['name']
+
+            orders.append({
+                'order_number': onum,
+                'client_old_id': client_id_val,
+                'client_name_match': client_name_val,
+                'date': clean_date(row.get('FECHA')),
+                'total_amount': total_val,
+                'payment_amount': pago_val, # Use the PAGO column if present
+                'payment_method': clean_text(row.get(col_metodo)),
+                'status': order_status_map.get(onum) or normalize_status(clean_text(row.get('ESTADO'))),
+                'items': items
+            })
+        
+        # Case B: It's a Payment-only row
+        elif pago_val != 0 or total_val != 0:
+            # If total_val is set but no order #, it might be a payment (like in the user image)
+            amt = pago_val if pago_val != 0 else total_val
+            payments_only.append({
+                'client_old_id': client_id_val,
+                'client_name_match': client_name_val,
+                'date': clean_date(row.get('FECHA')),
+                'amount': amt,
+                'method': clean_text(row.get(col_metodo)) or 'COBRO',
+                'description': clean_text(row.get(col_product)) or 'Cobro / Pago'
+            })
+
+    # Save both
     with open(os.path.join(output_dir, 'orders_seed.json'), 'w', encoding='utf-8') as f:
         json.dump(orders, f, indent=2, ensure_ascii=False)
+    with open(os.path.join(output_dir, 'payments_extra_seed.json'), 'w', encoding='utf-8') as f:
+        json.dump(payments_only, f, indent=2, ensure_ascii=False)
+
+    # 6. COMPRAS (CAB_COMPRAS + DETA_COMPRAS)
+    print("🛒 Extrayendo Compras y Proveedores...")
+    # Header dinámico para CAB_COMPRAS
+    df_cc_raw = xl.parse('CAB_COMPRAS', header=None, nrows=10)
+    cc_h = 0
+    for i, r in df_cc_raw.iterrows():
+        if 'INVOICE NRO' in [str(x).upper().strip() for x in r.values]:
+            cc_h = i
+            break
+    df_cc = xl.parse('CAB_COMPRAS', header=cc_h)
+    df_cc.columns = [str(c).upper().strip() for c in df_cc.columns]
+    
+    # Header dinámico para DETA_COMPRAS
+    df_dc_raw = xl.parse('DETA_COMPRAS', header=None, nrows=10)
+    dc_h = 0
+    for i, r in df_dc_raw.iterrows():
+        if 'SKU' in [str(x).upper().strip() for x in r.values]:
+            dc_h = i
+            break
+    df_dc = xl.parse('DETA_COMPRAS', header=dc_h)
+    df_dc.columns = [str(c).upper().strip() for c in df_dc.columns]
+    
+    # Mapear detalles de compra por factura
+    comp_det_map = {}
+    for _, row in df_dc.iterrows():
+        inv = clean_text(row.get('INV-REM'))
+        if not inv: continue
+        if inv not in comp_det_map: comp_det_map[inv] = []
+        comp_det_map[inv].append({
+            'sku': clean_text(row.get('SKU')),
+            'product_name': clean_text(row.get('DETALLE')),
+            'quantity': int(clean_num(row.get('CANT'))),
+            'unit_cost': clean_num(row.get('$ UNI')),
+            'subtotal': clean_num(row.get('TOTAL'))
+        })
+        
+    purchases = []
+    for _, row in df_cc.iterrows():
+        inv = clean_text(row.get('INVOICE NRO'))
+        if not inv: continue
+        
+        # Determine Supplier ID
+        p_id = row.get('COD_PRO')
+        try: p_id = int(float(p_id)) if pd.notna(p_id) else None
+        except: p_id = None
+        
+        purchases.append({
+            'invoice_number': inv,
+            'supplier_old_id': p_id,
+            'supplier_name': clean_text(row.get('PROVEEDOR')),
+            'date': clean_date(row.get('FECHA')),
+            'total_amount': clean_num(row.get('TOTAL USD')),
+            'payment_method': clean_text(row.get('TIPO PAGO')),
+            'items': comp_det_map.get(inv, [])
+        })
+        
+    with open(os.path.join(output_dir, 'purchases_seed.json'), 'w', encoding='utf-8') as f:
+        json.dump(purchases, f, indent=2, ensure_ascii=False)
 
     end_time = time.time()
     print(f"\n✅ Extracción completa en {end_time - start_time:.2f} segundos.")

@@ -1,6 +1,5 @@
-#!/bin/bash
-# Setup script for DigitalOcean Droplet
-# Run this script on your fresh Ubuntu 24.04 droplet
+# Este archivo no es necesario para servidores con Docker ya instalado
+# Ver README.md para instrucciones de despliegue
 
 set -e
 

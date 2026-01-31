@@ -1,16 +1,17 @@
 version: '3.8'
 
 services:
-  webapp:
+  eswcargo-webapp:
     build:
       context: ./webapp
       dockerfile: Dockerfile
-    container_name: eswcargo-app
+    container_name: eswcargo-webapp
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3002:3000" # Puerto externo 3002 → puerto interno 3000
     environment:
       - NODE_ENV=production
+      - PORT=3000
       - DATABASE_URL=${DATABASE_URL}
       - DIRECT_URL=${DIRECT_URL}
       - AUTH_SECRET=${AUTH_SECRET}
@@ -21,9 +22,18 @@ services:
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASS=${SMTP_PASS}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+    env_file:
+      - .env
     networks:
-      - eswcargo-network
+      - default
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:3000" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 networks:
-  eswcargo-network:
+  default:
+    name: eswcargo-network
     driver: bridge

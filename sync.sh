@@ -26,7 +26,8 @@ show_menu() {
     echo "  1) 📥 Importar desde Excel a BD (Excel → BD)"
     echo "  2) 📤 Exportar desde BD a Excel (BD → Excel)"
     echo "  3) 🔄 Sincronización completa (Bidireccional)"
-    echo "  4) ❌ Salir"
+    echo "  4) 🧹 LIMPIEZA Y SINCRONIZACIÓN TOTAL"
+    echo "  5) ❌ Salir"
     echo ""
 }
 
@@ -36,6 +37,7 @@ import_from_excel() {
     echo "  1) ⚡ FLASH (Últimos 7 días) - Recomendado para el día a día"
     echo "  2) 🏃 RÁPIDA (Últimos 30 días)"
     echo "  3) 🐢 COMPLETA (Todo el historial)"
+    echo "  4) 🧹 TOTAL CON LIMPIEZA"
     read -p "Opción: " speed_opt
     
     DAYS=0
@@ -43,46 +45,18 @@ import_from_excel() {
         1) DAYS=7 ;;
         2) DAYS=30 ;;
         3) DAYS=0 ;;
+        4) DAYS="FULL" ;;
         *) echo "❌ Opción inválida"; return 1 ;;
     esac
 
     echo ""
-    echo "🚀 Iniciando sincronización ($DAYS días)..."
+    echo "🚀 Iniciando sincronización ($DAYS)..."
     echo ""
     
-    # 0. Descargar última versión de Google Sheets
-    echo "📥 Paso 1/3: Descargando última versión de Google Sheets..."
-    $PYTHON_EXEC download_sheet.py
-    
-    if [ $? -ne 0 ]; then
-        echo "⚠️  Advertencia: No se pudo descargar el Excel. Usando versión local..."
-        # No retornamos error fatal, continuamos con lo que haya
-    fi
-    echo ""
-
-    # 1. Extracción Consolidada con filtro
-    echo "📊 Paso 2/3: Extrayendo datos desde Excel..."
-    $PYTHON_EXEC extract_consolidated.py $DAYS
-    
-    if [ $? -ne 0 ]; then
-        echo "❌ Error en fase de extracción"
-        return 1
-    fi
-    
-    # 2. Sembrado Diferencial
-    echo ""
-    echo "💾 Paso 3/3: Aplicando cambios a la base de datos..."
+    # Llamar al script interno de webapp que ya maneja venv y pasos
     cd webapp
-    npx tsx prisma/seed_fast.ts
+    ./sync_excel.sh $DAYS
     cd ..
-    
-    if [ $? -ne 0 ]; then
-        echo "❌ Error en fase de aplicación a BD"
-        return 1
-    fi
-    
-    echo ""
-    echo "✅ Sincronización completada exitosamente"
 }
 
 # Función para exportar a Excel
@@ -126,7 +100,8 @@ while true; do
     echo "1) 📥 Importar (Excel → BD)"
     echo "2) 📤 Exportar (BD → Excel)"
     echo "3) 🔄 Bidireccional (Ambos)"
-    echo "4) ❌ Salir"
+    echo "4) 🧹 Limpieza y Sincronización Total"
+    echo "5) ❌ Salir"
     echo ""
     read -p "Opción: " option
     
@@ -134,7 +109,12 @@ while true; do
         1) import_from_excel ;;
         2) export_to_excel ;;
         3) bidirectional_sync ;;
-        4) exit 0 ;;
+        4) 
+           cd webapp
+           ./sync_excel.sh FULL
+           cd ..
+           ;;
+        5) exit 0 ;;
         *) echo "❌ Opción inválida" ;;
     esac
     

@@ -1,46 +1,61 @@
 #!/bin/bash
-# Deployment script for DigitalOcean Droplet
-# Run this after cloning the repository
+# Script de despliegue simple para servidor con Docker
 
 set -e
 
-echo "🚀 Iniciando despliegue de ESW Cargo..."
+echo "🚀 Desplegando Sistema de Gestión de Importaciones..."
 
-# Navigate to project directory
-cd "$(dirname "$0")"
-
-# 1. Copy environment variables
-if [ ! -f .env ]; then
-    echo "📋 Copiando variables de entorno..."
-    cp .env.production .env
-    echo "⚠️  IMPORTANTE: Edita el archivo .env si necesitas cambiar alguna configuración"
-    read -p "Presiona Enter para continuar..."
-fi
-
-# 2. Build and start containers
-echo "🐳 Construyendo contenedores Docker..."
-docker-compose build --no-cache
-
-echo "🚀 Iniciando aplicación..."
-docker-compose up -d
-
-# 3. Wait for application to be ready
-echo "⏳ Esperando que la aplicación inicie..."
-sleep 10
-
-# 4. Check if container is running
-if docker ps | grep -q eswcargo-app; then
-    echo "✅ Aplicación desplegada exitosamente!"
-    echo ""
-    echo "📊 Estado de los contenedores:"
-    docker-compose ps
-    echo ""
-    echo "🌐 La aplicación está corriendo en http://localhost:3000"
-    echo "📝 Para ver los logs: docker-compose logs -f webapp"
-    echo "🔄 Para reiniciar: docker-compose restart"
-    echo "🛑 Para detener: docker-compose down"
-else
-    echo "❌ Error: El contenedor no está corriendo"
-    echo "Revisa los logs con: docker-compose logs webapp"
+# Verificar que estamos en el directorio correcto
+if [ ! -f "docker-compose.yml" ]; then
+    echo "❌ Error: docker-compose.yml no encontrado"
+    echo "Ejecuta este script desde el directorio raíz del proyecto"
     exit 1
 fi
+
+# Verificar que existe el archivo .env
+if [ ! -f ".env" ]; then
+    echo "⚠️  Archivo .env no encontrado"
+    if [ -f ".env.example" ]; then
+        echo "📋 Copia .env.example a .env y configura tus variables"
+        cp .env.example .env
+        echo "✅ Archivo .env creado. Por favor edítalo antes de continuar."
+        exit 1
+    else
+        echo "❌ No se encontró .env.example"
+        exit 1
+    fi
+fi
+
+# Detener contenedor anterior si existe
+echo "🛑 Deteniendo contenedor existente..."
+docker-compose down 2>/dev/null || true
+
+# Construir y levantar
+echo "🐳 Construyendo imagen..."
+docker-compose build --no-cache
+
+echo "🚀 Levantando servicio..."
+docker-compose up -d
+
+# Esperar a que el contenedor inicie
+echo "⏳ Esperando a que el servicio inicie..."
+sleep 5
+
+# Verificar estado
+if docker ps | grep -q eswcargo-webapp; then
+    echo ""
+    echo "✅ ¡Despliegue exitoso!"
+    echo ""
+    echo "📊 Estado del contenedor:"
+    docker-compose ps
+    echo ""
+    echo "🌐 Aplicación disponible en: http://localhost:3002"
+    echo "📝 Ver logs: docker-compose logs -f eswcargo-webapp"
+    echo ""
+else
+    echo ""
+    echo "❌ Error: El contenedor no está corriendo"
+    echo "Ver logs con: docker-compose logs eswcargo-webapp"
+    exit 1
+fi
+
