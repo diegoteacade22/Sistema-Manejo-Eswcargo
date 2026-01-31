@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  role      String   @default("USER")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  imports   Import[]
+}
+
+model Supplier {
+  id        String   @id @default(uuid())
+  name      String
+  country   String
+  contact   String?
+  createdAt DateTime @default(now())
+
+  imports   Import[]
+}
+
+model Import {
+  id          String      @id @default(uuid())
+  reference   String      @unique
+  status      ImportStatus @default(PENDING)
+  eta         DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  userId      String
+  supplierId  String
+
+  user        User        @relation(fields: [userId], references: [id])
+  supplier    Supplier    @relation(fields: [supplierId], references: [id])
+  containers  Container[]
+  documents   Document[]
+}
+
+model Container {
+  id         String   @id @default(uuid())
+  code       String
+  importId   String
+
+  import     Import   @relation(fields: [importId], references: [id])
+}
+
+model Document {
+  id         String   @id @default(uuid())
+  type       String
+  url        String
+  importId   String
+  createdAt DateTime @default(now())
+
+  import     Import   @relation(fields: [importId], references: [id])
+}
+
+enum ImportStatus {
+  PENDING
+  IN_TRANSIT
+  CUSTOMS
+  DELIVERED
+  CANCELLED
+}
