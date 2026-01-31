@@ -2,18 +2,20 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { prisma } from "./prisma";
 
-const genAI = new GoogleGenerativeAI((process.env.GEMINI_API_KEY || "").trim());
-
 export async function processAiQuery(prompt: string, userRole: string, userId: string) {
+    const apiKey = (process.env.GEMINI_API_KEY || "").trim();
+
     // 0. Check Environment - DISABLE IN PRODUCTION
     const isProduction = process.env.NEXT_PUBLIC_VERCEL_ENV === 'production';
     if (isProduction) {
         return "🚀 ¡Próximamente seré tu Copiloto Financiero e Inteligente! Actualmente estoy en fase de entrenamiento para brindarte el mejor servicio. ¡Mantente atento!";
     }
 
-    if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY.trim() === "") {
+    if (!apiKey) {
         return "El asistente IA no está configurado. Por favor, agrega GEMINI_API_KEY al entorno.";
     }
+
+    const genAI = new GoogleGenerativeAI(apiKey);
 
     // 1. Identify Client if not Admin
     let clientId: number | null = null;

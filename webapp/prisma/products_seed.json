@@ -1344,9 +1344,9 @@
     "lp1": 0.0
   },
   {
-    "sku": "IP15-128-IN-PK",
+    "sku": "IP15-128-IN-LV",
     "name": "iPhone 15 128GB 🇮🇳",
-    "color_grade": "Pink",
+    "color_grade": "Lavender",
     "type": "CELL-NEW",
     "model": "iPhone 15",
     "brand": "APPLE",
@@ -5472,6 +5472,18 @@
     "lp1": 0.0
   },
   {
+    "sku": "IP17P-256-JP-SV",
+    "name": "iPhone 17 Pro 256GB 🇯🇵",
+    "color_grade": "Silver",
+    "type": "CELL-NEW",
+    "model": "iPhone 17 Pro",
+    "brand": "APPLE",
+    "weight": 0.5,
+    "status": "ACTIVO",
+    "stock": 0,
+    "lp1": 0.0
+  },
+  {
     "sku": "IP17P-512-US-SV",
     "name": "iPhone 17 Pro 512GB 🇺🇸",
     "color_grade": "Silver",
@@ -5580,6 +5592,18 @@
     "lp1": 0.0
   },
   {
+    "sku": "IP17PM-256-JP-SV",
+    "name": "iPhone 17 Pro Max 256GB 🇯🇵",
+    "color_grade": "Silver",
+    "type": "CELL-NEW",
+    "model": "iPhone 17 Pro Max",
+    "brand": "APPLE",
+    "weight": 0.5,
+    "status": "ACTIVO",
+    "stock": 0,
+    "lp1": 0.0
+  },
+  {
     "sku": "IP17PM-512-US-SV",
     "name": "iPhone 17 Pro Max 512GB 🇺🇸",
     "color_grade": "Silver",
@@ -5618,6 +5642,18 @@
   {
     "sku": "IP17PM-256-US-CO",
     "name": "iPhone 17 Pro Max 256GB 🇺🇸",
+    "color_grade": "Cosmic Orange",
+    "type": "CELL-NEW",
+    "model": "iPhone 17 Pro Max",
+    "brand": "APPLE",
+    "weight": 0.5,
+    "status": "ACTIVO",
+    "stock": 0,
+    "lp1": 0.0
+  },
+  {
+    "sku": "IP17PM-256-JP-CO",
+    "name": "iPhone 17 Pro Max 256GB 🇯🇵",
     "color_grade": "Cosmic Orange",
     "type": "CELL-NEW",
     "model": "iPhone 17 Pro Max",
@@ -5678,6 +5714,18 @@
   {
     "sku": "IP17PM-512-US-DB",
     "name": "iPhone 17 Pro Max 512GB 🇺🇸",
+    "color_grade": "Deep Blue",
+    "type": "CELL-NEW",
+    "model": "iPhone 17 Pro Max",
+    "brand": "APPLE",
+    "weight": 0.5,
+    "status": "ACTIVO",
+    "stock": 0,
+    "lp1": 0.0
+  },
+  {
+    "sku": "IP17PM-256-JP-DB",
+    "name": "iPhone 17 Pro Max 256GB 🇯🇵",
     "color_grade": "Deep Blue",
     "type": "CELL-NEW",
     "model": "iPhone 17 Pro Max",

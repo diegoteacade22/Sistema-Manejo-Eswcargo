@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  output: 'standalone',
   // Suppress known hydration warnings from Radix UI components
   // These warnings occur because Radix generates dynamic IDs 
   // that don't match between server and client in lists

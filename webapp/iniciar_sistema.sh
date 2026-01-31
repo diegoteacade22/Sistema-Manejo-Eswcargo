@@ -40,10 +40,29 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# 4. Iniciar aplicación
+# 4. Limpiar puerto 3000 si está ocupado
+echo -e "4. Verificando puerto 3000..."
+PID=$(lsof -ti:3000)
+if [ ! -z "$PID" ]; then
+  echo -e "${YELLOW}Puerto 3000 ocupado por proceso $PID. Liberando...${NC}"
+  kill -9 $PID
+fi
+
+# 5. Limpiar bloqueos anteriores (Fix: Unable to acquire lock)
+if [ -d ".next/dev" ]; then
+    echo -e "5. Limpiando archivos temporales..."
+    rm -f .next/dev/lock
+fi
+
+# 6. Iniciar aplicación
 echo -e "${GREEN}Todo listo. Iniciando servidor...${NC}"
 echo "---------------------------------------------------"
 echo "El sistema estará disponible en: http://localhost:3000"
+echo "Para DETENER el sistema: Presione CONTROL + C"
 echo "---------------------------------------------------"
 
 npm run dev
+
+# Mantener ventana abierta si falla
+echo -e "${RED}El servidor se ha detenido inesperadamente.${NC}"
+read -p "Presione ENTER para cerrar esta ventana..."

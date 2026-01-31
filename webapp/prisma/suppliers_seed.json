@@ -1,324 +1,749 @@
 [
   {
+    "old_id": 1,
     "name": "AEONZ",
-    "contact": "",
-    "email": "",
-    "phone": "",
-    "address": ""
+    "contact": null,
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 2,
     "name": "ALASKA",
     "contact": "Alaska Jose Miami",
-    "email": "",
     "phone": "+1 786 620 5188",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 3,
     "name": "AMAZON",
-    "contact": "",
-    "email": "",
-    "phone": "",
-    "address": ""
+    "contact": null,
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 4,
     "name": "APPLE",
-    "contact": "",
-    "email": "",
-    "phone": "",
-    "address": ""
+    "contact": null,
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 5,
     "name": "B2",
-    "contact": "",
-    "email": "",
-    "phone": "",
-    "address": ""
+    "contact": null,
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 6,
     "name": "BEST BUY",
-    "contact": "",
-    "email": "",
-    "phone": "",
-    "address": ""
+    "contact": null,
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 7,
     "name": "BH",
-    "contact": "",
-    "email": "",
+    "contact": null,
     "phone": "+1 917 562 3649",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 8,
     "name": "TELUS",
     "contact": "Ibtisam Telus FZCO",
-    "email": "",
     "phone": "+1 302 580 9619",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 9,
+    "name": "Albert Srugo",
+    "contact": "Albert Srugo",
+    "phone": "+1 646 236 7054",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 10,
     "name": "FREEZIA TRADING LLC",
     "contact": "Cindy Huang Freezia",
-    "email": "",
     "phone": "+1 786 846 7553",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 11,
     "name": "GIZMO",
-    "contact": "",
-    "email": "",
-    "phone": "",
-    "address": ""
+    "contact": null,
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 12,
     "name": "BAXTER",
     "contact": "Orientales",
-    "email": "",
     "phone": "+1 645 243 0824",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 13,
     "name": "GSM CLUB",
-    "contact": "",
-    "email": "",
+    "contact": null,
     "phone": "+1 786 352 9271",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 14,
     "name": "IPHOXY",
     "contact": "Salam",
-    "email": "",
     "phone": "+1 786 969 0267",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 15,
+    "name": "eBay",
+    "contact": "Marketplace",
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 16,
     "name": "MOBILE SENTRIX",
     "contact": "Fahim",
-    "email": "",
     "phone": "+1 786 969 0267",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 17,
     "name": "MONDO MOVIL",
     "contact": "Ana Cristina Mondo Cell",
-    "email": "",
     "phone": "+1 786 395 2204",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 18,
     "name": "MTG",
     "contact": "Salim Khalouf",
-    "email": "",
     "phone": "+1 347 833 3324",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 19,
+    "name": "Captain Mobile",
+    "contact": "Alex",
+    "phone": "+1 305 615 0697",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 20,
     "name": "TELUS",
     "contact": "Abraham",
-    "email": "",
-    "phone": "",
-    "address": ""
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 21,
     "name": "R2",
     "contact": "Huascar Read",
-    "email": "",
     "phone": "+1 347 805 2144",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 22,
     "name": "WALMART",
-    "contact": "",
-    "email": "",
+    "contact": null,
     "phone": "+1 302 580 9619",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 23,
     "name": "TEKNOVA",
     "contact": "Diego",
-    "email": "",
     "phone": "+1 786 835 8353",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 24,
     "name": "IMPONET",
-    "contact": "",
-    "email": "",
-    "phone": "",
-    "address": ""
+    "contact": null,
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 25,
     "name": "HTD",
     "contact": "Daniel",
-    "email": "",
     "phone": "+1 331 245 5172",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 26,
     "name": "SONIX",
     "contact": "Paola",
-    "email": "",
-    "phone": "",
-    "address": ""
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 27,
     "name": "VG",
     "contact": "Andres",
-    "email": "",
     "phone": "+1 305 606 8056",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 28,
     "name": "EMOLO",
     "contact": "Raphael",
-    "email": "",
-    "phone": "",
-    "address": ""
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 29,
     "name": "PORCUPINERC",
-    "contact": "",
-    "email": "",
-    "phone": "",
-    "address": ""
+    "contact": null,
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 30,
     "name": "CELLULAR WORLD",
     "contact": "Cecilia",
-    "email": "",
     "phone": "+1 786 912 0053",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 31,
     "name": "SOMATECH LLC",
     "contact": "Marisol",
-    "email": "",
-    "phone": "",
-    "address": ""
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 32,
     "name": "GOLD TRADE LLC",
     "contact": "Maria",
-    "email": "",
     "phone": "+1 561 816 8879",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 33,
     "name": "CORBAL LLC",
     "contact": "Darlon Cordero",
-    "email": "",
-    "phone": "",
-    "address": ""
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 34,
     "name": "MOUNTOLE USA",
     "contact": "Marry",
-    "email": "",
-    "phone": "",
-    "address": ""
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 35,
     "name": "TEKCOM GROUP INC",
     "contact": "Neo Zheng",
-    "email": "",
     "phone": "+1 754 261 7746",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 36,
     "name": "NEKLOVA",
     "contact": "Diego Molinari",
-    "email": "",
-    "phone": "",
-    "address": ""
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 37,
     "name": "MT CONNECTIONS INC",
     "contact": "Marina Rodriguez",
-    "email": "",
     "phone": "+1 305 338 7678",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 38,
+    "name": "Ivan Molina",
+    "contact": "Ivan Molina",
+    "phone": "+57 311 5055522",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 39,
     "name": "BOSTON AVE WIRELESS",
     "contact": "Daniel",
-    "email": "",
     "phone": "+1 754 736-3262",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 40,
+    "name": "Janet",
+    "contact": "Janet",
+    "phone": "+1 305 417 0185",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 41,
+    "name": "Grace Bering Bering",
+    "contact": "Grace Bering Bering",
+    "phone": "+1 305 484 3572",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 42,
+    "name": "Sinuhe Rodriguez",
+    "contact": "Sinuhe Rodriguez",
+    "phone": "+1 347 459 7477",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 43,
+    "name": "Eon Captain",
+    "contact": "Eon Captain",
+    "phone": "+1 347 674 6636",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 44,
+    "name": "Natalia Cadavid",
+    "contact": "Natalia Cadavid",
+    "phone": "+1 410 961 3970",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 45,
     "name": "TELUS",
     "contact": "Salim Inq Star Sales",
-    "email": "",
     "phone": "+1 425 389 6622",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 46,
     "name": "LIFE TECH",
     "contact": "Joshua New Life",
-    "email": "",
     "phone": "+1 475 355 1342",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 47,
     "name": "GOLSTAR",
     "contact": "Maria Villa",
-    "email": "",
     "phone": "+1 561 816 8879",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 48,
+    "name": "Idris Omar",
+    "contact": "Idris Omar",
+    "phone": "+1 571 999 5547",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 49,
     "name": "ADISUN WIRELESS",
     "contact": "Adisun Wireless",
-    "email": "",
     "phone": "+1 631 877 7999",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 50,
+    "name": "Luz Cortez",
+    "contact": "Luz Cortez",
+    "phone": "+1 727 366 3610",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 51,
     "name": "TEKCOM",
     "contact": "Neo Zheng Tekcom",
-    "email": "",
     "phone": "+1 754 261 7746",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 52,
+    "name": "Isamar Sales",
+    "contact": "Isamar Sales",
+    "phone": "+1 754 275 3030",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 53,
+    "name": "Ariadna Lodaina",
+    "contact": "Ariadna Lodaina",
+    "phone": "+1 786 328 6542",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 54,
+    "name": "Giovanni Giannone",
+    "contact": "Giovanni Giannone",
+    "phone": "+1 786 352 9271",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 55,
     "name": "CELL WORLD",
     "contact": "Cecilia Santovena Cell",
-    "email": "",
     "phone": "+1 786 912 0053",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 56,
     "name": "IPHOXY",
     "contact": "Salam Iphoxy Corp",
-    "email": "",
     "phone": "+1 786 969 0267",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 57,
+    "name": "Zuhi Gómez",
+    "contact": "Zuhi Gómez",
+    "phone": "+1 813 606 1836",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 58,
+    "name": "Tony Baker",
+    "contact": "Tony Baker",
+    "phone": "+1 813 900 4000",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 59,
+    "name": "Mohamed BrighTech Dist",
+    "contact": "Mohamed BrighTech Dist",
+    "phone": "+1 818 399 3930",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 60,
+    "name": "Steve Sutton USMP Miami",
+    "contact": "Steve Sutton USMP Miami",
+    "phone": "+1 917 200 4444",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 61,
+    "name": "Ranjeet S Bhatia",
+    "contact": "Ranjeet S Bhatia",
+    "phone": "+1 917 562 3649",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 62,
+    "name": "Arsh signh NY",
+    "contact": "Arsh signh NY",
+    "phone": "+1 929 294 0013",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 63,
+    "name": "Maha - Captain Mobiles",
+    "contact": "Maha - Captain Mobiles",
+    "phone": "+1 945 335 6266",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 64,
+    "name": "Sinuhe Rodriguez",
+    "contact": "Sinuhe Rodriguez",
+    "phone": "+1 347 459 7477",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 65,
+    "name": "Eon Captain",
+    "contact": "Eon Captain",
+    "phone": "+1 347 674 6636",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 66,
+    "name": "Paolo Dubai Stock",
+    "contact": "Paolo Dubai Stock",
+    "phone": "+51 987 708 512",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 67,
+    "name": "Federico Gallo Gallo",
+    "contact": "Federico Gallo Gallo",
+    "phone": "+54 9 11 5663 8045",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 68,
     "name": "ENCORETECH",
     "contact": "Ryan",
-    "email": "",
     "phone": "+86 198 4230 0023",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 69,
+    "name": "Felix Matos",
+    "contact": "Felix Matos",
+    "phone": "+1 786 554 6840",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 70,
+    "name": "Mohamed Iphoxy Celus",
+    "contact": "Mohamed Iphoxy Celus",
+    "phone": "+1 786 657 4312",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 71,
     "name": "EON CELL",
     "contact": "Erik Eon Cell",
-    "email": "",
     "phone": "+1 786 657 9790",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 72,
+    "name": "Martin Garcia Garcia",
+    "contact": "Martin Garcia Garcia",
+    "phone": "+1 786 675 7721",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 73,
     "name": "HTD",
     "contact": "Edison Chino",
-    "email": "",
     "phone": "+1 786 718 0981",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
   },
   {
+    "old_id": 74,
+    "name": "Marco MAV Distributors",
+    "contact": "Marco MAV Distributors",
+    "phone": "+1 786 873 8270",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 75,
+    "name": "Cesar Tamayo",
+    "contact": "Cesar Tamayo",
+    "phone": "+1 786 797 6307",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 76,
     "name": "WHATSALE",
     "contact": "Diego Whatsale",
-    "email": "",
     "phone": "+1 786 835 8353",
-    "address": ""
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 77,
+    "name": "Julio EL REY DEL IPHONE",
+    "contact": "Julio EL REY DEL IPHONE",
+    "phone": "+1 786 853 6483",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 78,
+    "name": "BUHOTECH",
+    "contact": "Eusebio",
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 79,
+    "name": "BETECH TRADE LLC",
+    "contact": "Mahesh K",
+    "phone": "+971 50 645 6167",
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 80,
+    "name": "WIRELESSNEXT",
+    "contact": "Andrea Gonzalez",
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 81,
+    "name": "PLANET CELLULAR",
+    "contact": "Gigi",
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 82,
+    "name": "iGAMER CORP",
+    "contact": "Alex",
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
+  },
+  {
+    "old_id": 83,
+    "name": "ALTATEK",
+    "contact": "Ariadna Lodaina",
+    "phone": null,
+    "city": null,
+    "country": null,
+    "notes": null
   }
 ]

@@ -24,6 +24,19 @@ async function getSupplierDetails(id: string) {
                 orderBy: {
                     id: 'desc'
                 }
+            },
+            purchases: {
+                include: {
+                    items: true
+                },
+                orderBy: {
+                    date: 'desc'
+                }
+            },
+            transactions: {
+                orderBy: {
+                    date: 'desc'
+                }
             }
         }
     });
@@ -104,66 +117,143 @@ export default async function SupplierDetailsPage(props: Props) {
                     </CardContent>
                 </Card>
 
-                {/* Movements History */}
-                <Card className="md:col-span-2 shadow-md">
+                {/* Supplier Balance (Should be 0) */}
+                <Card className="md:col-span-1 h-fit shadow-md border-t-4 border-t-emerald-500">
+                    <CardHeader>
+                        <CardTitle className="text-xl">Cuenta Corriente</CardTitle>
+                        <CardDescription>Resumen de Pagos</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="text-3xl font-bold text-center py-2">
+                            $0.00
+                        </div>
+                        <p className="text-xs text-center text-muted-foreground italic">
+                            Los pagos se registran automáticamente al momento de la compra.
+                        </p>
+                        <div className="pt-4 border-t mt-4 space-y-2">
+                            <div className="flex justify-between text-xs">
+                                <span className="text-muted-foreground">Total Comprado:</span>
+                                <span className="font-bold text-red-600">
+                                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(
+                                        Math.abs(supplier.transactions.filter((t: any) => t.type === 'CARGO').reduce((acc: number, t: any) => acc + t.amount, 0))
+                                    )}
+                                </span>
+                            </div>
+                            <div className="flex justify-between text-xs">
+                                <span className="text-muted-foreground">Total Pagado:</span>
+                                <span className="font-bold text-emerald-600">
+                                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(
+                                        supplier.transactions.filter((t: any) => t.type === 'PAGO').reduce((acc: number, t: any) => acc + t.amount, 0)
+                                    )}
+                                </span>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Purchases History */}
+                <Card className="md:col-span-2 shadow-md border-t-4 border-t-amber-500">
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
-                            <HistoryIcon className="h-5 w-5 text-cyan-600" />
-                            Historial de Movimientos
+                            <DollarSign className="h-5 w-5 text-amber-600" />
+                            Historial de Compras (Planilla)
                         </CardTitle>
-                        <CardDescription>Registro de artículos vendidos asociados a este proveedor.</CardDescription>
+                        <CardDescription>Registro de facturas de compra y pagos automáticos al proveedor.</CardDescription>
                     </CardHeader>
                     <CardContent>
                         <Table>
                             <TableHeader>
                                 <TableRow>
                                     <TableHead>Fecha</TableHead>
-                                    <TableHead>Pedido</TableHead>
-                                    <TableHead>Producto</TableHead>
-                                    <TableHead className="text-right">Cant.</TableHead>
-                                    <TableHead className="text-right">Venta Unit.</TableHead>
-                                    <TableHead className="text-right">Factura Compra</TableHead>
+                                    <TableHead>Invoice #</TableHead>
+                                    <TableHead>Items</TableHead>
+                                    <TableHead className="text-right">Monto USD</TableHead>
+                                    <TableHead>Método</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
-                                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                                {supplier.orderItems.map((item: any) => (
-                                    <TableRow key={item.id}>
-                                        <TableCell className="text-sm text-muted-foreground">
-                                            {item.order?.date ? new Date(item.order.date).toLocaleDateString() : '-'}
+                                {supplier.purchases.map((p: any) => (
+                                    <TableRow key={p.id}>
+                                        <TableCell className="text-sm font-medium">
+                                            {p.date ? new Date(p.date).toLocaleDateString() : '-'}
+                                        </TableCell>
+                                        <TableCell className="font-mono text-xs text-blue-600">
+                                            {p.invoice_number}
+                                        </TableCell>
+                                        <TableCell className="text-sm">
+                                            <div className="flex flex-col">
+                                                {p.items.slice(0, 2).map((it: any) => (
+                                                    <span key={it.id} className="text-[10px] text-muted-foreground truncate max-w-[150px]">
+                                                        {it.quantity}x {it.productName}
+                                                    </span>
+                                                ))}
+                                                {p.items.length > 2 && (
+                                                    <span className="text-[10px] italic">+{p.items.length - 2} más...</span>
+                                                )}
+                                            </div>
+                                        </TableCell>
+                                        <TableCell className="text-right font-bold text-amber-700">
+                                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(p.total_amount)}
                                         </TableCell>
                                         <TableCell>
-                                            {item.order ? (
-                                                <Link href={`/orders/${item.order.order_number}`} className="text-blue-600 hover:underline font-mono text-xs">
-                                                    #{item.order.order_number}
-                                                </Link>
-                                            ) : <span className="text-xs text-red-500">N/A</span>}
-                                        </TableCell>
-                                        <TableCell className="max-w-[200px] truncate text-sm" title={item.productName}>
-                                            <div className="font-medium text-slate-700 dark:text-slate-300">
-                                                {item.productName}
-                                            </div>
-                                            {item.product?.sku && (
-                                                <div className="text-[10px] text-muted-foreground font-mono">
-                                                    {item.product.sku}
-                                                </div>
-                                            )}
-                                        </TableCell>
-                                        <TableCell className="text-right font-mono text-sm">
-                                            {item.quantity}
-                                        </TableCell>
-                                        <TableCell className="text-right font-medium text-emerald-600">
-                                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(item.unit_price)}
-                                        </TableCell>
-                                        <TableCell className="text-right text-xs text-muted-foreground">
-                                            {item.purchase_invoice || '-'}
+                                            <Badge variant="outline" className="text-[10px] bg-amber-50">
+                                                {p.payment_method || 'N/A'}
+                                            </Badge>
                                         </TableCell>
                                     </TableRow>
                                 ))}
-                                {supplier.orderItems.length === 0 && (
+                                {supplier.purchases.length === 0 && (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                                            No hay movimientos registrados.
+                                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground italic">
+                                            No hay registros de compra en la planilla.
+                                        </TableCell>
+                                    </TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
+                    </CardContent>
+                </Card>
+
+                {/* Financial Ledger (Transactions) */}
+                <Card className="md:col-span-2 shadow-md">
+                    <CardHeader className="bg-slate-100 dark:bg-slate-800/50">
+                        <CardTitle className="flex items-center gap-2">
+                            <HistoryIcon className="h-5 w-5 text-slate-600" />
+                            Libro Diario / Ledger (Proveedor)
+                        </CardTitle>
+                        <CardDescription>Resumen de cargos (compras) y abonos (pagos) para este proveedor.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="p-0">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Fecha</TableHead>
+                                    <TableHead>Concepto</TableHead>
+                                    <TableHead className="text-right">Monto</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {supplier.transactions && supplier.transactions.length > 0 ? (
+                                    supplier.transactions.map((tx: any) => (
+                                        <TableRow key={tx.id}>
+                                            <TableCell className="text-xs font-mono">
+                                                {tx.date ? new Date(tx.date).toLocaleDateString() : '-'}
+                                            </TableCell>
+                                            <TableCell>
+                                                <div className="flex flex-col">
+                                                    <span className="text-sm font-medium">{tx.description}</span>
+                                                    <span className="text-[10px] text-muted-foreground">{tx.reference}</span>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell className={`text-right font-bold font-mono ${tx.amount < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                                                {tx.amount > 0 ? '+' : ''}{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(tx.amount)}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                ) : (
+                                    <TableRow>
+                                        <TableCell colSpan={3} className="text-center py-8 text-muted-foreground italic">
+                                            Sin transacciones financieras registradas.
                                         </TableCell>
                                     </TableRow>
                                 )}
@@ -172,7 +262,7 @@ export default async function SupplierDetailsPage(props: Props) {
                     </CardContent>
                 </Card>
             </div>
-        </div>
+        </div >
     );
 }
 

@@ -38,10 +38,22 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
       totalProfitPeriod: 0,
       userRole,
       atRiskCount: 0,
-      savingsOpportunities: 0
+      savingsOpportunities: 0,
+      clientHistory: [],
+      clientShipments: []
     };
 
     clientId = client.id;
+  }
+
+  // 0.5 Client Transactions (Last 10 for portal)
+  let clientHistory: any[] = [];
+  if (clientId) {
+    clientHistory = await prisma.transaction.findMany({
+      where: { clientId },
+      orderBy: { date: 'desc' },
+      take: 10
+    });
   }
 
   // 1. Total Receivables (Excluya a clientes de ver el total global)
@@ -54,15 +66,16 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
     totalReceivables = clientBalances
       .reduce((acc, curr) => {
         const balance = curr._sum.amount || 0;
-        return balance > 0 ? acc + balance : acc;
+        // Receivables are the sum of debts (negative balances)
+        return balance < 0 ? acc + Math.abs(balance) : acc;
       }, 0);
   } else if (clientId) {
     // Para el cliente, su propio balance (deuda)
-    const balance = await prisma.transaction.aggregate({
+    const balanceResult = await prisma.transaction.aggregate({
       where: { clientId: clientId },
       _sum: { amount: true }
     });
-    totalReceivables = balance._sum.amount || 0;
+    totalReceivables = balanceResult._sum.amount || 0;
   }
 
   // 2. Date Range
@@ -93,93 +106,64 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
     where: {
       date_shipped: { gte: rangeStart },
       ...(clientId ? { clientId } : {})
-    }
+    },
+    orderBy: { date_shipped: 'desc' }
   });
 
   // 5. Data Processing for Charts
-  // Use Year-Month as unique key to avoid collisions in multi-year views
   const monthlyStats: Record<string, { sales: number; salesProfit: number; shipmentProfit: number; label: string }> = {};
 
-  // Initialize months to ensure continuity
   for (let i = 0; i < monthsToAnalyze; i++) {
     const d = new Date();
     d.setMonth(d.getMonth() - i);
-    // Key format: "YYYY-MM" for sorting/uniqueness
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    // Label format: "FEB 24"
     const label = d.toLocaleString('default', { month: 'short', year: '2-digit' }).toUpperCase();
-
     monthlyStats[key] = { sales: 0, salesProfit: 0, shipmentProfit: 0, label };
   }
 
-  // Process Orders
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   orders.forEach((order: any) => {
     const date = new Date(order.date);
     const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-
-    // If order is outside initialized range (shouldn't happen due to filter, but safe check)
     if (!monthlyStats[key]) {
       const label = date.toLocaleString('default', { month: 'short', year: '2-digit' }).toUpperCase();
       monthlyStats[key] = { sales: 0, salesProfit: 0, shipmentProfit: 0, label };
     }
-
-    // Total Sales
     monthlyStats[key].sales += order.total_amount;
-
-    // Sales Profit Calculation - ONLY FOR ADMIN
     const orderProfit = userRole === 'ADMIN'
-      ? order.items.reduce((acc: number, item: any) => {
-        return acc + (item.profit || 0);
-      }, 0)
-      : 0; // Client sees ZERO profit data
-
+      ? order.items.reduce((acc: number, item: any) => acc + (item.profit || 0), 0)
+      : 0;
     monthlyStats[key].salesProfit += orderProfit;
   });
 
-  // Process Shipments
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   shipments.forEach((shipment: any) => {
     if (!shipment.date_shipped) return;
     const date = new Date(shipment.date_shipped);
     const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-
     if (!monthlyStats[key]) {
       const label = date.toLocaleString('default', { month: 'short', year: '2-digit' }).toUpperCase();
       monthlyStats[key] = { sales: 0, salesProfit: 0, shipmentProfit: 0, label };
     }
-
-    // Shipment Profit: ONLY FOR ADMIN
     const profit = userRole === 'ADMIN'
       ? (shipment.profit ?? ((shipment.price_total || 0) - (shipment.cost_total || 0)))
       : 0;
-
     monthlyStats[key].shipmentProfit += profit;
   });
 
-  // Convert to Array and Reverse (Chronological)
   const chartData = [];
   for (let i = monthsToAnalyze - 1; i >= 0; i--) {
     const d = new Date();
     d.setMonth(d.getMonth() - i);
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-
     const stats = monthlyStats[key] || { sales: 0, salesProfit: 0, shipmentProfit: 0, label: d.toLocaleString('default', { month: 'short', year: '2-digit' }).toUpperCase() };
-
     chartData.push({
-      // Unique Name/Label
-      name: stats.label || key, // "FEB 24"
-      total: stats.sales, // Mis Compras
-      // Sensible data sent as 0 if not admin
+      name: stats.label || key,
+      total: stats.sales,
       salesProfit: userRole === 'ADMIN' ? stats.salesProfit : 0,
       shipmentProfit: userRole === 'ADMIN' ? stats.shipmentProfit : 0,
       totalProfit: userRole === 'ADMIN' ? (stats.salesProfit + stats.shipmentProfit) : 0
     });
   }
 
-
-  // 6. Order Status Distribution using Prisma GroupBy
-  // 6. Order Status Groups (Filtered)
   const statusGroups = await prisma.order.groupBy({
     where: { ...(clientId ? { clientId } : {}) },
     by: ['status'],
@@ -195,8 +179,6 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
     .filter((d: any) => d.name !== 'ENTREGADO' && d.name !== 'CANCELADO')
     .reduce((acc: number, curr: any) => acc + curr.value, 0);
 
-  // 7. Top Debtors (Hide for clients or show only themselves?)
-  // For clients, it makes more sense to hide the "Top Debtors" section entirely.
   let debtorsWithNames: any[] = [];
   if (userRole === 'ADMIN') {
     const debtors = await prisma.transaction.groupBy({
@@ -217,23 +199,15 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
     }));
   }
 
-  // Calculate Total Profit for KPI Card (Sum of last X months)
   const totalProfitPeriod = chartData.reduce((acc, curr) => acc + (curr.totalProfit || 0), 0);
 
-  // 8. Business Intelligence Signals (Added)
   let atRiskCount = 0;
   let savingsOpportunities = 0;
   if (userRole === 'ADMIN') {
-    // Clients at risk (> $5k spent, > 60 days inactive)
     const atRiskClients = await prisma.client.findMany({
-      where: {
-        orders: { some: {} }
-      },
-      include: {
-        orders: { orderBy: { date: 'desc' }, take: 1 }
-      }
+      where: { orders: { some: {} } },
+      include: { orders: { orderBy: { date: 'desc' }, take: 1 } }
     });
-
     atRiskCount = atRiskClients.filter(c => {
       const lastOrder = c.orders[0];
       if (!lastOrder) return false;
@@ -241,8 +215,6 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
       return days > 60;
     }).length;
 
-    // Sourcing Opportunities (Price variations)
-    // Simple count for now to keep it fast
     const priceVariations = await prisma.orderItem.groupBy({
       by: ['productName'],
       _count: { supplierId: true },
@@ -261,13 +233,12 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
     totalProfitPeriod,
     userRole,
     atRiskCount,
-    savingsOpportunities
+    savingsOpportunities,
+    clientHistory,
+    clientShipments: shipments.slice(0, 5),
+    clientId
   };
 }
-
-// Client component wrapper for Dashboard to handle state is complex because this is a server component.
-// We will use a small client component for the selector that pushes to URL search params.
-// So we need to make DashboardPage accept searchParams.
 
 export default async function DashboardPage(props: { searchParams: Promise<{ months?: string }> }) {
   const searchParams = await props.searchParams;
@@ -286,14 +257,16 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
     totalProfitPeriod,
     userRole,
     atRiskCount,
-    savingsOpportunities
+    savingsOpportunities,
+    clientHistory,
+    clientShipments,
+    clientId
   } = data;
 
   const isAdmin = userRole === 'ADMIN';
 
   return (
     <div className="p-8 space-y-8 animate-in fade-in duration-500">
-      {/* Header Section */}
       <div className="flex items-center justify-between space-y-2">
         <div>
           <h2 className="text-4xl font-bold tracking-tight bg-gradient-to-r from-orange-600 to-indigo-600 bg-clip-text text-transparent">
@@ -315,25 +288,26 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
         )}
       </div>
 
-      {/* KPI Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {/* Cobranzas / Saldo */}
         <Card className="shadow-lg border-l-4 border-l-indigo-500 hover:shadow-xl transition-all dark:bg-slate-950/50">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              {isAdmin ? 'Por Cobrar Global' : 'Mi Saldo Pendiente'}
+              {isAdmin ? 'Por Cobrar Global' : 'Mi Saldo Actual'}
             </CardTitle>
             <CreditCard className="h-4 w-4 text-indigo-500" />
           </CardHeader>
           <CardContent>
-            <div className={`text-2xl font-bold font-mono ${totalReceivables > 10 ? 'text-red-500' : 'text-emerald-500'}`}>
-              {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalReceivables)}
+            <div className={`text-2xl font-bold font-mono ${totalReceivables < -10 ? 'text-red-500' : 'text-emerald-500'}`}>
+              {totalReceivables > 0 ? '+' : ''}{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalReceivables)}
             </div>
-            {!isAdmin && totalReceivables > 0 && <p className="text-xs text-red-400 mt-1">Saldo a favor del sistema</p>}
+            {!isAdmin && (
+              <p className={`text-xs mt-1 ${totalReceivables < -10 ? 'text-red-400' : 'text-emerald-400'}`}>
+                {totalReceivables < -10 ? '🔴 Tienes un saldo pendiente' : '🟢 Tienes saldo a favor'}
+              </p>
+            )}
           </CardContent>
         </Card>
 
-        {/* Ganancia NETA (Admin ONLY) */}
         {isAdmin && (
           <Card className="shadow-lg border-l-4 border-l-emerald-600 hover:shadow-xl transition-all dark:bg-slate-950/50">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -349,7 +323,6 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
           </Card>
         )}
 
-        {/* Ventas Mes */}
         <Card className="shadow-lg border-l-4 border-l-blue-500 hover:shadow-xl transition-all dark:bg-slate-950/50">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -366,7 +339,6 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
           </CardContent>
         </Card>
 
-        {/* Pedidos Activos */}
         <Card className="shadow-lg border-l-4 border-l-orange-500 hover:shadow-xl transition-all dark:bg-slate-950/50">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">En Proceso</CardTitle>
@@ -379,7 +351,6 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
         </Card>
       </div>
 
-      {/* Strategy Intelligence Section (Admin Only) */}
       {isAdmin && (
         <div className="grid gap-4 md:grid-cols-2">
           <Card className="bg-red-500/10 border-red-500/20 shadow-none">
@@ -400,7 +371,6 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
               </div>
             </CardContent>
           </Card>
-
           <Card className="bg-emerald-500/10 border-emerald-500/20 shadow-none">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-black text-emerald-600 flex items-center gap-2">
@@ -422,7 +392,6 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
         </div>
       )}
 
-      {/* Main Charts Section */}
       <div className="grid gap-4 md:grid-cols-2">
         {isAdmin && <ProfitChart data={chartData} />}
         <SalesTrendChart data={chartData} />
@@ -432,15 +401,9 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
         <div className={isAdmin ? "col-span-4" : "col-span-7"}>
           <OrderStatusPie data={statusData} />
         </div>
-        {isAdmin && (
-          <div className="col-span-3">
-            {/* This could be another admin-only chart or the debtors list moved here */}
-          </div>
-        )}
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-        {/* Recent Orders */}
         <Card className={`${isAdmin ? 'col-span-4' : 'col-span-7'} shadow-md dark:bg-slate-900 border-l-4 border-l-slate-700`}>
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>{isAdmin ? 'Últimos Movimientos Globales' : 'Mis Últimos Pedidos'}</CardTitle>
@@ -462,7 +425,7 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
                 {recentOrders.map((order: any) => (
                   <TableRow key={order.id} className="hover:bg-muted/50">
                     <TableCell className="font-bold text-indigo-500">#{order.order_number}</TableCell>
-                    {isAdmin && <TableCell className="font-medium">{order.client.name}</TableCell>}
+                    {isAdmin && <TableCell className="font-medium">{order.client?.name || 'S/N'}</TableCell>}
                     <TableCell>
                       <Badge variant="outline" className={
                         order.status === 'PENDIENTE' ? 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20 font-bold' :
@@ -472,7 +435,7 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
                         {order.status}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-right font-black text-slate-900 dark:text-white font-mono">
+                    <TableCell className="text-right font-black font-mono">
                       {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(order.total_amount)}
                     </TableCell>
                   </TableRow>
@@ -482,7 +445,6 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
           </CardContent>
         </Card>
 
-        {/* Top Debtors (Admin ONLY) */}
         {isAdmin && (
           <Card className="col-span-3 shadow-md dark:bg-slate-900 border-l-4 border-l-red-600">
             <CardHeader>
@@ -496,61 +458,91 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
                       <div className="h-8 w-8 rounded-full bg-indigo-100 dark:bg-indigo-900 flex items-center justify-center text-indigo-700 dark:text-indigo-300 font-black text-xs">
                         {debtor.name.substring(0, 2).toUpperCase()}
                       </div>
-                      <div className="space-y-1">
-                        <Link href={`/clients/${debtor.id}`} className="text-sm font-bold leading-none hover:underline">{debtor.name}</Link>
-                      </div>
+                      <Link href={`/clients/${debtor.id}`} className="text-sm font-bold hover:underline">{debtor.name}</Link>
                     </div>
-                    <div className="font-black text-red-600 dark:text-red-400 font-mono text-sm">
+                    <div className="font-black text-red-600 font-mono text-sm">
                       {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(debtor.amount)}
                     </div>
                   </div>
                 ))}
-              </div>
-              <div className="mt-4 pt-4 border-t border-slate-800 text-center">
-                <Button variant="link" size="sm" asChild>
-                  <Link href="/clients?sort=balance">Ver todos los deudores</Link>
-                </Button>
               </div>
             </CardContent>
           </Card>
         )}
       </div>
 
-      {/* Detalle de Ganancias (Admin ONLY) */}
-      {isAdmin && (
-        <Card className="shadow-md dark:bg-slate-900 border-t-4 border-t-emerald-600">
-          <CardHeader>
-            <CardTitle>Detalle de Rentabilidad Mensual</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader className="bg-slate-100 dark:bg-slate-900">
-                <TableRow className="border-slate-300 dark:border-slate-700">
-                  <TableHead className="text-slate-900 dark:text-white font-black text-xs uppercase tracking-widest">Mes</TableHead>
-                  <TableHead className="text-right text-slate-900 dark:text-slate-100 font-bold text-xs uppercase tracking-widest">Ganancia Ventas</TableHead>
-                  <TableHead className="text-right text-slate-900 dark:text-slate-100 font-bold text-xs uppercase tracking-widest">Ganancia Envíos</TableHead>
-                  <TableHead className="text-right font-black text-slate-950 dark:text-white text-xs uppercase tracking-widest">Total Ganancia</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {chartData.map((data: any) => (
-                  <TableRow key={data.name} className="hover:bg-muted/50 border-slate-200 dark:border-slate-800 h-16 transition-colors">
-                    <TableCell className="font-black capitalize text-slate-950 dark:text-white text-base">{data.name}</TableCell>
-                    <TableCell className="text-right text-emerald-600 dark:text-emerald-400 font-mono font-black text-lg">
-                      {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(data.salesProfit)}
-                    </TableCell>
-                    <TableCell className="text-right text-blue-600 dark:text-blue-400 font-mono font-black text-lg">
-                      {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(data.shipmentProfit)}
-                    </TableCell>
-                    <TableCell className="text-right font-black text-slate-950 dark:text-white font-mono text-xl bg-slate-50 dark:bg-slate-900/50">
-                      {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(data.totalProfit)}
-                    </TableCell>
+      {!isAdmin && (
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card className="shadow-md dark:bg-slate-900 border-l-4 border-l-blue-600">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Mis Envíos Recientes</CardTitle>
+              <Button variant="ghost" size="sm" asChild>
+                <Link href="/shipments" className="text-xs">Ver todo <ArrowRight className="ml-1 h-3 w-3" /></Link>
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nro</TableHead>
+                    <TableHead>Estado</TableHead>
+                    <TableHead>Fecha</TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+                </TableHeader>
+                <TableBody>
+                  {clientShipments.length === 0 ? (
+                    <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground py-8">No hay envíos registrados.</TableCell></TableRow>
+                  ) : clientShipments.map((s: any) => (
+                    <TableRow key={s.id}>
+                      <TableCell className="font-bold">#{s.shipment_number}</TableCell>
+                      <TableCell>
+                        <Badge className={s.status === 'RECIBIDO' || s.status === 'ENTREGADO' ? 'bg-emerald-500' : 'bg-blue-500'}>
+                          {s.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {s.date_shipped ? new Date(s.date_shipped).toLocaleDateString() : '-'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-md dark:bg-slate-900 border-l-4 border-l-orange-600">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Cuenta Corriente (Reciente)</CardTitle>
+              <Button variant="secondary" size="sm" asChild>
+                <Link href={`/clients/${clientId}`} className="text-xs font-bold whitespace-nowrap">📜 Ver Todo</Link>
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Detalle</TableHead>
+                    <TableHead className="text-right">Monto</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {clientHistory.length === 0 ? (
+                    <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground py-8">No hay movimientos.</TableCell></TableRow>
+                  ) : clientHistory.map((tx: any) => (
+                    <TableRow key={tx.id}>
+                      <TableCell className="text-xs text-muted-foreground">{tx.date.toLocaleDateString()}</TableCell>
+                      <TableCell className="text-xs font-medium truncate max-w-[150px]">{tx.description}</TableCell>
+                      <TableCell className={`text-right font-bold font-mono text-sm ${tx.amount < 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+                        {tx.amount > 0 ? '+' : ''}{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(tx.amount)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </div>
       )}
     </div>
   );

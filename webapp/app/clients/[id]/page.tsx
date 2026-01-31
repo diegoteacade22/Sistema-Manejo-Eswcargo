@@ -106,22 +106,63 @@ export default async function ClientPage(props: Props) {
                 </Card>
 
                 {/* Balance Card */}
-                <Card className={finalBalance > 0 ? "border-red-500 bg-red-50 dark:bg-red-900/10" : "border-green-500 bg-green-50 dark:bg-green-900/10"}>
+                <Card className={finalBalance < 0 ? "border-red-500 bg-red-50 dark:bg-red-900/10" : "border-emerald-500 bg-emerald-50 dark:bg-emerald-900/10"}>
                     <CardHeader>
                         <CardTitle>Saldo Actual (Cta Cte)</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className={`text-4xl font-bold ${finalBalance > 0 ? 'text-red-700 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}>
+                        <div className={`text-4xl font-bold ${finalBalance < 0 ? 'text-red-700 dark:text-red-400' : 'text-emerald-700 dark:text-emerald-400'}`}>
                             {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(finalBalance)}
                         </div>
-                        <p className="text-sm text-muted-foreground mt-2">
-                            {finalBalance > 0 ? 'El cliente DEBE este monto' : 'El cliente tiene saldo A FAVOR'}
+                        <p className={`text-sm font-bold mt-2 ${finalBalance < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                            {finalBalance < 0 ? '🔴 EL CLIENTE DEBE' : '🟢 SALDO A FAVOR (CRÉDITO)'}
                         </p>
                         <div className="mt-4 flex flex-wrap gap-2">
                             <Button size="sm" variant="secondary"><Printer className="mr-2 h-4 w-4" /> Estado Cuenta</Button>
-                            <Button size="sm" variant="secondary"><Mail className="mr-2 h-4 w-4" /> Enviar Email</Button>
                             <PaymentDialog clientId={client.id} clientName={client.name} />
                         </div>
+                    </CardContent>
+                </Card>
+            </div>
+
+            {/* Financial Breakdown Summary */}
+            <div className="grid gap-4 md:grid-cols-4">
+                <Card className="bg-slate-50 dark:bg-slate-900/50">
+                    <CardContent className="pt-6">
+                        <p className="text-xs text-muted-foreground uppercase font-semibold">Total Compras</p>
+                        <p className="text-xl font-bold text-red-600">
+                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(
+                                Math.abs(client.transactions.filter((t: any) => t.type === 'CARGO' && t.reference?.startsWith('Order')).reduce((acc: number, t: any) => acc + t.amount, 0))
+                            )}
+                        </p>
+                    </CardContent>
+                </Card>
+                <Card className="bg-slate-50 dark:bg-slate-900/50">
+                    <CardContent className="pt-6">
+                        <p className="text-xs text-muted-foreground uppercase font-semibold">Total Pagos</p>
+                        <p className="text-xl font-bold text-emerald-600">
+                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(
+                                client.transactions.filter((t: any) => t.type === 'PAGO').reduce((acc: number, t: any) => acc + t.amount, 0)
+                            )}
+                        </p>
+                    </CardContent>
+                </Card>
+                <Card className="bg-slate-50 dark:bg-slate-900/50">
+                    <CardContent className="pt-6">
+                        <p className="text-xs text-muted-foreground uppercase font-semibold">Total Fletes</p>
+                        <p className="text-xl font-bold text-amber-600">
+                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(
+                                Math.abs(client.transactions.filter((t: any) => t.type === 'CARGO' && t.reference?.startsWith('Envío')).reduce((acc: number, t: any) => acc + t.amount, 0))
+                            )}
+                        </p>
+                    </CardContent>
+                </Card>
+                <Card className="bg-slate-50 dark:bg-slate-900/50">
+                    <CardContent className="pt-6">
+                        <p className="text-xs text-muted-foreground uppercase font-semibold">Saldo Final</p>
+                        <p className={`text-xl font-bold ${finalBalance < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(finalBalance)}
+                        </p>
                     </CardContent>
                 </Card>
             </div>
@@ -174,17 +215,17 @@ export default async function ClientPage(props: Props) {
                                                 <TableCell className="text-left text-xs text-muted-foreground">
                                                     {tx.reference || '-'}
                                                 </TableCell>
-                                                <TableCell className={`text-right font-bold font-mono ${tx.amount > 0
-                                                    ? 'text-red-600 dark:text-red-400' // Charges (Inv/Carga)
-                                                    : 'text-slate-900 dark:text-white'   // Payments (Cobros) - Black/White
+                                                <TableCell className={`text-right font-bold font-mono ${tx.amount < 0
+                                                    ? 'text-red-600 dark:text-red-400' // Charges (Inv/Carga) - Negative
+                                                    : 'text-emerald-600 dark:text-emerald-400'   // Payments (Cobros) - Positive
                                                     }`}>
-                                                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Math.abs(tx.amount))}
+                                                    {tx.amount > 0 ? '+' : ''}{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(tx.amount)}
                                                 </TableCell>
-                                                <TableCell className={`text-right font-bold font-mono ${tx.balance > 0
+                                                <TableCell className={`text-right font-bold font-mono ${tx.balance < 0
                                                     ? 'text-red-600 dark:text-red-400'
                                                     : 'text-emerald-600 dark:text-emerald-400'
                                                     }`}>
-                                                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(tx.balance)}
+                                                    {tx.balance > 0 ? '+' : ''}{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(tx.balance)}
                                                 </TableCell>
                                             </TableRow>
                                         ))

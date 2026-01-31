@@ -6,7 +6,8 @@ import path from 'path';
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
 
 async function main() {
-    console.log("🚀 Iniciando Sembrado Rápido (Consolidado)...");
+    const isFullSync = process.env.SYNC_MODE === 'FULL';
+    console.log(`🚀 Iniciando Sembrado Rápido (Consolidado) - Modo: ${isFullSync ? 'COMPLETO' : 'DIFERENCIAL'}...`);
     const startTime = Date.now();
 
     const prismaDir = path.join(process.cwd(), 'prisma');
@@ -17,9 +18,17 @@ async function main() {
     const shipmentsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'shipments_seed.json'), 'utf-8'));
     const ordersData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'orders_seed.json'), 'utf-8'));
 
+    // ID tracking for cleanup
+    const processedShipmentIds = new Set<number>();
+    const processedOrderIds = new Set<number>();
+    const processedProductIds = new Set<number>();
+    const processedClientIds = new Set<number>();
+    const processedSupplierIds = new Set<number>();
+    const processedPurchaseIds = new Set<number>();
+
     // 2. PRE-CARGAR MAPAS DE MEMORIA (Para evitar miles de SELECT)
     console.log("⏳ Pre-cargando metadatos de la BD...");
-    const [dbClients, dbProducts, dbShipments, dbOrders] = await Promise.all([
+    const [dbClients, dbProducts, dbShipments, dbOrders, dbSuppliers] = await Promise.all([
         prisma.client.findMany({ select: { id: true, old_id: true, name: true, email: true, phone: true } }),
         prisma.product.findMany({ select: { id: true, sku: true, lp1: true, stock: true } }),
         (prisma as any).shipment.findMany({ select: { id: true, shipment_number: true, status: true, notes: true, forwarder: true, weight_fw: true, price_total: true, cost_total: true, date_shipped: true, date_arrived: true, clientId: true } }),
@@ -30,16 +39,10 @@ async function main() {
                 status: true,
                 total_amount: true,
                 clientId: true,
-                date: true,
-                items: {
-                    select: {
-                        id: true,
-                        productId: true,
-                        quantity: true
-                    }
-                }
+                date: true
             }
-        })
+        }),
+        prisma.supplier.findMany({ select: { id: true, old_id: true, name: true } })
     ]);
 
     const clientOldIdMap = new Map<number, any>(dbClients.filter(c => c.old_id !== null).map(c => [c.old_id as number, c]));
@@ -47,6 +50,8 @@ async function main() {
     const productSkuMap = new Map<string, any>(dbProducts.map(p => [p.sku, p]));
     const shipmentNumMap = new Map<number, any>(dbShipments.filter((s: any) => s.shipment_number !== null).map((s: any) => [s.shipment_number as number, s]));
     const orderNumMap = new Map<number, any>(dbOrders.filter(o => o.order_number !== null).map(o => [o.order_number as number, o]));
+    const supplierOldIdMap = new Map<number, any>(dbSuppliers.filter(s => s.old_id !== null).map(s => [s.old_id as number, s]));
+    const supplierNameMap = new Map<string, any>(dbSuppliers.map(s => [s.name.trim().toUpperCase(), s]));
 
     // 3. PROCESAR CLIENTES (Diferencial)
     console.log(`👥 Sincronizando ${clientsData.length} clientes...`);
@@ -64,6 +69,7 @@ async function main() {
                 if (c.name) clientNameMap.set(c.name.trim().toUpperCase(), existing);
             }
         }
+        processedClientIds.add(existing.id);
     }
 
     // 3.5 Asegurar que existe CLIENTE DESCONOCIDO para fallbacks
@@ -80,6 +86,24 @@ async function main() {
         clientNameMap.set("CLIENTE DESCONOCIDO", unknownClient);
     }
     const unknownClientId = unknownClient.id;
+    processedClientIds.add(unknownClientId);
+
+    // 3.7 PROCESAR PROVEEDORES
+    console.log("🏢 Sincronizando Proveedores...");
+    const suppliersData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'suppliers_seed.json'), 'utf-8'));
+    for (const s of suppliersData) {
+        let existing = supplierOldIdMap.get(s.old_id);
+        if (!existing && s.name) existing = supplierNameMap.get(s.name.trim().toUpperCase());
+
+        if (!existing) {
+            existing = await prisma.supplier.create({ data: s });
+            if (s.old_id) supplierOldIdMap.set(s.old_id, existing);
+            if (s.name) supplierNameMap.set(s.name.trim().toUpperCase(), existing);
+        } else {
+            existing = await prisma.supplier.update({ where: { id: existing.id }, data: s });
+        }
+        processedSupplierIds.add(existing.id);
+    }
 
 
     // 4. PROCESAR PRODUCTOS
@@ -93,6 +117,7 @@ async function main() {
             existing = await prisma.product.update({ where: { id: existing.id }, data: p });
             productSkuMap.set(p.sku, existing);
         }
+        processedProductIds.add(existing.id);
     }
 
     const parseSafeDate = (d: any) => {
@@ -118,11 +143,11 @@ async function main() {
         delete (data as any).old_client_id;
         delete (data as any).client_name_match;
 
+        let dbShipment: any;
         if (!existing) {
-            const created = await (prisma as any).shipment.create({ data });
-            shipmentNumMap.set(s.shipment_number, created);
+            dbShipment = await (prisma as any).shipment.create({ data });
+            shipmentNumMap.set(s.shipment_number, dbShipment);
         } else {
-            // Check for relevant changes to avoid unnecessary writes, but include ALL visible fields
             const shippedTime = data.date_shipped?.getTime() || 0;
             const arrivedTime = data.date_arrived?.getTime() || 0;
             const existingShipped = existing.date_shipped?.getTime() || 0;
@@ -137,18 +162,43 @@ async function main() {
                 existing.cost_total !== s.cost_total ||
                 shippedTime !== existingShipped ||
                 arrivedTime !== existingArrived ||
-                existing.clientId !== dbClientId; // Also update if client changed
+                existing.clientId !== dbClientId;
 
             if (hasChanges) {
-                await (prisma as any).shipment.update({ where: { id: existing.id }, data });
+                dbShipment = await (prisma as any).shipment.update({ where: { id: existing.id }, data });
+            } else {
+                dbShipment = existing;
             }
+        }
+        processedShipmentIds.add(dbShipment.id);
+
+        // 5.5 Sincronizar Transacciones de Envío
+        if (dbShipment.clientId && s.price_total > 0) {
+            // Eliminar CUALQUIER transacción previa de este envío (limpia formatos viejos y duplicados)
+            await prisma.transaction.deleteMany({
+                where: { reference: { startsWith: `Envío #${s.shipment_number}` } }
+            });
+
+            const shipRef = `Envío #${s.shipment_number}-${s.price_total}-${s.date_shipped || 'N/A'}`;
+            await prisma.transaction.create({
+                data: {
+                    clientId: dbShipment.clientId,
+                    date: dbShipment.date_shipped || dbShipment.createdAt || new Date(),
+                    type: 'CARGO',
+                    amount: -s.price_total,
+                    description: `Flete - Envío #${s.shipment_number}`,
+                    reference: shipRef
+                }
+            });
         }
     }
 
-    // 6. PROCESAR PEDIDOS (EL MÁS PESADO)
+    // 6. PROCESAR PEDIDOS
     console.log(`📑 Sincronizando ${ordersData.length} pedidos...`);
     let orderCounter = 0;
-    for (const o of ordersData) {
+    const syncedOrderNumbers = new Set(ordersData.map((o: any) => o.order_number));
+
+    for (const o of (ordersData as any[])) {
         const existing = orderNumMap.get(o.order_number);
         const dbClientId = o.client_old_id ? clientOldIdMap.get(o.client_old_id)?.id : (o.client_name_match ? clientNameMap.get(o.client_name_match.trim().toUpperCase())?.id : null);
 
@@ -156,14 +206,13 @@ async function main() {
         const items = o.items || [];
         let totalAmount = o.total_amount || 0;
 
-        // Doble verificación: si el total es 0 pero hay items, recalculamos
         if (totalAmount === 0 && items.length > 0) {
             totalAmount = items.reduce((sum: number, i: any) => sum + (i.unit_price * i.quantity), 0);
         }
 
         const orderData = {
             order_number: o.order_number,
-            clientId: dbClientId || unknownClientId, // Fallback to 'Unknown Client' instead of ID 1
+            clientId: dbClientId || unknownClientId,
             date: orderDate,
             status: o.status,
             total_amount: totalAmount,
@@ -176,7 +225,6 @@ async function main() {
                 data: orderData as any
             });
         } else {
-            // Comparación simple de cabecera
             if (existing.status !== o.status || existing.total_amount !== o.total_amount || existing.clientId !== (dbClientId || unknownClientId)) {
                 dbOrder = await prisma.order.update({
                     where: { id: existing.id },
@@ -186,63 +234,281 @@ async function main() {
                 dbOrder = existing;
             }
         }
+        processedOrderIds.add(dbOrder.id);
 
-        // ITEMS: Solo si el pedido es nuevo o hubo cambios (simplificado: siempre sync items si queremos ser precisos, pero vamos a optimizar)
-        // Para ir "enorme", solo borramos si cambió el total o si es nuevo
-        // Always sync items for processed orders to ensure linkage/updates
-        // (Removing the existing.total_amount check because we need to fix relations even if total is same)
-        if (true) {
-            await prisma.orderItem.deleteMany({ where: { orderId: dbOrder.id } });
-            for (const item of o.items) {
-                const prod = productSkuMap.get(item.sku);
-                const shipId = item.shipment_number ? shipmentNumMap.get(item.shipment_number)?.id : null;
+        // Actualizar Items
+        // Actualizar Items (USANDO createMany PARA VELOCIDAD)
+        await prisma.orderItem.deleteMany({ where: { orderId: dbOrder.id } });
+        const orderItemsToCreate = o.items.map((item: any) => {
+            const shipId = item.shipment_number ? shipmentNumMap.get(item.shipment_number)?.id : null;
+            const dbProd = (item.sku && productSkuMap.has(item.sku)) ? productSkuMap.get(item.sku) : null;
+            return {
+                orderId: dbOrder.id,
+                productId: dbProd?.id || null,
+                productName: item.product_name || item.sku || "Producto sin Nombre",
+                quantity: item.quantity,
+                unit_price: item.unit_price,
+                unit_cost: item.unit_cost,
+                subtotal: item.unit_price * item.quantity,
+                profit: item.profit,
+                shipmentId: shipId,
+                status: item.status
+            };
+        });
 
-                await prisma.orderItem.create({
-                    data: {
-                        order: { connect: { id: dbOrder.id } },
-                        product: (item.sku && productSkuMap.has(item.sku)) ? { connect: { sku: item.sku } } : undefined,
-                        productName: item.product_name || item.sku || "Producto sin Nombre",
-                        quantity: item.quantity,
-                        unit_price: item.unit_price,
-                        unit_cost: item.unit_cost,
-                        subtotal: item.unit_price * item.quantity,
-                        profit: item.profit,
-                        shipment: shipId ? { connect: { id: shipId } } : undefined,
-                        status: item.status
-                    } as any
-                });
-            }
-
-            // Actualizar Transacciones solo si cambió el pedido
-            await prisma.transaction.deleteMany({ where: { reference: { contains: `Order #${o.order_number}` } } });
-            if (o.total_amount > 0) {
-                await prisma.transaction.create({
-                    data: {
-                        clientId: dbOrder.clientId,
-                        date: dbOrder.date,
-                        type: 'CARGO',
-                        amount: o.total_amount,
-                        description: `Compra - Pedido #${o.order_number}`,
-                        reference: `Order #${o.order_number}`
-                    }
-                });
-            }
-            if (o.payment_amount > 0) {
-                await prisma.transaction.create({
-                    data: {
-                        clientId: dbOrder.clientId,
-                        date: dbOrder.date,
-                        type: 'PAGO',
-                        amount: -o.payment_amount,
-                        description: `Pago ${o.payment_method || ''}`.trim(),
-                        reference: `Order #${o.order_number} - Pago`
-                    }
-                });
-            }
+        if (orderItemsToCreate.length > 0) {
+            await prisma.orderItem.createMany({ data: orderItemsToCreate });
         }
 
+        // Actualizar Transacciones (ELIMINACIÓN PRECISA para evitar borrar otros pedidos que contengan el mismo número)
+        // No creamos aquí, colectamos para batch final
+
+        // Transaction collection moved to batch logic below
+
         orderCounter++;
-        console.log(`   ...procesados ${orderCounter} pedidos (Order ${o.order_number})`);
+        if (orderCounter % 50 === 0) console.log(`   ...procesados ${orderCounter} pedidos`);
+    }
+
+    // 6.7 SINCRONIZACIÓN MAESTRA DE TRANSACCIONES (CLIENTES Y PROVEEDORES)
+    console.log("💰 Sincronizando todas las transacciones financieras...");
+    const allTxs: any[] = [];
+
+    // A. Transacciones de Pedidos
+    for (const o of ordersData) {
+        const dbClientId = o.client_old_id ? clientOldIdMap.get(o.client_old_id)?.id : (o.client_name_match ? clientNameMap.get(o.client_name_match.trim().toUpperCase())?.id : null);
+        if (!dbClientId) continue;
+        const oDate = parseSafeDate(o.date) || new Date();
+
+        if (o.total_amount > 0) {
+            allTxs.push({
+                clientId: dbClientId,
+                date: oDate,
+                type: 'CARGO',
+                amount: -o.total_amount,
+                description: `Compra - Pedido #${o.order_number}`,
+                reference: `Order #${o.order_number}`
+            });
+        }
+        if (o.payment_amount > 0) {
+            allTxs.push({
+                clientId: dbClientId,
+                date: oDate,
+                type: 'PAGO',
+                amount: o.payment_amount,
+                description: `Pago ${o.payment_method || ''}`.trim(),
+                reference: `Order #${o.order_number} - Pago`
+            });
+        }
+    }
+
+    // B. Transacciones de Envíos (Fletes)
+    for (const s of shipmentsData) {
+        const dbClientId = s.old_client_id ? clientOldIdMap.get(s.old_client_id)?.id : (s.client_name_match ? clientNameMap.get(s.client_name_match.trim().toUpperCase())?.id : null);
+        if (dbClientId && s.price_total > 0) {
+            allTxs.push({
+                clientId: dbClientId,
+                date: parseSafeDate(s.date_shipped) || new Date(),
+                type: 'CARGO',
+                amount: -s.price_total,
+                description: `Flete - Envío #${s.shipment_number}`,
+                reference: `Envío #${s.shipment_number}-${s.price_total}-${s.date_shipped || 'N/A'}`
+            });
+        }
+    }
+
+    // C. Pagos Extras
+    const paymentsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'payments_extra_seed.json'), 'utf8'));
+    for (const p of paymentsData) {
+        const dbClientId = p.client_old_id ? clientOldIdMap.get(p.client_old_id)?.id : (p.client_name_match ? clientNameMap.get(p.client_name_match.trim().toUpperCase())?.id : null);
+        if (dbClientId && p.amount !== 0) {
+            const date = p.date ? new Date(p.date) : new Date();
+            allTxs.push({
+                clientId: dbClientId,
+                date: date,
+                type: 'PAGO',
+                amount: Math.abs(p.amount),
+                description: p.description || 'Cobro / Pago',
+                reference: `PagoExtra-${date.getTime()}-${p.amount}`
+            });
+        }
+    }
+
+    // D. Transacciones Manuales (Ledgers históricos por cliente)
+    const manualLedgersDir = path.join(prismaDir, 'manual_ledgers');
+    if (fs.existsSync(manualLedgersDir)) {
+        const ledgerFiles = fs.readdirSync(manualLedgersDir).filter(f => f.endsWith('.json') && !f.includes('raw'));
+        for (const ledgerFile of ledgerFiles) {
+            const clientIdFromFile = parseInt(ledgerFile.replace('.json', ''));
+            if (isNaN(clientIdFromFile)) continue;
+
+            const manualTxs = JSON.parse(fs.readFileSync(path.join(manualLedgersDir, ledgerFile), 'utf-8'));
+            for (const tx of manualTxs) {
+                // Parse date from MM/DD/YYYY format
+                const dateParts = tx.date.split('/');
+                let txDate = new Date();
+                if (dateParts.length === 3) {
+                    const month = parseInt(dateParts[0]) - 1;
+                    const day = parseInt(dateParts[1]);
+                    const year = parseInt(dateParts[2]);
+                    txDate = new Date(year, month, day);
+                }
+
+                allTxs.push({
+                    clientId: clientIdFromFile,
+                    date: txDate,
+                    type: tx.type,
+                    amount: tx.amount,
+                    description: tx.description || 'Movimiento Manual',
+                    reference: `Manual-${clientIdFromFile}-${tx.date}-${Math.abs(tx.amount)}`
+                });
+            }
+            console.log(`   ✅ Cargadas ${manualTxs.length} transacciones manuales para cliente ${clientIdFromFile}`);
+        }
+    }
+
+    // E. Transacciones de Proveedores (Compras y Pagos Automáticos)
+    console.log("� Procesando transacciones de proveedores...");
+    const purchasesData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'purchases_seed.json'), 'utf-8'));
+    for (const p of purchasesData) {
+        const dbSupplierId = p.supplier_old_id
+            ? supplierOldIdMap.get(p.supplier_old_id)?.id
+            : (p.supplier_name ? supplierNameMap.get(p.supplier_name.trim().toUpperCase())?.id : null);
+
+        if (!dbSupplierId) continue;
+        const pDate = p.date ? new Date(p.date) : new Date();
+
+        // Cargo por la compra
+        allTxs.push({
+            supplierId: dbSupplierId,
+            date: pDate,
+            type: 'CARGO',
+            amount: -p.total_amount,
+            description: `Compra Invoice #${p.invoice_number}`,
+            reference: `Purchase #${p.invoice_number}`
+        });
+
+        // Pago automático (balance 0)
+        allTxs.push({
+            supplierId: dbSupplierId,
+            date: pDate,
+            type: 'PAGO',
+            amount: p.total_amount,
+            description: `Pago Automático Invoice #${p.invoice_number} (${p.payment_method || 'N/A'})`,
+            reference: `Purchase #${p.invoice_number} - Pago`
+        });
+    }
+
+    // EJECUCIÓN BATCH DE TRANSACCIONES
+    console.log(`🚀 Ejecutando batch de ${allTxs.length} transacciones...`);
+    // Primero limpiamos lo que vamos a sobreescribir (solo los prefijos conocidos para no borrar fletes manuales)
+    await prisma.transaction.deleteMany({
+        where: {
+            OR: [
+                { reference: { startsWith: 'Order #' } },
+                { reference: { startsWith: 'Envío #' } },
+                { reference: { startsWith: 'PagoExtra-' } },
+                { reference: { startsWith: 'Purchase #' } },
+                { reference: { startsWith: 'Manual-' } }
+            ]
+        }
+    });
+
+    // Insertar en bloques para evitar límites de la base de datos
+    const CHUNK_SIZE = 100;
+    for (let i = 0; i < allTxs.length; i += CHUNK_SIZE) {
+        const chunk = allTxs.slice(i, i + CHUNK_SIZE);
+        await prisma.transaction.createMany({ data: chunk });
+    }
+    console.log("   ✅ Transacciones sincronizadas.");
+
+    // 6.8 ACTUALIZAR TABLAS DE COMPRA (ENCABEZADOS Y DETALLES)
+    for (const p of purchasesData) {
+        const dbSupplierId = p.supplier_old_id
+            ? supplierOldIdMap.get(p.supplier_old_id)?.id
+            : (p.supplier_name ? supplierNameMap.get(p.supplier_name.trim().toUpperCase())?.id : null);
+
+        if (!dbSupplierId) continue;
+
+        const purchaseData = {
+            invoice_number: p.invoice_number,
+            date: p.date ? new Date(p.date) : new Date(),
+            supplierId: dbSupplierId,
+            total_amount: p.total_amount,
+            payment_method: p.payment_method
+        };
+
+        let dbPurchase = await (prisma as any).purchase.findUnique({ where: { invoice_number: p.invoice_number } });
+        if (!dbPurchase) {
+            dbPurchase = await (prisma as any).purchase.create({ data: purchaseData });
+        } else {
+            dbPurchase = await (prisma as any).purchase.update({ where: { id: dbPurchase.id }, data: purchaseData });
+        }
+        processedPurchaseIds.add(dbPurchase.id);
+
+        // Actualizar Items de Compra (createMany para velocidad)
+        await (prisma as any).purchaseItem.deleteMany({ where: { purchaseId: dbPurchase.id } });
+        const purchaseItemsToCreate = p.items.map((item: any) => ({
+            purchaseId: dbPurchase.id,
+            sku: (item.sku && productSkuMap.has(item.sku)) ? item.sku : null,
+            productName: item.product_name || item.sku || "Producto Compra",
+            quantity: item.quantity,
+            unit_cost: item.unit_cost,
+            subtotal: item.subtotal
+        }));
+
+        if (purchaseItemsToCreate.length > 0) {
+            await (prisma as any).purchaseItem.createMany({ data: purchaseItemsToCreate });
+        }
+    }
+
+    // 7. LIMPIEZA DE HUERFANOS (Solo en Sincronización Completa)
+    if (isFullSync) {
+        console.log("🧹 Iniciando limpieza de registros huérfanos...");
+
+        // Limpiar Pedidos que ya no están en Excel
+        const orphanedOrders = await prisma.order.deleteMany({
+            where: { id: { notIn: Array.from(processedOrderIds) } }
+        });
+        console.log(`   ✅ Pedidos huérfanos eliminados: ${orphanedOrders.count}`);
+
+        // Limpiar Envíos que ya no están en Excel
+        const orphanedShipments = await (prisma as any).shipment.deleteMany({
+            where: { id: { notIn: Array.from(processedShipmentIds) } }
+        });
+        console.log(`   ✅ Envíos huérfanos eliminados: ${orphanedShipments.count}`);
+
+        // Limpiar Transacciones asociadas a registros que ya no existen
+        const currentRefPrefixesOrder = ordersData.flatMap((o: any) => {
+            const refs = [`Order #${o.order_number}`];
+            if (o.payment_amount > 0) refs.push(`Order #${o.order_number} - Pago`);
+            return refs;
+        });
+        const currentRefPrefixesShip = shipmentsData.map((s: any) => `Envío #${s.shipment_number}-${s.price_total}-${s.date_shipped || 'N/A'}`);
+        const currentRefPrefixesPay = paymentsData.map((p: any) => `PagoExtra-${p.date ? new Date(p.date).getTime() : ''}-${p.amount}`);
+
+        const orphanedTransactions = await prisma.transaction.deleteMany({
+            where: {
+                OR: [
+                    { reference: { startsWith: 'Order #' } },
+                    { reference: { startsWith: 'Envío #' } },
+                    { reference: { startsWith: 'PagoExtra-' } }
+                ],
+                NOT: {
+                    OR: [
+                        ...currentRefPrefixesOrder.map((ref: string) => ({ reference: { equals: ref } })),
+                        ...currentRefPrefixesShip.map((ref: string) => ({ reference: { equals: ref } })),
+                        ...currentRefPrefixesPay.map((ref: string) => ({ reference: { equals: ref } }))
+                    ]
+                }
+            }
+        });
+        console.log(`   ✅ Transacciones huérfanas eliminadas: ${orphanedTransactions.count}`);
+
+        // Limpiar Compras huérfanas
+        const orphanedPurchases = await (prisma as any).purchase.deleteMany({
+            where: { id: { notIn: Array.from(processedPurchaseIds) } }
+        });
+        console.log(`   ✅ Compras huérfanas eliminadas: ${orphanedPurchases.count}`);
     }
 
     const endTime = Date.now();

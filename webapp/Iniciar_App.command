@@ -14,14 +14,21 @@ echo ""
 # Esperar a que el servidor esté listo (máximo 60 segundos) para abrir el navegador
 (
     count=0
-    while ! nc -z localhost 3000 2>/dev/null; do   
+    server_up=false
+    while [ $count -lt 60 ]; do   
+      if nc -z localhost 3000 2>/dev/null; then
+          server_up=true
+          break
+      fi
       sleep 1
       count=$((count+1))
-      if [ $count -gt 60 ]; then break; fi
     done
-    # Pequeña pausa extra para asegurar que Next.js pueda responder
-    sleep 1
-    open "http://localhost:3000"
+    
+    if [ "$server_up" = true ]; then
+        # Pequeña pausa extra para asegurar que Next.js pueda responder
+        sleep 1
+        open "http://localhost:3000"
+    fi
 ) &
 
 # Ejecutar el script principal que levanta el servidor

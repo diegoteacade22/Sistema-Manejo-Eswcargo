@@ -127,11 +127,11 @@ export default async function ClientsPage(props: { searchParams: Promise<{ q?: s
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-right">
-                                        <span className={`font-black px-3 py-1 rounded-full text-sm font-mono whitespace-nowrap ${client.balance > 0
+                                        <span className={`font-black px-3 py-1 rounded-full text-sm font-mono whitespace-nowrap ${client.balance < 0
                                             ? 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-200'
                                             : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-200'
                                             }`}>
-                                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(client.balance)}
+                                            {client.balance > 0 ? '+' : ''}{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(client.balance)}
                                         </span>
                                     </TableCell>
                                     <TableCell className="text-right">

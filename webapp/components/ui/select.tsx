@@ -32,6 +32,11 @@ function SelectTrigger({
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
   size?: "sm" | "default"
 }) {
+  const [mounted, setMounted] = React.useState(false)
+  React.useEffect(() => {
+    setMounted(true)
+  }, [])
+
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
@@ -41,6 +46,7 @@ function SelectTrigger({
         className
       )}
       {...props}
+      key={mounted ? "mounted" : "not-mounted"}
     >
       {children}
       <SelectPrimitive.Icon asChild>

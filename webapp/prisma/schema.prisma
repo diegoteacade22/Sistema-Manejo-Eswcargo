@@ -68,6 +68,7 @@ model Product {
   stock              Int         @default(0)
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
+  purchaseItems      PurchaseItem[]
   orderItems         OrderItem[]
 }
 
@@ -84,20 +85,23 @@ model SparePart {
 }
 
 model Supplier {
-  id         Int         @id @default(autoincrement())
+  id         Int            @id @default(autoincrement())
+  old_id     Int?           @unique
   name       String
   contact    String?
   email      String?
   phone      String?
   address    String?
   notes      String?
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
   city       String?
   country    String?
   state      String?
   zipCode    String?
-  orderItems OrderItem[]
+  orderItems   OrderItem[]
+  purchases    Purchase[]
+  transactions Transaction[]
 }
 
 model Order {
@@ -145,16 +149,18 @@ model OrderItem {
 }
 
 model Transaction {
-  id            Int      @id @default(autoincrement())
-  clientId      Int
+  id            Int       @id @default(autoincrement())
+  clientId      Int?
+  supplierId    Int?
   date          DateTime
   type          String
   amount        Float
   description   String?
   reference     String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
   paymentMethod String?
-  client        Client   @relation(fields: [clientId], references: [id])
+  client        Client?   @relation(fields: [clientId], references: [id])
+  supplier      Supplier? @relation(fields: [supplierId], references: [id])
 }
 
 model Shipment {
@@ -180,6 +186,32 @@ model Shipment {
   orders          Order[]
   items           OrderItem[]
   client          Client?     @relation(fields: [clientId], references: [id])
+}
+
+model Purchase {
+  id             Int            @id @default(autoincrement())
+  invoice_number String?        @unique
+  date           DateTime
+  supplierId     Int
+  total_amount   Float
+  payment_method String?
+  notes          String?
+  items          PurchaseItem[]
+  supplier       Supplier       @relation(fields: [supplierId], references: [id])
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model PurchaseItem {
+  id          Int      @id @default(autoincrement())
+  purchaseId  Int
+  sku         String?
+  productName String
+  quantity    Int
+  unit_cost   Float
+  subtotal    Float
+  purchase    Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  product     Product? @relation(fields: [sku], references: [sku])
 }
 
 model Expense {

@@ -9,6 +9,7 @@ import { Package, Clock, CreditCard, ArrowLeft, Eye, Printer } from 'lucide-reac
 import Link from 'next/link';
 import { getProductColorClass } from '@/lib/utils';
 import { OrderStatusDialog } from '@/components/order-status-dialog';
+import { OrderItemsEditor } from '@/components/order-items-editor';
 
 interface Props {
     params: Promise<{ id: string }>;
@@ -109,44 +110,11 @@ export default async function OrderPage(props: Props) {
                         <CardTitle>Detalle de Items</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Producto / Detalle</TableHead>
-                                    <TableHead className="text-center">Cant</TableHead>
-                                    <TableHead className="text-right">Precio Unit.</TableHead>
-                                    <TableHead className="text-right">Subtotal</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {order.items.map((item: any) => (
-                                    <TableRow key={item.id}>
-                                        <TableCell className="font-medium">
-                                            {item.productName}
-                                            {item.product?.color_grade && (
-                                                <span className={`ml-2 text-sm ${getProductColorClass(item.product.color_grade)}`}>
-                                                    ({item.product.color_grade})
-                                                </span>
-                                            )}
-                                        </TableCell>
-                                        <TableCell className="text-center">{item.quantity}</TableCell>
-                                        <TableCell className="text-right">
-                                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(item.unit_price)}
-                                        </TableCell>
-                                        <TableCell className="text-right font-bold">
-                                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(item.subtotal)}
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                                {/* Totals Row */}
-                                <TableRow className="bg-slate-50 dark:bg-slate-900/50">
-                                    <TableCell colSpan={3} className="text-right font-black text-lg">TOTAL PAGADO / A PAGAR</TableCell>
-                                    <TableCell className="text-right font-black text-xl text-indigo-600 dark:text-indigo-400">
-                                        {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(order.total_amount)}
-                                    </TableCell>
-                                </TableRow>
-                            </TableBody>
-                        </Table>
+                        <OrderItemsEditor
+                            items={order.items as any[]}
+                            totalAmount={order.total_amount}
+                            isAdmin={isAdmin}
+                        />
                     </CardContent>
                 </Card>
 

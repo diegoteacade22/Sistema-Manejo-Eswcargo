@@ -3,17 +3,28 @@
 # Usage: ./sync_excel.sh [days_filter (7/30/0)]
 
 DAYS_FILTER=${1:-0}
+SYNC_MODE="DIFF"
+if [ "$DAYS_FILTER" == "FULL" ] || [ "$DAYS_FILTER" == "0" ]; then
+   SYNC_MODE="FULL"
+   DAYS_FILTER="FULL"
+fi
+
 echo "🚀 Starting Excel Sync (Consolidated)..."
 echo "----------------------------------------"
-echo "Speed Mode: ${DAYS_FILTER} days (0 means ALL)"
+echo "Sync Mode: $SYNC_MODE"
+echo "Filter: $DAYS_FILTER days (if applicable)"
 
 # Get paths
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 APP_ROOT="$( dirname "$DIR" )"
-PYTHON_EXEC="$APP_ROOT/venv_new/bin/python3"
 
-if [ ! -f "$PYTHON_EXEC" ]; then
-    echo "Using system python3 (venv_new not found)"
+# Prioritize venv over venv_new
+if [ -f "$APP_ROOT/venv/bin/python3" ]; then
+    PYTHON_EXEC="$APP_ROOT/venv/bin/python3"
+elif [ -f "$APP_ROOT/venv_new/bin/python3" ]; then
+    PYTHON_EXEC="$APP_ROOT/venv_new/bin/python3"
+else
+    echo "Using system python3 (no venv found)"
     PYTHON_EXEC="python3"
 fi
 
@@ -25,7 +36,7 @@ if [ $? -ne 0 ]; then
 fi
 
 # 2. Extract Data
-echo "-> Extracting data from Excel (Filter: $DAYS_FILTER days)..."
+echo "-> Extracting data from Excel ($DAYS_FILTER)..."
 "$PYTHON_EXEC" "$APP_ROOT/extract_consolidated.py" "$DAYS_FILTER"
 if [ $? -ne 0 ]; then
    echo "Error: Extraction failed."
@@ -33,13 +44,13 @@ if [ $? -ne 0 ]; then
 fi
 
 # 3. Seed Fast
-echo "-> Updating Database (Fast Differential Seed)..."
+echo "-> Updating Database (Differential Seed - Mode: $SYNC_MODE)..."
 cd "$DIR"
-npx tsx prisma/seed_fast.ts
+SYNC_MODE=$SYNC_MODE npx tsx prisma/seed_fast.ts
 if [ $? -ne 0 ]; then
    echo "Error: Database update failed."
    exit 1
 fi
 
 echo "----------------------------------------"
-echo "✅ Sync Completed! [Filter: $DAYS_FILTER days]"
+echo "✅ Sync Completed! [Mode: $SYNC_MODE]"

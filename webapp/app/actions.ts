@@ -89,7 +89,7 @@ export async function submitOrder(data: {
                     clientId: data.clientId,
                     date: data.date,
                     type: 'CARGO',
-                    amount: totalAmount,
+                    amount: -totalAmount, // Negative = Debt
                     description: `Pedido #${newOrderNumber}`,
                     reference: String(newOrderNumber)
                 }
@@ -119,7 +119,7 @@ export async function submitOrder(data: {
 }
 
 export async function registerPayment(clientId: number, amount: number, description: string, reference: string, paymentMethod: string) {
-    const finalAmount = amount > 0 ? -amount : amount;
+    const finalAmount = Math.abs(amount); // Always positive for Payments (Credit)
 
     try {
         const transaction = await prisma.transaction.create({
@@ -157,7 +157,7 @@ export async function registerShipmentCharge(shipmentId: number, clientId: numbe
             data: {
                 clientId,
                 type: 'CARGO', // Debit/Charge
-                amount: amount, // Positive = Debt
+                amount: -Math.abs(amount), // Negative = Debt
                 date: new Date(),
                 description: `CARGA #${shipment.shipment_number} ${notes ? '- ' + notes : ''}`,
                 reference: `SHIP-${shipment.shipment_number}`

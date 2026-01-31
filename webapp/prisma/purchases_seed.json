@@ -1,0 +1,665 @@
+[
+  {
+    "invoice_number": "21034",
+    "supplier_old_id": 8,
+    "supplier_name": "TELUS",
+    "date": "2025-05-21T00:00:00",
+    "total_amount": 20940.0,
+    "payment_method": "WIRE",
+    "items": [
+      {
+        "sku": "IP16-128-IN-UL",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 5,
+        "unit_cost": 698.0,
+        "subtotal": 3490.0
+      },
+      {
+        "sku": "IP16-128-IN-WH",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 10,
+        "unit_cost": 698.0,
+        "subtotal": 6980.0
+      },
+      {
+        "sku": "IP16-128-IN-PK",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 15,
+        "unit_cost": 698.0,
+        "subtotal": 10470.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "42313",
+    "supplier_old_id": 8,
+    "supplier_name": "TELUS",
+    "date": "2025-05-16T00:00:00",
+    "total_amount": 3490.0,
+    "payment_method": "WIRE",
+    "items": [
+      {
+        "sku": "IP16-128-IN-WH",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 5,
+        "unit_cost": 698.0,
+        "subtotal": 3490.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "42312",
+    "supplier_old_id": 8,
+    "supplier_name": "TELUS",
+    "date": "2025-05-16T00:00:00",
+    "total_amount": 19544.0,
+    "payment_method": "USDT",
+    "items": [
+      {
+        "sku": "IP16-128-IN-UL",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 5,
+        "unit_cost": 698.0,
+        "subtotal": 3490.0
+      },
+      {
+        "sku": "IP16-128-IN-WH",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 10,
+        "unit_cost": 698.0,
+        "subtotal": 6980.0
+      },
+      {
+        "sku": "IP16-128-IN-TE",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 3,
+        "unit_cost": 698.0,
+        "subtotal": 2094.0
+      },
+      {
+        "sku": "IP16-128-IN-PK",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 5,
+        "unit_cost": 698.0,
+        "subtotal": 3490.0
+      },
+      {
+        "sku": "IP16-128-IN-BK",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 5,
+        "unit_cost": 698.0,
+        "subtotal": 3490.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "1676",
+    "supplier_old_id": 0,
+    "supplier_name": "FREEZIA",
+    "date": "2025-05-16T00:00:00",
+    "total_amount": 515.0,
+    "payment_method": "ZELLE",
+    "items": [
+      {
+        "sku": "IP16E-128-US-BK",
+        "product_name": "iPhone 16e 128GB 🇺🇸",
+        "quantity": 1,
+        "unit_cost": 515.0,
+        "subtotal": 515.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "1617",
+    "supplier_old_id": 0,
+    "supplier_name": "FREEZIA",
+    "date": "2025-05-14T00:00:00",
+    "total_amount": 910.0,
+    "payment_method": "ZELLE",
+    "items": [
+      {
+        "sku": "MV123LL/A-MB",
+        "product_name": "Apple MacBook Air M4 10-Core 16GB RAM 256GB 13\"",
+        "quantity": 1,
+        "unit_cost": 910.0,
+        "subtotal": 910.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "8630",
+    "supplier_old_id": 14,
+    "supplier_name": "IPHOXY",
+    "date": "2025-05-12T00:00:00",
+    "total_amount": 1180.0,
+    "payment_method": "USDT",
+    "items": [
+      {
+        "sku": "IP16E-256-US-BK",
+        "product_name": "iPhone 16e 256GB 🇺🇸",
+        "quantity": 2,
+        "unit_cost": 590.0,
+        "subtotal": 1180.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "12054585",
+    "supplier_old_id": 14,
+    "supplier_name": "IPHOXY",
+    "date": "2025-05-12T00:00:00",
+    "total_amount": 1550.0,
+    "payment_method": "USDT",
+    "items": [
+      {
+        "sku": "AW-S10-GPS-42-AL-JB",
+        "product_name": null,
+        "quantity": 3,
+        "unit_cost": 310.0,
+        "subtotal": 930.0
+      },
+      {
+        "sku": "AW-S10-GPS-42-AL-RG",
+        "product_name": null,
+        "quantity": 2,
+        "unit_cost": 310.0,
+        "subtotal": 620.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "3333",
+    "supplier_old_id": 1,
+    "supplier_name": "AEONZ",
+    "date": "2025-05-09T00:00:00",
+    "total_amount": 440.0,
+    "payment_method": "USDT",
+    "items": [
+      {
+        "sku": "AP-MAX-USBC",
+        "product_name": "APPLE AIRPODS MAX USB-C",
+        "quantity": 1,
+        "unit_cost": 440.0,
+        "subtotal": 440.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "20917",
+    "supplier_old_id": 8,
+    "supplier_name": "TELUS",
+    "date": "2025-05-09T00:00:00",
+    "total_amount": 24500.0,
+    "payment_method": "ZELLE",
+    "items": [
+      {
+        "sku": "IP16-128-IN-WH",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 20,
+        "unit_cost": 700.0,
+        "subtotal": 14000.0
+      },
+      {
+        "sku": "IP16-128-IN-BK",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 10,
+        "unit_cost": 700.0,
+        "subtotal": 7000.0
+      },
+      {
+        "sku": "IP16-128-IN-PK",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 5,
+        "unit_cost": 700.0,
+        "subtotal": 3500.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "42151",
+    "supplier_old_id": 8,
+    "supplier_name": "TELUS",
+    "date": "2025-05-09T00:00:00",
+    "total_amount": 14237.0,
+    "payment_method": "ZELLE",
+    "items": [
+      {
+        "sku": "IP15-128-IN-BK",
+        "product_name": "iPhone 15 128GB 🇮🇳",
+        "quantity": 18,
+        "unit_cost": 619.0,
+        "subtotal": 11142.0
+      },
+      {
+        "sku": "IP15-128-IN-PK",
+        "product_name": null,
+        "quantity": 5,
+        "unit_cost": 619.0,
+        "subtotal": 3095.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "8560",
+    "supplier_old_id": 14,
+    "supplier_name": "IPHOXY",
+    "date": "2025-05-09T00:00:00",
+    "total_amount": 6222.0,
+    "payment_method": "USDT",
+    "items": [
+      {
+        "sku": "IP16PM-256-US-WT",
+        "product_name": "iPhone 16 Pro Max 256GB 🇺🇸",
+        "quantity": 4,
+        "unit_cost": 1037.0,
+        "subtotal": 4148.0
+      },
+      {
+        "sku": "IP16PM-256-US-BT",
+        "product_name": "iPhone 16 Pro Max 256GB 🇺🇸",
+        "quantity": 2,
+        "unit_cost": 1037.0,
+        "subtotal": 2074.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "8170",
+    "supplier_old_id": 14,
+    "supplier_name": "IPHOXY",
+    "date": "2025-05-05T00:00:00",
+    "total_amount": 50500.0,
+    "payment_method": "USDT",
+    "items": [
+      {
+        "sku": "IP16PM-256-US-DT",
+        "product_name": "iPhone 16 Pro Max 256GB 🇺🇸",
+        "quantity": 15,
+        "unit_cost": 1010.0,
+        "subtotal": 15150.0
+      },
+      {
+        "sku": "IP16PM-256-US-BT",
+        "product_name": "iPhone 16 Pro Max 256GB 🇺🇸",
+        "quantity": 20,
+        "unit_cost": 1010.0,
+        "subtotal": 20200.0
+      },
+      {
+        "sku": "IP16PM-256-US-NT",
+        "product_name": "iPhone 16 Pro Max 256GB 🇺🇸",
+        "quantity": 10,
+        "unit_cost": 1010.0,
+        "subtotal": 10100.0
+      },
+      {
+        "sku": "IP16PM-256-US-WT",
+        "product_name": "iPhone 16 Pro Max 256GB 🇺🇸",
+        "quantity": 5,
+        "unit_cost": 1010.0,
+        "subtotal": 5050.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "1500",
+    "supplier_old_id": 0,
+    "supplier_name": "FREEZIA",
+    "date": "2025-05-05T00:00:00",
+    "total_amount": 10570.0,
+    "payment_method": "USDT",
+    "items": [
+      {
+        "sku": "IPD-A-M3-11-128-W",
+        "product_name": null,
+        "quantity": 2,
+        "unit_cost": 520.0,
+        "subtotal": 1040.0
+      },
+      {
+        "sku": "IP16P-256-US-DT",
+        "product_name": "iPhone 16 Pro 256GB 🇺🇸",
+        "quantity": 10,
+        "unit_cost": 953.0,
+        "subtotal": 9530.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "20820",
+    "supplier_old_id": 8,
+    "supplier_name": "TELUS",
+    "date": "2025-05-02T00:00:00",
+    "total_amount": 14000.0,
+    "payment_method": "USDT",
+    "items": [
+      {
+        "sku": "IP16-128-IN-WH",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 10,
+        "unit_cost": 700.0,
+        "subtotal": 7000.0
+      },
+      {
+        "sku": "IP16-128-IN-BK",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 10,
+        "unit_cost": 700.0,
+        "subtotal": 7000.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "1473",
+    "supplier_old_id": 0,
+    "supplier_name": "FREEZIA",
+    "date": "2025-05-02T00:00:00",
+    "total_amount": 12035.0,
+    "payment_method": "USDT",
+    "items": [
+      {
+        "sku": "IP15-128-CA-BL",
+        "product_name": "iPhone 15 128GB 🇨🇦",
+        "quantity": 3,
+        "unit_cost": 625.0,
+        "subtotal": 1875.0
+      },
+      {
+        "sku": "IP16PM-256-US-DT",
+        "product_name": "iPhone 16 Pro Max 256GB 🇺🇸",
+        "quantity": 10,
+        "unit_cost": 1016.0,
+        "subtotal": 10160.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "208747",
+    "supplier_old_id": 2,
+    "supplier_name": "ALASKA",
+    "date": "2025-05-01T00:00:00",
+    "total_amount": 1835.0,
+    "payment_method": "USDT",
+    "items": [
+      {
+        "sku": "IPD-G10-109-64-W",
+        "product_name": null,
+        "quantity": 4,
+        "unit_cost": 290.0,
+        "subtotal": 1160.0
+      },
+      {
+        "sku": "AP-MAX-USBC",
+        "product_name": "APPLE AIRPODS MAX USB-C",
+        "quantity": 1,
+        "unit_cost": 495.0,
+        "subtotal": 495.0
+      },
+      {
+        "sku": "PCL-1G",
+        "product_name": "APPLE PENCIL C",
+        "quantity": 2,
+        "unit_cost": 90.0,
+        "subtotal": 180.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "693",
+    "supplier_old_id": 0,
+    "supplier_name": "GIO",
+    "date": "2025-04-30T00:00:00",
+    "total_amount": 13972.0,
+    "payment_method": "USDT",
+    "items": [
+      {
+        "sku": "IP16P-256-US-DT",
+        "product_name": "iPhone 16 Pro 256GB 🇺🇸",
+        "quantity": 7,
+        "unit_cost": 955.0,
+        "subtotal": 6685.0
+      },
+      {
+        "sku": "IP16PM-256-US-BT",
+        "product_name": "iPhone 16 Pro Max 256GB 🇺🇸",
+        "quantity": 3,
+        "unit_cost": 1025.0,
+        "subtotal": 3075.0
+      },
+      {
+        "sku": "IP16-128-IN-PK",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 6,
+        "unit_cost": 702.0,
+        "subtotal": 4212.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "20780",
+    "supplier_old_id": 8,
+    "supplier_name": "TELUS",
+    "date": "2025-04-28T00:00:00",
+    "total_amount": 3125.0,
+    "payment_method": "USDT",
+    "items": [
+      {
+        "sku": "IP15-128-IN-BK",
+        "product_name": "iPhone 15 128GB 🇮🇳",
+        "quantity": 5,
+        "unit_cost": 625.0,
+        "subtotal": 3125.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "20773",
+    "supplier_old_id": 8,
+    "supplier_name": "TELUS",
+    "date": "2025-04-25T00:00:00",
+    "total_amount": 20875.0,
+    "payment_method": "USDT",
+    "items": [
+      {
+        "sku": "IP16-128-IN-UL",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 10,
+        "unit_cost": 700.0,
+        "subtotal": 7000.0
+      },
+      {
+        "sku": "IP16-128-IN-TE",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 10,
+        "unit_cost": 700.0,
+        "subtotal": 7000.0
+      },
+      {
+        "sku": "IP15-128-IN-PK",
+        "product_name": null,
+        "quantity": 10,
+        "unit_cost": 625.0,
+        "subtotal": 6250.0
+      },
+      {
+        "sku": "IP15-128-IN-BL",
+        "product_name": "iPhone 15 128GB 🇮🇳",
+        "quantity": 1,
+        "unit_cost": 625.0,
+        "subtotal": 625.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "20774",
+    "supplier_old_id": 14,
+    "supplier_name": "IPHOXY",
+    "date": "2025-04-25T00:00:00",
+    "total_amount": 5000.0,
+    "payment_method": "USDT",
+    "items": [
+      {
+        "sku": "IP14-128-CN-MD",
+        "product_name": "iPhone 14 128GB 🇨🇳",
+        "quantity": 5,
+        "unit_cost": 500.0,
+        "subtotal": 2500.0
+      },
+      {
+        "sku": "IP14-128-CN-SL",
+        "product_name": "iPhone 14 128GB 🇨🇳",
+        "quantity": 5,
+        "unit_cost": 500.0,
+        "subtotal": 2500.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "20714",
+    "supplier_old_id": 8,
+    "supplier_name": "TELUS",
+    "date": "2025-04-18T00:00:00",
+    "total_amount": 3510.0,
+    "payment_method": "USDT",
+    "items": [
+      {
+        "sku": "IP16-128-IN-PK",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 5,
+        "unit_cost": 702.0,
+        "subtotal": 3510.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "4836",
+    "supplier_old_id": 8,
+    "supplier_name": "TELUS",
+    "date": "2025-04-16T00:00:00",
+    "total_amount": 16848.0,
+    "payment_method": "USDT",
+    "items": [
+      {
+        "sku": "IP16-128-IN-PK",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 5,
+        "unit_cost": 702.0,
+        "subtotal": 3510.0
+      },
+      {
+        "sku": "IP16-128-IN-WH",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 2,
+        "unit_cost": 702.0,
+        "subtotal": 1404.0
+      },
+      {
+        "sku": "IP16-128-IN-WH",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 2,
+        "unit_cost": 702.0,
+        "subtotal": 1404.0
+      },
+      {
+        "sku": "IP16-128-IN-TE",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 2,
+        "unit_cost": 702.0,
+        "subtotal": 1404.0
+      },
+      {
+        "sku": "IP16-128-IN-UL",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 2,
+        "unit_cost": 702.0,
+        "subtotal": 1404.0
+      },
+      {
+        "sku": "IP16-128-IN-PK",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 9,
+        "unit_cost": 702.0,
+        "subtotal": 6318.0
+      },
+      {
+        "sku": "IP16-128-IN-BK",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 2,
+        "unit_cost": 702.0,
+        "subtotal": 1404.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "12054585",
+    "supplier_old_id": 14,
+    "supplier_name": "IPHOXY",
+    "date": "2025-04-12T00:00:00",
+    "total_amount": 1550.0,
+    "payment_method": "USDT",
+    "items": [
+      {
+        "sku": "AW-S10-GPS-42-AL-JB",
+        "product_name": null,
+        "quantity": 3,
+        "unit_cost": 310.0,
+        "subtotal": 930.0
+      },
+      {
+        "sku": "AW-S10-GPS-42-AL-RG",
+        "product_name": null,
+        "quantity": 2,
+        "unit_cost": 310.0,
+        "subtotal": 620.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "1155",
+    "supplier_old_id": 0,
+    "supplier_name": "FREEZIA",
+    "date": "2025-04-10T00:00:00",
+    "total_amount": 21910.0,
+    "payment_method": "USDT",
+    "items": [
+      {
+        "sku": "IP16PM-256-US-DT",
+        "product_name": "iPhone 16 Pro Max 256GB 🇺🇸",
+        "quantity": 18,
+        "unit_cost": 1100.0,
+        "subtotal": 19800.0
+      },
+      {
+        "sku": "IP16PM-256-US-DT",
+        "product_name": "iPhone 16 Pro Max 256GB 🇺🇸",
+        "quantity": 2,
+        "unit_cost": 1055.0,
+        "subtotal": 2110.0
+      }
+    ]
+  },
+  {
+    "invoice_number": "4779",
+    "supplier_old_id": 0,
+    "supplier_name": "TELUS",
+    "date": "2025-04-07T00:00:00",
+    "total_amount": 2820.0,
+    "payment_method": "USDT",
+    "items": [
+      {
+        "sku": "IP16-128-IN-WH",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 2,
+        "unit_cost": 705.0,
+        "subtotal": 1410.0
+      },
+      {
+        "sku": "IP16-128-IN-UL",
+        "product_name": "iPhone 16 128GB 🇮🇳",
+        "quantity": 2,
+        "unit_cost": 705.0,
+        "subtotal": 1410.0
+      }
+    ]
+  }
+]
