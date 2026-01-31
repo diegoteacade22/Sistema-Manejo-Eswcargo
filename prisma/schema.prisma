@@ -7,6 +7,20 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Healthcheck {
+  id        Int      @id @default(autoincrement())
+  status    String
+  createdAt DateTime @default(now())
+}
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
@@ -70,3 +84,4 @@ enum ImportStatus {
   DELIVERED
   CANCELLED
 }
+
