@@ -16,6 +16,36 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             },
             async authorize(credentials) {
                 console.log("Authorize called with:", credentials?.username);
+
+                // BYPASS PARA DEV/STAGING
+                const isDev = process.env.NEXT_PUBLIC_APP_ENV === 'staging' || process.env.NODE_ENV === 'development';
+
+                if (isDev && credentials?.username === 'admin' && credentials?.password === 'admin123') {
+                    console.log("🔓 DEV MODE: Bypassing auth for admin");
+
+                    // Buscar si existe el usuario admin para devolver sus datos reales
+                    const adminUser = await (prisma as any).user.findUnique({
+                        where: { username: 'admin' },
+                    });
+
+                    if (adminUser) {
+                        return {
+                            id: adminUser.id,
+                            name: adminUser.name,
+                            email: adminUser.email,
+                            role: adminUser.role,
+                        };
+                    }
+
+                    // Fallback si no existe en BD (aunque debería)
+                    return {
+                        id: "admin-bypass",
+                        name: "Admin Bypass",
+                        email: "admin@eswcargo.com",
+                        role: "ADMIN",
+                    };
+                }
+
                 if (!credentials?.username || !credentials?.password) {
                     console.log("Missing credentials");
                     return null;
