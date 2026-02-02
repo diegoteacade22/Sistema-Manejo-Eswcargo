@@ -1,7 +1,11 @@
 # Install dependencies only when needed
 FROM node:20-slim AS deps
-RUN apt-get update && apt-get install -y libc6 openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y libc6 openssl libssl3 ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
+
+# Set Prisma to use OpenSSL 3.x
+ENV PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1
+ENV OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
 
 # Install dependencies based on the preferred package manager
 COPY package.json package-lock.json* ./
