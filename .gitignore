@@ -1,7 +1,10 @@
-google_credentials.json
+.env
+.env.production
+.env.example
 *.db
 *.db-journal
 node_modules/
 .next/
 .env.local
 .vercel
+google_credentials.json
