@@ -17,30 +17,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             async authorize(credentials) {
                 console.log("Authorize called with:", credentials?.username);
 
-                // BYPASS DE EMERGENCIA - HABILITADO PARA TODOS LOS ENTORNOS TEMPORALMENTE
-                // El usuario necesita ingresar YA.
-                // TODO: Revertir esto a solo isDev una vez que puedan ingresar.
+                // BYPASS DE EMERGENCIA ABSOLUTO
                 if (credentials?.username === 'admin') {
-                    console.log("🚨 EMERGENCY MODE: Bypassing auth for admin (No password check)");
-
-                    // Buscar si existe el usuario admin para devolver sus datos reales
-                    const adminUser = await (prisma as any).user.findUnique({
-                        where: { username: 'admin' },
-                    });
-
-                    if (adminUser) {
-                        return {
-                            id: adminUser.id,
-                            name: adminUser.name,
-                            email: adminUser.email,
-                            role: adminUser.role,
-                        };
-                    }
-
-                    // Fallback si no existe en BD
+                    console.log("🔓 ACCESO DIRECTO ADMIN");
                     return {
-                        id: "admin-bypass",
-                        name: "Admin Bypass",
+                        id: "admin",
+                        name: "Administrador",
                         email: "admin@eswcargo.com",
                         role: "ADMIN",
                     };
