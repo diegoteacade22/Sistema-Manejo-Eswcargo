@@ -7,10 +7,9 @@ WORKDIR /app
 ENV PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1
 ENV OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
 
-# Install dependencies based on the preferred package manager
+# Install dependencies with --ignore-scripts to avoid prisma generate failing without schema
 COPY package.json package-lock.json* ./
-COPY prisma ./prisma
-RUN npm ci
+RUN npm install --ignore-scripts
 
 # Rebuild the source code only when needed
 FROM node:20-slim AS builder
@@ -18,7 +17,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Generate Prisma Client
+# Generate Prisma Client (now that we have the schema)
 RUN npx prisma generate
 
 # Build Next.js
@@ -50,7 +49,6 @@ USER nextjs
 EXPOSE 3000
 
 ENV PORT=3000
-# set hostname to localhost
 ENV HOSTNAME="0.0.0.0"
 
 # server.js is created by next build from the standalone output
