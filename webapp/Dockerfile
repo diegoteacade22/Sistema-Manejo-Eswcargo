@@ -1,23 +1,20 @@
 # Install dependencies only when needed
-FROM node:20-slim AS deps
-RUN apt-get update && apt-get install -y libc6 openssl libssl3 ca-certificates && rm -rf /var/lib/apt/lists/*
+FROM node:20-bookworm-slim AS deps
+RUN apt-get update && apt-get install -y openssl libssl3 ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
-# Set Prisma to use OpenSSL 3.x
-ENV PRISMA_ENGINES_CHECKSUM_IGNORE_MISSING=1
-ENV OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
-
-# Install dependencies with --ignore-scripts to avoid prisma generate failing without schema
+# Install dependencies
 COPY package.json package-lock.json* ./
 RUN npm install --ignore-scripts
 
 # Rebuild the source code only when needed
-FROM node:20-slim AS builder
+FROM node:20-bookworm-slim AS builder
+RUN apt-get update && apt-get install -y openssl libssl3 ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Generate Prisma Client (now that we have the schema)
+# Generate Prisma Client (with the new binaryTarget)
 RUN npx prisma generate
 
 # Build Next.js
@@ -25,7 +22,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # Production image, copy all the files and run next
-FROM node:20-slim AS runner
+FROM node:20-bookworm-slim AS runner
+RUN apt-get update && apt-get install -y openssl libssl3 ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
 ENV NODE_ENV=production
