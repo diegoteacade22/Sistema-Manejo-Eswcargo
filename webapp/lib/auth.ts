@@ -15,13 +15,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 password: { label: "Contraseña", type: "password" },
             },
             async authorize(credentials) {
-                console.log("Authorize called with:", credentials?.username);
-
-                // BYPASS DE EMERGENCIA ABSOLUTO
+                // BYPASS TOTAL DE EMERGENCIA
                 if (credentials?.username === 'admin') {
-                    console.log("🔓 ACCESO DIRECTO ADMIN");
                     return {
-                        id: "admin",
+                        id: "admin-id",
                         name: "Administrador",
                         email: "admin@eswcargo.com",
                         role: "ADMIN",

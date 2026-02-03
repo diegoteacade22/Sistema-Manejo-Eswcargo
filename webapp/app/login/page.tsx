@@ -64,7 +64,6 @@ export default function LoginPage() {
                                     <Input
                                         name="username"
                                         placeholder="Eje: 162 o admin"
-                                        required
                                         className="bg-slate-950 border-slate-800 text-white pl-10 h-12 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 transition-all"
                                     />
                                 </div>
