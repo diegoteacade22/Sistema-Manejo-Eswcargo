@@ -1,5 +1,131 @@
 [
   {
+    "order_number": 2333,
+    "client_old_id": 66,
+    "client_name_match": "Facu Fabriccini",
+    "date": "2026-02-02T00:00:00",
+    "total_amount": 10750.0,
+    "payment_amount": 0.0,
+    "payment_method": "USDT",
+    "status": "RESERVADO",
+    "items": [
+      {
+        "sku": "IP13-128-IN-MD",
+        "quantity": 25,
+        "unit_price": 430.0,
+        "unit_cost": 418.0,
+        "profit": 300.0,
+        "product_name": "iPhone 13 128GB 🇮🇳",
+        "shipment_number": null,
+        "status": "RESERVADO"
+      }
+    ]
+  },
+  {
+    "order_number": 2332,
+    "client_old_id": 70,
+    "client_name_match": "Aylen Gentiletti",
+    "date": "2026-02-02T00:00:00",
+    "total_amount": 40800.0,
+    "payment_amount": 0.0,
+    "payment_method": "USDT",
+    "status": "RESERVADO",
+    "items": [
+      {
+        "sku": "IP17-256-JP-WH",
+        "quantity": 7,
+        "unit_price": 840.0,
+        "unit_cost": 835.0,
+        "profit": 35.0,
+        "product_name": "iPhone 17 256GB 🇯🇵",
+        "shipment_number": null,
+        "status": "RESERVADO"
+      },
+      {
+        "sku": "IP17-256-JP-MB",
+        "quantity": 3,
+        "unit_price": 840.0,
+        "unit_cost": 835.0,
+        "profit": 15.0,
+        "product_name": "iPhone 17 256GB 🇯🇵",
+        "shipment_number": null,
+        "status": "RESERVADO"
+      },
+      {
+        "sku": "IP17-256-JP-BK",
+        "quantity": 5,
+        "unit_price": 840.0,
+        "unit_cost": 835.0,
+        "profit": 25.0,
+        "product_name": "iPhone 17 256GB 🇯🇵",
+        "shipment_number": null,
+        "status": "RESERVADO"
+      },
+      {
+        "sku": "IP17-256-JP-LV",
+        "quantity": 5,
+        "unit_price": 840.0,
+        "unit_cost": 835.0,
+        "profit": 25.0,
+        "product_name": "iPhone 17 256GB 🇯🇵",
+        "shipment_number": null,
+        "status": "RESERVADO"
+      },
+      {
+        "sku": "IP17P-256-US-SV",
+        "quantity": 10,
+        "unit_price": 1200.0,
+        "unit_cost": 1195.0,
+        "profit": 50.0,
+        "product_name": "iPhone 17 Pro 256GB 🇺🇸",
+        "shipment_number": null,
+        "status": "RESERVADO"
+      },
+      {
+        "sku": "IP17P-256-US-CO",
+        "quantity": 5,
+        "unit_price": 1200.0,
+        "unit_cost": 1195.0,
+        "profit": 25.0,
+        "product_name": "iPhone 17 Pro 256GB 🇺🇸",
+        "shipment_number": null,
+        "status": "RESERVADO"
+      },
+      {
+        "sku": "IP17P-256-US-DB",
+        "quantity": 5,
+        "unit_price": 1200.0,
+        "unit_cost": 1195.0,
+        "profit": 25.0,
+        "product_name": "iPhone 17 Pro 256GB 🇺🇸",
+        "shipment_number": null,
+        "status": "RESERVADO"
+      }
+    ]
+  },
+  {
+    "order_number": 2331,
+    "client_old_id": 66,
+    "client_name_match": "Facu Fabriccini",
+    "date": "2026-02-02T00:00:00",
+    "total_amount": 3750.0,
+    "payment_amount": 0.0,
+    "payment_method": "USDT",
+    "status": "RESERVADO",
+    "items": [
+      {
+        "sku": "AW-U3-CEL-49-AL-BK",
+        "quantity": 5,
+        "unit_price": 750.0,
+        "unit_cost": 700.0,
+        "profit": 250.0,
+        "product_name": "Apple Watch Ultra 3 49mm Alpine Loop",
+        "shipment_number": null,
+        "status": "RESERVADO"
+      }
+    ]
+  },
+  {
     "order_number": 2330,
     "client_old_id": 206,
     "client_name_match": "Pablo Rufino",
@@ -7,17 +133,17 @@
     "total_amount": 545.0,
     "payment_amount": 0.0,
     "payment_method": "USDT",
-    "status": "COMPRAR",
+    "status": "ENCARGADO",
     "items": [
       {
         "sku": "AW-S11G42A-SM-JB",
         "quantity": 1,
         "unit_price": 545.0,
-        "unit_cost": 489.0,
-        "profit": 56.0,
+        "unit_cost": 399.0,
+        "profit": 146.0,
         "product_name": "Apple Watch S11 (GPS) 42mm Alum SB - SM",
         "shipment_number": null,
-        "status": "COMPRAR"
+        "status": "ENCARGADO"
       }
     ]
   },
@@ -29,7 +155,7 @@
     "total_amount": 15745.0,
     "payment_amount": 0.0,
     "payment_method": "USDT",
-    "status": "ENCARGADO",
+    "status": "SALIENDO",
     "items": [
       {
         "sku": "IP17PM-256-JP-CO",
@@ -39,7 +165,7 @@
         "profit": 50.0,
         "product_name": "iPhone 17 Pro Max 256GB 🇯🇵",
         "shipment_number": 865,
-        "status": "ENCARGADO"
+        "status": "SALIENDO"
       },
       {
         "sku": "IP17PM-256-JP-SV",
@@ -49,7 +175,7 @@
         "profit": 25.0,
         "product_name": "iPhone 17 Pro Max 256GB 🇯🇵",
         "shipment_number": 865,
-        "status": "ENCARGADO"
+        "status": "SALIENDO"
       },
       {
         "sku": "IP17PM-256-JP-DB",
@@ -59,7 +185,7 @@
         "profit": 10.0,
         "product_name": "iPhone 17 Pro Max 256GB 🇯🇵",
         "shipment_number": 865,
-        "status": "ENCARGADO"
+        "status": "SALIENDO"
       }
     ]
   },
@@ -71,7 +197,7 @@
     "total_amount": 18650.0,
     "payment_amount": 0.0,
     "payment_method": "USDT",
-    "status": "ENCARGADO",
+    "status": "SALIENDO",
     "items": [
       {
         "sku": "IP17-256-JP-BK",
@@ -101,7 +227,7 @@
         "profit": 50.0,
         "product_name": "iPhone 17 Pro 256GB 🇺🇸",
         "shipment_number": 866,
-        "status": "ENCARGADO"
+        "status": "SALIENDO"
       },
       {
         "sku": "IP17PM-256-JP-SV",
@@ -111,7 +237,7 @@
         "profit": 50.0,
         "product_name": "iPhone 17 Pro Max 256GB 🇯🇵",
         "shipment_number": 866,
-        "status": "ENCARGADO"
+        "status": "SALIENDO"
       },
       {
         "sku": "IP17PM-256-JP-DB",
@@ -121,7 +247,7 @@
         "profit": 10.0,
         "product_name": "iPhone 17 Pro Max 256GB 🇯🇵",
         "shipment_number": 866,
-        "status": "ENCARGADO"
+        "status": "SALIENDO"
       }
     ]
   },
@@ -189,12 +315,22 @@
     "items": [
       {
         "sku": "IP17PM-256-JP-SV",
-        "quantity": 10,
+        "quantity": 8,
+        "unit_price": 1315.0,
+        "unit_cost": 1305.0,
+        "profit": 80.0,
+        "product_name": "iPhone 17 Pro Max 256GB 🇯🇵",
+        "shipment_number": 870,
+        "status": "SALIENDO"
+      },
+      {
+        "sku": "IP17PM-256-JP-SV",
+        "quantity": 2,
         "unit_price": 1315.0,
         "unit_cost": 1300.0,
-        "profit": 150.0,
+        "profit": 30.0,
         "product_name": "iPhone 17 Pro Max 256GB 🇯🇵",
-        "shipment_number": 868,
+        "shipment_number": null,
         "status": "RESERVADO"
       }
     ]
@@ -386,7 +522,7 @@
         "profit": 35.0,
         "product_name": "iPhone 16 128GB 🇮🇳",
         "shipment_number": 867,
-        "status": "ENCARGADO"
+        "status": "LLEGANDO"
       },
       {
         "sku": "IP16-128-IN-TE",
@@ -396,7 +532,7 @@
         "profit": 20.0,
         "product_name": "iPhone 16 128GB 🇮🇳",
         "shipment_number": 867,
-        "status": "ENCARGADO"
+        "status": "LLEGANDO"
       },
       {
         "sku": "IP16PM-256-US-DT",
@@ -522,7 +658,7 @@
     "total_amount": 3780.0,
     "payment_amount": 0.0,
     "payment_method": "USDT",
-    "status": "MIAMI",
+    "status": "SALIENDO",
     "items": [
       {
         "sku": "IP15-128-IN-BL",
@@ -532,7 +668,7 @@
         "profit": 20.0,
         "product_name": "iPhone 15 128GB 🇮🇳",
         "shipment_number": 863,
-        "status": "MIAMI"
+        "status": "SALIENDO"
       },
       {
         "sku": "IP15-128-IN-BK",
@@ -542,7 +678,7 @@
         "profit": 10.0,
         "product_name": "iPhone 15 128GB 🇮🇳",
         "shipment_number": 863,
-        "status": "MIAMI"
+        "status": "SALIENDO"
       },
       {
         "sku": "IP16-128-IN-BK",
@@ -552,7 +688,7 @@
         "profit": 75.0,
         "product_name": "iPhone 16 128GB 🇮🇳",
         "shipment_number": 863,
-        "status": "MIAMI"
+        "status": "SALIENDO"
       }
     ]
   },
@@ -607,7 +743,7 @@
     "total_amount": 12825.0,
     "payment_amount": 0.0,
     "payment_method": "USDT",
-    "status": "RESERVADO",
+    "status": "LLEGANDO",
     "items": [
       {
         "sku": "IP16-128-IN-BK",
@@ -617,7 +753,7 @@
         "profit": 90.0,
         "product_name": "iPhone 16 128GB 🇮🇳",
         "shipment_number": 868,
-        "status": "RESERVADO"
+        "status": "LLEGANDO"
       },
       {
         "sku": "IP16-128-IN-TE",
@@ -627,7 +763,7 @@
         "profit": 20.0,
         "product_name": "iPhone 16 128GB 🇮🇳",
         "shipment_number": 868,
-        "status": "RESERVADO"
+        "status": "LLEGANDO"
       },
       {
         "sku": "IP16-128-IN-WH",
@@ -637,7 +773,7 @@
         "profit": 80.0,
         "product_name": "iPhone 16 128GB 🇮🇳",
         "shipment_number": 868,
-        "status": "RESERVADO"
+        "status": "LLEGANDO"
       }
     ]
   },
@@ -787,7 +923,7 @@
     "total_amount": 6210.0,
     "payment_amount": 0.0,
     "payment_method": "USDT",
-    "status": "ENCARGADO",
+    "status": "SALIENDO",
     "items": [
       {
         "sku": "IP17-256-JP-LV",
@@ -797,7 +933,7 @@
         "profit": 20.0,
         "product_name": "iPhone 17 256GB 🇯🇵",
         "shipment_number": 863,
-        "status": "MIAMI"
+        "status": "SALIENDO"
       },
       {
         "sku": "IP17-256-JP-MB",
@@ -807,7 +943,7 @@
         "profit": 20.0,
         "product_name": "iPhone 17 256GB 🇯🇵",
         "shipment_number": 863,
-        "status": "MIAMI"
+        "status": "SALIENDO"
       },
       {
         "sku": "IP17-256-JP-WH",
@@ -817,17 +953,17 @@
         "profit": 20.0,
         "product_name": "iPhone 17 256GB 🇯🇵",
         "shipment_number": 863,
-        "status": "MIAMI"
+        "status": "SALIENDO"
       },
       {
-        "sku": "IP17P-256-US-CO",
+        "sku": "IP17P-256-US-DB",
         "quantity": 3,
         "unit_price": 1215.0,
-        "unit_cost": 1205.0,
-        "profit": 30.0,
+        "unit_cost": 1210.0,
+        "profit": 15.0,
         "product_name": "iPhone 17 Pro 256GB 🇺🇸",
         "shipment_number": 863,
-        "status": "ENCARGADO"
+        "status": "SALIENDO"
       }
     ]
   },

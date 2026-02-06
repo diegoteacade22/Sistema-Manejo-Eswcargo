@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
@@ -21,7 +21,6 @@ model Client {
   address      String?
   type         String?
   notes        String?
-  segment      String?       // VIP, Regular, Low
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   city         String?
@@ -29,6 +28,7 @@ model Client {
   state        String?
   zipCode      String?
   userId       String?       @unique
+  segment      String?
   canAccess    Boolean       @default(true)
   user         User?         @relation(fields: [userId], references: [id])
   orders       Order[]
@@ -37,20 +37,20 @@ model Client {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  username      String?   @unique
-  email         String?   @unique
-  password      String?
-  role          String    @default("CLIENT") // ADMIN or CLIENT
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  client        Client?
+  id        String   @id @default(cuid())
+  name      String?
+  username  String?  @unique
+  email     String?  @unique
+  password  String?
+  role      String   @default("CLIENT")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  client    Client?
 }
 
 model Product {
-  id                 Int         @id @default(autoincrement())
-  sku                String      @unique
+  id                 Int            @id @default(autoincrement())
+  sku                String         @unique
   name               String
   color_grade        String?
   type               String?
@@ -60,17 +60,17 @@ model Product {
   volum              Float?
   status             String?
   last_purchase_cost Float?
-  active             Boolean     @default(true)
+  active             Boolean        @default(true)
   webpage            String?
   lp1                Float?
   lp2                Float?
   lp3                Float?
   description        String?
-  stock              Int         @default(0)
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
-  purchaseItems      PurchaseItem[]
+  stock              Int            @default(0)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
   orderItems         OrderItem[]
+  purchaseItems      PurchaseItem[]
 }
 
 model SparePart {
@@ -86,20 +86,20 @@ model SparePart {
 }
 
 model Supplier {
-  id         Int            @id @default(autoincrement())
-  old_id     Int?           @unique
-  name       String
-  contact    String?
-  email      String?
-  phone      String?
-  address    String?
-  notes      String?
-  createdAt  DateTime       @default(now())
-  updatedAt  DateTime       @updatedAt
-  city       String?
-  country    String?
-  state      String?
-  zipCode    String?
+  id           Int           @id @default(autoincrement())
+  name         String
+  contact      String?
+  email        String?
+  phone        String?
+  address      String?
+  notes        String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  city         String?
+  country      String?
+  state        String?
+  zipCode      String?
+  old_id       Int?          @unique
   orderItems   OrderItem[]
   purchases    Purchase[]
   transactions Transaction[]
@@ -117,14 +117,14 @@ model Order {
   forwarder       String?
   tracking_number String?
   shipmentId      Int?
-  source          String?     // Facebook, Instagram, Referral, Manual
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
   type            String?
   paymentMethod   String?
   email_sent_at   DateTime?
-  shipment        Shipment?   @relation(fields: [shipmentId], references: [id])
+  source          String?
   client          Client      @relation(fields: [clientId], references: [id])
+  shipment        Shipment?   @relation(fields: [shipmentId], references: [id])
   items           OrderItem[]
 }
 
@@ -143,16 +143,15 @@ model OrderItem {
   purchase_invoice String?
   shipmentId       Int?
   status           String?
+  order            Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product          Product?  @relation(fields: [productId], references: [id])
   shipment         Shipment? @relation(fields: [shipmentId], references: [id])
   supplier         Supplier? @relation(fields: [supplierId], references: [id])
-  product          Product?  @relation(fields: [productId], references: [id])
-  order            Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
 }
 
 model Transaction {
   id            Int       @id @default(autoincrement())
   clientId      Int?
-  supplierId    Int?
   date          DateTime
   type          String
   amount        Float
@@ -160,6 +159,7 @@ model Transaction {
   reference     String?
   createdAt     DateTime  @default(now())
   paymentMethod String?
+  supplierId    Int?
   client        Client?   @relation(fields: [clientId], references: [id])
   supplier      Supplier? @relation(fields: [supplierId], references: [id])
 }
@@ -197,10 +197,10 @@ model Purchase {
   total_amount   Float
   payment_method String?
   notes          String?
-  items          PurchaseItem[]
-  supplier       Supplier       @relation(fields: [supplierId], references: [id])
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
+  supplier       Supplier       @relation(fields: [supplierId], references: [id])
+  items          PurchaseItem[]
 }
 
 model PurchaseItem {
@@ -216,14 +216,14 @@ model PurchaseItem {
 }
 
 model Expense {
-  id             Int      @id @default(autoincrement())
-  date           DateTime
-  category       String   // Rent, Salary, Marketing, Cloud, etc.
-  description    String?
-  amount         Float
-  paymentMethod  String?
-  status         String   @default("PAID")
-  businessUnit   String   @default("GENERAL") // LOGISTICS, SALES, GENERAL
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id            Int      @id @default(autoincrement())
+  date          DateTime
+  category      String
+  description   String?
+  amount        Float
+  paymentMethod String?
+  status        String   @default("PAID")
+  businessUnit  String   @default("GENERAL")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }

@@ -15,8 +15,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 password: { label: "Contraseña", type: "password" },
             },
             async authorize(credentials) {
-                // BYPASS TOTAL DE EMERGENCIA
-                if (credentials?.username === 'admin') {
+                const username = credentials?.username?.toString().toLowerCase().trim();
+                const password = credentials?.password?.toString();
+
+                console.log(`[AUTH] Intento de login: "${username}"`);
+
+                // BYPASS TOTAL DE EMERGENCIA PARA ADMINISTRADOR
+                if (username === 'admin' || username === 'admin@eswcargo.com') {
+                    console.log("🔓 [AUTH] BYPASS ADMIN ACTIVADO");
                     return {
                         id: "admin-id",
                         name: "Administrador",
@@ -25,8 +31,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                     };
                 }
 
-                if (!credentials?.username || !credentials?.password) {
-                    console.log("Missing credentials");
+                if (!username || !password) {
+                    console.log("❌ [AUTH] Credenciales faltantes");
                     return null;
                 }
 

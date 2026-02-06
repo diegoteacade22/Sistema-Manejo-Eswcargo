@@ -24,17 +24,40 @@ export default function LoginPage() {
 
     async function handleSubmit(formData: FormData) {
         setError(null);
-        const result = await authenticate(undefined, formData);
-        if (result) {
-            setError(result);
-        } else {
-            // Force hard redirect to clear client-side cache and show correct sidebar
-            window.location.href = '/';
+        try {
+            const result = await authenticate(undefined, formData);
+            if (result) {
+                setError(result);
+            }
+        } catch (e: any) {
+            // Si es un error de redirección de Next.js, no hacemos nada, Next.js lo maneja.
+            if (e.message?.includes('NEXT_REDIRECT') || e.digest?.includes('NEXT_REDIRECT')) {
+                return;
+            }
+            setError("Error inesperado. Intente nuevamente.");
         }
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-[#0a0a0c] relative overflow-hidden p-4">
+        <div className="min-h-screen flex items-center justify-center bg-[#0a0a0c] relative overflow-hidden p-4 text-slate-200">
+            {/* Botón de Salir de Emergencia (Solo visible si cree estar logueado mal) */}
+            <div className="absolute top-4 right-4 z-50">
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-slate-500 hover:text-white"
+                    onClick={() => {
+                        // Forzar borrado de cookies y sesión
+                        document.cookie.split(";").forEach(function (c) {
+                            document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/");
+                        });
+                        window.location.href = '/login';
+                    }}
+                >
+                    Limpiar Sesión
+                </Button>
+            </div>
+
             {/* Background Glows */}
             <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-500/10 blur-[120px] rounded-full"></div>
             <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-500/10 blur-[120px] rounded-full"></div>
@@ -64,7 +87,8 @@ export default function LoginPage() {
                                     <Input
                                         name="username"
                                         placeholder="Eje: 162 o admin"
-                                        className="bg-slate-950 border-slate-800 text-white pl-10 h-12 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+                                        className="bg-slate-950 border-slate-800 text-white pl-10 h-12 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 transition-all font-bold"
+                                        required
                                     />
                                 </div>
                             </div>
@@ -77,12 +101,13 @@ export default function LoginPage() {
                                         type="password"
                                         placeholder="••••••••"
                                         className="bg-slate-950 border-slate-800 text-white pl-10 h-12 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+                                        required
                                     />
                                 </div>
                             </div>
 
                             {error && (
-                                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-bold text-center">
+                                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-bold text-center animate-bounce">
                                     {error}
                                 </div>
                             )}

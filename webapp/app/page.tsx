@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Users, Package, CreditCard, ArrowRight, TrendingUp, DollarSign, AlertCircle, Lightbulb } from 'lucide-react';
+import { Users, Package, CreditCard, ArrowRight, TrendingUp, DollarSign, AlertCircle, Lightbulb, Lock } from 'lucide-react';
 import { SalesTrendChart } from '@/components/charts/sales-trend-chart';
 import { OrderStatusPie } from '@/components/charts/order-status-pie';
 import { ProfitChart } from '@/components/charts/profit-chart'; // New Component
@@ -244,8 +244,31 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
   const searchParams = await props.searchParams;
   const months = searchParams?.months ? parseInt(searchParams.months) : 6;
 
-  const data = await getDashboardData(months);
-  if (!data) return null;
+  let data;
+  try {
+    data = await getDashboardData(months);
+  } catch (error) {
+    console.error("Dashboard Error:", error);
+    return (
+      <div className="p-8 text-center bg-slate-950 min-h-screen flex items-center justify-center flex-col gap-4">
+        <AlertCircle className="h-12 w-12 text-red-500" />
+        <h1 className="text-2xl font-bold text-white">Error al cargar el panel</h1>
+        <p className="text-slate-400">Hubo un problema de conexión con la base de datos.</p>
+        <Button onClick={() => window.location.reload()}>Reintentar</Button>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="p-8 text-center bg-slate-950 min-h-screen flex items-center justify-center flex-col gap-4">
+        <Lock className="h-12 w-12 text-orange-500" />
+        <h1 className="text-2xl font-bold text-white">Sesión no válida</h1>
+        <p className="text-slate-400">No hemos podido identificar tu sesión. Por favor, vuelve a ingresar.</p>
+        <Button asChild><Link href="/login">Ir al Login</Link></Button>
+      </div>
+    );
+  }
 
   const {
     totalReceivables,
@@ -264,6 +287,21 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
   } = data;
 
   const isAdmin = userRole === 'ADMIN';
+
+  // Si es un cliente y no tiene ID vinculado, mostrar mensaje amigable
+  if (!isAdmin && !clientId) {
+    return (
+      <div className="p-8 text-center bg-slate-950 min-h-screen flex items-center justify-center flex-col gap-4 text-white">
+        <Users className="h-12 w-12 text-indigo-500" />
+        <h1 className="text-2xl font-bold">Bienvenido a ImportSys</h1>
+        <p className="text-slate-400 max-w-md mx-auto">
+          Tu cuenta aún no está vinculada a un registro de cliente en nuestra base de datos administrativa.
+          Contacta con soporte para habilitar tu acceso a pedidos y tracking.
+        </p>
+        <Button onClick={() => window.location.href = '/login'}>Cambiar de Usuario</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 space-y-8 animate-in fade-in duration-500">

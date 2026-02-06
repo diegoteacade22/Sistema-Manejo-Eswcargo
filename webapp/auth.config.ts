@@ -11,7 +11,8 @@ export const authConfig = {
             const isPublicRoute = nextUrl.pathname === '/login' || nextUrl.pathname === '/setup-account';
 
             if (isPublicRoute) {
-                if (isLoggedIn) return Response.redirect(new URL('/', nextUrl));
+                // Permitimos el acceso a rutas públicas (login, setup-account) 
+                // incluso si ya está logueado, por si quiere cambiar de cuenta.
                 return true;
             }
 
