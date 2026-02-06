@@ -48,10 +48,12 @@ function SelectTrigger({
       {...props}
       key={mounted ? "mounted" : "not-mounted"}
     >
-      {children}
-      <SelectPrimitive.Icon asChild>
-        <ChevronDownIcon className="size-4 opacity-50" />
-      </SelectPrimitive.Icon>
+      <React.Fragment>
+        {children}
+        <SelectPrimitive.Icon asChild key="select-icon">
+          <ChevronDownIcon className="size-4 opacity-50" />
+        </SelectPrimitive.Icon>
+      </React.Fragment>
     </SelectPrimitive.Trigger>
   )
 }
