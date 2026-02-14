@@ -8,6 +8,7 @@ from googleapiclient.http import MediaIoBaseDownload
 
 # Configuration
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# ID Original: 12ba_3FX1xK6d8UmzkeRBXhCVYXfi8plL-Uga5tXpajE (Confirmado Feb 6)
 SPREADSHEET_ID = '12ba_3FX1xK6d8UmzkeRBXhCVYXfi8plL-Uga5tXpajE'
 OUTPUT_FILE = os.path.join(SCRIPT_DIR, 'VENTAS COMPRAS 2023 al 2025 Para Sistema en Gemini.xlsx')
 SERVICE_ACCOUNT_FILE = os.path.join(SCRIPT_DIR, 'google_credentials.json')
@@ -38,13 +39,18 @@ def download_sheet():
             mimeType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
         
-        fh = io.FileIO(OUTPUT_FILE, 'wb')
+        # Download to a buffer first to avoid trashing local file if sync fails
+        fh = io.BytesIO()
         downloader = MediaIoBaseDownload(fh, request)
         done = False
         while done is False:
             status, done = downloader.next_chunk()
             if status:
                 print(f"Downloading... {int(status.progress() * 100)}%")
+            
+        # If we reach here, download was successful. Save to file.
+        with open(OUTPUT_FILE, 'wb') as f:
+            f.write(fh.getvalue())
             
         print(f"SUCCESS: Synced to '{OUTPUT_FILE}'")
         

@@ -3,8 +3,10 @@
 
 import { prisma } from '@/lib/prisma';
 import { startOfMonth, endOfMonth, subMonths, format } from 'date-fns';
+import { requireAdminUser } from '@/lib/access';
 
 export async function getFinancialAnalytics(monthsToAnalyze: number = 6) {
+    await requireAdminUser();
     console.log(`[Analytics] Analyzing last ${monthsToAnalyze} months`);
     const now = new Date();
     const rangeStart = startOfMonth(subMonths(now, monthsToAnalyze - 1));
@@ -102,6 +104,7 @@ export async function getFinancialAnalytics(monthsToAnalyze: number = 6) {
 }
 
 export async function getLogisticsAnalytics(monthsToAnalyze: number = 6) {
+    await requireAdminUser();
     const now = new Date();
     const rangeStart = startOfMonth(subMonths(now, monthsToAnalyze - 1));
 
@@ -150,6 +153,7 @@ export async function getLogisticsAnalytics(monthsToAnalyze: number = 6) {
 }
 
 export async function getSalesAnalytics(monthsToAnalyze: number = 6) {
+    await requireAdminUser();
     const now = new Date();
     const rangeStart = startOfMonth(subMonths(now, monthsToAnalyze - 1));
 
@@ -226,6 +230,7 @@ export async function getSalesAnalytics(monthsToAnalyze: number = 6) {
 }
 
 export async function getPurchasingAnalytics(monthsToAnalyze: number = 6) {
+    await requireAdminUser();
     const now = new Date();
     const rangeStart = startOfMonth(subMonths(now, monthsToAnalyze - 1));
 

@@ -1,5 +1,22 @@
 
 import type { NextAuthConfig } from "next-auth"
+import { NextResponse } from "next/server";
+
+const ADMIN_ONLY_PREFIXES = [
+    '/clients',
+    '/suppliers',
+    '/products',
+    '/collections',
+    '/expenses',
+    '/maintenance',
+    '/analytics',
+    '/orders/new',
+    '/shipments/new',
+];
+
+function isAdminOnlyPath(pathname: string) {
+    return ADMIN_ONLY_PREFIXES.some(prefix => pathname === prefix || pathname.startsWith(`${prefix}/`));
+}
 
 export const authConfig = {
     pages: {
@@ -9,11 +26,16 @@ export const authConfig = {
         authorized({ auth, request: { nextUrl } }) {
             const isLoggedIn = !!auth?.user;
             const isPublicRoute = nextUrl.pathname === '/login' || nextUrl.pathname === '/setup-account';
+            const role = (auth?.user as any)?.role;
 
             if (isPublicRoute) {
                 // Permitimos el acceso a rutas públicas (login, setup-account) 
                 // incluso si ya está logueado, por si quiere cambiar de cuenta.
                 return true;
+            }
+
+            if (isLoggedIn && isAdminOnlyPath(nextUrl.pathname) && role !== 'ADMIN') {
+                return NextResponse.redirect(new URL('/', nextUrl));
             }
 
             return isLoggedIn;

@@ -63,7 +63,10 @@ async function getOrders(query: string, sortField: string = 'date', sortOrder: S
 
     const orders = await prisma.order.findMany({
         where: whereClause,
-        orderBy: { [sortField === 'number' ? 'order_number' : sortField]: sortOrder },
+        orderBy: [
+            { [sortField === 'number' ? 'order_number' : sortField]: sortOrder },
+            { order_number: 'desc' }
+        ],
         take: 50,
         include: {
             client: true

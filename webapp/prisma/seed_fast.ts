@@ -171,26 +171,6 @@ async function main() {
             }
         }
         processedShipmentIds.add(dbShipment.id);
-
-        // 5.5 Sincronizar Transacciones de Envío
-        if (dbShipment.clientId && s.price_total > 0) {
-            // Eliminar CUALQUIER transacción previa de este envío (limpia formatos viejos y duplicados)
-            await prisma.transaction.deleteMany({
-                where: { reference: { startsWith: `Envío #${s.shipment_number}` } }
-            });
-
-            const shipRef = `Envío #${s.shipment_number}-${s.price_total}-${s.date_shipped || 'N/A'}`;
-            await prisma.transaction.create({
-                data: {
-                    clientId: dbShipment.clientId,
-                    date: dbShipment.date_shipped || dbShipment.createdAt || new Date(),
-                    type: 'CARGO',
-                    amount: -s.price_total,
-                    description: `Flete - Envío #${s.shipment_number}`,
-                    reference: shipRef
-                }
-            });
-        }
     }
 
     // 6. PROCESAR PEDIDOS
@@ -302,8 +282,11 @@ async function main() {
     }
 
     // B. Transacciones de Envíos (Fletes)
-    for (const s of shipmentsData) {
-        const dbClientId = s.old_client_id ? clientOldIdMap.get(s.old_client_id)?.id : (s.client_name_match ? clientNameMap.get(s.client_name_match.trim().toUpperCase())?.id : null);
+    for (const s of (shipmentsData as any[])) {
+        const dbClientId = s.old_client_id
+            ? clientOldIdMap.get(s.old_client_id)?.id
+            : (s.client_name_match ? clientNameMap.get(s.client_name_match.trim().toUpperCase())?.id : null);
+
         if (dbClientId && s.price_total > 0) {
             allTxs.push({
                 clientId: dbClientId,
@@ -400,18 +383,37 @@ async function main() {
 
     // EJECUCIÓN BATCH DE TRANSACCIONES
     console.log(`🚀 Ejecutando batch de ${allTxs.length} transacciones...`);
-    // Primero limpiamos lo que vamos a sobreescribir (solo los prefijos conocidos para no borrar fletes manuales)
-    await prisma.transaction.deleteMany({
-        where: {
-            OR: [
-                { reference: { startsWith: 'Order #' } },
-                { reference: { startsWith: 'Envío #' } },
-                { reference: { startsWith: 'PagoExtra-' } },
-                { reference: { startsWith: 'Purchase #' } },
-                { reference: { startsWith: 'Manual-' } }
-            ]
+    const txReferences = Array.from(
+        new Set(
+            allTxs
+                .map(tx => tx.reference)
+                .filter((ref): ref is string => typeof ref === 'string' && ref.trim().length > 0)
+        )
+    );
+
+    if (isFullSync) {
+        // En FULL reconstruimos universo completo de referencias gestionadas por sync.
+        await prisma.transaction.deleteMany({
+            where: {
+                OR: [
+                    { reference: { startsWith: 'Order #' } },
+                    { reference: { startsWith: 'Envío #' } },
+                    { reference: { startsWith: 'PagoExtra-' } },
+                    { reference: { startsWith: 'Purchase #' } },
+                    { reference: { startsWith: 'Manual-' } }
+                ]
+            }
+        });
+    } else if (txReferences.length > 0) {
+        // En DIFF solo tocamos las referencias presentes en este lote para no perder histórico.
+        const REF_CHUNK_SIZE = 500;
+        for (let i = 0; i < txReferences.length; i += REF_CHUNK_SIZE) {
+            const refsChunk = txReferences.slice(i, i + REF_CHUNK_SIZE);
+            await prisma.transaction.deleteMany({
+                where: { reference: { in: refsChunk } }
+            });
         }
-    });
+    }
 
     // Insertar en bloques para evitar límites de la base de datos
     const CHUNK_SIZE = 100;

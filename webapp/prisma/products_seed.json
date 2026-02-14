@@ -11856,9 +11856,9 @@
     "lp1": 0.0
   },
   {
-    "sku": "SAM-S25-U-12-256-NEW-LA",
+    "sku": "SAM-S25-U-12-256-NEW-LA-BK",
     "name": "Samsung S25 DS Ultra 12+256GB",
-    "color_grade": null,
+    "color_grade": "Black",
     "type": "CELL-NEW",
     "model": null,
     "brand": "SAMSUNG",
@@ -11868,9 +11868,9 @@
     "lp1": 0.0
   },
   {
-    "sku": "SAM-S25-U-12-256-NEW-US",
+    "sku": "SAM-S25-U-12-256-NEW-US-BK",
     "name": "Samsung S25 DS Ultra 12+256GB",
-    "color_grade": null,
+    "color_grade": "Black",
     "type": "CELL-NEW",
     "model": null,
     "brand": "SAMSUNG",
@@ -11880,9 +11880,9 @@
     "lp1": 0.0
   },
   {
-    "sku": "SAM-S25-U-12-512-NEW-LA",
-    "name": "Samsung S25 DS Ultra 12+512GB",
-    "color_grade": null,
+    "sku": "SAM-S25-U-12-256-NEW-US-WH",
+    "name": "Samsung S25 DS Ultra 12+256GB",
+    "color_grade": "White",
     "type": "CELL-NEW",
     "model": null,
     "brand": "SAMSUNG",
@@ -11892,9 +11892,69 @@
     "lp1": 0.0
   },
   {
-    "sku": "SAM-S25-U-12-512-NEW-US",
+    "sku": "SAM-S25-U-12-256-NEW-US-BL",
+    "name": "Samsung S25 DS Ultra 12+256GB",
+    "color_grade": "Blue",
+    "type": "CELL-NEW",
+    "model": null,
+    "brand": "SAMSUNG",
+    "weight": 0.75,
+    "status": "ACTIVO",
+    "stock": 0,
+    "lp1": 0.0
+  },
+  {
+    "sku": "SAM-S25-U-12-256-NEW-US-GR",
+    "name": "Samsung S25 DS Ultra 12+256GB",
+    "color_grade": "Space Gray",
+    "type": "CELL-NEW",
+    "model": null,
+    "brand": "SAMSUNG",
+    "weight": 0.75,
+    "status": "ACTIVO",
+    "stock": 0,
+    "lp1": 0.0
+  },
+  {
+    "sku": "SAM-S25-U-12-512-NEW-LA-BK",
     "name": "Samsung S25 DS Ultra 12+512GB",
-    "color_grade": null,
+    "color_grade": "Black",
+    "type": "CELL-NEW",
+    "model": null,
+    "brand": "SAMSUNG",
+    "weight": 0.75,
+    "status": "ACTIVO",
+    "stock": 0,
+    "lp1": 0.0
+  },
+  {
+    "sku": "SAM-S25-U-12-512-NEW-US-BL",
+    "name": "Samsung S25 DS Ultra 12+512GB",
+    "color_grade": "Blue",
+    "type": "CELL-NEW",
+    "model": null,
+    "brand": "SAMSUNG",
+    "weight": 0.75,
+    "status": "ACTIVO",
+    "stock": 0,
+    "lp1": 0.0
+  },
+  {
+    "sku": "SAM-S25-U-12-512-NEW-US-GR",
+    "name": "Samsung S25 DS Ultra 12+512GB",
+    "color_grade": "Space Gray",
+    "type": "CELL-NEW",
+    "model": null,
+    "brand": "SAMSUNG",
+    "weight": 0.75,
+    "status": "ACTIVO",
+    "stock": 0,
+    "lp1": 0.0
+  },
+  {
+    "sku": "SAM-S25-U-12-512-NEW-LA-WH",
+    "name": "Samsung S25 DS Ultra 12+512GB",
+    "color_grade": "White",
     "type": "CELL-NEW",
     "model": null,
     "brand": "SAMSUNG",

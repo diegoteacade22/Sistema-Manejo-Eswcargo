@@ -96,7 +96,10 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
         include: { product: true }
       }
     },
-    orderBy: { date: 'desc' },
+    orderBy: [
+      { date: 'desc' },
+      { order_number: 'desc' }
+    ],
   });
 
   const recentOrders = orders.slice(0, 5);

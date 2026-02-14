@@ -4,11 +4,16 @@ import { NextResponse } from 'next/server';
 export async function GET() {
     try {
         const session = await auth();
+        const role = (session?.user as any)?.role;
+
+        if (!session?.user || role !== 'ADMIN') {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
 
         return NextResponse.json({
             session,
             user: session?.user,
-            role: (session?.user as any)?.role,
+            role,
             timestamp: new Date().toISOString()
         }, { status: 200 });
     } catch (error) {

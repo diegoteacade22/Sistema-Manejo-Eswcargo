@@ -2,10 +2,16 @@
 import { prisma } from '@/lib/prisma';
 import { notFound } from 'next/navigation';
 import PackingListTemplate from './packing-list-template';
+import { auth } from '@/lib/auth';
 
 export default async function PackingListPage(props: { params: Promise<{ id: string }> }) {
     const params = await props.params;
     const id = parseInt(params.id);
+    const session = await auth();
+
+    if (!session?.user) {
+        return notFound();
+    }
 
     if (isNaN(id)) {
         return notFound();
@@ -43,6 +49,19 @@ export default async function PackingListPage(props: { params: Promise<{ id: str
 
     if (!shipment) {
         return notFound();
+    }
+
+    const role = (session.user as any).role;
+    if (role !== 'ADMIN') {
+        const userId = (session.user as any).id;
+        const client = await prisma.client.findFirst({
+            where: { userId },
+            select: { id: true }
+        });
+
+        if (!client || shipment.clientId !== client.id) {
+            return notFound();
+        }
     }
 
     return <PackingListTemplate shipment={shipment} />;

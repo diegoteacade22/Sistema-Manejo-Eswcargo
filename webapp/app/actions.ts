@@ -3,8 +3,10 @@
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { requireAdminUser } from '@/lib/access';
 
 export async function createOrder(prevState: any, formData: FormData) {
+    await requireAdminUser();
     // legacy stub
 }
 
@@ -25,6 +27,7 @@ export async function submitOrder(data: {
     }[];
     notes?: string;
 }) {
+    await requireAdminUser();
     if (!data.clientId || data.items.length === 0) {
         return { success: false, message: 'Faltan datos requeridos (Cliente o Items)' };
     }
@@ -119,6 +122,7 @@ export async function submitOrder(data: {
 }
 
 export async function registerPayment(clientId: number, amount: number, description: string, reference: string, paymentMethod: string) {
+    await requireAdminUser();
     const finalAmount = Math.abs(amount); // Always positive for Payments (Credit)
 
     try {
@@ -144,6 +148,7 @@ export async function registerPayment(clientId: number, amount: number, descript
 }
 
 export async function registerShipmentCharge(shipmentId: number, clientId: number, amount: number, notes?: string) {
+    await requireAdminUser();
     try {
         const shipment = await prisma.shipment.findUnique({
             where: { id: shipmentId },
@@ -234,6 +239,7 @@ async function recalculateShipmentStats(shipmentId: number) {
 
 
 export async function updateOrderStatus(orderId: number, status: string, shipmentId?: number | null) {
+    await requireAdminUser();
     try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const data: any = { status };
@@ -274,6 +280,7 @@ export async function createShipment(data: {
     date_shipped: Date;
     notes?: string;
 }) {
+    await requireAdminUser();
     try {
         // Find max shipment number
         const lastShipment = await (prisma as any).shipment.findFirst({ orderBy: { shipment_number: 'desc' } });
@@ -313,6 +320,7 @@ export async function createSupplier(data: {
     country?: string;
     notes?: string;
 }) {
+    await requireAdminUser();
     try {
         await (prisma as any).supplier.create({ data });
         revalidatePath('/suppliers');
@@ -335,6 +343,7 @@ export async function updateSupplier(id: number, data: {
     country?: string;
     notes?: string;
 }) {
+    await requireAdminUser();
     try {
         await (prisma as any).supplier.update({
             where: { id },
@@ -364,6 +373,7 @@ export async function createClient(data: {
     notes?: string;
     canAccess?: boolean;
 }) {
+    await requireAdminUser();
     try {
         // canAccess is valid but if the IDE shows red, Restart TS Server (Cmd+Shift+P)
         await prisma.client.create({
@@ -401,6 +411,7 @@ export async function updateClient(id: number, data: {
     notes?: string;
     canAccess?: boolean;
 }) {
+    await requireAdminUser();
     try {
         await prisma.client.update({
             where: { id },
@@ -436,6 +447,7 @@ export async function createProduct(data: {
     lp1?: number;
     stock?: number;
 }) {
+    await requireAdminUser();
     try {
         await prisma.product.create({ data: { ...data, sku: data.sku || 'PENDING-' + Date.now() } });
         revalidatePath('/products');
@@ -454,6 +466,7 @@ export async function updateProduct(id: number, data: {
     lp1?: number;
     stock?: number;
 }) {
+    await requireAdminUser();
     try {
         await prisma.product.update({
             where: { id },
@@ -476,6 +489,7 @@ const MS_PER_HOUR = 60 * 60 * 1000;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export async function syncShipmentStatus(shipmentId: number) {
+    await requireAdminUser();
     const shipment = await (prisma as any).shipment.findUnique({
         where: { id: shipmentId },
         include: { orders: true }
@@ -551,6 +565,7 @@ export async function updateShipment(data: {
     date_arrived?: Date | null;
     notes?: string;
 }) {
+    await requireAdminUser();
     try {
         const shipment = await (prisma as any).shipment.update({
             where: { id: data.id },
@@ -601,6 +616,7 @@ export async function updateShipment(data: {
 }
 
 export async function deleteEntity(type: 'client' | 'supplier' | 'product' | 'order' | 'shipment', id: number) {
+    await requireAdminUser();
     // ... existing deleteEntity code ...
     try {
         if (type === 'client') {
@@ -627,4 +643,3 @@ export async function deleteEntity(type: 'client' | 'supplier' | 'product' | 'or
         return { success: false, message: 'Error al eliminar (posible restricción de clave foránea)' };
     }
 }
-

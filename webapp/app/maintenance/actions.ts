@@ -3,15 +3,18 @@
 import { revalidatePath } from 'next/cache';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { requireAdminUser } from '@/lib/access';
 
 const execAsync = promisify(exec);
 
 export async function revalidateSystem() {
+    await requireAdminUser();
     revalidatePath('/', 'layout');
     return { success: true, message: 'Next.js cache revalidated.' };
 }
 
 export async function resetDatabase() {
+    await requireAdminUser();
     try {
         console.log("Resetting database...");
         // In a real production app, this is dangerous. For this local tool, it's what's asked.
@@ -42,6 +45,7 @@ export async function resetDatabase() {
 }
 
 export async function syncExcel(days: number = 0) {
+    await requireAdminUser();
     try {
         console.log(`Starting Excel Sync (${days} days)...`);
         const { stdout, stderr } = await execAsync(`./sync_excel.sh ${days}`);

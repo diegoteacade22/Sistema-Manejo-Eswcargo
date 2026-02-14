@@ -3,10 +3,12 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { revalidatePath } from 'next/cache';
+import { requireAdminUser } from '@/lib/access';
 
 const prisma = new PrismaClient();
 
 export async function createUser(data: any) {
+    await requireAdminUser();
     try {
         const { name, username, email, password, role, clientId } = data;
 
@@ -61,6 +63,7 @@ export async function createUser(data: any) {
 }
 
 export async function getUsers() {
+    await requireAdminUser();
     try {
         const users = await prisma.user.findMany({
             include: {
@@ -75,6 +78,7 @@ export async function getUsers() {
 }
 
 export async function generateClientCredentials(clientId: number) {
+    await requireAdminUser();
     try {
         const client = await prisma.client.findUnique({
             where: { id: clientId },

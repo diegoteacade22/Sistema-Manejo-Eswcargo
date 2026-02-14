@@ -436,6 +436,26 @@ def extract_all():
     with open(os.path.join(output_dir, 'purchases_seed.json'), 'w', encoding='utf-8') as f:
         json.dump(purchases, f, indent=2, ensure_ascii=False)
 
+    summary = {
+        'clients': len(clients),
+        'products': len(products),
+        'suppliers': len(suppliers),
+        'shipments': len(shipments),
+        'orders': len(orders),
+        'payments_extra': len(payments_only),
+        'purchases': len(purchases),
+    }
+
+    print("\n📊 Resumen de extracción:")
+    for key, value in summary.items():
+        print(f"   - {key}: {value}")
+
+    if force_full:
+        required_non_empty = ['clients', 'products', 'suppliers', 'orders']
+        missing = [k for k in required_non_empty if summary[k] == 0]
+        if missing:
+            raise RuntimeError(f"Extracción FULL inválida: hojas críticas vacías ({', '.join(missing)}).")
+
     end_time = time.time()
     print(f"\n✅ Extracción completa en {end_time - start_time:.2f} segundos.")
     print(f"📁 Archivos generados en {output_dir}")

@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, Printer, Mail } from 'lucide-react';
 import Link from 'next/link';
 import { PaymentDialog } from '@/components/payment-dialog';
+import { auth } from '@/lib/auth';
+import { notFound } from 'next/navigation';
 
 interface Props {
     params: Promise<{ id: string }>;
@@ -36,6 +38,26 @@ async function getClientDetails(id: string) {
 export default async function ClientPage(props: Props) {
     const params = await props.params;
     const searchParams = await props.searchParams;
+    const session = await auth();
+
+    if (!session?.user) {
+        return notFound();
+    }
+
+    const userRole = (session.user as any).role;
+    const userId = (session.user as any).id;
+
+    if (userRole !== 'ADMIN') {
+        const clientForUser = await prisma.client.findFirst({
+            where: { userId },
+            select: { id: true }
+        });
+
+        if (!clientForUser || clientForUser.id !== parseInt(params.id)) {
+            return notFound();
+        }
+    }
+
     const client = await getClientDetails(params.id);
 
     if (!client) {

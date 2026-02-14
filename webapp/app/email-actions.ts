@@ -4,8 +4,10 @@
 import { sendEmail } from '@/lib/email';
 import { prisma } from '@/lib/prisma';
 import { generatePdfFromHtml } from '@/lib/pdf-generator';
+import { requireAdminUser } from '@/lib/access';
 
 export async function sendPackingListEmail(shipmentId: number, targetEmail: string) {
+    await requireAdminUser();
     if (!targetEmail) {
         return { success: false, message: 'El email de destino es obligatorio.' };
     }
@@ -155,6 +157,7 @@ export async function sendPackingListEmail(shipmentId: number, targetEmail: stri
 }
 
 export async function sendInvoiceEmail(orderId: number, targetEmail: string) {
+    await requireAdminUser();
     if (!targetEmail) {
         return { success: false, message: 'El email de destino es obligatorio.' };
     }

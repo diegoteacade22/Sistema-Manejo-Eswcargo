@@ -3,9 +3,11 @@
 
 import { prisma } from '@/lib/prisma'
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
+import { requireAdminUser } from '@/lib/access'
 
 export async function createCollection(formData: FormData) {
+    await requireAdminUser();
+
     const dateStr = formData.get('date') as string
     const clientIdStr = formData.get('clientId') as string
     const amountStr = formData.get('amount') as string
@@ -20,9 +22,8 @@ export async function createCollection(formData: FormData) {
     const amount = parseFloat(amountStr)
     const date = new Date(dateStr)
 
-    // Payments are negative in the Transaction model (reducing debt)
-    // Ensure we store it as negative
-    const transactionAmount = -Math.abs(amount)
+    // Convención del sistema: pagos/créditos son positivos.
+    const transactionAmount = Math.abs(amount)
 
     await prisma.transaction.create({
         data: {

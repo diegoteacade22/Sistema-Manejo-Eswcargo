@@ -3,8 +3,10 @@
 
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
+import { requireAdminUser } from '@/lib/access';
 
 export async function getExpenses() {
+    await requireAdminUser();
     return await prisma.expense.findMany({
         orderBy: { date: 'desc' }
     });
@@ -17,6 +19,7 @@ export async function createExpense(data: {
     amount: number,
     businessUnit: string
 }) {
+    await requireAdminUser();
     const expense = await prisma.expense.create({
         data
     });
@@ -25,16 +28,19 @@ export async function createExpense(data: {
 }
 
 export async function deleteExpense(id: number) {
+    await requireAdminUser();
     await prisma.expense.delete({ where: { id } });
     revalidatePath('/expenses');
 }
 
 export async function deleteAllExpenses() {
+    await requireAdminUser();
     await prisma.expense.deleteMany({});
     revalidatePath('/expenses');
 }
 
 export async function importExpensesFromCsv(csvText: string) {
+    await requireAdminUser();
     const lines = csvText.split(/\r?\n/).filter(l => l.trim());
     if (lines.length < 2) return { success: false, error: "Archivo vacío o sin datos" };
 

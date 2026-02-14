@@ -11,6 +11,9 @@ echo ""
 PROJECT_DIR="/Users/diegorodriguez/02_DESARROLLO/Proyectos_Activos/sistema_gestion_importaciones"
 cd "$PROJECT_DIR"
 
+# Durante migración activa, forzamos FULL para evitar pérdida de histórico.
+export FORCE_FULL_SYNC=${FORCE_FULL_SYNC:-true}
+
 # Detectar Python (Prioridad venv)
 PYTHON_EXEC="python3"
 if [ -f "./venv/bin/python3" ]; then

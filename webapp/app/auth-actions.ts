@@ -95,8 +95,23 @@ export async function setupClientAccount(formData: FormData) {
 export async function getClientByOldId(oldId: number) {
     try {
         const client = await prisma.client.findUnique({
-            where: { old_id: oldId }
+            where: { old_id: oldId },
+            select: {
+                name: true,
+                email: true,
+                phone: true,
+                city: true,
+                state: true,
+                instagram: true,
+                canAccess: true,
+                userId: true,
+            }
         });
+
+        if (!client || client.canAccess === false || client.userId) {
+            return { success: true, data: null };
+        }
+
         return { success: true, data: client };
     } catch (error) {
         return { success: false, error: 'Error al buscar cliente.' };
