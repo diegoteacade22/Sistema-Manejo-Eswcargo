@@ -2,9 +2,9 @@
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Server, Database, RefreshCw, HardDrive, AlertTriangle, CheckCircle2, FileSpreadsheet, Cloud, Users } from "lucide-react";
+import { Server, Database, RefreshCw, HardDrive, AlertTriangle, CheckCircle2, FileSpreadsheet, Cloud, Users, Rocket } from "lucide-react";
 import { useState, useTransition } from 'react';
-import { revalidateSystem, resetDatabase, syncExcel } from './actions';
+import { revalidateSystem, resetDatabase, syncExcel, deployToProduction } from './actions';
 import { DeleteEntityCard } from '@/components/delete-entity-card';
 
 export default function MaintenancePage() {
@@ -42,6 +42,21 @@ export default function MaintenancePage() {
         setMessage(null);
         startTransition(async () => {
             const res = await syncExcel(days);
+            if (res.success) {
+                setMessage({ text: res.message, type: 'success' });
+            } else {
+                setMessage({ text: res.message, type: 'error' });
+            }
+        });
+    };
+
+    const handleDeployProduction = () => {
+        if (!confirm("¿Confirmas pasar a PRODUCCIÓN los cambios actuales de DEV?")) {
+            return;
+        }
+        setMessage(null);
+        startTransition(async () => {
+            const res = await deployToProduction();
             if (res.success) {
                 setMessage({ text: res.message, type: 'success' });
             } else {
@@ -202,6 +217,28 @@ export default function MaintenancePage() {
                         </p>
                         <Button disabled className="w-full">
                             Configurar Backup
+                        </Button>
+                    </CardContent>
+                </Card>
+
+                <Card className="dark:bg-slate-900 dark:border-slate-800 border-emerald-300/50">
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <Rocket className="h-5 w-5 text-emerald-500" /> Release
+                        </CardTitle>
+                        <CardDescription>Publica en producción cuando lo decidas</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <p className="text-sm text-muted-foreground mb-4">
+                            Usa este botón para pasar a producción los cambios validados en dev.
+                        </p>
+                        <Button
+                            onClick={handleDeployProduction}
+                            disabled={isPending}
+                            className="w-full bg-emerald-600 hover:bg-emerald-700"
+                        >
+                            <Rocket className="mr-2 h-4 w-4" />
+                            {isPending ? 'Desplegando...' : 'Pasar a Producción'}
                         </Button>
                     </CardContent>
                 </Card>

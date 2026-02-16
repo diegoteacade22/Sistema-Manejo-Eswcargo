@@ -4,6 +4,193 @@ import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { requireAdminUser } from '@/lib/access';
+import { sendInvoiceEmail, sendPackingListEmail } from '@/app/email-actions';
+import { sendWhatsAppMessage } from '@/lib/whatsapp';
+
+type DeliveryChannel = 'EMAIL' | 'WHATSAPP' | 'SKIPPED' | 'FAILED';
+
+type DeliveryResult = {
+    success: boolean;
+    channel: DeliveryChannel;
+    message: string;
+};
+
+function isEnabledEnv(value: string | undefined, defaultValue: boolean): boolean {
+    if (value === undefined) return defaultValue;
+    return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
+
+function getAppBaseUrl() {
+    const raw =
+        process.env.NEXT_PUBLIC_APP_URL ||
+        process.env.AUTH_URL ||
+        process.env.NEXTAUTH_URL ||
+        'https://app.eswtech.net';
+    return raw.replace(/\/+$/, '');
+}
+
+async function notifyOrderInvoiceDelivery(orderId: number): Promise<DeliveryResult> {
+    const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: { client: true }
+    });
+
+    if (!order) {
+        return { success: false, channel: 'FAILED', message: 'Pedido no encontrado para notificación.' };
+    }
+
+    const autoEmailEnabled = isEnabledEnv(process.env.AUTO_NOTIFY_EMAIL_ENABLED, true);
+    const autoWhatsAppEnabled = isEnabledEnv(process.env.AUTO_NOTIFY_WHATSAPP_ENABLED, true);
+    const email = order.client?.email?.trim();
+    const phone = order.client?.phone?.trim();
+
+    if (autoEmailEnabled && email) {
+        const emailResult = await sendInvoiceEmail(order.id, email);
+        if (emailResult.success) {
+            return {
+                success: true,
+                channel: 'EMAIL',
+                message: `Invoice #${order.order_number ?? order.id} enviado por email a ${email}.`
+            };
+        }
+    }
+
+    if (!autoWhatsAppEnabled) {
+        return {
+            success: false,
+            channel: 'FAILED',
+            message: `No se pudo enviar invoice por email y WhatsApp automático está desactivado.`
+        };
+    }
+
+    if (!phone) {
+        return {
+            success: false,
+            channel: 'FAILED',
+            message: `Cliente sin teléfono/WhatsApp para enviar invoice #${order.order_number ?? order.id}.`
+        };
+    }
+
+    const invoiceUrl = `${getAppBaseUrl()}/orders/${order.id}/invoice`;
+    const needsEmailReminder = !email;
+    const message = [
+        `Hola ${order.client?.name || 'cliente'},`,
+        `Tu Invoice #${order.order_number ?? order.id} ya está disponible:`,
+        invoiceUrl,
+        needsEmailReminder ? 'Por favor respondé con tu email para enviarte próximas facturas por correo.' : ''
+    ].filter(Boolean).join('\n');
+
+    const waResult = await sendWhatsAppMessage(phone, message);
+    if (!waResult.success) {
+        return {
+            success: false,
+            channel: 'FAILED',
+            message: `Falló envío WhatsApp de invoice #${order.order_number ?? order.id}: ${waResult.message}`
+        };
+    }
+
+    return {
+        success: true,
+        channel: 'WHATSAPP',
+        message: `Invoice #${order.order_number ?? order.id} enviado por WhatsApp.`
+    };
+}
+
+async function notifyShipmentPackingListDelivery(
+    shipmentId: number,
+    options?: { skipIfAlreadySent?: boolean; requireItems?: boolean }
+): Promise<DeliveryResult> {
+    const shipment = await prisma.shipment.findUnique({
+        where: { id: shipmentId },
+        include: { client: true }
+    });
+
+    if (!shipment) {
+        return { success: false, channel: 'FAILED', message: 'Envío no encontrado para notificación.' };
+    }
+
+    if (options?.skipIfAlreadySent && shipment.email_sent_at) {
+        return {
+            success: true,
+            channel: 'SKIPPED',
+            message: `Packing list de envío #${shipment.shipment_number ?? shipment.id} ya notificado previamente.`
+        };
+    }
+
+    if (options?.requireItems) {
+        const itemCount = await prisma.orderItem.count({
+            where: {
+                OR: [
+                    { shipmentId: shipment.id },
+                    { order: { shipmentId: shipment.id } }
+                ]
+            }
+        });
+        if (itemCount === 0) {
+            return {
+                success: true,
+                channel: 'SKIPPED',
+                message: `Envío #${shipment.shipment_number ?? shipment.id} todavía sin items para packing list.`
+            };
+        }
+    }
+
+    const autoEmailEnabled = isEnabledEnv(process.env.AUTO_NOTIFY_EMAIL_ENABLED, true);
+    const autoWhatsAppEnabled = isEnabledEnv(process.env.AUTO_NOTIFY_WHATSAPP_ENABLED, true);
+    const email = shipment.client?.email?.trim();
+    const phone = shipment.client?.phone?.trim();
+
+    if (autoEmailEnabled && email) {
+        const emailResult = await sendPackingListEmail(shipment.id, email);
+        if (emailResult.success) {
+            return {
+                success: true,
+                channel: 'EMAIL',
+                message: `Packing list #${shipment.shipment_number ?? shipment.id} enviado por email a ${email}.`
+            };
+        }
+    }
+
+    if (!autoWhatsAppEnabled) {
+        return {
+            success: false,
+            channel: 'FAILED',
+            message: `No se pudo enviar packing list por email y WhatsApp automático está desactivado.`
+        };
+    }
+
+    if (!phone) {
+        return {
+            success: false,
+            channel: 'FAILED',
+            message: `Cliente sin teléfono/WhatsApp para envío #${shipment.shipment_number ?? shipment.id}.`
+        };
+    }
+
+    const packingUrl = `${getAppBaseUrl()}/shipments/${shipment.id}/packing-list`;
+    const needsEmailReminder = !email;
+    const message = [
+        `Hola ${shipment.client?.name || 'cliente'},`,
+        `Tu Packing List del envío #${shipment.shipment_number ?? shipment.id} ya está disponible:`,
+        packingUrl,
+        needsEmailReminder ? 'Por favor respondé con tu email para enviarte próximos documentos por correo.' : ''
+    ].filter(Boolean).join('\n');
+
+    const waResult = await sendWhatsAppMessage(phone, message);
+    if (!waResult.success) {
+        return {
+            success: false,
+            channel: 'FAILED',
+            message: `Falló envío WhatsApp de packing list #${shipment.shipment_number ?? shipment.id}: ${waResult.message}`
+        };
+    }
+
+    return {
+        success: true,
+        channel: 'WHATSAPP',
+        message: `Packing list #${shipment.shipment_number ?? shipment.id} enviado por WhatsApp.`
+    };
+}
 
 export async function createOrder(prevState: any, formData: FormData) {
     await requireAdminUser();
@@ -110,10 +297,34 @@ export async function submitOrder(data: {
             }
         }
 
+        // Auto-delivery: Invoice + related packing lists
+        const deliveryResults: DeliveryResult[] = [];
+        deliveryResults.push(await notifyOrderInvoiceDelivery(result.id));
+
+        const relatedShipmentIds = [...new Set(
+            Array.from(shipmentMap.values()).filter((id): id is number => typeof id === 'number')
+        )];
+
+        for (const sId of relatedShipmentIds) {
+            deliveryResults.push(await notifyShipmentPackingListDelivery(sId, {
+                skipIfAlreadySent: true,
+                requireItems: true
+            }));
+        }
+
+        const deliveryErrors = deliveryResults
+            .filter(r => !r.success)
+            .map(r => r.message);
+
         revalidatePath('/orders');
         revalidatePath('/clients');
         revalidatePath('/');
-        return { success: true, orderId: result.id };
+        return {
+            success: true,
+            orderId: result.id,
+            delivery: deliveryResults,
+            warning: deliveryErrors.length ? `Pedido creado con alertas de envío automático: ${deliveryErrors.join(' | ')}` : null
+        };
 
     } catch (error) {
         console.error('Error creating order:', error);
@@ -241,11 +452,17 @@ async function recalculateShipmentStats(shipmentId: number) {
 export async function updateOrderStatus(orderId: number, status: string, shipmentId?: number | null) {
     await requireAdminUser();
     try {
+        const existingOrder = await prisma.order.findUnique({
+            where: { id: orderId },
+            select: { shipmentId: true }
+        });
+
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const data: any = { status };
+        const normalizedShipmentId = shipmentId === 0 ? null : shipmentId;
 
         if (shipmentId !== undefined) {
-            data.shipmentId = shipmentId;
+            data.shipmentId = normalizedShipmentId;
         }
 
         const updatedOrder = await prisma.order.update({
@@ -267,7 +484,20 @@ export async function updateOrderStatus(orderId: number, status: string, shipmen
         revalidatePath('/shipments');
         if (updatedOrder.shipmentId) revalidatePath(`/shipments/${updatedOrder.shipmentId}`);
 
-        return { success: true };
+        let delivery: DeliveryResult | null = null;
+        const shipmentWasAssigned =
+            normalizedShipmentId !== undefined &&
+            normalizedShipmentId !== null &&
+            normalizedShipmentId !== existingOrder?.shipmentId;
+
+        if (shipmentWasAssigned) {
+            delivery = await notifyShipmentPackingListDelivery(normalizedShipmentId, {
+                skipIfAlreadySent: true,
+                requireItems: true
+            });
+        }
+
+        return { success: true, delivery };
     } catch (error) {
         console.error('Error updating order status:', error);
         return { success: false, message: 'Error al actualizar el estado' };
@@ -297,8 +527,13 @@ export async function createShipment(data: {
             }
         });
 
+        const delivery = await notifyShipmentPackingListDelivery(shipment.id, {
+            skipIfAlreadySent: true,
+            requireItems: true
+        });
+
         revalidatePath('/shipments');
-        return { success: true, shipmentId: shipment.id };
+        return { success: true, shipmentId: shipment.id, delivery };
 
     } catch (error) {
         console.error('Error creating shipment:', error);
