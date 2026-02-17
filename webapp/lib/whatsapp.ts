@@ -18,16 +18,40 @@ function normalizePhone(rawPhone: string, defaultCountryCode: string): string | 
     }
 
     if (normalized.startsWith('+')) {
-        const digits = normalized.replace(/[^\d]/g, '');
+        let digits = normalized.replace(/[^\d]/g, '');
+        if (digits.length % 2 === 0) {
+            const half = digits.length / 2;
+            const first = digits.slice(0, half);
+            const second = digits.slice(half);
+            if (first.length >= 8 && first === second) {
+                digits = first;
+            }
+        }
         if (digits.length < 8) return null;
         return `+${digits}`;
     }
 
-    const digitsOnly = normalized.replace(/[^\d]/g, '');
+    let digitsOnly = normalized.replace(/[^\d]/g, '');
+    if (digitsOnly.length % 2 === 0) {
+        const half = digitsOnly.length / 2;
+        const first = digitsOnly.slice(0, half);
+        const second = digitsOnly.slice(half);
+        if (first.length >= 8 && first === second) {
+            // Defensive cleanup for duplicated phone values like 1402...1402...
+            digitsOnly = first;
+        }
+    }
     if (digitsOnly.length < 8) return null;
 
     if (digitsOnly.startsWith('0') && cleanedDefault) {
         return `+${cleanedDefault}${digitsOnly.slice(1)}`;
+    }
+
+    if (cleanedDefault === '54' && (digitsOnly.length === 10 || digitsOnly.length === 11)) {
+        // Argentina mobile WhatsApp format is usually +549 + area+number.
+        // If local number doesn't already start with 9, prepend it.
+        const local = digitsOnly.startsWith('9') ? digitsOnly : `9${digitsOnly}`;
+        return `+54${local}`;
     }
 
     if (cleanedDefault && digitsOnly.length <= 10) {

@@ -20,15 +20,17 @@ export async function sendPackingListEmail(shipmentId: number, targetEmail: stri
 
         if (!shipment) return { success: false, message: 'Envío no encontrado.' };
 
-        // We need to fetch items to build the email body
-        const orders = await prisma.order.findMany({
-            where: { shipmentId: shipmentId },
+        // Include items linked directly to shipment and items inherited via Order.shipmentId
+        const shipmentItems = await prisma.orderItem.findMany({
+            where: {
+                OR: [
+                    { shipmentId: shipmentId },
+                    { order: { shipmentId: shipmentId } }
+                ]
+            },
             include: {
-                items: {
-                    include: {
-                        product: true
-                    }
-                }
+                product: true,
+                order: true
             }
         });
 
@@ -36,18 +38,16 @@ export async function sendPackingListEmail(shipmentId: number, targetEmail: stri
 
         let itemsHtml = '';
         let totalPcs = 0;
-        orders.forEach(order => {
-            order.items.forEach(item => {
-                totalPcs += item.quantity;
-                itemsHtml += `
-                    <tr>
-                        <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold; color: #0D3B4C;">${item.quantity}</td>
-                        <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: 500;">${item.productName}</td>
-                        <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; color: #666; font-size: 11px; text-transform: uppercase;">${(item as any).product?.color_grade || '-'}</td>
-                        <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold; color: #F4AB3D;">#${order.order_number}</td>
-                    </tr>
-                 `;
-            });
+        shipmentItems.forEach(item => {
+            totalPcs += item.quantity;
+            itemsHtml += `
+                <tr>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold; color: #0D3B4C;">${item.quantity}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: 500;">${item.productName}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; color: #666; font-size: 11px; text-transform: uppercase;">${item.product?.color_grade || '-'}</td>
+                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold; color: #F4AB3D;">#${item.order?.order_number || '-'}</td>
+                </tr>
+             `;
         });
 
         // Add Total Row for Packing List

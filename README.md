@@ -134,7 +134,20 @@ sudo certbot --nginx -d app.eswcargo.com
 | `NEXT_PUBLIC_SUPABASE_URL` | URL pública de Supabase | ✅ |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Key anónima de Supabase | ✅ |
 | `SMTP_*` | Configuración de email | ⚠️ Opcional |
+| `AUTO_NOTIFY_*` | Envío automático de Invoice/Packing List | ⚠️ Opcional |
+| `WHATSAPP_*` / `TWILIO_*` | Canal WhatsApp (fallback si no hay email) | ⚠️ Opcional |
 | `GEMINI_API_KEY` | API de Google Gemini AI | ⚠️ Opcional |
+
+---
+
+## 🔔 Notificación automática de documentos
+
+- Al crear un pedido, el sistema intenta enviar automáticamente el **Invoice** al cliente.
+- Si el pedido queda asociado a un envío, también intenta enviar el **Packing List**.
+- Prioridad de canal:
+  - Primero `email` (si el cliente tiene casilla).
+  - Si no hay email o falla el correo, usa `WhatsApp`.
+- Cuando se envía por WhatsApp y el cliente no tiene email, el mensaje solicita actualizar su casilla.
 
 ---
 
