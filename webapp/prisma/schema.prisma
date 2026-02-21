@@ -34,6 +34,7 @@ model Client {
   orders       Order[]
   shipments    Shipment[]
   transactions Transaction[]
+  allocations  PurchaseAllocation[]
 }
 
 model User {
@@ -126,6 +127,7 @@ model Order {
   client          Client      @relation(fields: [clientId], references: [id])
   shipment        Shipment?   @relation(fields: [shipmentId], references: [id])
   items           OrderItem[]
+  allocations     PurchaseAllocation[]
 }
 
 model OrderItem {
@@ -147,6 +149,7 @@ model OrderItem {
   product          Product?  @relation(fields: [productId], references: [id])
   shipment         Shipment? @relation(fields: [shipmentId], references: [id])
   supplier         Supplier? @relation(fields: [supplierId], references: [id])
+  allocations      PurchaseAllocation[]
 }
 
 model Transaction {
@@ -213,6 +216,30 @@ model PurchaseItem {
   subtotal    Float
   purchase    Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
   product     Product? @relation(fields: [sku], references: [sku])
+  allocations PurchaseAllocation[]
+}
+
+model PurchaseAllocation {
+  id                  Int          @id @default(autoincrement())
+  purchaseItemId      Int
+  clientId            Int
+  orderId             Int
+  orderItemId         Int
+  quantity            Int
+  unit_cost_snapshot  Float
+  unit_price_snapshot Float
+  notes               String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  client              Client       @relation(fields: [clientId], references: [id])
+  order               Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItem           OrderItem    @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  purchaseItem        PurchaseItem @relation(fields: [purchaseItemId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseItemId])
+  @@index([clientId])
+  @@index([orderId])
+  @@index([orderItemId])
 }
 
 model Expense {

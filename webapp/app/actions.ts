@@ -850,6 +850,92 @@ export async function updateShipment(data: {
     }
 }
 
+export async function transitionShipmentsByDate(input: {
+    date: string;
+    fromStatus: string;
+    toStatus: string;
+}) {
+    await requireAdminUser();
+    try {
+        if (!input.date || !input.fromStatus || !input.toStatus) {
+            return { success: false, message: 'Faltan datos para transición masiva.' };
+        }
+
+        const date = new Date(`${input.date}T00:00:00`);
+        if (Number.isNaN(date.getTime())) {
+            return { success: false, message: 'Fecha inválida.' };
+        }
+
+        const nextDate = new Date(date);
+        nextDate.setDate(nextDate.getDate() + 1);
+
+        const rawFrom = input.fromStatus.toUpperCase();
+        const rawTo = input.toStatus.toUpperCase();
+
+        const normalize = (status: string) => {
+            const value = status.toUpperCase();
+            if (value === 'EN BSAS' || value === 'EN 🇦🇷' || value === 'RECIBIDO BSAS') return 'EN 🇦🇷';
+            if (value === 'ENTREGADO' || value === 'FINALIZADO') return 'ENTREGADO';
+            return value;
+        };
+
+        const fromAliases = (() => {
+            const normalized = normalize(rawFrom);
+            if (normalized === 'EN 🇦🇷') return ['EN BSAS', 'EN 🇦🇷', 'RECIBIDO BSAS'];
+            if (normalized === 'ENTREGADO') return ['ENTREGADO', 'FINALIZADO'];
+            return [rawFrom];
+        })();
+
+        const to = normalize(rawTo);
+        const targetOrderStatus = to;
+
+        const shipments = await (prisma as any).shipment.findMany({
+            where: {
+                status: { in: fromAliases },
+                date_shipped: {
+                    gte: date,
+                    lt: nextDate,
+                }
+            },
+            select: { id: true }
+        });
+
+        if (!shipments.length) {
+            return { success: true, count: 0, message: 'No hay envíos para actualizar en esa fecha.' };
+        }
+
+        const shipmentIds = shipments.map((shipment: any) => shipment.id);
+
+        await (prisma as any).shipment.updateMany({
+            where: { id: { in: shipmentIds } },
+            data: { status: to }
+        });
+
+        await prisma.order.updateMany({
+            where: { shipmentId: { in: shipmentIds } },
+            data: { status: targetOrderStatus }
+        });
+
+        await prisma.orderItem.updateMany({
+            where: { shipmentId: { in: shipmentIds } },
+            data: { status: targetOrderStatus }
+        });
+
+        revalidatePath('/shipments');
+        revalidatePath('/orders');
+        revalidatePath('/');
+
+        return {
+            success: true,
+            count: shipmentIds.length,
+            message: `Se actualizaron ${shipmentIds.length} envíos de ${rawFrom} a ${to}.`
+        };
+    } catch (error) {
+        console.error('Error transitioning shipments by date:', error);
+        return { success: false, message: 'No se pudo ejecutar la transición masiva.' };
+    }
+}
+
 export async function deleteEntity(type: 'client' | 'supplier' | 'product' | 'order' | 'shipment', id: number) {
     await requireAdminUser();
     // ... existing deleteEntity code ...

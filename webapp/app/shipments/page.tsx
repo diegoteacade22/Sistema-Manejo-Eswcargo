@@ -10,6 +10,7 @@ import { SearchInput } from '@/components/search-input';
 import { SortableColumn } from '@/components/ui/sortable-column';
 import { ShipmentStatusDialog } from '@/components/shipment-status-dialog';
 import { ShipmentChargeDialog } from '@/components/shipment-charge-dialog';
+import { ShipmentsBulkStatusControls } from '@/components/shipments-bulk-status-controls';
 
 type SortOrder = 'asc' | 'desc';
 
@@ -104,6 +105,8 @@ export default async function ShipmentsPage(props: { searchParams: Promise<{ q?:
                     </Button>
                 )}
             </div>
+
+            {isAdmin && <ShipmentsBulkStatusControls />}
 
             <Card className="border-t-4 border-t-fuchsia-500 shadow-lg">
                 <CardHeader>

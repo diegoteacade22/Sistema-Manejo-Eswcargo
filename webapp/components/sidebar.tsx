@@ -53,6 +53,7 @@ const groups: RouteGroup[] = [
             { label: 'Mis Envíos', icon: Plane, href: '/shipments', color: 'text-fuchsia-500', roles: ['ADMIN'] },
             { label: 'Artículos', icon: Package, href: '/products', color: 'text-cyan-500', roles: ['ADMIN'] },
             { label: 'Proveedores', icon: Truck, href: '/suppliers', color: 'text-orange-600', roles: ['ADMIN'] },
+            { label: 'Compras', icon: ShoppingCart, href: '/purchases', color: 'text-amber-500', roles: ['ADMIN'] },
             { label: 'BI: Compras', icon: ShoppingCart, href: '/analytics/purchases', color: 'text-emerald-500', roles: ['ADMIN'] },
             { label: 'BI: Logística', icon: Truck, href: '/analytics/logistics', color: 'text-orange-400', roles: ['ADMIN'] },
         ]
@@ -64,7 +65,7 @@ const groups: RouteGroup[] = [
         routes: [
             { label: 'Clientes', icon: Users, href: '/clients', color: 'text-violet-500', roles: ['ADMIN'] },
             { label: 'Nueva Venta', icon: PlusCircle, href: '/orders/new', color: 'text-emerald-500', roles: ['ADMIN'] },
-            { label: 'Mis Pedidos', icon: ShoppingCart, href: '/orders', color: 'text-pink-700', roles: ['ADMIN'] },
+            { label: 'Pedidos', icon: ShoppingCart, href: '/orders', color: 'text-pink-700', roles: ['ADMIN'] },
             { label: 'BI: Comercial', icon: Users, href: '/analytics/sales', color: 'text-indigo-400', roles: ['ADMIN'] },
         ]
     },
@@ -87,6 +88,13 @@ const standaloneRoutes: Route[] = [
         href: '/',
         color: 'text-sky-500',
         roles: ['ADMIN', 'CLIENT']
+    },
+    {
+        label: 'Compras',
+        icon: ShoppingCart,
+        href: '/purchases',
+        color: 'text-amber-500',
+        roles: ['ADMIN']
     },
     {
         label: 'Mis Envíos',

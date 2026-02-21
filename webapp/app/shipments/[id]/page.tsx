@@ -23,6 +23,7 @@ import {
 import Link from 'next/link';
 import { ShipmentStatusDialog } from '@/components/shipment-status-dialog';
 import { ShipmentNotesEditor } from '@/components/shipment-notes-editor';
+import { ShipmentQuickTransitions } from '@/components/shipment-quick-transitions';
 
 interface Props {
     params: Promise<{ id: string }>;
@@ -114,6 +115,20 @@ export default async function ShipmentPage(props: Props) {
                     )}
                 </div>
             </div>
+
+            {isAdmin && (
+                <ShipmentQuickTransitions
+                    shipment={{
+                        id: shipment.id,
+                        shipment_number: shipment.shipment_number,
+                        status: shipment.status,
+                        forwarder: shipment.forwarder,
+                        date_shipped: shipment.date_shipped,
+                        date_arrived: shipment.date_arrived,
+                        notes: shipment.notes
+                    }}
+                />
+            )}
 
             <div className="grid gap-6 md:grid-cols-3">
                 {/* Main Info */}
