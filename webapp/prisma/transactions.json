@@ -1,0 +1,2170 @@
+[
+  {
+    "clientId": 161,
+    "date": "2025-01-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 20000.0,
+    "description": "Se pagó",
+    "reference": "CC-Import-MARCOS_CC-20250102-20000"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-06-03T00:00:00",
+    "type": "MANUAL",
+    "amount": 55450.0,
+    "description": "Se pagó",
+    "reference": "CC-Import-MARCOS_CC-20250603-55450"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-04-04T00:00:00",
+    "type": "MANUAL",
+    "amount": 48000.0,
+    "description": "Se pagó",
+    "reference": "CC-Import-MARCOS_CC-20250404-48000"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-04-04T00:00:00",
+    "type": "MANUAL",
+    "amount": 50425.0,
+    "description": "Nuevo Pedido",
+    "reference": "CC-Import-MARCOS_CC-20250404-50425"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-04-04T00:00:00",
+    "type": "MANUAL",
+    "amount": 126.0,
+    "description": "Comisión envío 0,25%",
+    "reference": "CC-Import-MARCOS_CC-20250404-126"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-04-04T00:00:00",
+    "type": "MANUAL",
+    "amount": 23.0,
+    "description": "Envío Moto Bs As",
+    "reference": "CC-Import-MARCOS_CC-20250404-23"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-05-04T00:00:00",
+    "type": "MANUAL",
+    "amount": 2331.0,
+    "description": "Se pagó",
+    "reference": "CC-Import-MARCOS_CC-20250504-2331"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-08-04T00:00:00",
+    "type": "MANUAL",
+    "amount": 3060.0,
+    "description": "Nuevo Pedido 1958",
+    "reference": "CC-Import-MARCOS_CC-20250804-3060"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-08-04T00:00:00",
+    "type": "MANUAL",
+    "amount": 3060.0,
+    "description": "Se pagó",
+    "reference": "CC-Import-MARCOS_CC-20250804-3060"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-09-04T00:00:00",
+    "type": "MANUAL",
+    "amount": 719.0,
+    "description": "Se pagó",
+    "reference": "CC-Import-MARCOS_CC-20250904-719"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-09-04T00:00:00",
+    "type": "MANUAL",
+    "amount": 7380.0,
+    "description": "Se pagó",
+    "reference": "CC-Import-MARCOS_CC-20250904-7380"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-09-04T00:00:00",
+    "type": "MANUAL",
+    "amount": 1639.0,
+    "description": "Se pagó",
+    "reference": "CC-Import-MARCOS_CC-20250904-1639"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-09-04T00:00:00",
+    "type": "MANUAL",
+    "amount": 629.0,
+    "description": "Se pagó",
+    "reference": "CC-Import-MARCOS_CC-20250904-629"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-10-04T00:00:00",
+    "type": "MANUAL",
+    "amount": 28992.0,
+    "description": "Nuevo Pedido 1963",
+    "reference": "CC-Import-MARCOS_CC-20251004-28992"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-10-04T00:00:00",
+    "type": "MANUAL",
+    "amount": 3180.0,
+    "description": "Nuevo Pedido 1963",
+    "reference": "CC-Import-MARCOS_CC-20251004-3180"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-11-04T00:00:00",
+    "type": "MANUAL",
+    "amount": 4789.0,
+    "description": "Se pagó",
+    "reference": "CC-Import-MARCOS_CC-20251104-4789"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-11-04T00:00:00",
+    "type": "MANUAL",
+    "amount": 5420.0,
+    "description": "Se pagó",
+    "reference": "CC-Import-MARCOS_CC-20251104-5420"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-01-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 5377.0,
+    "description": "INV 1980",
+    "reference": "CC-Import-MARCOS_CC-20250105-5377"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-01-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 10900.0,
+    "description": "INV 1983",
+    "reference": "CC-Import-MARCOS_CC-20250105-10900"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-02-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 1558.0,
+    "description": "INV 1982",
+    "reference": "CC-Import-MARCOS_CC-20250205-1558"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-01-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 1928.0,
+    "description": "INV 1984",
+    "reference": "CC-Import-MARCOS_CC-20250105-1928"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-03-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 120.0,
+    "description": "Crédito INV 1963",
+    "reference": "CC-Import-MARCOS_CC-20250305-120"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-03-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 1822.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20250305-1822"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-05-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 18932.0,
+    "description": "INV 1992",
+    "reference": "CC-Import-MARCOS_CC-20250505-18932"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-05-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 5273.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20250505-5273"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-05-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 3200.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20250505-3200"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-07-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 974.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20250705-974"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-07-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 1529.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20250705-1529"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-07-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 6412.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20250705-6412"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-07-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 4323.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20250705-4323"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-08-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 525.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20250805-525"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-08-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 4780.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20250805-4780"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-08-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 3759.0,
+    "description": "INV 1995",
+    "reference": "CC-Import-MARCOS_CC-20250805-3759"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-08-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 2055.0,
+    "description": "INV 1998",
+    "reference": "CC-Import-MARCOS_CC-20250805-2055"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-09-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 1309.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20250905-1309"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-09-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 2000.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20250905-2000"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-09-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 13700.0,
+    "description": "INV 2001",
+    "reference": "CC-Import-MARCOS_CC-20250905-13700"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-10-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 1773.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20251005-1773"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-10-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 172.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20251005-172"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-10-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 10623.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20251005-10623"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-10-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 8197.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20251005-8197"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-10-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 26.0,
+    "description": "Crédito INV 1968",
+    "reference": "CC-Import-MARCOS_CC-20251005-26"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-10-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 68.0,
+    "description": "Crédito INV 1974",
+    "reference": "CC-Import-MARCOS_CC-20251005-68"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-12-05T00:00:00",
+    "type": "MANUAL",
+    "amount": 2993.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20251205-2993"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-02-06T00:00:00",
+    "type": "MANUAL",
+    "amount": 13500.0,
+    "description": "Pago Billete",
+    "reference": "CC-Import-MARCOS_CC-20250206-13500"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-03-06T00:00:00",
+    "type": "MANUAL",
+    "amount": 560.0,
+    "description": "INV 2016",
+    "reference": "CC-Import-MARCOS_CC-20250306-560"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-04-06T00:00:00",
+    "type": "MANUAL",
+    "amount": 3945.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20250406-3945"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-04-06T00:00:00",
+    "type": "MANUAL",
+    "amount": 2965.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20250406-2965"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-04-06T00:00:00",
+    "type": "MANUAL",
+    "amount": 3300.0,
+    "description": "INV 2018",
+    "reference": "CC-Import-MARCOS_CC-20250406-3300"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-04-06T00:00:00",
+    "type": "MANUAL",
+    "amount": 3834.0,
+    "description": "INV 2019",
+    "reference": "CC-Import-MARCOS_CC-20250406-3834"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-04-06T00:00:00",
+    "type": "MANUAL",
+    "amount": 2877.0,
+    "description": "INV 2022",
+    "reference": "CC-Import-MARCOS_CC-20250406-2877"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-04-06T00:00:00",
+    "type": "MANUAL",
+    "amount": 3121.0,
+    "description": "INV 2025",
+    "reference": "CC-Import-MARCOS_CC-20250406-3121"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-04-06T00:00:00",
+    "type": "MANUAL",
+    "amount": 1842.0,
+    "description": "INV 2026",
+    "reference": "CC-Import-MARCOS_CC-20250406-1842"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-04-06T00:00:00",
+    "type": "MANUAL",
+    "amount": 1725.0,
+    "description": "INV 2027",
+    "reference": "CC-Import-MARCOS_CC-20250406-1725"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-10-06T00:00:00",
+    "type": "MANUAL",
+    "amount": 3962.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20251006-3962"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-10-06T00:00:00",
+    "type": "MANUAL",
+    "amount": 8450.0,
+    "description": "INV 2032",
+    "reference": "CC-Import-MARCOS_CC-20251006-8450"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-10-06T00:00:00",
+    "type": "MANUAL",
+    "amount": 4170.0,
+    "description": "INV 2033",
+    "reference": "CC-Import-MARCOS_CC-20251006-4170"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-03-07T00:00:00",
+    "type": "MANUAL",
+    "amount": 19000.0,
+    "description": "Pago Billete",
+    "reference": "CC-Import-MARCOS_CC-20250307-19000"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-11-07T00:00:00",
+    "type": "MANUAL",
+    "amount": 14736.0,
+    "description": "INV 2061",
+    "reference": "CC-Import-MARCOS_CC-20251107-14736"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-12-07T00:00:00",
+    "type": "MANUAL",
+    "amount": 4971.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20251207-4971"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-04-08T00:00:00",
+    "type": "MANUAL",
+    "amount": 3552.0,
+    "description": "INV 2083",
+    "reference": "CC-Import-MARCOS_CC-20250408-3552"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-04-08T00:00:00",
+    "type": "MANUAL",
+    "amount": 2980.0,
+    "description": "INV 2084",
+    "reference": "CC-Import-MARCOS_CC-20250408-2980"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-04-08T00:00:00",
+    "type": "MANUAL",
+    "amount": 3510.0,
+    "description": "INV 2085",
+    "reference": "CC-Import-MARCOS_CC-20250408-3510"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-08-08T00:00:00",
+    "type": "MANUAL",
+    "amount": 8337.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20250808-8337"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-08-08T00:00:00",
+    "type": "MANUAL",
+    "amount": 1590.0,
+    "description": "INV 2088",
+    "reference": "CC-Import-MARCOS_CC-20250808-1590"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-03-09T00:00:00",
+    "type": "MANUAL",
+    "amount": 17000.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20250309-17000"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-03-09T00:00:00",
+    "type": "MANUAL",
+    "amount": 7530.0,
+    "description": "INV 2109",
+    "reference": "CC-Import-MARCOS_CC-20250309-7530"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-03-09T00:00:00",
+    "type": "MANUAL",
+    "amount": 838.0,
+    "description": "INV 2111",
+    "reference": "CC-Import-MARCOS_CC-20250309-838"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-07-09T00:00:00",
+    "type": "MANUAL",
+    "amount": 19999.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20250709-19999"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-10-09T00:00:00",
+    "type": "MANUAL",
+    "amount": 24480.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20251009-24480"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-08-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 18000.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20250810-18000"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-08-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 3200.0,
+    "description": "INV 2135",
+    "reference": "CC-Import-MARCOS_CC-20250810-3200"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-08-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 6409.0,
+    "description": "Pago USDT",
+    "reference": "CC-Import-MARCOS_CC-20250810-6409"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-09-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 17350.0,
+    "description": "INV 2138",
+    "reference": "CC-Import-MARCOS_CC-20250910-17350"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-10-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 425.0,
+    "description": "ENVIOS #698",
+    "reference": "CC-Import-MARCOS_CC-20251010-425"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-10-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 60.0,
+    "description": "ENVIOS #691",
+    "reference": "CC-Import-MARCOS_CC-20251010-60"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-10-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 1976.0,
+    "description": "INV 2141",
+    "reference": "CC-Import-MARCOS_CC-20251010-1976"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-04-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 11500.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-MARCOS_CC-20250411-11500"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-04-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 5100.0,
+    "description": "INV 2188 - 20 AP PRO 3",
+    "reference": "CC-Import-MARCOS_CC-20250411-5100"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-05-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 1220.0,
+    "description": "INV 2195 - 20 Charger 40W",
+    "reference": "CC-Import-MARCOS_CC-20250511-1220"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-05-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 1299.0,
+    "description": "IP 17 PRO 512 BLUE DE APPLE (Fabio)",
+    "reference": "CC-Import-MARCOS_CC-20250511-1299"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-05-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 1044.0,
+    "description": "CARGA #749 - Folio, Pro 2 y Pro 3 + 2 iPad",
+    "reference": "CC-Import-MARCOS_CC-20250511-1044"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-05-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 360.0,
+    "description": "CARGA #750 - 20 40w + 3 iPad",
+    "reference": "CC-Import-MARCOS_CC-20250511-360"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-05-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 912.0,
+    "description": "CARGA #752 - 16 iP 17 (10 PM y 6 Pro",
+    "reference": "CC-Import-MARCOS_CC-20250511-912"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-05-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 22375.0,
+    "description": "INV 2197 - 20 IP 17 PRO",
+    "reference": "CC-Import-MARCOS_CC-20250511-22375"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-06-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 9160.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-MARCOS_CC-20250611-9160"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-07-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 696.0,
+    "description": "CARGA #760",
+    "reference": "CC-Import-MARCOS_CC-20250711-696"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-11-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 3990.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-MARCOS_CC-20251111-3990"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-12-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 8960.0,
+    "description": "INV 2194 - 7 x IP 17 Pro Apple directo",
+    "reference": "CC-Import-MARCOS_CC-20251211-8960"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-01-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 11401.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-MARCOS_CC-20250112-11401"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-01-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 5248.0,
+    "description": "INV 2220 - IPADS",
+    "reference": "CC-Import-MARCOS_CC-20250112-5248"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-01-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 3500.0,
+    "description": "INV 2226 - 10 x AW S11 RG",
+    "reference": "CC-Import-MARCOS_CC-20250112-3500"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-02-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 4721.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-MARCOS_CC-20250212-4721"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-03-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 5660.0,
+    "description": "INV 2229 - IP 17 PM 512",
+    "reference": "CC-Import-MARCOS_CC-20250312-5660"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-03-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 30.0,
+    "description": "FEE PAGO PROVE",
+    "reference": "CC-Import-MARCOS_CC-20250312-30"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-04-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 920.0,
+    "description": "INV 2230 - PENCIL C X 10",
+    "reference": "CC-Import-MARCOS_CC-20250412-920"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-04-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 516.0,
+    "description": "CARGA #780 - IPADS Y AW11",
+    "reference": "CC-Import-MARCOS_CC-20250412-516"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-08-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 288.0,
+    "description": "CARGA #783 - 10 x Pen + 5 Aw 42 RG + 2 iPad",
+    "reference": "CC-Import-MARCOS_CC-20250812-288"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-08-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 179.0,
+    "description": "CARGA #784 - 4 x 17 PM 512",
+    "reference": "CC-Import-MARCOS_CC-20250812-179"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-08-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 318.0,
+    "description": "CARGA #791 - 5 x iPad",
+    "reference": "CC-Import-MARCOS_CC-20250812-318"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-08-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 846.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-MARCOS_CC-20250812-846"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-10-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 7968.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-MARCOS_CC-20251012-7968"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-10-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 3410.0,
+    "description": "INV 2242 - IPADS A16",
+    "reference": "CC-Import-MARCOS_CC-20251012-3410"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-10-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 2360.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-MARCOS_CC-20251012-2360"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-10-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 6011.0,
+    "description": "INV 2245 - IPADS M3",
+    "reference": "CC-Import-MARCOS_CC-20251012-6011"
+  },
+  {
+    "clientId": 161,
+    "date": "2025-12-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 540.0,
+    "description": "CARGA #794 - 9 x iPad",
+    "reference": "CC-Import-MARCOS_CC-20251212-540"
+  },
+  {
+    "clientId": 161,
+    "date": "2026-07-01T00:00:00",
+    "type": "MANUAL",
+    "amount": 399.0,
+    "description": "INV 2283 - IPAD A16 256",
+    "reference": "CC-Import-MARCOS_CC-20260701-399"
+  },
+  {
+    "clientId": 161,
+    "date": "2026-02-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 13600.0,
+    "description": "INV #2327 - IP 17",
+    "reference": "CC-Import-MARCOS_CC-20260202-13600"
+  },
+  {
+    "clientId": 161,
+    "date": "2026-03-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 8169.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-MARCOS_CC-20260302-8169"
+  },
+  {
+    "clientId": 161,
+    "date": "2026-04-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 15685.0,
+    "description": "INV #2329 17 PM Llegados hoy",
+    "reference": "CC-Import-MARCOS_CC-20260402-15685"
+  },
+  {
+    "clientId": 161,
+    "date": "2026-04-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 480.0,
+    "description": "CARGA #865 - 17PM",
+    "reference": "CC-Import-MARCOS_CC-20260402-480"
+  },
+  {
+    "clientId": 161,
+    "date": "2026-04-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 12683.0,
+    "description": "COBRO USDT en 2 pagos dif",
+    "reference": "CC-Import-MARCOS_CC-20260402-12683"
+  },
+  {
+    "clientId": 161,
+    "date": "2026-04-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 6420.0,
+    "description": "INV #2336 - iPads",
+    "reference": "CC-Import-MARCOS_CC-20260402-6420"
+  },
+  {
+    "clientId": 161,
+    "date": "2026-04-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 2250.0,
+    "description": "INV #2339 - Ultra 3",
+    "reference": "CC-Import-MARCOS_CC-20260402-2250"
+  },
+  {
+    "clientId": 161,
+    "date": "2026-04-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 858.0,
+    "description": "CARGA #875 - IPAD - AW - ACCESORIOS",
+    "reference": "CC-Import-MARCOS_CC-20260402-858"
+  },
+  {
+    "clientId": 161,
+    "date": "2026-04-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 544.0,
+    "description": "CARGA #884 - IP17 x 20",
+    "reference": "CC-Import-MARCOS_CC-20260402-544"
+  },
+  {
+    "clientId": 161,
+    "date": "2026-05-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 5290.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-MARCOS_CC-20260502-5290"
+  },
+  {
+    "clientId": 161,
+    "date": "2026-09-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 3400.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-MARCOS_CC-20260902-3400"
+  },
+  {
+    "clientId": 161,
+    "date": "2026-10-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 4495.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-MARCOS_CC-20261002-4495"
+  },
+  {
+    "clientId": 161,
+    "date": "2026-10-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 3324.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-MARCOS_CC-20261002-3324"
+  },
+  {
+    "clientId": 161,
+    "date": "2026-10-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 5250.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-MARCOS_CC-20261002-5250"
+  },
+  {
+    "clientId": 161,
+    "date": "2026-10-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 3200.0,
+    "description": "INV #2345 - AW11 - 42MM X 10",
+    "reference": "CC-Import-MARCOS_CC-20261002-3200"
+  },
+  {
+    "clientId": 161,
+    "date": "2026-12-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 4400.0,
+    "description": "INV #2351 - IPADS",
+    "reference": "CC-Import-MARCOS_CC-20261202-4400"
+  },
+  {
+    "clientId": 161,
+    "date": "2026-12-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 348.0,
+    "description": "CARGA #892",
+    "reference": "CC-Import-MARCOS_CC-20261202-348"
+  },
+  {
+    "clientId": 161,
+    "date": "2026-12-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 468.0,
+    "description": "CARGA #898",
+    "reference": "CC-Import-MARCOS_CC-20261202-468"
+  },
+  {
+    "clientId": 70,
+    "date": "2025-01-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 1420.0,
+    "description": "INV #2222 - 5 x IPADS",
+    "reference": "CC-Import-AYLEN_CC-20250112-1420"
+  },
+  {
+    "clientId": 70,
+    "date": "2025-01-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 10320.0,
+    "description": "INV #2223 - 8 x IP PM",
+    "reference": "CC-Import-AYLEN_CC-20250112-10320"
+  },
+  {
+    "clientId": 70,
+    "date": "2025-02-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 11714.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-AYLEN_CC-20250212-11714"
+  },
+  {
+    "clientId": 70,
+    "date": "2025-03-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 549.0,
+    "description": "ENVIO #781 - 16 x IP 17",
+    "reference": "CC-Import-AYLEN_CC-20250312-549"
+  },
+  {
+    "clientId": 70,
+    "date": "2025-04-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 6198.0,
+    "description": "INV #2233 - 20 AW",
+    "reference": "CC-Import-AYLEN_CC-20250412-6198"
+  },
+  {
+    "clientId": 70,
+    "date": "2025-04-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 10440.0,
+    "description": "INV #2235 - 9 X I17P",
+    "reference": "CC-Import-AYLEN_CC-20250412-10440"
+  },
+  {
+    "clientId": 70,
+    "date": "2025-05-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 6198.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-AYLEN_CC-20250512-6198"
+  },
+  {
+    "clientId": 70,
+    "date": "2025-05-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 10440.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-AYLEN_CC-20250512-10440"
+  },
+  {
+    "clientId": 70,
+    "date": "2025-08-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 558.0,
+    "description": "ENVIO #786 A Watch x 18 + 4 x iPad",
+    "reference": "CC-Import-AYLEN_CC-20250812-558"
+  },
+  {
+    "clientId": 70,
+    "date": "2025-08-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 315.0,
+    "description": "ENVIO #789 - 9 x 17 Pro",
+    "reference": "CC-Import-AYLEN_CC-20250812-315"
+  },
+  {
+    "clientId": 70,
+    "date": "2025-10-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 1721.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-AYLEN_CC-20251012-1721"
+  },
+  {
+    "clientId": 70,
+    "date": "2025-10-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 11475.0,
+    "description": "INV 2243 - 9 x IP17 PM",
+    "reference": "CC-Import-AYLEN_CC-20251012-11475"
+  },
+  {
+    "clientId": 70,
+    "date": "2025-11-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 11475.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-AYLEN_CC-20251112-11475"
+  },
+  {
+    "clientId": 70,
+    "date": "2025-12-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 108.0,
+    "description": "ENVIO #795 9 x IP 17 Pro Max",
+    "reference": "CC-Import-AYLEN_CC-20251212-108"
+  },
+  {
+    "clientId": 70,
+    "date": "2025-12-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 349.0,
+    "description": "ENVIO #797 - 1 iPad y 2 SE 3",
+    "reference": "CC-Import-AYLEN_CC-20251212-349"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-02-01T00:00:00",
+    "type": "MANUAL",
+    "amount": 714.0,
+    "description": "INV 2279 - 5 + 5 Airpods 4",
+    "reference": "CC-Import-AYLEN_CC-20260201-714"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-05-01T00:00:00",
+    "type": "MANUAL",
+    "amount": 4310.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-AYLEN_CC-20260501-4310"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-06-01T00:00:00",
+    "type": "MANUAL",
+    "amount": 36720.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-AYLEN_CC-20260601-36720"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-07-01T00:00:00",
+    "type": "MANUAL",
+    "amount": 456.0,
+    "description": "ENVIO #825",
+    "reference": "CC-Import-AYLEN_CC-20260701-456"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-09-01T00:00:00",
+    "type": "MANUAL",
+    "amount": 1135.0,
+    "description": "INV 2284 - 1 x IP 17 Pro SV con envio incluido",
+    "reference": "CC-Import-AYLEN_CC-20260901-1135"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-09-01T00:00:00",
+    "type": "MANUAL",
+    "amount": 17250.0,
+    "description": "INV 2285 - 15 x IP 17 Pro",
+    "reference": "CC-Import-AYLEN_CC-20260901-17250"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-09-01T00:00:00",
+    "type": "MANUAL",
+    "amount": 90.0,
+    "description": "ENVIO #827 - Airpods",
+    "reference": "CC-Import-AYLEN_CC-20260901-90"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-09-01T00:00:00",
+    "type": "MANUAL",
+    "amount": 488.0,
+    "description": "ENVIO #830 - 15 x iP17 Pro",
+    "reference": "CC-Import-AYLEN_CC-20260901-488"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-02-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 40800.0,
+    "description": "INV #2332 - 20 x 17 pro, 20 X 17",
+    "reference": "CC-Import-AYLEN_CC-20260202-40800"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-02-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 536.0,
+    "description": "ENVIO #868 - 19 x IP16",
+    "reference": "CC-Import-AYLEN_CC-20260202-536"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-03-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 40800.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-AYLEN_CC-20260302-40800"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-03-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 312.0,
+    "description": "ENVIO #870 - 8 x 17PM",
+    "reference": "CC-Import-AYLEN_CC-20260302-312"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-04-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 72.0,
+    "description": "CARGA #877",
+    "reference": "CC-Import-AYLEN_CC-20260402-72"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-04-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 240.0,
+    "description": "ENVIO #881 - 8 Samsung - 2 IP17PM",
+    "reference": "CC-Import-AYLEN_CC-20260402-240"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-04-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 544.0,
+    "description": "ENVIO #885 - 20 x IP 17",
+    "reference": "CC-Import-AYLEN_CC-20260402-544"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-06-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 672.0,
+    "description": "ENVIO #887 - 20 X IP. 17PM",
+    "reference": "CC-Import-AYLEN_CC-20260602-672"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-06-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 1920.0,
+    "description": "INV #2342 (IP 16 y IP 17pm bl",
+    "reference": "CC-Import-AYLEN_CC-20260602-1920"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-09-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 2300.0,
+    "description": "INV #2344 - AW SE 3 x 10",
+    "reference": "CC-Import-AYLEN_CC-20260902-2300"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-09-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 1224.0,
+    "description": "ENVIO #8787",
+    "reference": "CC-Import-AYLEN_CC-20260902-1224"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-09-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 7450.0,
+    "description": "INV #2346 - IP 16",
+    "reference": "CC-Import-AYLEN_CC-20260902-7450"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-10-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 7876.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-AYLEN_CC-20261002-7876"
+  },
+  {
+    "clientId": 70,
+    "date": "2026-10-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 8940.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-AYLEN_CC-20261002-8940"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-01-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 100000.0,
+    "description": "GIRO DE BAIRES",
+    "reference": "CC-Import-FACU_FABRI_CC-20250110-100000"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-01-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 250.0,
+    "description": "% 0.25",
+    "reference": "CC-Import-FACU_FABRI_CC-20250110-250"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-01-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 30.0,
+    "description": "FEE RECEPCION BANCO",
+    "reference": "CC-Import-FACU_FABRI_CC-20250110-30"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-02-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 3890.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-FACU_FABRI_CC-20250210-3890"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-02-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 30.0,
+    "description": "FEE RECEPCION BANCO - 2do Giro",
+    "reference": "CC-Import-FACU_FABRI_CC-20250210-30"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-03-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 1260.0,
+    "description": "#682 #683 #684 Felix",
+    "reference": "CC-Import-FACU_FABRI_CC-20250310-1260"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-03-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 390.0,
+    "description": "#685 IP SOMA",
+    "reference": "CC-Import-FACU_FABRI_CC-20250310-390"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-03-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 793.0,
+    "description": "#686 IP17 SOMA",
+    "reference": "CC-Import-FACU_FABRI_CC-20250310-793"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-03-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 4114.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-FACU_FABRI_CC-20250310-4114"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-03-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 2504.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-FACU_FABRI_CC-20250310-2504"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-09-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 48198.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-FACU_FABRI_CC-20250910-48198"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-09-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 30.0,
+    "description": "Wire fee x Pagos soma",
+    "reference": "CC-Import-FACU_FABRI_CC-20250910-30"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-09-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 16730.0,
+    "description": "PAGO 17 PRO - SOON 2861",
+    "reference": "CC-Import-FACU_FABRI_CC-20250910-16730"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-09-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 18070.0,
+    "description": "PAGO SOMATECH 1635",
+    "reference": "CC-Import-FACU_FABRI_CC-20250910-18070"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-09-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 17940.0,
+    "description": "PAGO GRINGO  17 PRO MAX x 12",
+    "reference": "CC-Import-FACU_FABRI_CC-20250910-17940"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-09-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 30.0,
+    "description": "FEE PAGO GRINGO",
+    "reference": "CC-Import-FACU_FABRI_CC-20250910-30"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-10-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 2500.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-FACU_FABRI_CC-20251010-2500"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-10-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 1418.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-FACU_FABRI_CC-20251010-1418"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-10-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 1500.0,
+    "description": "ORDEN ESW 2 ULTRA 3",
+    "reference": "CC-Import-FACU_FABRI_CC-20251010-1500"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-10-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 1216.0,
+    "description": "ORDEN 4 x S11 y 1 S11 42",
+    "reference": "CC-Import-FACU_FABRI_CC-20251010-1216"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-10-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 720.0,
+    "description": "#696 SOMA - IP 17",
+    "reference": "CC-Import-FACU_FABRI_CC-20251010-720"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-10-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 1440.0,
+    "description": "#696 SOMA - IPHONES",
+    "reference": "CC-Import-FACU_FABRI_CC-20251010-1440"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-10-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 192.0,
+    "description": "#697 SOMA - IP 17",
+    "reference": "CC-Import-FACU_FABRI_CC-20251010-192"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-10-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 1242.0,
+    "description": "#697 SOMA - IPONES",
+    "reference": "CC-Import-FACU_FABRI_CC-20251010-1242"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-10-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 1416.0,
+    "description": "#700 SOMA - IP 17",
+    "reference": "CC-Import-FACU_FABRI_CC-20251010-1416"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-10-10T00:00:00",
+    "type": "MANUAL",
+    "amount": 91.0,
+    "description": "#690 ULTRA - CARGA",
+    "reference": "CC-Import-FACU_FABRI_CC-20251010-91"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-03-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 19133.0,
+    "description": "GIRO A HTD DANIEL",
+    "reference": "CC-Import-FACU_FABRI_CC-20250311-19133"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-03-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 30.0,
+    "description": "FEE DOMESTICO #",
+    "reference": "CC-Import-FACU_FABRI_CC-20250311-30"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-03-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 40.0,
+    "description": "FEE USDT MONDO ADEUDADO",
+    "reference": "CC-Import-FACU_FABRI_CC-20250311-40"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-04-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 38550.0,
+    "description": "MONDO #12897",
+    "reference": "CC-Import-FACU_FABRI_CC-20250411-38550"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-04-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 30.0,
+    "description": "FEE DOMESTICO #",
+    "reference": "CC-Import-FACU_FABRI_CC-20250411-30"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-04-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 8589.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-FACU_FABRI_CC-20250411-8589"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-04-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 22520.0,
+    "description": "SOMATECH #1661",
+    "reference": "CC-Import-FACU_FABRI_CC-20250411-22520"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-04-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 30.0,
+    "description": "FEE DOMESTICO #",
+    "reference": "CC-Import-FACU_FABRI_CC-20250411-30"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-05-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 4900.0,
+    "description": "Watch SE3 40 / 44MM. 10 cada",
+    "reference": "CC-Import-FACU_FABRI_CC-20250511-4900"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-05-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 30.0,
+    "description": "FEE INGRESO",
+    "reference": "CC-Import-FACU_FABRI_CC-20250511-30"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-05-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 216.0,
+    "description": "CARGA #755",
+    "reference": "CC-Import-FACU_FABRI_CC-20250511-216"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-05-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 1260.0,
+    "description": "CARGA #754",
+    "reference": "CC-Import-FACU_FABRI_CC-20250511-1260"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-05-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 2760.0,
+    "description": "CARGA #753",
+    "reference": "CC-Import-FACU_FABRI_CC-20250511-2760"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-05-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 396.0,
+    "description": "CARGA #751",
+    "reference": "CC-Import-FACU_FABRI_CC-20250511-396"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-06-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 31876.0,
+    "description": "GIRO WM CONSULTAS LLC",
+    "reference": "CC-Import-FACU_FABRI_CC-20250611-31876"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-06-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 30.0,
+    "description": "FEE INGRESO",
+    "reference": "CC-Import-FACU_FABRI_CC-20250611-30"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-07-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 9553.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-FACU_FABRI_CC-20250711-9553"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-07-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 996.0,
+    "description": "CARGA #761",
+    "reference": "CC-Import-FACU_FABRI_CC-20250711-996"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-12-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 9426.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-FACU_FABRI_CC-20251211-9426"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-01-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 7000.0,
+    "description": "COMPRA 10 x AW S11 42mm y 10 x 46mm",
+    "reference": "CC-Import-FACU_FABRI_CC-20250112-7000"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-02-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 3850.0,
+    "description": "COMPRA 10 x Galaxy S24 SE",
+    "reference": "CC-Import-FACU_FABRI_CC-20250212-3850"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-02-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 30.0,
+    "description": "FEE DOMESTICO #",
+    "reference": "CC-Import-FACU_FABRI_CC-20250212-30"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-05-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 3026.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-FACU_FABRI_CC-20250512-3026"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-08-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 315.0,
+    "description": "CARGA #785 - 10 S24 FE",
+    "reference": "CC-Import-FACU_FABRI_CC-20250812-315"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-09-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 366.0,
+    "description": "CARGA #785 - 16 AW11",
+    "reference": "CC-Import-FACU_FABRI_CC-20250912-366"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-11-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 681.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-FACU_FABRI_CC-20251112-681"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-12-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 366.0,
+    "description": "CARGA #792 - 10 x IP 17 Pro",
+    "reference": "CC-Import-FACU_FABRI_CC-20251212-366"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-12-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 660.0,
+    "description": "CARGA #796 - 10 x iPad A16 + 2 AW11",
+    "reference": "CC-Import-FACU_FABRI_CC-20251212-660"
+  },
+  {
+    "clientId": 66,
+    "date": "2025-12-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 1026.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-FACU_FABRI_CC-20251212-1026"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-05-01T00:00:00",
+    "type": "MANUAL",
+    "amount": 6270.0,
+    "description": "INV #2281 (30 Y 25 AIRPODS 4)",
+    "reference": "CC-Import-FACU_FABRI_CC-20260501-6270"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-06-01T00:00:00",
+    "type": "MANUAL",
+    "amount": 11100.0,
+    "description": "INV #2282 (10 x 42mm, 10 46mm, 20 SE3",
+    "reference": "CC-Import-FACU_FABRI_CC-20260601-11100"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-06-01T00:00:00",
+    "type": "MANUAL",
+    "amount": 17370.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-FACU_FABRI_CC-20260601-17370"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-09-01T00:00:00",
+    "type": "MANUAL",
+    "amount": 462.0,
+    "description": "CARGA #829 - 55 Airpods 4",
+    "reference": "CC-Import-FACU_FABRI_CC-20260901-462"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-09-01T00:00:00",
+    "type": "MANUAL",
+    "amount": 348.0,
+    "description": "CARGA #831 - 10 se3 y 10 AW42",
+    "reference": "CC-Import-FACU_FABRI_CC-20260901-348"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-02-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 10750.0,
+    "description": "INV #2333 - iphone 13 x 25",
+    "reference": "CC-Import-FACU_FABRI_CC-20260202-10750"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-02-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 3750.0,
+    "description": "INV #2331 - ULTRA 3 x 5",
+    "reference": "CC-Import-FACU_FABRI_CC-20260202-3750"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-04-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 2346.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-FACU_FABRI_CC-20260402-2346"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-04-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 3700.0,
+    "description": "INV #2337 - IPADS A16 5 y 5",
+    "reference": "CC-Import-FACU_FABRI_CC-20260402-3700"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-04-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 3400.0,
+    "description": "INV #2338 - AW11 - 46mm",
+    "reference": "CC-Import-FACU_FABRI_CC-20260402-3400"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-04-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 300.0,
+    "description": "CARGA 876 - IPAD A16",
+    "reference": "CC-Import-FACU_FABRI_CC-20260402-300"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-04-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 162.0,
+    "description": "CARGA 880 - ULTRA 3",
+    "reference": "CC-Import-FACU_FABRI_CC-20260402-162"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-04-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 672.0,
+    "description": "CARGA 882 - 25 x IP13",
+    "reference": "CC-Import-FACU_FABRI_CC-20260402-672"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-05-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 4450.0,
+    "description": "INV #2341",
+    "reference": "CC-Import-FACU_FABRI_CC-20260502-4450"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-05-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 10000.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-FACU_FABRI_CC-20260502-10000"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-05-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 4450.0,
+    "description": "INV #2341 - 14 IP X 10",
+    "reference": "CC-Import-FACU_FABRI_CC-20260502-4450"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-10-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 324.0,
+    "description": "CARGA 893 - AW S11 46 + 2 IPAD",
+    "reference": "CC-Import-FACU_FABRI_CC-20261002-324"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-10-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 304.0,
+    "description": "CARGA 895 - 14P X 10",
+    "reference": "CC-Import-FACU_FABRI_CC-20261002-304"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-11-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 234.0,
+    "description": "CARGA 897 - 3 IPAD",
+    "reference": "CC-Import-FACU_FABRI_CC-20261102-234"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-11-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 0.0,
+    "description": "Transacción importada",
+    "reference": "CC-Import-FACU_FABRI_CC-20261102-0"
+  },
+  {
+    "clientId": 66,
+    "date": "2026-11-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 0.0,
+    "description": "Transacción importada",
+    "reference": "CC-Import-FACU_FABRI_CC-20261102-0"
+  },
+  {
+    "clientId": 146,
+    "date": "2025-04-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 9000.0,
+    "description": "GIRO A MERCURY",
+    "reference": "CC-Import-LUCA_CC-20250412-9000"
+  },
+  {
+    "clientId": 146,
+    "date": "2025-04-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 1600.0,
+    "description": "PAGO USDT",
+    "reference": "CC-Import-LUCA_CC-20250412-1600"
+  },
+  {
+    "clientId": 146,
+    "date": "2025-04-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 10740.0,
+    "description": "INV 2232 - 6 17P - 3 17PM",
+    "reference": "CC-Import-LUCA_CC-20250412-10740"
+  },
+  {
+    "clientId": 146,
+    "date": "2025-04-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 30.0,
+    "description": "FEE PAGO PROVE",
+    "reference": "CC-Import-LUCA_CC-20250412-30"
+  },
+  {
+    "clientId": 146,
+    "date": "2025-08-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 230.0,
+    "description": "ENVIOS #787",
+    "reference": "CC-Import-LUCA_CC-20250812-230"
+  },
+  {
+    "clientId": 146,
+    "date": "2025-09-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 153.0,
+    "description": "ENVIOS #793",
+    "reference": "CC-Import-LUCA_CC-20250912-153"
+  },
+  {
+    "clientId": 146,
+    "date": "2025-09-12T00:00:00",
+    "type": "MANUAL",
+    "amount": 553.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-LUCA_CC-20250912-553"
+  },
+  {
+    "clientId": 146,
+    "date": "2026-07-01T00:00:00",
+    "type": "MANUAL",
+    "amount": 6730.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-LUCA_CC-20260701-6730"
+  },
+  {
+    "clientId": 146,
+    "date": "2026-07-01T00:00:00",
+    "type": "MANUAL",
+    "amount": 6730.0,
+    "description": "INV 2280 - 6 IP 17 PRO",
+    "reference": "CC-Import-LUCA_CC-20260701-6730"
+  },
+  {
+    "clientId": 146,
+    "date": "2026-07-01T00:00:00",
+    "type": "MANUAL",
+    "amount": 216.0,
+    "description": "ENVIO #824",
+    "reference": "CC-Import-LUCA_CC-20260701-216"
+  },
+  {
+    "clientId": 146,
+    "date": "2026-09-01T00:00:00",
+    "type": "MANUAL",
+    "amount": 792.0,
+    "description": "ENVIO #826",
+    "reference": "CC-Import-LUCA_CC-20260901-792"
+  },
+  {
+    "clientId": 146,
+    "date": "2026-02-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 408.0,
+    "description": "ENVIO #866",
+    "reference": "CC-Import-LUCA_CC-20260202-408"
+  },
+  {
+    "clientId": 146,
+    "date": "2026-04-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 112.0,
+    "description": "ENVIO #886",
+    "reference": "CC-Import-LUCA_CC-20260402-112"
+  },
+  {
+    "clientId": 146,
+    "date": "2026-05-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 13370.0,
+    "description": "INV #2340",
+    "reference": "CC-Import-LUCA_CC-20260502-13370"
+  },
+  {
+    "clientId": 146,
+    "date": "2026-05-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 16519.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-LUCA_CC-20260502-16519"
+  },
+  {
+    "clientId": 146,
+    "date": "2026-09-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 6961.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-LUCA_CC-20260902-6961"
+  },
+  {
+    "clientId": 146,
+    "date": "2026-10-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 6961.0,
+    "description": "INV #2349",
+    "reference": "CC-Import-LUCA_CC-20261002-6961"
+  },
+  {
+    "clientId": 146,
+    "date": "2026-10-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 1920.0,
+    "description": "INV #2343",
+    "reference": "CC-Import-LUCA_CC-20261002-1920"
+  },
+  {
+    "clientId": 146,
+    "date": "2026-12-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 0.0,
+    "description": "INV #2352",
+    "reference": "CC-Import-LUCA_CC-20261202-0"
+  },
+  {
+    "clientId": 146,
+    "date": "2026-12-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 440.0,
+    "description": "CARGA #894",
+    "reference": "CC-Import-LUCA_CC-20261202-440"
+  },
+  {
+    "clientId": 146,
+    "date": "2026-12-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 9000.0,
+    "description": "INV #2353",
+    "reference": "CC-Import-LUCA_CC-20261202-9000"
+  },
+  {
+    "clientId": 146,
+    "date": "2026-12-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 1455.0,
+    "description": "INV #2352",
+    "reference": "CC-Import-LUCA_CC-20261202-1455"
+  },
+  {
+    "clientId": 147,
+    "date": "2026-02-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 19275.0,
+    "description": "INV #2335",
+    "reference": "CC-Import-SEBAS_LUC_CC-20260202-19275"
+  },
+  {
+    "clientId": 147,
+    "date": "2026-06-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 528.0,
+    "description": "CARGA #891",
+    "reference": "CC-Import-SEBAS_LUC_CC-20260602-528"
+  },
+  {
+    "clientId": 147,
+    "date": "2026-12-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 19850.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-SEBAS_LUC_CC-20261202-19850"
+  },
+  {
+    "clientId": 147,
+    "date": "2026-12-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 19850.0,
+    "description": "INV #2348",
+    "reference": "CC-Import-SEBAS_LUC_CC-20261202-19850"
+  },
+  {
+    "clientId": 98,
+    "date": "2025-01-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 12000.0,
+    "description": "DEPOSITO EN CC",
+    "reference": "CC-Import-GONZALO_CC-20250111-12000"
+  },
+  {
+    "clientId": 98,
+    "date": "2025-01-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 30.0,
+    "description": "FEE BCO",
+    "reference": "CC-Import-GONZALO_CC-20250111-30"
+  },
+  {
+    "clientId": 98,
+    "date": "2025-10-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 11390.0,
+    "description": "PAGO INV ALTEK",
+    "reference": "CC-Import-GONZALO_CC-20251011-11390"
+  },
+  {
+    "clientId": 98,
+    "date": "2025-10-11T00:00:00",
+    "type": "MANUAL",
+    "amount": 30.0,
+    "description": "FEE BCO",
+    "reference": "CC-Import-GONZALO_CC-20251011-30"
+  },
+  {
+    "clientId": 98,
+    "date": "2026-02-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 143.0,
+    "description": "COBRO",
+    "reference": "CC-Import-GONZALO_CC-20260202-143"
+  },
+  {
+    "clientId": 119,
+    "date": "2026-04-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 265.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-TOMAS_CC-20260402-265"
+  },
+  {
+    "clientId": 96,
+    "date": "2026-04-02T00:00:00",
+    "type": "MANUAL",
+    "amount": 3480.0,
+    "description": "COBRO USDT",
+    "reference": "CC-Import-NAHUEL_CC-20260402-3480"
+  }
+]

@@ -94,6 +94,40 @@ docker-compose up -d --build
 
 ---
 
+## ⏱️ Sincronización automática con Google Sheets (cada hora laboral)
+
+Para mantener la app actualizada con los últimos cambios de la planilla:
+
+```bash
+cd /ruta/al/proyecto/sistema_gestion_importaciones
+chmod +x install_business_hours_sync.sh run_scheduled_sync.sh
+./install_business_hours_sync.sh
+```
+
+Configuración por defecto:
+- **Frecuencia:** 1 vez por hora
+- **Horario:** lunes a viernes, 08:00 a 18:00
+- **Rango de datos:** últimos 7 días
+
+Comandos útiles:
+
+```bash
+# Ver cron instalado
+crontab -l | grep ESWCARGO_BUSINESS_SYNC
+
+# Ver logs de ejecución programada
+tail -f logs/sync/cron.log
+tail -f logs/sync/auto_sync.log
+```
+
+Opcional (personalizar horario o días):
+
+```bash
+SYNC_CRON_SCHEDULE="0 9-19 * * 1-5" SYNC_DAYS=14 ./install_business_hours_sync.sh
+```
+
+---
+
 ## 🌐 Configurar con Nginx (Opcional)
 
 Si quieres usar un dominio (ej: `app.eswcargo.com`):

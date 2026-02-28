@@ -349,6 +349,35 @@ async function main() {
         }
     }
 
+    // D2. Transacciones importadas desde Google Sheets (CC)
+    const transactionsFile = path.join(prismaDir, 'transactions.json');
+    if (fs.existsSync(transactionsFile)) {
+        console.log("📥 Importando transacciones desde CC sheets...");
+        const importedTxs = JSON.parse(fs.readFileSync(transactionsFile, 'utf-8'));
+        let importCount = 0;
+        
+        for (const tx of importedTxs) {
+            // Map clientId from old_id to actual database ID
+            const dbClientId = clientOldIdMap.get(tx.clientId)?.id;
+            if (!dbClientId) {
+                console.log(`   ⚠️ Cliente ${tx.clientId} no encontrado, saltando transacción`);
+                continue;
+            }
+            
+            allTxs.push({
+                clientId: dbClientId,
+                date: new Date(tx.date),
+                type: tx.type,
+                amount: tx.amount,
+                description: tx.description || 'Transacción CC importada',
+                reference: tx.reference || `CC-Import-${Date.now()}-${importCount}`
+            });
+            importCount++;
+        }
+        
+        console.log(`   ✅ ${importCount} transacciones CC importadas`);
+    }
+
     // E. Transacciones de Proveedores (Compras y Pagos Automáticos)
     console.log("� Procesando transacciones de proveedores...");
     const purchasesData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'purchases_seed.json'), 'utf-8'));
@@ -400,7 +429,8 @@ async function main() {
                     { reference: { startsWith: 'Envío #' } },
                     { reference: { startsWith: 'PagoExtra-' } },
                     { reference: { startsWith: 'Purchase #' } },
-                    { reference: { startsWith: 'Manual-' } }
+                    { reference: { startsWith: 'Manual-' } },
+                    { reference: { startsWith: 'CC-Import-' } }
                 ]
             }
         });

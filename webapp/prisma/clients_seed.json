@@ -161,7 +161,7 @@
   },
   {
     "old_id": 21,
-    "name": "nan",
+    "name": "Joseba",
     "email": null,
     "phone": null,
     "type": "CLIENTE",
@@ -337,7 +337,7 @@
   },
   {
     "old_id": 43,
-    "name": "nan",
+    "name": "Martin Tincho",
     "email": null,
     "phone": null,
     "type": "CLIENTE",
@@ -537,7 +537,7 @@
   },
   {
     "old_id": 68,
-    "name": "nan",
+    "name": "La Pampa (nombre)",
     "email": null,
     "phone": null,
     "type": "CLIENTE",
@@ -569,7 +569,7 @@
   },
   {
     "old_id": 72,
-    "name": "nan",
+    "name": "Ramiro Star Computacion",
     "email": null,
     "phone": null,
     "type": "CLIENTE",
@@ -609,7 +609,7 @@
   },
   {
     "old_id": 77,
-    "name": "nan",
+    "name": "Mauricio",
     "email": null,
     "phone": null,
     "type": "CLIENTE",
@@ -2124,7 +2124,7 @@
     "name": "Ariel Lencina - Ary-Shop",
     "email": null,
     "phone": "Lalo x Corban",
-    "type": "NUEVO",
+    "type": "DARLON",
     "address": null
   },
   {
@@ -2137,10 +2137,10 @@
   },
   {
     "old_id": 268,
-    "name": "nan",
+    "name": "Nicolas - Innovate iPhone",
     "email": null,
     "phone": null,
-    "type": "CLIENTE",
+    "type": "NUEVO",
     "address": null
   },
   {

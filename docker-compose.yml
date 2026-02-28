@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   eswcargo-webapp:
     build:
@@ -15,12 +13,17 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - DIRECT_URL=${DIRECT_URL}
       - AUTH_SECRET=${AUTH_SECRET}
+      - AUTH_URL=${AUTH_URL}
+      - AUTH_TRUST_HOST=${AUTH_TRUST_HOST}
       - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
       - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
       - SMTP_HOST=${SMTP_HOST}
       - SMTP_PORT=${SMTP_PORT}
       - SMTP_USER=${SMTP_USER}
       - SMTP_PASS=${SMTP_PASS}
+      - AUTO_NOTIFY_EMAIL_ENABLED=${AUTO_NOTIFY_EMAIL_ENABLED}
+      - AUTO_NOTIFY_WHATSAPP_ENABLED=${AUTO_NOTIFY_WHATSAPP_ENABLED}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
     env_file:
       - .env
@@ -35,4 +38,5 @@ services:
 
 networks:
   eswcargo-network:
-    external: true
+    name: eswcargo-network
+    driver: bridge

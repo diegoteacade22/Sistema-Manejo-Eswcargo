@@ -6,8 +6,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
-    "start": "next start",
+    "start": "node .next/standalone/server.js",
     "lint": "eslint",
+    "e2e:permissions": "node scripts/e2e-permissions-check.js",
     "postinstall": "prisma generate"
   },
   "dependencies": {

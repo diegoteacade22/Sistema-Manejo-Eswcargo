@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { prisma } from '@/lib/prisma';
+import { requireAdminUser } from '@/lib/access';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,6 +10,8 @@ import { PurchaseAssignmentPanel } from '@/app/purchases/[id]/purchase-assignmen
 import { MarkPurchasePaidButton } from '@/app/purchases/[id]/mark-purchase-paid-button';
 
 export default async function PurchaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  await requireAdminUser();
+
   const { id } = await params;
   const purchaseId = Number(id);
 

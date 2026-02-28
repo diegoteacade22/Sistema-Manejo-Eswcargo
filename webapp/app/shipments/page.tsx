@@ -57,22 +57,23 @@ async function getShipments(query: string, page: number = 1, pageSize: number = 
         skip: skip
     });
 
-    // Automatically sync statuses based on dates/rules
-    // Import syncShipmentStatus from actions
-    const { syncShipmentStatus } = await import('@/app/actions');
-    await Promise.all(shipments.map((s: any) => syncShipmentStatus(s.id)));
+    if (userRole === 'ADMIN') {
+        // Automatically sync statuses based on dates/rules (admin only)
+        const { syncShipmentStatus } = await import('@/app/actions');
+        await Promise.all(shipments.map((s: any) => syncShipmentStatus(s.id)));
 
-    // Re-fetch to get updated statuses (or just map them if updateShipment didn't change too much)
-    // Actually, syncShipmentStatus returns the new status, but it's cleaner to re-fetch or just update local objects
-    const updatedShipments = await (prisma as any).shipment.findMany({
-        where,
-        orderBy: { [sortField === 'client' ? 'id' : sortField]: sortOrder },
-        include: { client: true },
-        take: pageSize,
-        skip: skip
-    });
+        const updatedShipments = await (prisma as any).shipment.findMany({
+            where,
+            orderBy: { [sortField === 'client' ? 'id' : sortField]: sortOrder },
+            include: { client: true },
+            take: pageSize,
+            skip: skip
+        });
 
-    return { shipments: updatedShipments, totalCount, totalPages: Math.ceil(totalCount / pageSize) };
+        return { shipments: updatedShipments, totalCount, totalPages: Math.ceil(totalCount / pageSize) };
+    }
+
+    return { shipments, totalCount, totalPages: Math.ceil(totalCount / pageSize) };
 }
 
 export default async function ShipmentsPage(props: { searchParams: Promise<{ q?: string, page?: string, sort?: string, order?: string }> }) {
@@ -152,16 +153,24 @@ export default async function ShipmentsPage(props: { searchParams: Promise<{ q?:
                                         {shipment.weight_fw > 0 ? shipment.weight_fw.toFixed(2) : '-'}
                                     </TableCell>
                                     <TableCell>
-                                        <ShipmentStatusDialog shipment={shipment} />
+                                        {isAdmin ? (
+                                            <ShipmentStatusDialog shipment={shipment} />
+                                        ) : (
+                                            <span className="inline-flex items-center rounded-full bg-fuchsia-600 px-3 py-1 text-xs font-black uppercase tracking-wide text-white">
+                                                {shipment.status}
+                                            </span>
+                                        )}
                                     </TableCell>
                                     <TableCell className="text-right flex items-center justify-end gap-1">
-                                        <ShipmentChargeDialog
-                                            shipmentId={shipment.id}
-                                            shipmentNumber={shipment.shipment_number || 0}
-                                            clientId={shipment.clientId}
-                                            clientName={shipment.client?.name}
-                                            currentCost={shipment.price_total || undefined}
-                                        />
+                                        {isAdmin && (
+                                            <ShipmentChargeDialog
+                                                shipmentId={shipment.id}
+                                                shipmentNumber={shipment.shipment_number || 0}
+                                                clientId={shipment.clientId}
+                                                clientName={shipment.client?.name}
+                                                currentCost={shipment.price_total || undefined}
+                                            />
+                                        )}
                                         <Button variant="ghost" size="icon" className="h-9 w-9 hover:bg-fuchsia-100 dark:hover:bg-fuchsia-900/40" asChild>
                                             <Link href={`/shipments/${shipment.id}`}>
                                                 <Plane className="h-5 w-5 text-slate-400 hover:text-fuchsia-600 dark:text-slate-500" />

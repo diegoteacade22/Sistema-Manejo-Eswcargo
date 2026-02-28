@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { submitOrder } from '@/app/actions';
 import { Trash2, Plus, Loader2 } from 'lucide-react';
+import { ProductSearchSelect } from '@/components/product-search-select';
 
 interface Client {
     id: number;
@@ -192,21 +193,12 @@ export default function NewOrderForm({ clients, products, suppliers, shipments }
                                 {items.map((item, index) => (
                                     <TableRow key={index}>
                                         <TableCell>
-                                            <Select
+                                            <ProductSearchSelect
+                                                products={products}
                                                 value={item.productId}
                                                 onValueChange={(val) => updateItem(index, 'productId', val)}
-                                            >
-                                                <SelectTrigger className="h-8">
-                                                    <SelectValue placeholder="Producto..." />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {products.map(p => (
-                                                        <SelectItem key={p.id} value={p.id.toString()}>
-                                                            {p.sku} - {p.name}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
+                                                placeholder="Buscar producto..."
+                                            />
                                         </TableCell>
                                         <TableCell>
                                             <Input

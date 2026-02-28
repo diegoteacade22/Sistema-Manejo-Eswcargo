@@ -1,12 +1,14 @@
 
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { CreditCard, History } from 'lucide-react';
+import { CreditCard, History, Plus } from 'lucide-react';
 import { Suspense } from 'react';
 import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { PaymentDialog } from '@/components/payment-dialog';
 
 async function getPayments(sortField: string = 'date', sortOrder: 'asc' | 'desc' = 'desc') {
     const session = await auth();
@@ -42,6 +44,24 @@ export default async function PaymentsPage(props: { searchParams: Promise<{ sort
     const session = await auth();
     if (!session?.user) return null;
 
+    const userRole = (session.user as any).role;
+    const userId = (session.user as any).id;
+
+    // Get current user's client info if is CLIENT, or admin context
+    let clientId: number | null = null;
+    let clientName: string = '';
+
+    if (userRole === 'CLIENT') {
+        const client = await prisma.client.findFirst({
+            where: { userId },
+            select: { id: true, name: true }
+        });
+        if (client) {
+            clientId = client.id;
+            clientName = client.name;
+        }
+    }
+
     const sortField = searchParams.sort || 'date';
     const sortOrder = searchParams.order || 'desc';
 
@@ -49,13 +69,23 @@ export default async function PaymentsPage(props: { searchParams: Promise<{ sort
 
     return (
         <div className="p-8 space-y-8 animate-in fade-in duration-500">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-4">
                 <div>
                     <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-emerald-600 to-teal-600 bg-clip-text text-transparent">
-                        Mis Pagos
+                        Finanzas & Pagos
                     </h2>
-                    <p className="text-muted-foreground mt-1">Historial de pagos realizados y acreditados</p>
+                    <p className="text-muted-foreground mt-1">Historial de pagos y operaciones financieras</p>
                 </div>
+                {clientId && clientName && (
+                    <PaymentDialog
+                        clientId={clientId}
+                        clientName={clientName}
+                        buttonLabel="Registrar Pago"
+                        buttonVariant="default"
+                        buttonSize="lg"
+                        buttonClassName="bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg"
+                    />
+                )}
             </div>
 
             <Card className="border-t-4 border-t-emerald-500 shadow-xl overflow-hidden dark:bg-slate-950/50">

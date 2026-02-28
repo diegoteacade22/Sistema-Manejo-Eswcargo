@@ -1,7 +1,10 @@
 import { prisma } from '@/lib/prisma';
+import { requireAdminUser } from '@/lib/access';
 import NewPurchaseForm from '@/app/purchases/new/new-purchase-form';
 
 export default async function NewPurchasePage() {
+  await requireAdminUser();
+
   const suppliers = await prisma.supplier.findMany({
     select: { id: true, name: true },
     orderBy: { name: 'asc' }

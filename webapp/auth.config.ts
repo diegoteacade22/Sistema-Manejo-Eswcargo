@@ -6,6 +6,7 @@ const ADMIN_ONLY_PREFIXES = [
     '/clients',
     '/suppliers',
     '/products',
+    '/purchases',
     '/collections',
     '/expenses',
     '/maintenance',
@@ -22,6 +23,7 @@ export const authConfig = {
     pages: {
         signIn: '/login',
     },
+    trustHost: true,
     callbacks: {
         authorized({ auth, request: { nextUrl } }) {
             const isLoggedIn = !!auth?.user;

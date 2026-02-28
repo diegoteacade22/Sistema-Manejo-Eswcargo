@@ -1,13 +1,10 @@
 import { AuthProvider } from "@/components/auth-provider";
 import { auth } from "@/lib/auth";
-import { Inter } from "next/font/google";
 import type { Metadata } from "next";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Sidebar } from "@/components/sidebar";
 import { AiChatButton } from "@/components/ai-chat-button";
 import "./globals.css";
-
-const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Sistema de Gestión",
@@ -26,7 +23,7 @@ export default async function RootLayout({
 
   return (
     <html lang="es" suppressHydrationWarning>
-      <body className={inter.className} suppressHydrationWarning>
+      <body className="font-sans" suppressHydrationWarning>
         <AuthProvider>
           <ThemeProvider
             attribute="class"

@@ -1,9 +1,11 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Printer, Package, Globe, Instagram, Facebook, Mail, Loader2 } from 'lucide-react';
-import { sendPackingListEmail } from '@/app/email-actions';
-import { useState, useTransition } from 'react';
+import { Printer, Package, Globe, Instagram, Facebook, Mail, Loader2, Download } from 'lucide-react';
+import { savePackingListPdfToDrive, sendPackingListEmail } from '@/app/email-actions';
+import { useEffect, useTransition } from 'react';
+import { buildShipmentItems } from '@/lib/shipment-items';
+import { toInvNumber4 } from '@/lib/inv-filename';
 
 /* eslint-disable @next/next/no-img-element */
 
@@ -13,6 +15,18 @@ interface PackingListTemplateProps {
 
 export default function PackingListTemplate({ shipment }: PackingListTemplateProps) {
     const [isSending, startTransition] = useTransition();
+    const [isSaving, startSaveTransition] = useTransition();
+    const invNumber = toInvNumber4(shipment?.invoice, shipment?.shipment_number || shipment?.id);
+    const invBaseName = `INV ${invNumber}`;
+    const invFileName = `INV ${invNumber}.pdf`;
+
+    useEffect(() => {
+        const previousTitle = document.title;
+        document.title = invFileName.replace(/\.pdf$/i, '');
+        return () => {
+            document.title = previousTitle;
+        };
+    }, [invFileName]);
 
     const handleSendEmail = () => {
         const defaultEmail = shipment.client?.email || '';
@@ -30,66 +44,32 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
         });
     };
 
+    const handleSaveDrive = () => {
+        startSaveTransition(async () => {
+            const result = await savePackingListPdfToDrive(shipment.id);
+            if (result.success) {
+                alert(`PDF guardado: ${result.fileName}`);
+            } else {
+                alert('Error al guardar PDF: ' + result.message);
+            }
+        });
+    };
+
+    const handlePrint = () => {
+        const previousTitle = document.title;
+        document.title = invBaseName;
+        window.print();
+        setTimeout(() => {
+            document.title = previousTitle;
+        }, 250);
+    };
+
     // Basic date formatting
     const dateShipped = shipment.date_shipped
         ? new Date(shipment.date_shipped).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
         : '-';
 
-    // Filter items
-    const shipmentItemsMap = new Map<number, any>();
-
-    // 1. Direct items
-    if (shipment.items) {
-        shipment.items.forEach((item: any) => {
-            shipmentItemsMap.set(item.id, {
-                ...item,
-                orderId: item.order?.id,
-                orderNumber: item.order?.order_number
-            });
-        });
-    }
-
-    // 2. Orders' items (Implicit)
-    if (shipment.orders) {
-        shipment.orders.forEach((order: any) => {
-            if (order.items) {
-                order.items.forEach((item: any) => {
-                    // Only add if not already present (direct link takes precedence)
-                    if (!shipmentItemsMap.has(item.id)) {
-                        // Inherit shipment if item has no explicit shipment
-                        const isInShipment = item.shipmentId === shipment.id || (!item.shipmentId && order.shipmentId === shipment.id);
-                        if (isInShipment) {
-                            shipmentItemsMap.set(item.id, {
-                                ...item,
-                                orderId: order.id,
-                                orderNumber: order.order_number
-                            });
-                        }
-                    }
-                });
-            }
-        });
-    }
-
-    const shipmentItems = Array.from(shipmentItemsMap.values());
-
-    // Group Items Logic for "Items of Total" calculation
-    const orderTotalsMap = new Map<string, number>();
-
-    // We can just iterate the final shipmentItems to verify totals? 
-    // No, "Items of Total" refers to the TOTAL ordered quantity vs shipped quantity?
-    // Usually a Packing list shows "Quantity Shipped".
-    // If we want "Items of Total", we usually need the context of the whole order.
-    // For now, let's just make the totals based on what's visible, or if we had access to the full order we could do partials.
-    // Let's assume the user wants to see totals of what is in THIS packing list for now, 
-    // OR if they want "3 of 10", we'd need the full order context. 
-    // Given the previous code iterated `shipment.orders`, it assumed full orders were loaded.
-    // Let's keep it simple: map what we have.
-    shipmentItems.forEach((item: any) => {
-        const key = item.productId ? `${item.orderId}-${item.productId}` : `${item.orderId}-${item.productName}`;
-        const current = orderTotalsMap.get(key) || 0;
-        orderTotalsMap.set(key, current + item.quantity);
-    });
+    const shipmentItems = buildShipmentItems(shipment);
 
     // Colors
     // Dark Blue: #0D3B4C
@@ -134,6 +114,14 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
             <div className="max-w-[850px] mx-auto mb-8 flex flex-col items-end gap-2 print:hidden">
                 <div className="flex gap-4">
                     <Button
+                        onClick={handleSaveDrive}
+                        disabled={isSaving}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    >
+                        {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                        Guardar PDF
+                    </Button>
+                    <Button
                         onClick={handleSendEmail}
                         disabled={isSending}
                         className={`${shipment.email_sent_at ? 'bg-gray-100 text-gray-800 hover:bg-gray-200 border border-gray-300' : 'bg-[#72C4B7] hover:bg-[#5aa89c] text-white'}`}
@@ -141,7 +129,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                         {isSending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
                         {shipment.email_sent_at ? 'Reenviar Email' : 'Enviar Email'}
                     </Button>
-                    <Button onClick={() => window.print()} className="bg-[#0D3B4C] hover:bg-[#082a36] text-white">
+                    <Button onClick={handlePrint} className="bg-[#0D3B4C] hover:bg-[#082a36] text-white">
                         <Printer className="mr-2 h-4 w-4" /> Imprimir / Guardar PDF
                     </Button>
                 </div>

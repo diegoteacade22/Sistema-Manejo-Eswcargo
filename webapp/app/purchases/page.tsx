@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { prisma } from '@/lib/prisma';
+import { requireAdminUser } from '@/lib/access';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +13,8 @@ function getStatus(totalQty: number, allocatedQty: number) {
 }
 
 export default async function PurchasesPage() {
+  await requireAdminUser();
+
   const purchases = await (prisma as any).purchase.findMany({
     include: {
       supplier: { select: { name: true } },

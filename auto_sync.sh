@@ -7,6 +7,9 @@ DAYS=${1:-7}
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
 
+# Cron suele tener PATH reducido; agregamos rutas comunes de Node
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
 # Python Detection
 PYTHON_EXEC="python3"
 if [ -f "./venv/bin/python3" ]; then
@@ -38,7 +41,18 @@ fi
 # 3. Seed
 echo "💾 Guardando en base de datos..."
 cd webapp
-npx tsx prisma/seed_fast.ts
+if [ -x "./node_modules/.bin/tsx" ]; then
+    ./node_modules/.bin/tsx prisma/seed_fast.ts
+elif command -v npx >/dev/null 2>&1; then
+    npx tsx prisma/seed_fast.ts
+elif command -v npm >/dev/null 2>&1; then
+    npm exec --yes tsx prisma/seed_fast.ts
+else
+    echo "❌ Error guardando datos: no se encontró tsx (ni ./node_modules/.bin/tsx, npx o npm exec)."
+    echo "   Ejecutá en webapp: npm install"
+    exit 1
+fi
+
 if [ $? -ne 0 ]; then
     echo "❌ Error guardando datos."
     exit 1

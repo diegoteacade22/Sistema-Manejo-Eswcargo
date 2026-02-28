@@ -3,6 +3,25 @@ import { prisma } from '@/lib/prisma';
 import { notFound } from 'next/navigation';
 import InvoiceTemplate from './invoice-template';
 import { auth } from '@/lib/auth';
+import type { Metadata } from 'next';
+import { toInvNumber4 } from '@/lib/inv-filename';
+
+export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
+    const params = await props.params;
+    const id = parseInt(params.id);
+
+    if (isNaN(id)) {
+        return { title: 'INV 0000' };
+    }
+
+    const order = await prisma.order.findUnique({
+        where: { id },
+        select: { id: true, order_number: true }
+    });
+
+    const invNumber = toInvNumber4(order?.order_number, order?.id ?? id);
+    return { title: `INV ${invNumber}` };
+}
 
 export default async function InvoicePage(props: { params: Promise<{ id: string }> }) {
     const params = await props.params;

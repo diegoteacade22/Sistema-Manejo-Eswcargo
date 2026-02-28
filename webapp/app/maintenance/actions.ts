@@ -2,12 +2,48 @@
 
 import { revalidatePath } from 'next/cache';
 import { exec } from 'child_process';
+import { spawn } from 'child_process';
 import { promisify } from 'util';
 import { requireAdminUser } from '@/lib/access';
 import path from 'path';
 import { access } from 'fs/promises';
 
 const execAsync = promisify(exec);
+
+async function triggerLocalProductionRefresh() {
+    const command =
+        process.env.MAINTENANCE_RESTART_COMMAND ||
+        'if command -v pm2 >/dev/null 2>&1; then npm run build && pm2 restart all; else bash ./iniciar_produccion.sh; fi';
+
+    const child = spawn('bash', ['-lc', command], {
+        cwd: process.cwd(),
+        detached: true,
+        stdio: 'ignore'
+    });
+
+    child.unref();
+}
+
+function revalidateDataViews() {
+    const paths = [
+        '/',
+        '/clients',
+        '/orders',
+        '/shipments',
+        '/products',
+        '/suppliers',
+        '/purchases',
+        '/expenses',
+        '/analytics/sales',
+        '/analytics/logistics',
+        '/analytics/financial',
+        '/analytics/purchases'
+    ];
+
+    for (const path of paths) {
+        revalidatePath(path);
+    }
+}
 
 async function findSyncScriptPath(): Promise<string | null> {
     const candidates = [
@@ -33,6 +69,7 @@ async function findSyncScriptPath(): Promise<string | null> {
 export async function revalidateSystem() {
     await requireAdminUser();
     revalidatePath('/', 'layout');
+    revalidateDataViews();
     return { success: true, message: 'Next.js cache revalidated.' };
 }
 
@@ -70,9 +107,23 @@ export async function resetDatabase() {
 export async function syncExcel(days: number = 0) {
     await requireAdminUser();
     try {
+        const scriptPath = await findSyncScriptPath();
         const hookUrl = process.env.SYNC_HOOK_URL;
         const hookToken = process.env.SYNC_HOOK_TOKEN;
 
+        // Priorizar ejecución local para garantizar que se actualice esta misma instancia.
+        if (scriptPath) {
+            console.log(`Starting local Excel Sync (${days} days) with script: ${scriptPath}`);
+            const { stdout, stderr } = await execAsync(`bash "${scriptPath}" ${days}`);
+            console.log("Sync Output:", stdout);
+            if (stderr) console.error("Sync Errors:", stderr);
+
+            revalidatePath('/', 'layout');
+            revalidateDataViews();
+            return { success: true, message: `Sincronización finalizada (${days === 0 ? 'Completa' : days + ' días'}).` };
+        }
+
+        // Fallback remoto para entornos sin script local.
         if (hookUrl) {
             const response = await fetch(hookUrl, {
                 method: 'POST',
@@ -92,25 +143,14 @@ export async function syncExcel(days: number = 0) {
             }
 
             revalidatePath('/', 'layout');
-            return { success: true, message: `Sincronización iniciada (${days === 0 ? 'Completa' : days + ' días'}).` };
+            revalidateDataViews();
+            return { success: true, message: `Sincronización en curso (${days === 0 ? 'Completa' : days + ' días'}) vía hook.` };
         }
 
-        // Local fallback (for non-hook environments): resolve script path safely.
-        const scriptPath = await findSyncScriptPath();
-        if (!scriptPath) {
-            return {
-                success: false,
-                message: `Error al sincronizar: no se encontró sync_excel.sh (cwd: ${process.cwd()}). Configura SYNC_HOOK_URL o SYNC_SCRIPT_PATH.`
-            };
-        }
-
-        console.log(`Starting local Excel Sync (${days} days) with script: ${scriptPath}`);
-        const { stdout, stderr } = await execAsync(`bash "${scriptPath}" ${days}`);
-        console.log("Sync Output:", stdout);
-        if (stderr) console.error("Sync Errors:", stderr);
-
-        revalidatePath('/', 'layout');
-        return { success: true, message: `Sincronización finalizada (${days === 0 ? 'Completa' : days + ' días'}).` };
+        return {
+            success: false,
+            message: `Error al sincronizar: no se encontró sync_excel.sh (cwd: ${process.cwd()}) y tampoco SYNC_HOOK_URL.`
+        };
     } catch (error: any) {
         console.error("Sync Error:", error);
         return { success: false, message: `Error al sincronizar: ${error.message}` };
@@ -124,9 +164,10 @@ export async function deployToProduction() {
         const hookToken = process.env.PRODUCTION_DEPLOY_HOOK_TOKEN;
 
         if (!hookUrl) {
+            await triggerLocalProductionRefresh();
             return {
-                success: false,
-                message: 'Falta configurar PRODUCTION_DEPLOY_HOOK_URL en el entorno.'
+                success: true,
+                message: 'Hook no configurado. Se ejecutó actualización local de producción (build + restart).'
             };
         }
 
@@ -158,6 +199,25 @@ export async function deployToProduction() {
         return {
             success: false,
             message: `Error al desplegar a producción: ${error.message}`
+        };
+    }
+}
+
+export async function applyProductionRefresh() {
+    await requireAdminUser();
+
+    try {
+        await triggerLocalProductionRefresh();
+
+        return {
+            success: true,
+            message: 'Actualización de producción disparada. El servicio debería reiniciarse en breve.'
+        };
+    } catch (error: any) {
+        console.error('Apply production refresh error:', error);
+        return {
+            success: false,
+            message: `Error al actualizar producción: ${error.message}`
         };
     }
 }

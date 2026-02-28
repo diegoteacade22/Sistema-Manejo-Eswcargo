@@ -25,7 +25,21 @@ import { Textarea } from '@/components/ui/textarea';
 import { CreditCard } from 'lucide-react';
 import { registerPayment } from '@/app/actions';
 
-export function PaymentDialog({ clientId, clientName }: { clientId: number, clientName: string }) {
+export function PaymentDialog({
+    clientId,
+    clientName,
+    buttonLabel = 'Registrar Pago',
+    buttonVariant = 'outline',
+    buttonSize,
+    buttonClassName,
+}: {
+    clientId: number;
+    clientName: string;
+    buttonLabel?: string;
+    buttonVariant?: React.ComponentProps<typeof Button>['variant'];
+    buttonSize?: React.ComponentProps<typeof Button>['size'];
+    buttonClassName?: string;
+}) {
     const [open, setOpen] = useState(false);
     const [amount, setAmount] = useState('');
     const [reference, setReference] = useState('');
@@ -61,11 +75,15 @@ export function PaymentDialog({ clientId, clientName }: { clientId: number, clie
     return (
         <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger asChild>
-                <Button variant="outline" className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800">
-                    <CreditCard className="mr-2 h-4 w-4" /> Registrar Pago
+                <Button
+                    variant={buttonVariant}
+                    size={buttonSize}
+                    className={buttonClassName || "border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"}
+                >
+                    <CreditCard className="mr-2 h-4 w-4" /> {buttonLabel}
                 </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="sm:max-w-[425px] bg-card text-card-foreground shadow-2xl">
                 <DialogHeader>
                     <DialogTitle>Registrar Pago</DialogTitle>
                     <DialogDescription>

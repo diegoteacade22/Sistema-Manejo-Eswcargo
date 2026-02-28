@@ -24,6 +24,7 @@ import Link from 'next/link';
 import { ShipmentStatusDialog } from '@/components/shipment-status-dialog';
 import { ShipmentNotesEditor } from '@/components/shipment-notes-editor';
 import { ShipmentQuickTransitions } from '@/components/shipment-quick-transitions';
+import { buildShipmentItems, getShipmentItemCount } from '@/lib/shipment-items';
 
 interface Props {
     params: Promise<{ id: string }>;
@@ -33,12 +34,14 @@ async function getShipment(id: string, userSession: any) {
     const shipmentId = parseInt(id);
     if (isNaN(shipmentId)) return null;
 
-    // Automatically sync status before fetching full details
-    const { syncShipmentStatus } = await import('@/app/actions');
-    await syncShipmentStatus(shipmentId);
-
     const userRole = userSession.user.role;
     const userId = userSession.user.id;
+
+    if (userRole === 'ADMIN') {
+        // Automatically sync status before fetching full details (admin only)
+        const { syncShipmentStatus } = await import('@/app/actions');
+        await syncShipmentStatus(shipmentId);
+    }
 
     let clientId: number | null = null;
     if (userRole === 'CLIENT') {
@@ -53,7 +56,21 @@ async function getShipment(id: string, userSession: any) {
         where: { id: shipmentId },
         include: {
             client: true,
-            orders: true
+            items: {
+                include: {
+                    product: true,
+                    order: true,
+                }
+            },
+            orders: {
+                include: {
+                    items: {
+                        include: {
+                            product: true,
+                        }
+                    }
+                }
+            }
         }
     });
 
@@ -76,6 +93,19 @@ export default async function ShipmentPage(props: Props) {
     }
 
     const isAdmin = (session.user as any).role === 'ADMIN';
+    const shipmentItems = buildShipmentItems(shipment);
+    const realItemCount = getShipmentItemCount(shipment);
+    const effectiveItemCount = realItemCount > 0 ? realItemCount : (shipment.item_count || 0);
+
+    const productSummaryMap = new Map<string, number>();
+    shipmentItems.forEach((item: any) => {
+        let productLabel = item.product?.model || item.productName || 'Item';
+        if (item.product?.color_grade) {
+            productLabel += ` - ${item.product.color_grade}`;
+        }
+        productSummaryMap.set(productLabel, (productSummaryMap.get(productLabel) || 0) + (item.quantity || 0));
+    });
+    const productSummary = Array.from(productSummaryMap.entries());
 
     return (
         <div className="p-8 space-y-8">
@@ -155,8 +185,27 @@ export default async function ShipmentPage(props: Props) {
                         <div className="space-y-1">
                             <span className="text-sm font-medium text-muted-foreground uppercase tracking-widest text-[10px]">Cantidad Artículos</span>
                             <div className="text-3xl font-black text-slate-900 dark:text-white">
-                                {shipment.item_count || 0}
+                                {effectiveItemCount}
                             </div>
+                        </div>
+                        <div className="space-y-1 sm:col-span-2">
+                            <span className="text-sm font-medium text-muted-foreground uppercase tracking-widest text-[10px]">Detalle Productos Enviados</span>
+                            {productSummary.length > 0 ? (
+                                <div className="text-xs md:text-sm text-slate-700 dark:text-slate-300 leading-relaxed space-y-1">
+                                    {productSummary.slice(0, 5).map(([name, qty]) => (
+                                        <div key={name} className="font-semibold">
+                                            {qty}x {name}
+                                        </div>
+                                    ))}
+                                    {productSummary.length > 5 && (
+                                        <div className="text-slate-500 dark:text-slate-400 italic">
+                                            +{productSummary.length - 5} producto(s) más
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="text-xs md:text-sm text-muted-foreground italic">Sin productos vinculados al envío.</div>
+                            )}
                         </div>
                         <div className="space-y-2">
                             <span className="text-sm font-medium text-muted-foreground uppercase tracking-widest text-[10px] font-black">Pesos Declarados (Kg)</span>

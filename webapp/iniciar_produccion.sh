@@ -16,11 +16,8 @@ cd "$DIR"
 echo -e "1. Verificando configuración..."
 if [ ! -f .env ]; then
     echo -e "${RED}Error: No se encuentra el archivo .env${NC}"
-    # Intentar copiar de una plantilla o error
-    # Por ahora, usamos el mismo fallback que en dev si es crítico, pero en prod debería existir.
-    echo "Creando uno por defecto apuntando a la base de datos interna..."
-    echo 'DATABASE_URL="file:/Users/diegorodriguez/02_DESARROLLO/Proyectos_Activos/sistema_gestion_importaciones/webapp/prisma/dev.db"' > .env
-    echo -e "${GREEN}Archivo .env creado.${NC}"
+    echo -e "${YELLOW}Copiá .env.example a .env y completá las variables obligatorias.${NC}"
+    exit 1
 else
     echo -e "${GREEN}Configuración encontrada.${NC}"
 fi

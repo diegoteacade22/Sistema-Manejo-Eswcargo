@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Server, Database, RefreshCw, HardDrive, AlertTriangle, CheckCircle2, FileSpreadsheet, Cloud, Users, Rocket } from "lucide-react";
 import { useState, useTransition } from 'react';
-import { revalidateSystem, resetDatabase, syncExcel, deployToProduction } from './actions';
+import { revalidateSystem, resetDatabase, syncExcel, deployToProduction, applyProductionRefresh } from './actions';
 import { DeleteEntityCard } from '@/components/delete-entity-card';
 
 export default function MaintenancePage() {
@@ -39,11 +39,12 @@ export default function MaintenancePage() {
     };
 
     const handleSync = (days: number) => {
-        setMessage(null);
+        const syncScope = days === 0 ? 'completa' : `${days} días`;
+        setMessage({ text: `Sincronización en curso (${syncScope})...`, type: 'success' });
         startTransition(async () => {
             const res = await syncExcel(days);
             if (res.success) {
-                setMessage({ text: res.message, type: 'success' });
+                setMessage({ text: `Sincronización finalizada (${syncScope}).`, type: 'success' });
             } else {
                 setMessage({ text: res.message, type: 'error' });
             }
@@ -57,6 +58,22 @@ export default function MaintenancePage() {
         setMessage(null);
         startTransition(async () => {
             const res = await deployToProduction();
+            if (res.success) {
+                setMessage({ text: res.message, type: 'success' });
+            } else {
+                setMessage({ text: res.message, type: 'error' });
+            }
+        });
+    };
+
+    const handleApplyProductionRefresh = () => {
+        if (!confirm("¿Confirmas ejecutar actualización + reinicio de producción desde mantenimiento?")) {
+            return;
+        }
+
+        setMessage({ text: 'Actualización de producción en curso...', type: 'success' });
+        startTransition(async () => {
+            const res = await applyProductionRefresh();
             if (res.success) {
                 setMessage({ text: res.message, type: 'success' });
             } else {
@@ -99,7 +116,7 @@ export default function MaintenancePage() {
                         </div>
                         <div className="flex justify-between items-center text-sm">
                             <span className="text-muted-foreground">Base de Datos:</span>
-                            <span className="text-emerald-500 font-medium">Conectada (SQLite)</span>
+                            <span className="text-emerald-500 font-medium">Conectada</span>
                         </div>
                         <div className="bg-yellow-50 dark:bg-yellow-900/20 p-3 rounded-md border border-yellow-200 dark:border-yellow-900">
                             <h4 className="flex items-center gap-2 text-sm font-semibold text-yellow-800 dark:text-yellow-500 mb-1">
@@ -239,6 +256,15 @@ export default function MaintenancePage() {
                         >
                             <Rocket className="mr-2 h-4 w-4" />
                             {isPending ? 'Desplegando...' : 'Pasar a Producción'}
+                        </Button>
+                        <Button
+                            onClick={handleApplyProductionRefresh}
+                            disabled={isPending}
+                            variant="outline"
+                            className="w-full mt-2"
+                        >
+                            <RefreshCw className="mr-2 h-4 w-4" />
+                            {isPending ? 'Aplicando...' : 'Aplicar cambios (build + restart)'}
                         </Button>
                     </CardContent>
                 </Card>

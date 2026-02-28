@@ -211,13 +211,8 @@ def extract_all():
 
     # 4. PEDIDOS (CABE_VENTAS + DETA_VENTAS) - FILTRADO POR FECHA
     print("📑 Extrayendo Pedidos y Detalles...")
-    df_cv_raw = xl.parse('CABE_VENTAS', header=None, nrows=15)
-    cv_h = 0
-    for i, r in df_cv_raw.iterrows():
-        if 'NRO_PEDIDO' in [str(x).upper().strip() for x in r.values]:
-            cv_h = i
-            break
-    df_cv = xl.parse('CABE_VENTAS', header=cv_h)
+    # CABE_VENTAS: Header is at row 3 (0-indexed)
+    df_cv = xl.parse('CABE_VENTAS', header=3)
     df_cv.columns = [str(c).upper().strip() for c in df_cv.columns]
 
     # Pre-filtrar cabeceras por fecha si aplica
@@ -239,14 +234,33 @@ def extract_all():
             break
     df_dv = xl.parse('DETA_VENTAS', header=dv_h)
     df_dv.columns = [str(c).upper().strip() for c in df_dv.columns]
-    # Helper para encontrar columnas
-    def find_col(possible_names, default):
+    
+    # Helper para encontrar columnas con mejor matching
+    def find_col(df, possible_names, default):
+        # First try exact match
         for p in possible_names:
-            for c in df_cv.columns:
-                if p.upper() in c.upper(): return c
-        return default
+            if p in df.columns:
+                return p
+        # Then try partial match
+        for p in possible_names:
+            for c in df.columns:
+                if p.upper() in c.upper():
+                    return c
+        # Return default (must exist)
+        if default in df.columns:
+            return default
+        # Fallback: return first column that seems relevant
+        for c in df.columns:
+            for p in possible_names:
+                if p.upper() in c.upper():
+                    return c
+        return None
 
-    col_order_name = find_col(['INV', 'REM', 'PEDIDO', 'NRO', 'ORDEN'], 'NRO_PEDIDO')
+    col_order_name = find_col(df_cv, ['INVOICE', 'INV', 'NRO_PEDIDO', 'PEDIDO', 'NRO'], 'INVOICE')
+    if not col_order_name or col_order_name not in df_cv.columns:
+        print(f"⚠️ ERROR: No se encontró columna de número de pedido. Columnas disponibles: {list(df_cv.columns)}")
+        raise KeyError(f"Column for order number not found in CABE_VENTAS")
+    
     recent_order_ids = set(df_cv[col_order_name].tolist())
 
     # Mapear detalles por pedido (Solo los recientes)
@@ -305,14 +319,14 @@ def extract_all():
     orders = []
     payments_only = []
     
-    # Headers finder to make it robust
-    col_total = find_col(['TOTAL', 'IMPORTE', 'TOTAL USD'], 'TOTAL')
-    col_pago = find_col(['PAGO', 'COBRO', 'COBRADO'], 'PAGO')
-    col_metodo = find_col(['METODO'], 'METODO')
-    col_product = find_col(['PRODUCTO', 'DETALLE', 'ARTICULO'], 'PRODUCTO')
+    # Headers finder to make it robust - now passing df_cv
+    col_total = find_col(df_cv, ['TOTAL USD', 'TOTAL', 'IMPORTE'], 'TOTAL USD')
+    col_pago = find_col(df_cv, ['PAGO', 'COBRO', 'COBRADO'], 'PAGO')
+    col_metodo = find_col(df_cv, ['METODO'], 'METODO')
+    col_product = find_col(df_cv, ['PRODUCTO', 'DETALLE', 'ARTICULO'], None)
 
     for _, row in df_cv.iterrows():
-        onum = row.get('NRO_PEDIDO')
+        onum = row.get(col_order_name)  # Use the found column name
         total_val = clean_num(row.get(col_total))
         pago_val = clean_num(row.get(col_pago))
         

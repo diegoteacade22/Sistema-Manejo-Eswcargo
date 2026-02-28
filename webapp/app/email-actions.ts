@@ -5,42 +5,66 @@ import { sendEmail } from '@/lib/email';
 import { prisma } from '@/lib/prisma';
 import { generatePdfFromHtml } from '@/lib/pdf-generator';
 import { requireAdminUser } from '@/lib/access';
+import { getInvPdfFileName, savePdfToDriveFolder } from '@/lib/document-storage';
 
-export async function sendPackingListEmail(shipmentId: number, targetEmail: string) {
-    await requireAdminUser();
-    if (!targetEmail) {
-        return { success: false, message: 'El email de destino es obligatorio.' };
+type PackingListDocument = {
+    shipment: any;
+    htmlBody: string;
+    pdfBuffer: Uint8Array;
+    fileName: string;
+};
+
+type InvoiceDocument = {
+    order: any;
+    htmlBody: string;
+    pdfBuffer: Uint8Array;
+    fileName: string;
+};
+
+async function trySavePdfToDriveFolder(pdfBuffer: Uint8Array, fileName: string) {
+    try {
+        const savedPath = await savePdfToDriveFolder(pdfBuffer, fileName);
+        return { success: true, savedPath };
+    } catch (error: any) {
+        console.error('PDF save warning (email flow continues):', {
+            fileName,
+            message: error?.message || 'Error desconocido al guardar PDF'
+        });
+        return {
+            success: false,
+            message: error?.message || 'No se pudo guardar copia local del PDF.'
+        };
+    }
+}
+
+async function buildPackingListDocument(shipmentId: number): Promise<PackingListDocument> {
+    const shipment = await prisma.shipment.findUnique({
+        where: { id: shipmentId },
+        include: { client: true }
+    });
+
+    if (!shipment) {
+        throw new Error('Envío no encontrado.');
     }
 
-    try {
-        const shipment = await prisma.shipment.findUnique({
-            where: { id: shipmentId },
-            include: { client: true }
-        });
+    const shipmentItems = await prisma.orderItem.findMany({
+        where: {
+            OR: [
+                { shipmentId: shipmentId },
+                { order: { shipmentId: shipmentId } }
+            ]
+        },
+        include: {
+            product: true,
+            order: true
+        }
+    });
 
-        if (!shipment) return { success: false, message: 'Envío no encontrado.' };
-
-        // Include items linked directly to shipment and items inherited via Order.shipmentId
-        const shipmentItems = await prisma.orderItem.findMany({
-            where: {
-                OR: [
-                    { shipmentId: shipmentId },
-                    { order: { shipmentId: shipmentId } }
-                ]
-            },
-            include: {
-                product: true,
-                order: true
-            }
-        });
-
-        // Simple HTML construction for Email
-
-        let itemsHtml = '';
-        let totalPcs = 0;
-        shipmentItems.forEach(item => {
-            totalPcs += item.quantity;
-            itemsHtml += `
+    let itemsHtml = '';
+    let totalPcs = 0;
+    shipmentItems.forEach(item => {
+        totalPcs += item.quantity;
+        itemsHtml += `
                 <tr>
                     <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold; color: #0D3B4C;">${item.quantity}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: 500;">${item.productName}</td>
@@ -48,10 +72,9 @@ export async function sendPackingListEmail(shipmentId: number, targetEmail: stri
                     <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold; color: #F4AB3D;">#${item.order?.order_number || '-'}</td>
                 </tr>
              `;
-        });
+    });
 
-        // Add Total Row for Packing List
-        itemsHtml += `
+    itemsHtml += `
             <tr style="background-color: #f9f9f9; border-top: 2px solid #0D3B4C;">
                 <td style="padding: 12px; text-align: center; font-size: 16px; font-weight: 900; color: #0D3B4C;">${totalPcs}</td>
                 <td colspan="2" style="padding: 12px; text-align: right; font-size: 11px; font-weight: 900; color: #0D3B4C; text-transform: uppercase; letter-spacing: 1px;">Total PCs</td>
@@ -59,7 +82,7 @@ export async function sendPackingListEmail(shipmentId: number, targetEmail: stri
             </tr>
         `;
 
-        const htmlBody = `
+    const htmlBody = `
             <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 700px; margin: 0 auto; color: #333; background-color: #fff; border: 1px solid #eee;">
                 <!-- Header ESWCARGO -->
                 <div style="background-color: #0D3B4C; padding: 20px; text-align: center; border-bottom: 5px solid #F4AB3D;">
@@ -126,64 +149,40 @@ export async function sendPackingListEmail(shipmentId: number, targetEmail: stri
             </div>
         `;
 
-        // Generate PDF
-        const pdfBuffer = await generatePdfFromHtml(htmlBody);
+    const pdfBuffer = await generatePdfFromHtml(htmlBody);
+    const fileName = getInvPdfFileName(shipment.invoice, shipment.shipment_number || shipment.id);
 
-        const result = await sendEmail(
-            targetEmail,
-            `PACKING LIST #${shipment.shipment_number} - ESWCARGO`,
-            htmlBody,
-            [
-                {
-                    filename: `PackingList_${shipment.shipment_number}.pdf`,
-                    content: pdfBuffer
-                }
-            ]
-        );
-
-        if (result.success) {
-            await prisma.shipment.update({
-                where: { id: shipmentId },
-                data: { email_sent_at: new Date() }
-            });
-        }
-
-        return result;
-
-    } catch (error: any) {
-        console.error('Action Error:', error);
-        return { success: false, message: error.message || 'Error desconocido en el servidor.' };
-    }
+    return {
+        shipment,
+        htmlBody,
+        pdfBuffer,
+        fileName
+    };
 }
 
-export async function sendInvoiceEmail(orderId: number, targetEmail: string) {
-    await requireAdminUser();
-    if (!targetEmail) {
-        return { success: false, message: 'El email de destino es obligatorio.' };
+async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocument> {
+    const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+            items: {
+                include: {
+                    product: true
+                }
+            },
+            client: true,
+            shipment: true
+        }
+    });
+
+    if (!order) {
+        throw new Error('Pedido no encontrado.');
     }
 
-    try {
-        const order = await prisma.order.findUnique({
-            where: { id: orderId },
-            include: {
-                items: {
-                    include: {
-                        product: true
-                    }
-                },
-                client: true,
-                shipment: true
-            }
-        });
-
-        if (!order) return { success: false, message: 'Pedido no encontrado.' };
-
-        // HTML Construction for Invoice (Premium Blue Theme)
-        let itemsHtml = '';
-        let totalPcs = 0;
-        order.items.forEach(item => {
-            totalPcs += item.quantity;
-            itemsHtml += `
+    let itemsHtml = '';
+    let totalPcs = 0;
+    order.items.forEach(item => {
+        totalPcs += item.quantity;
+        itemsHtml += `
                 <tr>
                     <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center;">${item.quantity}</td>
                     <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.productName}</td>
@@ -192,10 +191,9 @@ export async function sendInvoiceEmail(orderId: number, targetEmail: string) {
                     <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;">USD ${(item.unit_price * item.quantity).toFixed(0)}</td>
                 </tr>
              `;
-        });
+    });
 
-        // Add Total Quantity row
-        itemsHtml += `
+    itemsHtml += `
             <tr style="background-color: #f9f9f9; border-top: 2px solid #103a89;">
                 <td style="padding: 12px; text-align: center; font-size: 16px; font-weight: 900; color: #103a89;">${totalPcs}</td>
                 <td colspan="2" style="padding: 12px; text-align: right; font-size: 11px; font-weight: 900; color: #103a89; text-transform: uppercase;">Total Units (PCs)</td>
@@ -203,7 +201,7 @@ export async function sendInvoiceEmail(orderId: number, targetEmail: string) {
             </tr>
         `;
 
-        const htmlBody = `
+    const htmlBody = `
             <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 700px; margin: 0 auto; color: #333; background-color: #fff; border: 1px solid #eee;">
                 <!-- Header -->
                 <div style="background-color: #fff; padding: 30px; border-bottom: 5px solid #103a89;">
@@ -306,26 +304,58 @@ export async function sendInvoiceEmail(orderId: number, targetEmail: string) {
             </div>
         `;
 
-        // Generate PDF from this same HTML
-        const pdfBuffer = await generatePdfFromHtml(htmlBody);
+    const pdfBuffer = await generatePdfFromHtml(htmlBody);
+    const fileName = getInvPdfFileName(order.order_number, order.id);
+
+    return {
+        order,
+        htmlBody,
+        pdfBuffer,
+        fileName
+    };
+}
+
+export async function sendPackingListEmail(shipmentId: number, targetEmail: string) {
+    await requireAdminUser();
+    if (!targetEmail) {
+        return { success: false, message: 'El email de destino es obligatorio.' };
+    }
+
+    try {
+        const { shipment, htmlBody, pdfBuffer, fileName } = await buildPackingListDocument(shipmentId);
+        const saveResult = await trySavePdfToDriveFolder(pdfBuffer, fileName);
 
         const result = await sendEmail(
             targetEmail,
-            `INVOICE #${order.order_number} - Electro-Surweb Inc`,
+            `PACKING LIST #${shipment.shipment_number} - ESWCARGO`,
             htmlBody,
             [
                 {
-                    filename: `Invoice_${order.order_number}.pdf`,
+                    filename: fileName,
                     content: pdfBuffer
                 }
             ]
         );
 
+        if (!result.success && !saveResult.success) {
+            return {
+                success: false,
+                message: `${result.message} | Además, falló guardado local: ${saveResult.message}`
+            };
+        }
+
         if (result.success) {
-            await prisma.order.update({
-                where: { id: orderId },
+            await prisma.shipment.update({
+                where: { id: shipmentId },
                 data: { email_sent_at: new Date() }
             });
+
+            if (!saveResult.success) {
+                return {
+                    success: true,
+                    message: `Email enviado. Aviso: ${saveResult.message}`
+                };
+            }
         }
 
         return result;
@@ -333,5 +363,82 @@ export async function sendInvoiceEmail(orderId: number, targetEmail: string) {
     } catch (error: any) {
         console.error('Action Error:', error);
         return { success: false, message: error.message || 'Error desconocido en el servidor.' };
+    }
+}
+
+export async function sendInvoiceEmail(orderId: number, targetEmail: string) {
+    await requireAdminUser();
+    if (!targetEmail) {
+        return { success: false, message: 'El email de destino es obligatorio.' };
+    }
+
+    try {
+        const { order, htmlBody, pdfBuffer, fileName } = await buildInvoiceDocument(orderId);
+        const saveResult = await trySavePdfToDriveFolder(pdfBuffer, fileName);
+
+        const result = await sendEmail(
+            targetEmail,
+            `INVOICE #${order.order_number} - Electro-Surweb Inc`,
+            htmlBody,
+            [
+                {
+                    filename: fileName,
+                    content: pdfBuffer
+                }
+            ]
+        );
+
+        if (!result.success && !saveResult.success) {
+            return {
+                success: false,
+                message: `${result.message} | Además, falló guardado local: ${saveResult.message}`
+            };
+        }
+
+        if (result.success) {
+            await prisma.order.update({
+                where: { id: orderId },
+                data: { email_sent_at: new Date() }
+            });
+
+            if (!saveResult.success) {
+                return {
+                    success: true,
+                    message: `Email enviado. Aviso: ${saveResult.message}`
+                };
+            }
+        }
+
+        return result;
+
+    } catch (error: any) {
+        console.error('Action Error:', error);
+        return { success: false, message: error.message || 'Error desconocido en el servidor.' };
+    }
+}
+
+export async function saveInvoicePdfToDrive(orderId: number) {
+    await requireAdminUser();
+
+    try {
+        const { fileName, pdfBuffer } = await buildInvoiceDocument(orderId);
+        const savedPath = await savePdfToDriveFolder(pdfBuffer, fileName);
+        return { success: true, fileName, savedPath };
+    } catch (error: any) {
+        console.error('Action Error:', error);
+        return { success: false, message: error.message || 'No se pudo guardar el invoice.' };
+    }
+}
+
+export async function savePackingListPdfToDrive(shipmentId: number) {
+    await requireAdminUser();
+
+    try {
+        const { fileName, pdfBuffer } = await buildPackingListDocument(shipmentId);
+        const savedPath = await savePdfToDriveFolder(pdfBuffer, fileName);
+        return { success: true, fileName, savedPath };
+    } catch (error: any) {
+        console.error('Action Error:', error);
+        return { success: false, message: error.message || 'No se pudo guardar el packing list.' };
     }
 }

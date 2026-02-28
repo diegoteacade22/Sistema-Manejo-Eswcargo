@@ -3,9 +3,9 @@
 # Usage: ./sync_excel.sh [days_filter (7/30/0)]
 
 DAYS_FILTER=${1:-0}
-FORCE_FULL_SYNC=${FORCE_FULL_SYNC:-true}
+FORCE_FULL_SYNC=${FORCE_FULL_SYNC:-false}
 
-if [ "$FORCE_FULL_SYNC" == "true" ] && [ "$DAYS_FILTER" != "FULL" ] && [ "$DAYS_FILTER" != "0" ]; then
+if [[ "$FORCE_FULL_SYNC" =~ ^(true|1|yes)$ ]] && [ "$DAYS_FILTER" != "FULL" ] && [ "$DAYS_FILTER" != "0" ]; then
    echo "⚠️ FORCE_FULL_SYNC activo: se ignora filtro parcial ($DAYS_FILTER) para evitar corrupción durante migración."
    DAYS_FILTER="FULL"
 fi

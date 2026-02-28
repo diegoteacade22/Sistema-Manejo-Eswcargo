@@ -1,11 +1,12 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button } from "@/components/ui/button";
-import { Printer, Mail, FileText, Loader2, Instagram, Globe, MessageSquare, Twitter, Facebook } from 'lucide-react';
-import { sendInvoiceEmail } from '@/app/email-actions';
+import { Printer, Mail, FileText, Loader2, Instagram, Globe, MessageSquare, Twitter, Download } from 'lucide-react';
+import { saveInvoicePdfToDrive, sendInvoiceEmail } from '@/app/email-actions';
 import { toast } from 'sonner';
+import { toInvNumber4 } from '@/lib/inv-filename';
 
 interface InvoiceTemplateProps {
     order: any;
@@ -13,9 +14,26 @@ interface InvoiceTemplateProps {
 
 export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
     const [isSending, setIsSending] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
+    const invNumber = toInvNumber4(order?.order_number, order?.id);
+    const invBaseName = `INV ${invNumber}`;
+    const invFileName = `INV ${invNumber}.pdf`;
+
+    useEffect(() => {
+        const previousTitle = document.title;
+        document.title = invFileName.replace(/\.pdf$/i, '');
+        return () => {
+            document.title = previousTitle;
+        };
+    }, [invFileName]);
 
     const handlePrint = () => {
+        const previousTitle = document.title;
+        document.title = invBaseName;
         window.print();
+        setTimeout(() => {
+            document.title = previousTitle;
+        }, 250);
     };
 
     const handleSendEmail = async () => {
@@ -38,6 +56,22 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
             toast.error('Error de red al enviar el email');
         } finally {
             setIsSending(false);
+        }
+    };
+
+    const handleSaveDrive = async () => {
+        setIsSaving(true);
+        try {
+            const result = await saveInvoicePdfToDrive(order.id);
+            if (result.success) {
+                toast.success(`Guardado: ${result.fileName}`);
+            } else {
+                toast.error('Error al guardar: ' + result.message);
+            }
+        } catch {
+            toast.error('Error de red al guardar el PDF');
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -80,6 +114,14 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
                         </div>
                     </div>
                     <div className="flex gap-3">
+                        <Button
+                            onClick={handleSaveDrive}
+                            disabled={isSaving}
+                            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                        >
+                            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                            Guardar PDF
+                        </Button>
                         <Button
                             variant="outline"
                             onClick={handlePrint}

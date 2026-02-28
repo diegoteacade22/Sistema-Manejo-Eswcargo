@@ -91,12 +91,21 @@ export default async function ClientPage(props: Props) {
 
     return (
         <div className="p-8 space-y-8">
-            <div className="flex items-center space-x-4">
-                <Button variant="outline" size="icon" asChild>
-                    <Link href="/clients"><ArrowLeft className="h-4 w-4" /></Link>
-                </Button>
-                <h1 className="text-3xl font-bold tracking-tight text-foreground">{client.name}</h1>
-                <Badge variant="outline" className="text-lg">{client.type || 'Cliente'}</Badge>
+            <div className="flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center space-x-4">
+                    <Button variant="outline" size="icon" asChild>
+                        <Link href="/clients"><ArrowLeft className="h-4 w-4" /></Link>
+                    </Button>
+                    <h1 className="text-3xl font-bold tracking-tight text-foreground">{client.name}</h1>
+                    <Badge variant="outline" className="text-lg">{client.type || 'Cliente'}</Badge>
+                </div>
+                <PaymentDialog
+                    clientId={client.id}
+                    clientName={client.name}
+                    buttonLabel="Registrar Pago"
+                    buttonVariant="default"
+                    buttonClassName="bg-emerald-600 hover:bg-emerald-700 text-white"
+                />
             </div>
 
             <div className="grid gap-4 md:grid-cols-3">
