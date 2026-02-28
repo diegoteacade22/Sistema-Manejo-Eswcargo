@@ -460,6 +460,7 @@ export async function updateOrderStatus(orderId: number, status: string, shipmen
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const data: any = { status };
         const normalizedShipmentId = shipmentId === 0 ? null : shipmentId;
+        const previousShipmentId = existingOrder?.shipmentId || null;
 
         if (shipmentId !== undefined) {
             data.shipmentId = normalizedShipmentId;
@@ -470,9 +471,23 @@ export async function updateOrderStatus(orderId: number, status: string, shipmen
             data: data
         });
 
+        const itemData: any = { status };
+        if (shipmentId !== undefined) {
+            itemData.shipmentId = normalizedShipmentId;
+        }
+
+        await prisma.orderItem.updateMany({
+            where: { orderId },
+            data: itemData
+        });
+
         // Trigger recalc for the NEW shipment
         if (updatedOrder.shipmentId) {
             await recalculateShipmentStats(updatedOrder.shipmentId);
+        }
+
+        if (previousShipmentId && previousShipmentId !== updatedOrder.shipmentId) {
+            await recalculateShipmentStats(previousShipmentId);
         }
 
         // We might also want to recalc the OLD shipment if we moved it?
@@ -483,6 +498,7 @@ export async function updateOrderStatus(orderId: number, status: string, shipmen
         revalidatePath('/orders');
         revalidatePath('/shipments');
         if (updatedOrder.shipmentId) revalidatePath(`/shipments/${updatedOrder.shipmentId}`);
+        if (previousShipmentId && previousShipmentId !== updatedOrder.shipmentId) revalidatePath(`/shipments/${previousShipmentId}`);
 
         let delivery: DeliveryResult | null = null;
         const shipmentWasAssigned =

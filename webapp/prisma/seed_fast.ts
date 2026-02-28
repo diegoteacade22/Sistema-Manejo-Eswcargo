@@ -39,7 +39,8 @@ async function main() {
                 status: true,
                 total_amount: true,
                 clientId: true,
-                date: true
+                date: true,
+                shipmentId: true,
             }
         }),
         prisma.supplier.findMany({ select: { id: true, old_id: true, name: true } })
@@ -190,11 +191,27 @@ async function main() {
             totalAmount = items.reduce((sum: number, i: any) => sum + (i.unit_price * i.quantity), 0);
         }
 
+        const itemStatuses = [...new Set(
+            items
+                .map((i: any) => (i.status || '').toString().trim())
+                .filter((value: string) => value.length > 0)
+        )];
+
+        const itemShipmentIds = [...new Set(
+            items
+                .map((item: any) => item.shipment_number ? shipmentNumMap.get(item.shipment_number)?.id : null)
+                .filter((value: number | null | undefined): value is number => typeof value === 'number')
+        )];
+
+        const resolvedStatus = itemStatuses.length === 1 ? itemStatuses[0] : o.status;
+        const resolvedShipmentId = itemShipmentIds.length === 1 ? itemShipmentIds[0] : null;
+
         const orderData = {
             order_number: o.order_number,
             clientId: dbClientId || unknownClientId,
             date: orderDate,
-            status: o.status,
+            status: resolvedStatus,
+            shipmentId: resolvedShipmentId,
             total_amount: totalAmount,
             paymentMethod: o.payment_method
         };
@@ -205,7 +222,12 @@ async function main() {
                 data: orderData as any
             });
         } else {
-            if (existing.status !== o.status || existing.total_amount !== o.total_amount || existing.clientId !== (dbClientId || unknownClientId)) {
+            if (
+                existing.status !== resolvedStatus ||
+                existing.total_amount !== totalAmount ||
+                existing.clientId !== (dbClientId || unknownClientId) ||
+                existing.shipmentId !== resolvedShipmentId
+            ) {
                 dbOrder = await prisma.order.update({
                     where: { id: existing.id },
                     data: orderData as any

@@ -70,6 +70,8 @@ export default async function OrderPage(props: Props) {
     // For now, usually all items go together.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const effectiveShipment = (order as any).shipment || (order as any).items.find((i: any) => i.shipment)?.shipment;
+    const itemStatuses = [...new Set((order as any).items.map((item: any) => item.status).filter(Boolean))];
+    const effectiveStatus = itemStatuses.length === 1 ? itemStatuses[0] : order.status;
 
     // Fetch active shipments for the dropdown (Admin only)
     let shipments: any[] = [];
@@ -130,13 +132,13 @@ export default async function OrderPage(props: Props) {
                                 {isAdmin ? (
                                     <OrderStatusDialog
                                         orderId={order.id}
-                                        currentStatus={order.status}
+                                        currentStatus={effectiveStatus}
                                         currentShipmentId={effectiveShipment?.id}
                                         shipments={shipments}
                                     />
                                 ) : (
                                     <Badge className="font-black text-sm uppercase px-4 py-1">
-                                        {order.status}
+                                        {effectiveStatus}
                                     </Badge>
                                 )}
                             </div>
@@ -148,7 +150,7 @@ export default async function OrderPage(props: Props) {
                                     <Link href={`/shipments/${effectiveShipment.id}`} className="inline-flex items-center px-4 py-1.5 rounded-xl text-xs font-black bg-fuchsia-600 text-white hover:bg-fuchsia-700 transition-colors uppercase tracking-wider shadow-lg shadow-fuchsia-500/20">
                                         Envío #{effectiveShipment.shipment_number}
                                     </Link>
-                                ) : order.status === 'ENTREGADO' ? (
+                                ) : effectiveStatus === 'ENTREGADO' ? (
                                     <span className="text-sm font-black text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30 px-3 py-1 rounded-full uppercase text-[10px] tracking-tight">
                                         Entrega Directa / Finalizado
                                     </span>
