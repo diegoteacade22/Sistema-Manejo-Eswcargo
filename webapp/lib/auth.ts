@@ -5,6 +5,10 @@ import { authConfig } from "@/auth.config";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 
+function normalize(value: string | undefined) {
+    return value?.toLowerCase().trim() || "";
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
     ...authConfig,
     providers: [
@@ -15,7 +19,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 password: { label: "Contraseña", type: "password" },
             },
             async authorize(credentials, request) {
-                const username = credentials?.username?.toString().toLowerCase().trim();
+                const username = normalize(credentials?.username?.toString());
                 const password = credentials?.password?.toString();
                 const host = request?.headers?.get('host') || '';
 
@@ -47,6 +51,34 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 if (!username || !password) {
                     console.log("❌ [AUTH] Credenciales faltantes");
                     return null;
+                }
+
+                const allowEmergencyAdmin = process.env.ALLOW_ADMIN_EMERGENCY_LOGIN === 'true';
+                const emergencyUsername = normalize(process.env.ADMIN_EMERGENCY_USERNAME || 'admin');
+                const emergencyEmail = normalize(process.env.ADMIN_EMERGENCY_EMAIL || 'admin@eswcargo.com');
+                const emergencyPassword = process.env.ADMIN_EMERGENCY_PASSWORD;
+
+                if (allowEmergencyAdmin && emergencyPassword && (username === emergencyUsername || username === emergencyEmail)) {
+                    const isEmergencyPasswordValid = password === emergencyPassword;
+                    if (isEmergencyPasswordValid) {
+                        console.warn("⚠️ [AUTH] LOGIN ADMIN EMERGENCIA ACTIVADO");
+                        const adminUser = await prisma.user.findFirst({
+                            where: {
+                                OR: [
+                                    { username: emergencyUsername },
+                                    { email: emergencyEmail },
+                                    { role: 'ADMIN' },
+                                ],
+                            },
+                        });
+
+                        return {
+                            id: adminUser?.id || 'admin-emergency-login',
+                            name: adminUser?.name || 'Administrador',
+                            email: adminUser?.email || emergencyEmail,
+                            role: 'ADMIN',
+                        };
+                    }
                 }
 
                 const user = await (prisma as any).user.findUnique({
