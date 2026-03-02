@@ -1,25 +1,14 @@
 #!/bin/bash
 # Sync Excel data using Consolidated Extractor and Fast Seeder
-# Usage: ./sync_excel.sh [days_filter (7/30/0)]
+# Usage: ./sync_excel.sh (siempre FULL)
 
-DAYS_FILTER=${1:-0}
-FORCE_FULL_SYNC=${FORCE_FULL_SYNC:-false}
-
-if [[ "$FORCE_FULL_SYNC" =~ ^(true|1|yes)$ ]] && [ "$DAYS_FILTER" != "FULL" ] && [ "$DAYS_FILTER" != "0" ]; then
-   echo "⚠️ FORCE_FULL_SYNC activo: se ignora filtro parcial ($DAYS_FILTER) para evitar corrupción durante migración."
-   DAYS_FILTER="FULL"
-fi
-
-SYNC_MODE="DIFF"
-if [ "$DAYS_FILTER" == "FULL" ] || [ "$DAYS_FILTER" == "0" ]; then
-   SYNC_MODE="FULL"
-   DAYS_FILTER="FULL"
-fi
+DAYS_FILTER="FULL"
+SYNC_MODE="FULL"
 
 echo "🚀 Starting Excel Sync (Consolidated)..."
 echo "----------------------------------------"
 echo "Sync Mode: $SYNC_MODE"
-echo "Filter: $DAYS_FILTER days (if applicable)"
+echo "Filter: $DAYS_FILTER"
 
 # Get paths
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"

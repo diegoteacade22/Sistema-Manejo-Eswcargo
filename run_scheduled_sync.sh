@@ -5,7 +5,6 @@ set -euo pipefail
 PROJECT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 LOCK_FILE="/tmp/eswcargo_google_sync.lock"
 LOG_DIR="$PROJECT_DIR/logs/sync"
-SYNC_DAYS="${1:-7}"
 
 # Cron suele ejecutarse con PATH mínimo
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
@@ -23,7 +22,7 @@ fi
 echo $$ > "$LOCK_FILE"
 trap 'rm -f "$LOCK_FILE"' EXIT
 
-echo "[$(date +'%Y-%m-%d %H:%M:%S')] Iniciando sincronización programada (últimos $SYNC_DAYS días)..."
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] Iniciando sincronización programada (COMPLETA)..."
 cd "$PROJECT_DIR"
-bash ./auto_sync.sh "$SYNC_DAYS" >> "$LOG_DIR/auto_sync.log" 2>&1
+bash ./auto_sync.sh >> "$LOG_DIR/auto_sync.log" 2>&1
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] Sincronización programada finalizada."
