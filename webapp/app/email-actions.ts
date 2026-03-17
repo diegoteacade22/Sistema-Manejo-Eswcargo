@@ -6,6 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { generatePdfFromHtml } from '@/lib/pdf-generator';
 import { requireAdminUser } from '@/lib/access';
 import { getInvPdfFileName, savePdfToDriveFolder } from '@/lib/document-storage';
+import { filterExportableShipmentItems } from '@/lib/shipment-items';
 
 type PackingListDocument = {
     shipment: any;
@@ -47,7 +48,7 @@ async function buildPackingListDocument(shipmentId: number): Promise<PackingList
         throw new Error('Envío no encontrado.');
     }
 
-    const shipmentItems = await prisma.orderItem.findMany({
+    const shipmentItemsRaw = await prisma.orderItem.findMany({
         where: {
             OR: [
                 { shipmentId: shipmentId },
@@ -59,6 +60,12 @@ async function buildPackingListDocument(shipmentId: number): Promise<PackingList
             order: true
         }
     });
+
+    const shipmentItems = filterExportableShipmentItems(shipmentItemsRaw);
+
+    if (shipmentItems.length === 0) {
+        throw new Error('No hay ítems exportables en este envío (solo se exportan SALIENDO/LLEGANDO).');
+    }
 
     let itemsHtml = '';
     let totalPcs = 0;
@@ -332,7 +339,7 @@ export async function sendPackingListEmail(shipmentId: number, targetEmail: stri
             [
                 {
                     filename: fileName,
-                    content: pdfBuffer
+                    content: Buffer.from(pdfBuffer)
                 }
             ]
         );
@@ -383,7 +390,7 @@ export async function sendInvoiceEmail(orderId: number, targetEmail: string) {
             [
                 {
                     filename: fileName,
-                    content: pdfBuffer
+                    content: Buffer.from(pdfBuffer)
                 }
             ]
         );

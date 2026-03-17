@@ -39,6 +39,7 @@ export default function NewPurchaseForm({ suppliers, products }: { suppliers: Su
 
   const [supplierId, setSupplierId] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [dueDate, setDueDate] = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [notes, setNotes] = useState('');
@@ -86,6 +87,7 @@ export default function NewPurchaseForm({ suppliers, products }: { suppliers: Su
       const result = await createPurchase({
         supplierId: Number(supplierId),
         date: new Date(date),
+        due_date: dueDate ? new Date(dueDate) : null,
         invoice_number: invoiceNumber,
         payment_method: paymentMethod,
         notes,
@@ -129,6 +131,10 @@ export default function NewPurchaseForm({ suppliers, products }: { suppliers: Su
           <div className="space-y-2">
             <Label>Invoice</Label>
             <Input value={invoiceNumber} onChange={(e) => setInvoiceNumber(e.target.value)} placeholder="Opcional" />
+          </div>
+          <div className="space-y-2">
+            <Label>Vencimiento</Label>
+            <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
           </div>
           <div className="space-y-2">
             <Label>Método de pago</Label>

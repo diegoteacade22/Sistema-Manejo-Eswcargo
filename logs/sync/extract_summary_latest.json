@@ -1,0 +1,12 @@
+{
+  "clients": 330,
+  "products": 1051,
+  "suppliers": 85,
+  "shipments": 588,
+  "orders": 655,
+  "order_headers_detected": 674,
+  "payments_extra": 0,
+  "purchases": 25,
+  "mode": "FULL",
+  "timestamp": "2026-03-12T18:00:39.831967"
+}

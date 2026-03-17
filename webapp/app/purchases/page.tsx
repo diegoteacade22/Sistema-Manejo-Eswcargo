@@ -52,12 +52,16 @@ export default async function PurchasesPage() {
                 <tr>
                   <th className="py-2 pr-4">Compra</th>
                   <th className="py-2 pr-4">Fecha</th>
+                  <th className="py-2 pr-4">Vencimiento</th>
                   <th className="py-2 pr-4">Proveedor</th>
                   <th className="py-2 pr-4">Invoice</th>
+                  <th className="py-2 pr-4">Total USD</th>
+                  <th className="py-2 pr-4">Pendiente USD</th>
+                  <th className="py-2 pr-4">Finanzas</th>
                   <th className="py-2 pr-4">Total ítems</th>
                   <th className="py-2 pr-4">Asignado</th>
                   <th className="py-2 pr-4">Pendiente</th>
-                  <th className="py-2 pr-4">Estado</th>
+                  <th className="py-2 pr-4">Asignación</th>
                   <th className="py-2 pr-4">Acciones</th>
                 </tr>
               </thead>
@@ -75,8 +79,16 @@ export default async function PurchasesPage() {
                     <tr key={purchase.id} className="border-t">
                       <td className="py-2 pr-4 font-semibold">#{purchase.id}</td>
                       <td className="py-2 pr-4">{new Date(purchase.date).toLocaleDateString()}</td>
+                      <td className="py-2 pr-4">{purchase.due_date ? new Date(purchase.due_date).toLocaleDateString() : '—'}</td>
                       <td className="py-2 pr-4">{purchase.supplier.name}</td>
                       <td className="py-2 pr-4">{purchase.invoice_number || '—'}</td>
+                      <td className="py-2 pr-4">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(purchase.total_amount || 0)}</td>
+                      <td className="py-2 pr-4">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(purchase.balance_due || 0)}</td>
+                      <td className="py-2 pr-4">
+                        <Badge className={purchase.payment_status === 'PAGADA' ? 'bg-emerald-600' : purchase.payment_status === 'PARCIAL' ? 'bg-amber-600' : 'bg-slate-600'}>
+                          {purchase.payment_status || 'PENDIENTE'}
+                        </Badge>
+                      </td>
                       <td className="py-2 pr-4">{totalQty}</td>
                       <td className="py-2 pr-4">{allocatedQty}</td>
                       <td className="py-2 pr-4">{pendingQty}</td>
@@ -96,7 +108,7 @@ export default async function PurchasesPage() {
 
                 {purchases.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="text-center py-10 text-muted-foreground">
+                    <td colSpan={13} className="text-center py-10 text-muted-foreground">
                       No hay compras registradas todavía.
                     </td>
                   </tr>

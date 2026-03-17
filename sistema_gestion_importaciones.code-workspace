@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../../OpenGravity86"
+		}
+	],
+	"settings": {
+		"typescript.disableAutomaticTypeAcquisition": true,
+		"chat.tools.terminal.autoApprove": {
+			"npx ts-node": true
+		}
+	}
+}

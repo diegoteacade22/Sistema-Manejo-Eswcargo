@@ -13,6 +13,7 @@ type CreatePurchaseItemInput = {
 type CreatePurchaseInput = {
   supplierId: number;
   date: Date;
+  due_date?: Date | null;
   invoice_number?: string;
   payment_method?: string;
   notes?: string;
@@ -25,6 +26,15 @@ type AssignPurchaseInput = {
   quantity: number;
   unitPrice: number;
   notes?: string;
+};
+
+type RegisterPurchasePaymentInput = {
+  purchaseId: number;
+  amount: number;
+  payment_method?: string;
+  reference?: string;
+  notes?: string;
+  date?: Date;
 };
 
 async function getNextOrderNumber(tx: any) {
@@ -82,6 +92,45 @@ async function upsertOrderChargeTransaction(tx: any, order: { id: number; order_
   });
 }
 
+async function recalculatePurchaseFinancials(tx: any, purchaseId: number) {
+  const purchase = await tx.purchase.findUnique({
+    where: { id: purchaseId },
+    select: { id: true, total_amount: true }
+  });
+
+  if (!purchase) {
+    throw new Error('Compra no encontrada.');
+  }
+
+  const payments = await tx.purchasePayment.aggregate({
+    where: { purchaseId },
+    _sum: { amount: true }
+  });
+
+  const paidAmount = Number(payments?._sum?.amount || 0);
+  const totalAmount = Number(purchase.total_amount || 0);
+  const balanceDue = Math.max(totalAmount - paidAmount, 0);
+
+  let paymentStatus = 'PENDIENTE';
+  if (paidAmount > 0 && balanceDue > 0) {
+    paymentStatus = 'PARCIAL';
+  } else if (balanceDue <= 0 && totalAmount > 0) {
+    paymentStatus = 'PAGADA';
+  }
+
+  await tx.purchase.update({
+    where: { id: purchaseId },
+    data: {
+      paid_amount: paidAmount,
+      balance_due: balanceDue,
+      payment_status: paymentStatus,
+      paid_at: paymentStatus === 'PAGADA' ? new Date() : null,
+    }
+  });
+
+  return { paidAmount, balanceDue, paymentStatus };
+}
+
 export async function createPurchase(data: CreatePurchaseInput) {
   await requireAdminUser();
 
@@ -113,10 +162,14 @@ export async function createPurchase(data: CreatePurchaseInput) {
       data: {
         supplierId: data.supplierId,
         date: data.date,
+        due_date: data.due_date || null,
         invoice_number: data.invoice_number?.trim() || null,
         payment_method: data.payment_method?.trim() || null,
         notes: data.notes?.trim() || null,
         total_amount,
+        paid_amount: 0,
+        balance_due: total_amount,
+        payment_status: total_amount > 0 ? 'PENDIENTE' : 'PAGADA',
         items: {
           create: validItems.map((item) => {
             const product = productMap.get(item.productId)!;
@@ -129,6 +182,18 @@ export async function createPurchase(data: CreatePurchaseInput) {
             };
           })
         }
+      }
+    });
+
+    await prisma.transaction.create({
+      data: {
+        supplierId: data.supplierId,
+        date: data.date,
+        type: 'CARGO',
+        amount: -Math.abs(total_amount),
+        description: `Compra #${purchase.id}`,
+        reference: data.invoice_number?.trim() || String(purchase.id),
+        paymentMethod: data.payment_method?.trim() || null,
       }
     });
 
@@ -256,6 +321,77 @@ export async function assignPurchaseToClient(input: AssignPurchaseInput) {
   }
 }
 
+export async function registerPurchasePayment(input: RegisterPurchasePaymentInput) {
+  await requireAdminUser();
+
+  if (!input.purchaseId || Number.isNaN(input.purchaseId)) {
+    return { success: false, message: 'Compra inválida.' };
+  }
+
+  if (!input.amount || input.amount <= 0) {
+    return { success: false, message: 'El monto del pago debe ser mayor a cero.' };
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx: any) => {
+      const purchase = await tx.purchase.findUnique({
+        where: { id: input.purchaseId },
+        include: { supplier: { select: { id: true, name: true } } }
+      });
+
+      if (!purchase) {
+        throw new Error('Compra no encontrada.');
+      }
+
+      await tx.purchasePayment.create({
+        data: {
+          purchaseId: purchase.id,
+          supplierId: purchase.supplierId,
+          amount: Number(input.amount),
+          date: input.date || new Date(),
+          payment_method: input.payment_method?.trim() || null,
+          reference: input.reference?.trim() || null,
+          notes: input.notes?.trim() || null,
+        }
+      });
+
+      await tx.transaction.create({
+        data: {
+          supplierId: purchase.supplierId,
+          date: input.date || new Date(),
+          type: 'PAGO',
+          amount: Math.abs(Number(input.amount)),
+          description: `Pago compra #${purchase.id}`,
+          reference: input.reference?.trim() || purchase.invoice_number || String(purchase.id),
+          paymentMethod: input.payment_method?.trim() || null,
+        }
+      });
+
+      const financial = await recalculatePurchaseFinancials(tx, purchase.id);
+
+      return {
+        purchaseId: purchase.id,
+        supplierId: purchase.supplierId,
+        supplierName: purchase.supplier.name,
+        ...financial,
+      };
+    });
+
+    revalidatePath('/purchases');
+    revalidatePath(`/purchases/${input.purchaseId}`);
+    revalidatePath(`/suppliers/${result.supplierId}`);
+
+    return {
+      success: true,
+      message: `Pago registrado. Estado financiero: ${result.paymentStatus}.`,
+      ...result,
+    };
+  } catch (error: any) {
+    console.error('Error registering purchase payment', error);
+    return { success: false, message: error?.message || 'No se pudo registrar el pago.' };
+  }
+}
+
 export async function markPurchaseAsPaid(purchaseId: number) {
   await requireAdminUser();
 
@@ -317,6 +453,6 @@ export async function markPurchaseAsPaid(purchaseId: number) {
     };
   } catch (error) {
     console.error('Error marking purchase as paid', error);
-    return { success: false, message: 'No se pudo marcar la compra como pagada.' };
+    return { success: false, message: 'No se pudo actualizar estado logístico de la compra.' };
   }
 }

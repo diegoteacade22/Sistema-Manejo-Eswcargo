@@ -2,6 +2,13 @@
     "files.exclude": {
         "": true
     },
+    "problems.exclude": {
+        "**/Library/Caches/typescript/**": true,
+        "**/var/folders/**": true,
+        "/Users/diegorodriguez/Library/Caches/typescript/**": true,
+        "/var/folders/**": true
+    },
+    "typescript.disableAutomaticTypeAcquisition": true,
     "chat.tools.terminal.autoApprove": {
         "npx ts-node": true
     }

@@ -30,10 +30,16 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
     const handlePrint = () => {
         const previousTitle = document.title;
         document.title = invBaseName;
-        window.print();
-        setTimeout(() => {
-            document.title = previousTitle;
-        }, 250);
+
+        requestAnimationFrame(() => {
+            try {
+                window.print();
+            } finally {
+                setTimeout(() => {
+                    document.title = previousTitle;
+                }, 250);
+            }
+        });
     };
 
     const handleSendEmail = async () => {

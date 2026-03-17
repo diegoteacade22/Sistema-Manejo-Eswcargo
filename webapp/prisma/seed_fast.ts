@@ -5,6 +5,17 @@ import path from 'path';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
 
+function resolveImportedTxOldClientId(tx: any): number | null {
+    const reference = String(tx?.reference || '').toUpperCase();
+
+    if (reference.startsWith('CC-IMPORT-MARCOS_CC-')) {
+        return 162;
+    }
+
+    const parsedClientId = Number(tx?.clientId);
+    return Number.isFinite(parsedClientId) ? parsedClientId : null;
+}
+
 async function main() {
     const isFullSync = process.env.SYNC_MODE === 'FULL';
     console.log(`🚀 Iniciando Sembrado Rápido (Consolidado) - Modo: ${isFullSync ? 'COMPLETO' : 'DIFERENCIAL'}...`);
@@ -377,15 +388,21 @@ async function main() {
         console.log("📥 Importando transacciones desde CC sheets...");
         const importedTxs = JSON.parse(fs.readFileSync(transactionsFile, 'utf-8'));
         let importCount = 0;
-        
+
         for (const tx of importedTxs) {
-            // Map clientId from old_id to actual database ID
-            const dbClientId = clientOldIdMap.get(tx.clientId)?.id;
-            if (!dbClientId) {
-                console.log(`   ⚠️ Cliente ${tx.clientId} no encontrado, saltando transacción`);
+            const txOldClientId = resolveImportedTxOldClientId(tx);
+            if (!txOldClientId) {
+                console.log(`   ⚠️ Transacción sin clientId válido (${tx?.reference || 'sin referencia'}), saltando`);
                 continue;
             }
-            
+
+            // Map clientId from old_id to actual database ID
+            const dbClientId = clientOldIdMap.get(txOldClientId)?.id;
+            if (!dbClientId) {
+                console.log(`   ⚠️ Cliente ${txOldClientId} no encontrado, saltando transacción`);
+                continue;
+            }
+
             allTxs.push({
                 clientId: dbClientId,
                 date: new Date(tx.date),
@@ -396,7 +413,7 @@ async function main() {
             });
             importCount++;
         }
-        
+
         console.log(`   ✅ ${importCount} transacciones CC importadas`);
     }
 

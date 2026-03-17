@@ -2145,18 +2145,18 @@
   },
   {
     "old_id": 269,
-    "name": "nan",
+    "name": "Jose Lopez - Proimports.Ba",
     "email": null,
     "phone": null,
-    "type": "CLIENTE",
+    "type": "NUEVO",
     "address": null
   },
   {
     "old_id": 270,
-    "name": "nan",
+    "name": "Martin Neuquen",
     "email": null,
     "phone": null,
-    "type": "CLIENTE",
+    "type": "PRECIOS",
     "address": null
   },
   {
@@ -2626,6 +2626,14 @@
   {
     "old_id": 319,
     "name": "nan",
+    "email": null,
+    "phone": null,
+    "type": "CLIENTE",
+    "address": null
+  },
+  {
+    "old_id": 320,
+    "name": "Adrian Adroza",
     "email": null,
     "phone": null,
     "type": "CLIENTE",

@@ -10,6 +10,7 @@ from datetime import datetime
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 excel_path = os.path.join(SCRIPT_DIR, 'VENTAS COMPRAS 2023 al 2025 Para Sistema en Gemini.xlsx')
 output_dir = os.path.join(SCRIPT_DIR, 'webapp/prisma')
+logs_dir = os.path.join(SCRIPT_DIR, 'logs/sync')
 
 def clean_num(n):
     try: 
@@ -35,6 +36,22 @@ def clean_date(d):
         return str(d)
     except:
         return None
+
+def parse_int_like(value):
+    if pd.isna(value) or value is None:
+        return None
+    s = str(value).strip()
+    if not s or s.lower() in ['nan', 'none', 'null']:
+        return None
+    try:
+        f = float(s.replace(',', ''))
+        if f.is_integer():
+            return int(f)
+    except:
+        pass
+    if s.isdigit():
+        return int(s)
+    return None
 
 def normalize_status(s):
     if not s or pd.isna(s): return 'COMPRAR'
@@ -318,6 +335,7 @@ def extract_all():
     
     orders = []
     payments_only = []
+    order_headers_detected = 0
     
     # Headers finder to make it robust - now passing df_cv
     col_total = find_col(df_cv, ['TOTAL USD', 'TOTAL', 'IMPORTE'], 'TOTAL USD')
@@ -326,7 +344,10 @@ def extract_all():
     col_product = find_col(df_cv, ['PRODUCTO', 'DETALLE', 'ARTICULO'], None)
 
     for _, row in df_cv.iterrows():
-        onum = row.get(col_order_name)  # Use the found column name
+        onum_raw = row.get(col_order_name)  # Use the found column name
+        onum = parse_int_like(onum_raw)
+        if onum is not None:
+            order_headers_detected += 1
         total_val = clean_num(row.get(col_total))
         pago_val = clean_num(row.get(col_pago))
         
@@ -348,8 +369,7 @@ def extract_all():
             continue
 
         # case A: It's an Order (Cargo)
-        if pd.notna(onum) and str(onum).strip().isdigit():
-            onum = int(float(onum))
+        if onum is not None:
             items = det_map.get(onum, [])
             if total_val == 0 and items:
                 total_val = sum(i['unit_price'] * i['quantity'] for i in items)
@@ -456,8 +476,11 @@ def extract_all():
         'suppliers': len(suppliers),
         'shipments': len(shipments),
         'orders': len(orders),
+        'order_headers_detected': order_headers_detected,
         'payments_extra': len(payments_only),
         'purchases': len(purchases),
+        'mode': 'FULL' if force_full else (f'LAST_{days_filter}_DAYS' if days_filter else 'AUTO'),
+        'timestamp': datetime.now().isoformat()
     }
 
     print("\n📊 Resumen de extracción:")
@@ -469,6 +492,15 @@ def extract_all():
         missing = [k for k in required_non_empty if summary[k] == 0]
         if missing:
             raise RuntimeError(f"Extracción FULL inválida: hojas críticas vacías ({', '.join(missing)}).")
+
+    os.makedirs(logs_dir, exist_ok=True)
+    latest_summary_path = os.path.join(logs_dir, 'extract_summary_latest.json')
+    history_summary_path = os.path.join(logs_dir, 'extract_summary_history.jsonl')
+    with open(latest_summary_path, 'w', encoding='utf-8') as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False)
+    with open(history_summary_path, 'a', encoding='utf-8') as f:
+        f.write(json.dumps(summary, ensure_ascii=False) + '\n')
+    print(f"🧾 Resumen guardado en: {latest_summary_path}")
 
     end_time = time.time()
     print(f"\n✅ Extracción completa en {end_time - start_time:.2f} segundos.")

@@ -187,8 +187,8 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
     const debtors = await prisma.transaction.groupBy({
       by: ['clientId'],
       _sum: { amount: true },
-      having: { amount: { _sum: { gt: 10 } } },
-      orderBy: { _sum: { amount: 'desc' } },
+      having: { amount: { _sum: { lt: -10 } } },
+      orderBy: { _sum: { amount: 'asc' } },
       take: 5,
     });
 
@@ -196,7 +196,7 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
       const client = await prisma.client.findUnique({ where: { id: d.clientId } });
       return {
         name: client?.name || 'Desconocido',
-        amount: d._sum.amount || 0,
+        amount: Math.abs(d._sum.amount || 0),
         id: d.clientId
       };
     }));

@@ -25,16 +25,16 @@ SERVICE_ACCOUNT_FILE = os.path.join(SCRIPT_DIR, "google_credentials.json")
 SPREADSHEET_ID = "1PFHlsVhP16Ge-qXF7qn16G2FPBnMVpF7TMkIjDorxc8"  # CASH FLOW 2026
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 
-# Map CC tab names to client names (as they appear in the database)
+# Map CC tab names to exact client names (as they appear in the database)
 CC_TAB_TO_CLIENT = {
-    "MARCOS CC": "MARCOS",
-    "AYLEN CC": "AYLEN",
-    "FACU FABRI CC": "FACU FABRI",
-    "LUCA CC": "LUCA",
+    "MARCOS CC": "MARCOS ROKU",
+    "AYLEN CC": "AYLEN GENTILETTI",
+    "FACU FABRI CC": "FACU FABRICCINI",
+    "LUCA CC": "LUCA STA FE NAHUEL",
     "SEBAS LUC CC": "SEBASTIAN X LUCAS",
-    "GONZALO CC": "GONZALO",
-    "TOMAS CC": "TOMAS",
-    "NAHUEL CC": "NAHUEL",
+    "GONZALO CC": "GONZALO LEMESOFF",
+    "TOMAS CC": "TOMAS RODRIGUEZ",
+    "NAHUEL CC": "NAHUEL NUEVO",
 }
 
 
@@ -209,18 +209,23 @@ def main():
     # Process each CC tab
     all_transactions = []
     
-    for tab_name, client_name_pattern in CC_TAB_TO_CLIENT.items():
+    for tab_name, client_name_target in CC_TAB_TO_CLIENT.items():
         print(f"\n📄 Procesando: {tab_name}")
         
-        # Find matching client
-        client_id = None
-        for name, cid in client_map.items():
-            if client_name_pattern.upper() in name:
-                client_id = cid
-                break
+        # Find matching client using exact name first (avoids ambiguous names like MARCOS)
+        client_id = client_map.get(client_name_target.upper())
+
+        # Fallback: contains-based matching only if unique
+        if not client_id:
+            candidates = [cid for name, cid in client_map.items() if client_name_target.upper() in name]
+            if len(candidates) == 1:
+                client_id = candidates[0]
+            elif len(candidates) > 1:
+                print(f"  ⚠️  Mapeo ambiguo para '{client_name_target}': {len(candidates)} candidatos")
+                continue
         
         if not client_id:
-            print(f"  ⚠️  No se encontró cliente para '{client_name_pattern}'")
+            print(f"  ⚠️  No se encontró cliente para '{client_name_target}'")
             continue
         
         print(f"  ✅ Cliente encontrado: ID {client_id}")

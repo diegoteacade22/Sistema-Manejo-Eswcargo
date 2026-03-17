@@ -8174,7 +8174,7 @@
   {
     "sku": "IPD11-A16-WI-256-SV",
     "name": "Apple iPad 11th Gen A16 256GB Wi-Fi Only",
-    "color_grade": "Starlight",
+    "color_grade": "Silver",
     "type": "TABLET/IPADS",
     "model": "11th Gen",
     "brand": "APPLE",
@@ -8222,7 +8222,7 @@
   {
     "sku": "IPD11-A16-WI-512-SL",
     "name": "Apple iPad 11th Gen A16 512GB Wi-Fi Only",
-    "color_grade": "Starlight",
+    "color_grade": "Silver",
     "type": "TABLET/IPADS",
     "model": "11th Gen",
     "brand": "APPLE",
@@ -11448,9 +11448,45 @@
     "lp1": 0.0
   },
   {
-    "sku": "SAM-A56-12-256-NEW",
+    "sku": "SAM-A56-12-256-NN",
     "name": "Samsung A56 12+256Gb",
-    "color_grade": null,
+    "color_grade": "Mint",
+    "type": "CELL-NEW",
+    "model": null,
+    "brand": "SAMSUNG",
+    "weight": 0.0,
+    "status": "ACTIVO",
+    "stock": 0,
+    "lp1": 0.0
+  },
+  {
+    "sku": "SAM-A56-8-256-BK",
+    "name": "Samsung A56 8Gb+256GB",
+    "color_grade": "Black",
+    "type": "CELL-NEW",
+    "model": null,
+    "brand": "SAMSUNG",
+    "weight": 0.0,
+    "status": "ACTIVO",
+    "stock": 0,
+    "lp1": 0.0
+  },
+  {
+    "sku": "SAM-A56-12-256-BK",
+    "name": "Samsung A56 12+256Gb",
+    "color_grade": "Black",
+    "type": "CELL-NEW",
+    "model": null,
+    "brand": "SAMSUNG",
+    "weight": 0.0,
+    "status": "ACTIVO",
+    "stock": 0,
+    "lp1": 0.0
+  },
+  {
+    "sku": "SAM-A56-12-256-WH",
+    "name": "Samsung A56 12+256Gb",
+    "color_grade": "White",
     "type": "CELL-NEW",
     "model": null,
     "brand": "SAMSUNG",
@@ -11988,9 +12024,21 @@
     "lp1": 0.0
   },
   {
-    "sku": "SAM-S25-U-12-1TB-NEW-LA",
+    "sku": "SAM-S25-U-12-1TB-NEW-LA- BK",
     "name": "Samsung S25 DS Ultra 12+1TB",
-    "color_grade": null,
+    "color_grade": "Black",
+    "type": "CELL-NEW",
+    "model": null,
+    "brand": "SAMSUNG",
+    "weight": 0.75,
+    "status": "ACTIVO",
+    "stock": 0,
+    "lp1": 0.0
+  },
+  {
+    "sku": "SAM-S25-U-12-1TB-NEW-LA-WH",
+    "name": "Samsung S25 DS Ultra 12+1TB",
+    "color_grade": "White",
     "type": "CELL-NEW",
     "model": null,
     "brand": "SAMSUNG",

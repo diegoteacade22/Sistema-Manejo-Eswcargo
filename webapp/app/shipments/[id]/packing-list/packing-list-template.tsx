@@ -1,11 +1,11 @@
 'use client';
 
-import { Button } from '@/components/ui/button';
+import { Button } from '../../../../components/ui/button';
 import { Printer, Package, Globe, Instagram, Facebook, Mail, Loader2, Download } from 'lucide-react';
-import { savePackingListPdfToDrive, sendPackingListEmail } from '@/app/email-actions';
+import { savePackingListPdfToDrive, sendPackingListEmail } from '../../../email-actions';
 import { useEffect, useTransition } from 'react';
-import { buildShipmentItems } from '@/lib/shipment-items';
-import { toInvNumber4 } from '@/lib/inv-filename';
+import { buildShipmentItems, filterExportableShipmentItems } from '../../../../lib/shipment-items';
+import { toInvNumber4 } from '../../../../lib/inv-filename';
 
 /* eslint-disable @next/next/no-img-element */
 
@@ -58,10 +58,16 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
     const handlePrint = () => {
         const previousTitle = document.title;
         document.title = invBaseName;
-        window.print();
-        setTimeout(() => {
-            document.title = previousTitle;
-        }, 250);
+
+        requestAnimationFrame(() => {
+            try {
+                window.print();
+            } finally {
+                setTimeout(() => {
+                    document.title = previousTitle;
+                }, 250);
+            }
+        });
     };
 
     // Basic date formatting
@@ -69,7 +75,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
         ? new Date(shipment.date_shipped).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
         : '-';
 
-    const shipmentItems = buildShipmentItems(shipment);
+    const shipmentItems = filterExportableShipmentItems(buildShipmentItems(shipment), shipment?.status);
 
     // Colors
     // Dark Blue: #0D3B4C
@@ -155,7 +161,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                                 <Package className="h-6 w-6 stroke-[3]" />
                             </div>
                             {/* ESW Text */}
-                            <h1 className="text-5xl font-black italic tracking-tighter text-[#0D3B4C] leading-none" style={{ fontFamily: 'Arial, sans-serif' }}>
+                            <h1 className="text-5xl font-black italic tracking-tighter text-[#0D3B4C] leading-none font-sans">
                                 ESW
                             </h1>
                             {/* CARGO Text */}

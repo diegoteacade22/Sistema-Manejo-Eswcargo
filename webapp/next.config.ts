@@ -3,6 +3,13 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   output: 'standalone',
+  serverExternalPackages: ['@sparticuz/chromium', 'puppeteer-core'],
+  outputFileTracingIncludes: {
+    '/*': [
+      './node_modules/@sparticuz/chromium/**/*',
+      './node_modules/puppeteer-core/**/*'
+    ]
+  },
   // Suppress known hydration warnings from Radix UI components
   // These warnings occur because Radix generates dynamic IDs 
   // that don't match between server and client in lists

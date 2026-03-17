@@ -56,6 +56,12 @@ export default async function SupplierDetailsPage(props: Props) {
     const totalItems = supplier.orderItems.reduce((acc: number, item: any) => acc + item.quantity, 0);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const totalSalesValue = supplier.orderItems.reduce((acc: number, item: any) => acc + (item.quantity * item.unit_price), 0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const totalPurchased = supplier.purchases.reduce((acc: number, purchase: any) => acc + (purchase.total_amount || 0), 0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const totalPending = supplier.purchases.reduce((acc: number, purchase: any) => acc + (purchase.balance_due || 0), 0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const totalPaid = supplier.purchases.reduce((acc: number, purchase: any) => acc + (purchase.paid_amount || 0), 0);
 
     return (
         <div className="p-8 space-y-8 max-w-6xl mx-auto">
@@ -120,31 +126,27 @@ export default async function SupplierDetailsPage(props: Props) {
                 {/* Supplier Balance (Should be 0) */}
                 <Card className="md:col-span-1 h-fit shadow-md border-t-4 border-t-emerald-500">
                     <CardHeader>
-                        <CardTitle className="text-xl">Cuenta Corriente</CardTitle>
-                        <CardDescription>Resumen de Pagos</CardDescription>
+                        <CardTitle className="text-xl">Cuentas por pagar</CardTitle>
+                        <CardDescription>Resumen financiero por compras</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        <div className="text-3xl font-bold text-center py-2">
-                            $0.00
+                        <div className="text-3xl font-bold text-center py-2 text-amber-700">
+                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalPending)}
                         </div>
                         <p className="text-xs text-center text-muted-foreground italic">
-                            Los pagos se registran automáticamente al momento de la compra.
+                            Saldo pendiente total del proveedor.
                         </p>
                         <div className="pt-4 border-t mt-4 space-y-2">
                             <div className="flex justify-between text-xs">
                                 <span className="text-muted-foreground">Total Comprado:</span>
                                 <span className="font-bold text-red-600">
-                                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(
-                                        Math.abs(supplier.transactions.filter((t: any) => t.type === 'CARGO').reduce((acc: number, t: any) => acc + t.amount, 0))
-                                    )}
+                                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalPurchased)}
                                 </span>
                             </div>
                             <div className="flex justify-between text-xs">
                                 <span className="text-muted-foreground">Total Pagado:</span>
                                 <span className="font-bold text-emerald-600">
-                                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(
-                                        supplier.transactions.filter((t: any) => t.type === 'PAGO').reduce((acc: number, t: any) => acc + t.amount, 0)
-                                    )}
+                                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(totalPaid)}
                                 </span>
                             </div>
                         </div>
@@ -168,6 +170,8 @@ export default async function SupplierDetailsPage(props: Props) {
                                     <TableHead>Invoice #</TableHead>
                                     <TableHead>Items</TableHead>
                                     <TableHead className="text-right">Monto USD</TableHead>
+                                    <TableHead className="text-right">Pendiente</TableHead>
+                                    <TableHead>Estado</TableHead>
                                     <TableHead>Método</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -195,6 +199,14 @@ export default async function SupplierDetailsPage(props: Props) {
                                         <TableCell className="text-right font-bold text-amber-700">
                                             {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(p.total_amount)}
                                         </TableCell>
+                                        <TableCell className="text-right font-bold text-red-600">
+                                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(p.balance_due || 0)}
+                                        </TableCell>
+                                        <TableCell>
+                                            <Badge className={p.payment_status === 'PAGADA' ? 'bg-emerald-600' : p.payment_status === 'PARCIAL' ? 'bg-amber-600' : 'bg-slate-600'}>
+                                                {p.payment_status || 'PENDIENTE'}
+                                            </Badge>
+                                        </TableCell>
                                         <TableCell>
                                             <Badge variant="outline" className="text-[10px] bg-amber-50">
                                                 {p.payment_method || 'N/A'}
@@ -204,7 +216,7 @@ export default async function SupplierDetailsPage(props: Props) {
                                 ))}
                                 {supplier.purchases.length === 0 && (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="text-center py-8 text-muted-foreground italic">
+                                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground italic">
                                             No hay registros de compra en la planilla.
                                         </TableCell>
                                     </TableRow>

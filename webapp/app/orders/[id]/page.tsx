@@ -70,11 +70,11 @@ export default async function OrderPage(props: Props) {
     // For now, usually all items go together.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const effectiveShipment = (order as any).shipment || (order as any).items.find((i: any) => i.shipment)?.shipment;
-    const itemStatuses: string[] = [...new Set(
-        (order as any).items
+    const itemStatuses = Array.from(new Set<string>(
+        ((order as any).items as any[])
             .map((item: any) => (typeof item.status === 'string' ? item.status : ''))
             .filter((status: string) => status.length > 0)
-    )];
+    ));
     const effectiveStatus: string = itemStatuses.length === 1 ? itemStatuses[0] : String(order.status || '');
 
     // Fetch active shipments for the dropdown (Admin only)

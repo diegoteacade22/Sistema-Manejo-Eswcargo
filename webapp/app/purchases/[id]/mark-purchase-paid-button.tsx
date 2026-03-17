@@ -25,7 +25,7 @@ export function MarkPurchasePaidButton({ purchaseId }: { purchaseId: number }) {
   return (
     <Button onClick={onClick} disabled={isPending} className="bg-emerald-600 hover:bg-emerald-700 text-white">
       {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-      Proveedor pagado → ENCARGADO
+      Marcar logística → ENCARGADO
     </Button>
   );
 }
