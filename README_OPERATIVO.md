@@ -8,7 +8,7 @@ URL productiva: `https://webapp-weld-psi.vercel.app`
 
 Proyecto Vercel: `diegos-projects-3b5a60e6/webapp`
 
-Deploy validado: `dpl_BeADzKhzH3RTW9rXxP5QUbHsF675`
+Deploy validado: `dpl_8ojsMJhanmmL7TcPi3BKQNgDeABn`
 
 ## Estructura
 
@@ -19,12 +19,8 @@ El proyecto Vercel existente usa `rootDirectory: webapp`, por eso esta carpeta c
 - Build productivo Vercel: OK.
 - `/api/health`: 200.
 - `/login`: 200.
-- `/clients`: 200.
-- `/orders`: 200.
-- `/shipments`: 200.
-- `/products`: 200.
-- `/suppliers`: 200.
-- `/purchases`: redirige a `/login` sin error cuando no hay sesion.
+- `/setup-account`: 200.
+- Modulos internos sin sesion: redirigen a `/login`.
 - Logs Vercel recientes: sin errores.
 
 ## Excluido
@@ -38,4 +34,3 @@ El proyecto Vercel existente usa `rootDirectory: webapp`, por eso esta carpeta c
 - `.next`.
 - `.vercel`.
 - Seeds JSON con datos.
-
