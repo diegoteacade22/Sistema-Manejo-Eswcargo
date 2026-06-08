@@ -64,6 +64,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 const emergencyUsername = normalize(process.env.ADMIN_EMERGENCY_USERNAME || 'admin');
                 const emergencyEmail = normalize(process.env.ADMIN_EMERGENCY_EMAIL || 'admin@eswcargo.com');
                 const emergencyPassword = process.env.ADMIN_EMERGENCY_PASSWORD;
+                const isAdminIdentity = username === 'admin'
+                    || username === 'admin@eswcargo.com'
+                    || username === emergencyUsername
+                    || username === emergencyEmail;
 
                 if (allowEmergencyAdmin && emergencyPassword && (username === emergencyUsername || username === emergencyEmail)) {
                     const isEmergencyPasswordValid = password === emergencyPassword;
@@ -110,7 +114,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                     id: user.id,
                     name: user.name,
                     email: user.email,
-                    role: user.role,
+                    role: isAdminIdentity ? "ADMIN" : user.role,
                 };
             },
         }),
