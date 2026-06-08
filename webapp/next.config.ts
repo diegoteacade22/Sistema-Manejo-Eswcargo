@@ -1,0 +1,61 @@
+import path from "node:path";
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  reactStrictMode: true,
+  output: 'standalone',
+  serverExternalPackages: ['@sparticuz/chromium', 'puppeteer-core'],
+  outputFileTracingIncludes: {
+    '/*': [
+      './node_modules/@sparticuz/chromium/**/*',
+      './node_modules/puppeteer-core/**/*'
+    ],
+  },
+  turbopack: {
+    root: path.resolve(__dirname),
+  },
+  // Suppress known hydration warnings from Radix UI components
+  // These warnings occur because Radix generates dynamic IDs 
+  // that don't match between server and client in lists
+  logging: {
+    fetches: {
+      fullUrl: false, // Reduce verbose logging
+    },
+  },
+  // Suppress specific hydration warnings
+  onDemandEntries: {
+    maxInactiveAge: 25 * 1000,
+    pagesBufferLength: 2,
+  },
+  async redirects() {
+    return [
+      {
+        source: '/reportes',
+        destination: '/analytics/financial',
+        permanent: false,
+      },
+      {
+        source: '/carga-mensual',
+        destination: '/analytics/logistics',
+        permanent: false,
+      },
+      {
+        source: '/gastos-manuales',
+        destination: '/expenses',
+        permanent: false,
+      },
+      {
+        source: '/movimientos',
+        destination: '/collections',
+        permanent: false,
+      },
+      {
+        source: '/presupuestos',
+        destination: '/orders',
+        permanent: false,
+      },
+    ];
+  },
+};
+
+export default nextConfig;

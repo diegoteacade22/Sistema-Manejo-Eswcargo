@@ -1,0 +1,224 @@
+
+import { PrismaClient } from '@prisma/client';
+import * as XLSX from 'xlsx';
+import * as fs from 'fs';
+import * as path from 'path';
+import 'dotenv/config';
+
+const prisma = new PrismaClient();
+
+const EXCEL_PATH = '/Users/diegorodriguez/.gemini/antigravity/scratch/sistema_gestion_importaciones/VENTAS COMPRAS 2023 al 2025 Para Sistema en Gemini.xlsx';
+
+function parseDate(excelDate: any): Date {
+    if (typeof excelDate === 'number') {
+        // Excel date serial number
+        return new Date(Math.round((excelDate - 25569) * 86400 * 1000));
+    }
+    if (typeof excelDate === 'string') {
+        const d = new Date(excelDate);
+        if (!isNaN(d.getTime())) return d;
+    }
+    return new Date(); // Fallback
+}
+
+async function main() {
+    console.log(`Reading Excel file from ${EXCEL_PATH}...`);
+    if (!fs.existsSync(EXCEL_PATH)) {
+        console.error(`File not found: ${EXCEL_PATH}`);
+        return;
+    }
+
+    // Clear transactions to avoid duplicates on re-run
+    await prisma.transaction.deleteMany();
+    console.log("Cleared existing transactions.");
+
+    const buf = fs.readFileSync(EXCEL_PATH);
+    const workbook = XLSX.read(buf, { type: 'buffer' });
+
+    // 1. Import Clients
+    const clientsSheet = workbook.Sheets['CLIENTES'];
+    if (clientsSheet) {
+        const clientsData = XLSX.utils.sheet_to_json(clientsSheet);
+        console.log(`Found ${clientsData.length} clients.`);
+
+        for (const row of clientsData as any[]) {
+            if (!row['COD_CLI'] || !row['NOMBRE Y APELLIDO']) continue;
+
+            const oldId = parseInt(row['COD_CLI']);
+            if (isNaN(oldId)) continue;
+
+            const existing = await prisma.client.findFirst({ where: { old_id: oldId } });
+            if (!existing) {
+                await prisma.client.create({
+                    data: {
+                        old_id: oldId,
+                        name: row['NOMBRE Y APELLIDO'],
+                        email: row['MAIL'],
+                        phone: row['TELEFONO'] ? String(row['TELEFONO']) : null,
+                        type: row['TIPO CLI'],
+                        address: row['DIRECCION'],
+                    }
+                });
+            }
+        }
+        console.log("Clients imported.");
+    }
+
+
+    // 2. Import Products
+    const productsSheet = workbook.Sheets['ARTICULOS TECNO'];
+    if (productsSheet) {
+        const productsData = XLSX.utils.sheet_to_json(productsSheet);
+        console.log(`Found ${productsData.length} products.`);
+
+        for (const row of productsData as any[]) {
+            if (!row['SKU'] || !row['NOMBRE ARTICULO']) continue;
+            const sku = String(row['SKU']);
+
+            await prisma.product.upsert({
+                where: { sku: sku },
+                update: {
+                    name: row['NOMBRE ARTICULO'],
+                    brand: row['MARCA'],
+                    weight: typeof row['PESO KG'] === 'number' ? row['PESO KG'] : 0,
+                    stock: typeof row['STOCK'] === 'number' ? row['STOCK'] : 0,
+                },
+                create: {
+                    sku: sku,
+                    name: row['NOMBRE ARTICULO'],
+                    brand: row['MARCA'],
+                    weight: typeof row['PESO KG'] === 'number' ? row['PESO KG'] : 0,
+                    stock: typeof row['STOCK'] === 'number' ? row['STOCK'] : 0,
+                }
+            });
+        }
+        console.log("Products imported.");
+    }
+
+    // 3. Import Orders (Cabecera)
+    const ordersSheet = workbook.Sheets['CABE_VENTAS'];
+    if (ordersSheet) {
+        const ordersData = XLSX.utils.sheet_to_json(ordersSheet);
+        console.log(`Found ${ordersData.length} orders.`);
+
+        for (const row of ordersData as any[]) {
+            if (!row['NRO_PEDIDO']) continue;
+            const orderNum = parseInt(row['NRO_PEDIDO']);
+            if (isNaN(orderNum)) continue;
+
+            // Find client
+            let clientId: number | null = null;
+            if (row['NRO CLI']) {
+                const c = await prisma.client.findFirst({ where: { old_id: parseInt(row['NRO CLI']) } });
+                if (c) clientId = c.id;
+            }
+
+            if (!clientId) {
+                // Try finding by Name if ID fails or is missing?
+                // For now skip if no client found? Or create dummy?
+                // Let's create a default client if needed or skip.
+                // Skip for safety.
+                continue;
+            }
+
+            const date = row['FECHA'] ? parseDate(row['FECHA']) : new Date();
+
+            await prisma.order.upsert({
+                where: { order_number: orderNum },
+                update: {
+                    status: 'ENTREGADO',
+                    total_amount: parseFloat(row['TOTAL USD']) || 0,
+                    notes: row['OBSERVACIONES'],
+                    clientId: clientId
+                },
+                create: {
+                    order_number: orderNum,
+                    clientId: clientId,
+                    date: date,
+                    status: 'ENTREGADO',
+                    total_amount: parseFloat(row['TOTAL USD']) || 0,
+                    notes: row['OBSERVACIONES'],
+                }
+            });
+
+            // Create Transaction: CARGO (Debt)
+            const totalUsd = parseFloat(row['TOTAL USD']) || 0;
+            if (totalUsd > 0) {
+                await prisma.transaction.create({
+                    data: {
+                        clientId: clientId,
+                        date: date,
+                        type: 'CARGO',
+                        amount: totalUsd, // Positive = Debt
+                        description: `Pedido #${orderNum}`,
+                        reference: String(orderNum)
+                    }
+                });
+            }
+
+            // Create Transaction: PAGO (Payment)
+            // Check for PAGO column. Note: Excel might have blank or calculated.
+            // In sample: 'PAGO' column.
+            const pago = parseFloat(row['PAGO']);
+            if (!isNaN(pago) && pago !== 0) {
+                await prisma.transaction.create({
+                    data: {
+                        clientId: clientId,
+                        date: date, // Using same date as order for simplicity, normally payment date might differ
+                        type: 'PAGO',
+                        amount: -Math.abs(pago), // Negative = Credit
+                        description: `Pago Pedido #${orderNum}`,
+                        reference: String(orderNum)
+                    }
+                });
+            }
+        }
+        console.log("Orders header imported.");
+    }
+
+    // 4. Import Order Items
+    const itemsSheet = workbook.Sheets['DETA_VENTAS'];
+    if (itemsSheet) {
+        const itemsData = XLSX.utils.sheet_to_json(itemsSheet);
+        console.log(`Found ${itemsData.length} order items.`);
+
+        for (const row of itemsData as any[]) {
+            if (!row['INV-REM']) continue; // Linked to Order
+            const orderNum = parseInt(row['INV-REM']);
+            if (isNaN(orderNum)) continue;
+
+            const order = await prisma.order.findUnique({ where: { order_number: orderNum } });
+            if (!order) continue; // Skip if order header not found
+
+            // Try to link Product by SKU
+            let productId: number | null = null;
+            if (row['SKU']) {
+                const p = await prisma.product.findUnique({ where: { sku: String(row['SKU']) } });
+                if (p) productId = p.id;
+            }
+
+            await prisma.orderItem.create({
+                data: {
+                    orderId: order.id,
+                    productId: productId,
+                    productName: row['DETALLE'] || row['NOMBRE'] || 'Item',
+                    quantity: parseInt(row['CANT']) || 1,
+                    unit_price: parseFloat(row['VTA UNI']) || 0,
+                    unit_cost: parseFloat(row['COSTO']) || 0,
+                    shipping_cost: parseFloat(row['ENVIO']) || 0,
+                    subtotal: parseFloat(row['TOTAL']) || 0,
+                }
+            });
+        }
+        console.log("Order items imported.");
+    }
+}
+
+main()
+    .catch((e) => {
+        console.error(e);
+        process.exit(1);
+    })
+    .finally(async () => {
+        await prisma.$disconnect();
+    });

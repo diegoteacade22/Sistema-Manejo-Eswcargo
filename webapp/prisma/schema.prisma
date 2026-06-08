@@ -1,0 +1,258 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Client {
+  id           Int           @id @default(autoincrement())
+  old_id       Int?          @unique
+  name         String
+  document_id  String?
+  email        String?
+  phone        String?
+  instagram    String?
+  webpage      String?
+  address      String?
+  type         String?
+  notes        String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  city         String?
+  country      String?
+  state        String?
+  zipCode      String?
+  userId       String?       @unique
+  segment      String?
+  canAccess    Boolean       @default(true)
+  user         User?         @relation(fields: [userId], references: [id])
+  orders       Order[]
+  shipments    Shipment[]
+  transactions Transaction[]
+  allocations  PurchaseAllocation[]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String?
+  username  String?  @unique
+  email     String?  @unique
+  password  String?
+  role      String   @default("CLIENT")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  client    Client?
+}
+
+model Product {
+  id                 Int            @id @default(autoincrement())
+  sku                String         @unique
+  name               String
+  color_grade        String?
+  type               String?
+  model              String?
+  brand              String?
+  weight             Float?
+  volum              Float?
+  status             String?
+  last_purchase_cost Float?
+  active             Boolean        @default(true)
+  webpage            String?
+  lp1                Float?
+  lp2                Float?
+  lp3                Float?
+  description        String?
+  stock              Int            @default(0)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  orderItems         OrderItem[]
+  purchaseItems      PurchaseItem[]
+}
+
+model SparePart {
+  id          Int      @id @default(autoincrement())
+  sku         String   @unique
+  name        String
+  description String?
+  cost        Float?
+  price       Float?
+  stock       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Supplier {
+  id           Int           @id @default(autoincrement())
+  name         String
+  contact      String?
+  email        String?
+  phone        String?
+  address      String?
+  notes        String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  city         String?
+  country      String?
+  state        String?
+  zipCode      String?
+  old_id       Int?          @unique
+  orderItems   OrderItem[]
+  purchases    Purchase[]
+  transactions Transaction[]
+}
+
+model Order {
+  id              Int         @id @default(autoincrement())
+  order_number    Int?        @unique
+  clientId        Int
+  date            DateTime
+  status          String
+  total_amount    Float
+  currency        String      @default("USD")
+  notes           String?
+  forwarder       String?
+  tracking_number String?
+  shipmentId      Int?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  type            String?
+  paymentMethod   String?
+  email_sent_at   DateTime?
+  source          String?
+  client          Client      @relation(fields: [clientId], references: [id])
+  shipment        Shipment?   @relation(fields: [shipmentId], references: [id])
+  items           OrderItem[]
+  allocations     PurchaseAllocation[]
+}
+
+model OrderItem {
+  id               Int       @id @default(autoincrement())
+  orderId          Int
+  productId        Int?
+  productName      String
+  quantity         Int
+  unit_price       Float
+  unit_cost        Float
+  shipping_cost    Float?
+  subtotal         Float
+  profit           Float     @default(0)
+  supplierId       Int?
+  purchase_invoice String?
+  shipmentId       Int?
+  status           String?
+  order            Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product          Product?  @relation(fields: [productId], references: [id])
+  shipment         Shipment? @relation(fields: [shipmentId], references: [id])
+  supplier         Supplier? @relation(fields: [supplierId], references: [id])
+  allocations      PurchaseAllocation[]
+}
+
+model Transaction {
+  id            Int       @id @default(autoincrement())
+  clientId      Int?
+  date          DateTime
+  type          String
+  amount        Float
+  description   String?
+  reference     String?
+  createdAt     DateTime  @default(now())
+  paymentMethod String?
+  supplierId    Int?
+  client        Client?   @relation(fields: [clientId], references: [id])
+  supplier      Supplier? @relation(fields: [supplierId], references: [id])
+}
+
+model Shipment {
+  id                Int         @id @default(autoincrement())
+  shipment_number   Int?        @unique
+  clientId          Int?
+  forwarder         String?
+  date_shipped      DateTime?
+  date_arrived      DateTime?
+  weight_fw         Float?
+  weight_cli        Float?
+  type_load         String?
+  item_count        Int?
+  cost_total        Float?
+  price_total       Float?
+  profit            Float?
+  invoice           String?
+  status            String?
+  notes             String?
+  cargo_description String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  email_sent_at     DateTime?
+  orders            Order[]
+  items             OrderItem[]
+  client            Client?     @relation(fields: [clientId], references: [id])
+}
+
+model Purchase {
+  id             Int            @id @default(autoincrement())
+  invoice_number String?        @unique
+  date           DateTime
+  supplierId     Int
+  total_amount   Float
+  payment_method String?
+  receipt_url    String?
+  notes          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  supplier       Supplier       @relation(fields: [supplierId], references: [id])
+  items          PurchaseItem[]
+}
+
+model PurchaseItem {
+  id          Int      @id @default(autoincrement())
+  purchaseId  Int
+  sku         String?
+  productName String
+  quantity    Int
+  unit_cost   Float
+  subtotal    Float
+  purchase    Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  product     Product? @relation(fields: [sku], references: [sku])
+  allocations PurchaseAllocation[]
+}
+
+model PurchaseAllocation {
+  id                  Int          @id @default(autoincrement())
+  purchaseItemId      Int
+  clientId            Int
+  orderId             Int
+  orderItemId         Int
+  quantity            Int
+  unit_cost_snapshot  Float
+  unit_price_snapshot Float
+  notes               String?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+  client              Client       @relation(fields: [clientId], references: [id])
+  order               Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItem           OrderItem    @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  purchaseItem        PurchaseItem @relation(fields: [purchaseItemId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseItemId])
+  @@index([clientId])
+  @@index([orderId])
+  @@index([orderItemId])
+}
+
+model Expense {
+  id            Int      @id @default(autoincrement())
+  date          DateTime
+  category      String
+  description   String?
+  amount        Float
+  paymentMethod String?
+  status        String   @default("PAID")
+  businessUnit  String   @default("GENERAL")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}

@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+.env
+.env.local
+.vercel
+README.md
+*.command
+*.sh
+*.db
+prisma/dev.db
+public/uploads
+npm-debug.log
+yarn-debug.log
+yarn-error.log
