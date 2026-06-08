@@ -8,6 +8,7 @@ import { Users, Package, CreditCard, ArrowRight, DollarSign, AlertCircle, Lock, 
 import { SalesTrendChart } from '@/components/charts/sales-trend-chart';
 import { ProfitChart } from '@/components/charts/profit-chart'; // New Component
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 
 import { auth } from '@/lib/auth';
 import { DashboardPeriodSelector } from '@/components/analytics/dashboard-period-selector';
@@ -392,6 +393,10 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
   } = data;
 
   const isAdmin = userRole === 'ADMIN';
+
+  if (!isAdmin) {
+    redirect('/login');
+  }
 
   // Si es un cliente y no tiene ID vinculado, mostrar mensaje amigable
   if (!isAdmin && !clientId) {
