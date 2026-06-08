@@ -27,7 +27,11 @@ export const authConfig = {
     callbacks: {
         authorized({ auth, request: { nextUrl } }) {
             const isLoggedIn = !!auth?.user;
-            const isPublicRoute = nextUrl.pathname === '/login' || nextUrl.pathname === '/setup-account';
+            const isPublicRoute =
+                nextUrl.pathname.startsWith('/login') ||
+                nextUrl.pathname.startsWith('/setup-account') ||
+                nextUrl.pathname.startsWith('/api/auth') ||
+                nextUrl.pathname.startsWith('/api/health');
             const role = (auth?.user as any)?.role;
 
             if (isPublicRoute) {
@@ -36,11 +40,15 @@ export const authConfig = {
                 return true;
             }
 
-            if (isLoggedIn && isAdminOnlyPath(nextUrl.pathname) && role !== 'ADMIN') {
+            if (!isLoggedIn) {
+                return false;
+            }
+
+            if (isAdminOnlyPath(nextUrl.pathname) && role !== 'ADMIN') {
                 return NextResponse.redirect(new URL('/', nextUrl));
             }
 
-            return isLoggedIn;
+            return true;
         },
         async jwt({ token, user }) {
             if (user) {
