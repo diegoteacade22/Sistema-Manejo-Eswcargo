@@ -28,6 +28,21 @@ async function main() {
     const productsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'products_seed.json'), 'utf-8'));
     const shipmentsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'shipments_seed.json'), 'utf-8'));
     const ordersData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'orders_seed.json'), 'utf-8'));
+    const orderDuplicateCounts = new Map<number, number>();
+    const uniqueOrdersByNumber = new Map<number, any>();
+    for (const order of ordersData as any[]) {
+        if (!order?.order_number) continue;
+        const orderNumber = Number(order.order_number);
+        orderDuplicateCounts.set(orderNumber, (orderDuplicateCounts.get(orderNumber) || 0) + 1);
+        uniqueOrdersByNumber.set(orderNumber, order);
+    }
+    const duplicateOrderNumbers = Array.from(orderDuplicateCounts.entries())
+        .filter(([, count]) => count > 1)
+        .map(([orderNumber, count]) => `#${orderNumber} x${count}`);
+    if (duplicateOrderNumbers.length > 0) {
+        console.warn(`⚠️ Pedidos duplicados en Excel normalizados antes de importar: ${duplicateOrderNumbers.join(', ')}`);
+    }
+    const normalizedOrdersData = Array.from(uniqueOrdersByNumber.values());
 
     // ID tracking for cleanup
     const processedShipmentIds = new Set<number>();
@@ -186,11 +201,11 @@ async function main() {
     }
 
     // 6. PROCESAR PEDIDOS
-    console.log(`📑 Sincronizando ${ordersData.length} pedidos...`);
+    console.log(`📑 Sincronizando ${normalizedOrdersData.length} pedidos...`);
     let orderCounter = 0;
-    const syncedOrderNumbers = new Set(ordersData.map((o: any) => o.order_number));
+    const syncedOrderNumbers = new Set(normalizedOrdersData.map((o: any) => o.order_number));
 
-    for (const o of (ordersData as any[])) {
+    for (const o of (normalizedOrdersData as any[])) {
         const existing = orderNumMap.get(o.order_number);
         const dbClientId = o.client_old_id ? clientOldIdMap.get(o.client_old_id)?.id : (o.client_name_match ? clientNameMap.get(o.client_name_match.trim().toUpperCase())?.id : null);
 
@@ -232,6 +247,7 @@ async function main() {
             dbOrder = await prisma.order.create({
                 data: orderData as any
             });
+            orderNumMap.set(o.order_number, dbOrder);
         } else {
             if (
                 existing.status !== resolvedStatus ||
@@ -243,6 +259,7 @@ async function main() {
                     where: { id: existing.id },
                     data: orderData as any
                 });
+                orderNumMap.set(o.order_number, dbOrder);
             } else {
                 dbOrder = existing;
             }
@@ -287,7 +304,7 @@ async function main() {
     const allTxs: any[] = [];
 
     // A. Transacciones de Pedidos
-    for (const o of ordersData) {
+    for (const o of normalizedOrdersData) {
         const dbClientId = o.client_old_id ? clientOldIdMap.get(o.client_old_id)?.id : (o.client_name_match ? clientNameMap.get(o.client_name_match.trim().toUpperCase())?.id : null);
         if (!dbClientId) continue;
         const oDate = parseSafeDate(o.date) || new Date();
@@ -549,7 +566,7 @@ async function main() {
         console.log(`   ✅ Envíos huérfanos eliminados: ${orphanedShipments.count}`);
 
         // Limpiar Transacciones asociadas a registros que ya no existen
-        const currentRefPrefixesOrder = ordersData.flatMap((o: any) => {
+        const currentRefPrefixesOrder = normalizedOrdersData.flatMap((o: any) => {
             const refs = [`Order #${o.order_number}`];
             if (o.payment_amount > 0) refs.push(`Order #${o.order_number} - Pago`);
             return refs;
