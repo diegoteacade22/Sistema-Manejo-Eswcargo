@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation';
 import { requireAdminUser } from '@/lib/access';
 import { sendInvoiceEmail, sendPackingListEmail } from '@/app/email-actions';
 import { sendWhatsAppMessage } from '@/lib/whatsapp';
+import { createPaymentLedgerEntry, upsertOrderLedgerCharge, upsertShipmentLedgerCharge } from '@/lib/client-ledger';
 
 type DeliveryChannel = 'EMAIL' | 'WHATSAPP' | 'SKIPPED' | 'FAILED';
 
@@ -222,8 +223,11 @@ export async function submitOrder(data: {
     try {
         const totalAmount = data.items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
 
-        // Find max order number to increment (simple logic for now)
-        const lastOrder = await prisma.order.findFirst({ orderBy: { order_number: 'desc' } });
+        // Find max REAL order number (exclude system-generated 900000+ series)
+        const lastOrder = await prisma.order.findFirst({
+            where: { order_number: { lt: 900000 } },
+            orderBy: { order_number: 'desc' }
+        });
         const newOrderNumber = (lastOrder?.order_number || 0) + 1;
 
         // Pre-fetch shipments for resolution
@@ -273,16 +277,12 @@ export async function submitOrder(data: {
                 }
             });
 
-            // 2. Create Debt Transaction (Cargo)
-            await tx.transaction.create({
-                data: {
-                    clientId: data.clientId,
-                    date: data.date,
-                    type: 'CARGO',
-                    amount: -totalAmount, // Negative = Debt
-                    description: `Pedido #${newOrderNumber}`,
-                    reference: String(newOrderNumber)
-                }
+            await upsertOrderLedgerCharge(tx, {
+                id: order.id,
+                order_number: order.order_number,
+                clientId: order.clientId,
+                total_amount: order.total_amount,
+                date: order.date
             });
 
             return order;
@@ -334,27 +334,57 @@ export async function submitOrder(data: {
 
 export async function registerPayment(clientId: number, amount: number, description: string, reference: string, paymentMethod: string) {
     await requireAdminUser();
-    const finalAmount = Math.abs(amount); // Always positive for Payments (Credit)
 
     try {
-        const transaction = await prisma.transaction.create({
-            data: {
-                clientId,
-                type: 'PAGO',
-                paymentMethod,
-                amount: finalAmount,
-                date: new Date(),
-                description: description || 'Pago a cuenta',
-                reference
-            } as any,
+        const transaction = await createPaymentLedgerEntry(prisma, {
+            clientId,
+            paymentMethod,
+            amount,
+            description: description || 'Pago a cuenta',
+            reference
         });
 
         revalidatePath(`/clients/${clientId}`);
         revalidatePath('/clients');
+        revalidatePath('/collections');
+        revalidatePath('/analytics/financial');
         return { success: true, transaction };
     } catch (error) {
         console.error('Error registering payment:', error);
         return { success: false, error: 'Failed to register payment' };
+    }
+}
+
+export async function registerPaymentFromForm(formData: FormData) {
+    await requireAdminUser();
+
+    try {
+        const clientId = Number(formData.get('clientId'));
+        const amount = Number(formData.get('amount'));
+        const paymentMethod = String(formData.get('paymentMethod') || '').trim();
+        const description = String(formData.get('description') || '').trim();
+        const reference = String(formData.get('reference') || '').trim();
+
+        if (!clientId || !amount || amount <= 0 || !paymentMethod) {
+            return { success: false, error: 'Cliente, monto y método son obligatorios.' };
+        }
+
+        const transaction = await createPaymentLedgerEntry(prisma, {
+            clientId,
+            paymentMethod,
+            amount,
+            description: description || 'Pago a cuenta',
+            reference: reference || null,
+        });
+
+        revalidatePath(`/clients/${clientId}`);
+        revalidatePath('/clients');
+        revalidatePath('/collections');
+        revalidatePath('/analytics/financial');
+        return { success: true, transaction };
+    } catch (error: unknown) {
+        console.error('Error registering payment from form:', error);
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to register payment' };
     }
 }
 
@@ -368,20 +398,17 @@ export async function registerShipmentCharge(shipmentId: number, clientId: numbe
 
         if (!shipment) return { success: false, message: 'Envío no encontrado' };
 
-        // Create Debit Transaction
-        await prisma.transaction.create({
-            data: {
-                clientId,
-                type: 'CARGO', // Debit/Charge
-                amount: -Math.abs(amount), // Negative = Debt
-                date: new Date(),
-                description: `CARGA #${shipment.shipment_number} ${notes ? '- ' + notes : ''}`,
-                reference: `SHIP-${shipment.shipment_number}`
-            } as any
+        await upsertShipmentLedgerCharge(prisma, {
+            id: shipmentId,
+            shipment_number: shipment.shipment_number,
+            clientId,
+            amount,
+            notes
         });
 
         revalidatePath(`/clients/${clientId}`);
         revalidatePath('/shipments');
+        revalidatePath('/analytics/financial');
         return { success: true };
 
     } catch (error) {

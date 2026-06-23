@@ -4,16 +4,22 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Printer, Mail } from 'lucide-react';
+import { ArrowLeft, Printer } from 'lucide-react';
 import Link from 'next/link';
 import { PaymentDialog } from '@/components/payment-dialog';
 import { auth } from '@/lib/auth';
 import { notFound } from 'next/navigation';
+import type { Transaction } from '@prisma/client';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 interface Props {
     params: Promise<{ id: string }>;
     searchParams: Promise<{ sort?: string, order?: 'asc' | 'desc' }>;
 }
+
+type TransactionWithBalance = Transaction & { balance: number };
 
 async function getClientDetails(id: string) {
     const clientId = parseInt(id);
@@ -26,6 +32,7 @@ async function getClientDetails(id: string) {
                 orderBy: { date: 'asc' }, // ALWAYS fetch Ascending for perfect chronological ledger calculation
             },
             orders: {
+                where: { order_number: { lt: 900000 } },
                 orderBy: { date: 'desc' },
                 take: 10,
             }
@@ -44,8 +51,8 @@ export default async function ClientPage(props: Props) {
         return notFound();
     }
 
-    const userRole = (session.user as any).role;
-    const userId = (session.user as any).id;
+    const userRole = (session.user as { role?: string }).role;
+    const userId = (session.user as { id?: string }).id;
 
     if (userRole !== 'ADMIN') {
         const clientForUser = await prisma.client.findFirst({
@@ -65,18 +72,21 @@ export default async function ClientPage(props: Props) {
     }
 
     const sortField = searchParams.sort || 'date';
-    const sortOrder = searchParams.order || 'asc';
+    const sortOrder = searchParams.order || 'desc';
 
-    // Calculate Balance and Running Balances (Always Chronologically first)
-    let runningBalance = 0;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let transactionsWithBalance = client.transactions.map((tx: any) => {
-        runningBalance += tx.amount;
-        return { ...tx, balance: runningBalance };
-    });
+    const ledgerState = client.transactions.reduce(
+        (state: { runningBalance: number; transactions: TransactionWithBalance[] }, tx: Transaction) => {
+            const balance = state.runningBalance + tx.amount;
+            return {
+                runningBalance: balance,
+                transactions: [...state.transactions, { ...tx, balance }],
+            };
+        },
+        { runningBalance: 0, transactions: [] }
+    );
 
     // Apply sorting to the pre-calculated list
-    transactionsWithBalance.sort((a: any, b: any) => {
+    const transactionsWithBalance = [...ledgerState.transactions].sort((a: TransactionWithBalance, b: TransactionWithBalance) => {
         let comparison = 0;
         if (sortField === 'date') {
             comparison = new Date(a.date).getTime() - new Date(b.date).getTime();
@@ -87,7 +97,24 @@ export default async function ClientPage(props: Props) {
         return sortOrder === 'asc' ? comparison : -comparison;
     });
 
-    const finalBalance = runningBalance;
+    const finalBalance = ledgerState.runningBalance;
+    const isFreightCharge = (tx: Transaction) => {
+        const text = `${tx.description || ''} ${tx.reference || ''}`.toLowerCase();
+        return tx.type === 'CARGO' && /(carga|flete|env[ií]o|costo env[ií]o)/i.test(text);
+    };
+    const isAdjustmentOrFee = (tx: Transaction) => {
+        const text = `${tx.description || ''} ${tx.reference || ''}`.toLowerCase();
+        return /(ajuste|comision|comisión)/i.test(text);
+    };
+    const totalPurchases = Math.abs(client.transactions
+        .filter((tx: Transaction) => tx.type === 'CARGO' && tx.amount < 0 && !isFreightCharge(tx) && !isAdjustmentOrFee(tx))
+        .reduce((acc: number, tx: Transaction) => acc + tx.amount, 0));
+    const totalPayments = client.transactions
+        .filter((tx: Transaction) => tx.type === 'PAGO' && tx.amount > 0)
+        .reduce((acc: number, tx: Transaction) => acc + tx.amount, 0);
+    const totalFreights = Math.abs(client.transactions
+        .filter((tx: Transaction) => tx.amount < 0 && isFreightCharge(tx))
+        .reduce((acc: number, tx: Transaction) => acc + tx.amount, 0));
 
     return (
         <div className="p-8 space-y-8">
@@ -163,7 +190,7 @@ export default async function ClientPage(props: Props) {
                         <p className="text-xs text-muted-foreground uppercase font-semibold">Total Compras</p>
                         <p className="text-xl font-bold text-red-600">
                             {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(
-                                Math.abs(client.transactions.filter((t: any) => t.type === 'CARGO' && t.reference?.startsWith('Order')).reduce((acc: number, t: any) => acc + t.amount, 0))
+                                totalPurchases
                             )}
                         </p>
                     </CardContent>
@@ -173,7 +200,7 @@ export default async function ClientPage(props: Props) {
                         <p className="text-xs text-muted-foreground uppercase font-semibold">Total Pagos</p>
                         <p className="text-xl font-bold text-emerald-600">
                             {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(
-                                client.transactions.filter((t: any) => t.type === 'PAGO').reduce((acc: number, t: any) => acc + t.amount, 0)
+                                totalPayments
                             )}
                         </p>
                     </CardContent>
@@ -183,7 +210,7 @@ export default async function ClientPage(props: Props) {
                         <p className="text-xs text-muted-foreground uppercase font-semibold">Total Fletes</p>
                         <p className="text-xl font-bold text-amber-600">
                             {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(
-                                Math.abs(client.transactions.filter((t: any) => t.type === 'CARGO' && t.reference?.startsWith('Envío')).reduce((acc: number, t: any) => acc + t.amount, 0))
+                                totalFreights
                             )}
                         </p>
                     </CardContent>
@@ -235,7 +262,7 @@ export default async function ClientPage(props: Props) {
                                             </TableCell>
                                         </TableRow>
                                     ) : (
-                                        transactionsWithBalance.map((tx: any) => (
+                                        transactionsWithBalance.map((tx: TransactionWithBalance) => (
                                             <TableRow key={tx.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
                                                 <TableCell className="font-mono text-sm">
                                                     {new Date(tx.date).toLocaleDateString()}

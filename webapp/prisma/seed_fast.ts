@@ -4,16 +4,14 @@ import fs from 'fs';
 import path from 'path';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
+const BATCH_SIZE = 500;
 
-function resolveImportedTxOldClientId(tx: any): number | null {
-    const reference = String(tx?.reference || '').toUpperCase();
-
-    if (reference.startsWith('CC-IMPORT-MARCOS_CC-')) {
-        return 162;
+function chunkArray<T>(items: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let i = 0; i < items.length; i += size) {
+        chunks.push(items.slice(i, i + size));
     }
-
-    const parsedClientId = Number(tx?.clientId);
-    return Number.isFinite(parsedClientId) ? parsedClientId : null;
+    return chunks;
 }
 
 async function main() {
@@ -42,7 +40,7 @@ async function main() {
     const [dbClients, dbProducts, dbShipments, dbOrders, dbSuppliers] = await Promise.all([
         prisma.client.findMany({ select: { id: true, old_id: true, name: true, email: true, phone: true } }),
         prisma.product.findMany({ select: { id: true, sku: true, lp1: true, stock: true } }),
-        (prisma as any).shipment.findMany({ select: { id: true, shipment_number: true, status: true, notes: true, forwarder: true, weight_fw: true, price_total: true, cost_total: true, date_shipped: true, date_arrived: true, clientId: true } }),
+        (prisma as any).shipment.findMany({ select: { id: true, shipment_number: true, status: true, notes: true, forwarder: true, weight_fw: true, price_total: true, cost_total: true, date_shipped: true, date_arrived: true, clientId: true, cargo_description: true, item_count: true } }),
         prisma.order.findMany({
             select: {
                 id: true,
@@ -154,6 +152,8 @@ async function main() {
         };
         delete (data as any).old_client_id;
         delete (data as any).client_name_match;
+        delete (data as any).client_id;
+        delete (data as any).is_paid;
 
         let dbShipment: any;
         if (!existing) {
@@ -174,7 +174,9 @@ async function main() {
                 existing.cost_total !== s.cost_total ||
                 shippedTime !== existingShipped ||
                 arrivedTime !== existingArrived ||
-                existing.clientId !== dbClientId;
+                existing.clientId !== dbClientId ||
+                existing.cargo_description !== (s.cargo_description || null) ||
+                existing.item_count !== (s.item_count || null);
 
             if (hasChanges) {
                 dbShipment = await (prisma as any).shipment.update({ where: { id: existing.id }, data });
@@ -188,7 +190,8 @@ async function main() {
     // 6. PROCESAR PEDIDOS
     console.log(`📑 Sincronizando ${ordersData.length} pedidos...`);
     let orderCounter = 0;
-    const syncedOrderNumbers = new Set(ordersData.map((o: any) => o.order_number));
+    const orderIdsToRebuildItems: number[] = [];
+    const allOrderItemsToCreate: any[] = [];
 
     for (const o of (ordersData as any[])) {
         const existing = orderNumMap.get(o.order_number);
@@ -248,14 +251,12 @@ async function main() {
             }
         }
         processedOrderIds.add(dbOrder.id);
+        orderIdsToRebuildItems.push(dbOrder.id);
 
-        // Actualizar Items
-        // Actualizar Items (USANDO createMany PARA VELOCIDAD)
-        await prisma.orderItem.deleteMany({ where: { orderId: dbOrder.id } });
-        const orderItemsToCreate = o.items.map((item: any) => {
+        for (const item of o.items) {
             const shipId = item.shipment_number ? shipmentNumMap.get(item.shipment_number)?.id : null;
             const dbProd = (item.sku && productSkuMap.has(item.sku)) ? productSkuMap.get(item.sku) : null;
-            return {
+            allOrderItemsToCreate.push({
                 orderId: dbOrder.id,
                 productId: dbProd?.id || null,
                 productName: item.product_name || item.sku || "Producto sin Nombre",
@@ -266,11 +267,7 @@ async function main() {
                 profit: item.profit,
                 shipmentId: shipId,
                 status: item.status
-            };
-        });
-
-        if (orderItemsToCreate.length > 0) {
-            await prisma.orderItem.createMany({ data: orderItemsToCreate });
+            });
         }
 
         // Actualizar Transacciones (ELIMINACIÓN PRECISA para evitar borrar otros pedidos que contengan el mismo número)
@@ -282,14 +279,37 @@ async function main() {
         if (orderCounter % 50 === 0) console.log(`   ...procesados ${orderCounter} pedidos`);
     }
 
+    if (orderIdsToRebuildItems.length > 0) {
+        console.log(`   ↻ Reemplazando ${allOrderItemsToCreate.length} items de pedidos en lotes...`);
+
+        for (const orderIdChunk of chunkArray(orderIdsToRebuildItems, BATCH_SIZE)) {
+            await prisma.orderItem.deleteMany({
+                where: { orderId: { in: orderIdChunk } }
+            });
+        }
+
+        for (const itemChunk of chunkArray(allOrderItemsToCreate, BATCH_SIZE)) {
+            await prisma.orderItem.createMany({ data: itemChunk });
+        }
+    }
+
     // 6.7 SINCRONIZACIÓN MAESTRA DE TRANSACCIONES (CLIENTES Y PROVEEDORES)
     console.log("💰 Sincronizando todas las transacciones financieras...");
     const allTxs: any[] = [];
+    const cashFlowManagedOldIds = new Set([66, 70, 72, 96, 119, 147, 162, 174, 214, 266, 273, 275]);
+    const cashFlowManagedClientIds = new Set(
+        Array.from(cashFlowManagedOldIds)
+            .map(oldId => clientOldIdMap.get(oldId)?.id)
+            .filter((id): id is number => typeof id === 'number')
+    );
+    const isCashFlowManagedClient = (clientId: number | null | undefined) =>
+        typeof clientId === 'number' && cashFlowManagedClientIds.has(clientId);
 
     // A. Transacciones de Pedidos
     for (const o of ordersData) {
         const dbClientId = o.client_old_id ? clientOldIdMap.get(o.client_old_id)?.id : (o.client_name_match ? clientNameMap.get(o.client_name_match.trim().toUpperCase())?.id : null);
         if (!dbClientId) continue;
+        if (isCashFlowManagedClient(dbClientId)) continue;
         const oDate = parseSafeDate(o.date) || new Date();
 
         if (o.total_amount > 0) {
@@ -320,7 +340,7 @@ async function main() {
             ? clientOldIdMap.get(s.old_client_id)?.id
             : (s.client_name_match ? clientNameMap.get(s.client_name_match.trim().toUpperCase())?.id : null);
 
-        if (dbClientId && s.price_total > 0) {
+        if (dbClientId && !isCashFlowManagedClient(dbClientId) && s.price_total > 0) {
             allTxs.push({
                 clientId: dbClientId,
                 date: parseSafeDate(s.date_shipped) || new Date(),
@@ -336,7 +356,7 @@ async function main() {
     const paymentsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'payments_extra_seed.json'), 'utf8'));
     for (const p of paymentsData) {
         const dbClientId = p.client_old_id ? clientOldIdMap.get(p.client_old_id)?.id : (p.client_name_match ? clientNameMap.get(p.client_name_match.trim().toUpperCase())?.id : null);
-        if (dbClientId && p.amount !== 0) {
+        if (dbClientId && !isCashFlowManagedClient(dbClientId) && p.amount !== 0) {
             const date = p.date ? new Date(p.date) : new Date();
             allTxs.push({
                 clientId: dbClientId,
@@ -352,10 +372,11 @@ async function main() {
     // D. Transacciones Manuales (Ledgers históricos por cliente)
     const manualLedgersDir = path.join(prismaDir, 'manual_ledgers');
     if (fs.existsSync(manualLedgersDir)) {
-        const ledgerFiles = fs.readdirSync(manualLedgersDir).filter(f => f.endsWith('.json') && !f.includes('raw'));
+            const ledgerFiles = fs.readdirSync(manualLedgersDir).filter(f => f.endsWith('.json') && !f.includes('raw'));
         for (const ledgerFile of ledgerFiles) {
             const clientIdFromFile = parseInt(ledgerFile.replace('.json', ''));
             if (isNaN(clientIdFromFile)) continue;
+            if (isCashFlowManagedClient(clientIdFromFile)) continue;
 
             const manualTxs = JSON.parse(fs.readFileSync(path.join(manualLedgersDir, ledgerFile), 'utf-8'));
             for (const tx of manualTxs) {
@@ -388,21 +409,16 @@ async function main() {
         console.log("📥 Importando transacciones desde CC sheets...");
         const importedTxs = JSON.parse(fs.readFileSync(transactionsFile, 'utf-8'));
         let importCount = 0;
-
+        
         for (const tx of importedTxs) {
-            const txOldClientId = resolveImportedTxOldClientId(tx);
-            if (!txOldClientId) {
-                console.log(`   ⚠️ Transacción sin clientId válido (${tx?.reference || 'sin referencia'}), saltando`);
-                continue;
-            }
-
             // Map clientId from old_id to actual database ID
-            const dbClientId = clientOldIdMap.get(txOldClientId)?.id;
+            const dbClientId = clientOldIdMap.get(tx.clientId)?.id;
             if (!dbClientId) {
-                console.log(`   ⚠️ Cliente ${txOldClientId} no encontrado, saltando transacción`);
+                console.log(`   ⚠️ Cliente ${tx.clientId} no encontrado, saltando transacción`);
                 continue;
             }
-
+            if (isCashFlowManagedClient(dbClientId)) continue;
+            
             allTxs.push({
                 clientId: dbClientId,
                 date: new Date(tx.date),
@@ -413,7 +429,7 @@ async function main() {
             });
             importCount++;
         }
-
+        
         console.log(`   ✅ ${importCount} transacciones CC importadas`);
     }
 
@@ -485,14 +501,15 @@ async function main() {
     }
 
     // Insertar en bloques para evitar límites de la base de datos
-    const CHUNK_SIZE = 100;
-    for (let i = 0; i < allTxs.length; i += CHUNK_SIZE) {
-        const chunk = allTxs.slice(i, i + CHUNK_SIZE);
+    for (const chunk of chunkArray(allTxs, BATCH_SIZE)) {
         await prisma.transaction.createMany({ data: chunk });
     }
     console.log("   ✅ Transacciones sincronizadas.");
 
     // 6.8 ACTUALIZAR TABLAS DE COMPRA (ENCABEZADOS Y DETALLES)
+    const purchaseIdsToRebuildItems: number[] = [];
+    const allPurchaseItemsToCreate: any[] = [];
+
     for (const p of purchasesData) {
         const dbSupplierId = p.supplier_old_id
             ? supplierOldIdMap.get(p.supplier_old_id)?.id
@@ -516,19 +533,30 @@ async function main() {
         }
         processedPurchaseIds.add(dbPurchase.id);
 
-        // Actualizar Items de Compra (createMany para velocidad)
-        await (prisma as any).purchaseItem.deleteMany({ where: { purchaseId: dbPurchase.id } });
-        const purchaseItemsToCreate = p.items.map((item: any) => ({
-            purchaseId: dbPurchase.id,
-            sku: (item.sku && productSkuMap.has(item.sku)) ? item.sku : null,
-            productName: item.product_name || item.sku || "Producto Compra",
-            quantity: item.quantity,
-            unit_cost: item.unit_cost,
-            subtotal: item.subtotal
-        }));
+        purchaseIdsToRebuildItems.push(dbPurchase.id);
+        for (const item of p.items) {
+            allPurchaseItemsToCreate.push({
+                purchaseId: dbPurchase.id,
+                sku: (item.sku && productSkuMap.has(item.sku)) ? item.sku : null,
+                productName: item.product_name || item.sku || "Producto Compra",
+                quantity: item.quantity,
+                unit_cost: item.unit_cost,
+                subtotal: item.subtotal
+            });
+        }
+    }
 
-        if (purchaseItemsToCreate.length > 0) {
-            await (prisma as any).purchaseItem.createMany({ data: purchaseItemsToCreate });
+    if (purchaseIdsToRebuildItems.length > 0) {
+        console.log(`   ↻ Reemplazando ${allPurchaseItemsToCreate.length} items de compras en lotes...`);
+
+        for (const purchaseIdChunk of chunkArray(purchaseIdsToRebuildItems, BATCH_SIZE)) {
+            await (prisma as any).purchaseItem.deleteMany({
+                where: { purchaseId: { in: purchaseIdChunk } }
+            });
+        }
+
+        for (const itemChunk of chunkArray(allPurchaseItemsToCreate, BATCH_SIZE)) {
+            await (prisma as any).purchaseItem.createMany({ data: itemChunk });
         }
     }
 
@@ -537,16 +565,24 @@ async function main() {
         console.log("🧹 Iniciando limpieza de registros huérfanos...");
 
         // Limpiar Pedidos que ya no están en Excel
-        const orphanedOrders = await prisma.order.deleteMany({
-            where: { id: { notIn: Array.from(processedOrderIds) } }
-        });
-        console.log(`   ✅ Pedidos huérfanos eliminados: ${orphanedOrders.count}`);
+        if (processedOrderIds.size > 0) {
+            const orphanedOrders = await prisma.order.deleteMany({
+                where: { id: { notIn: Array.from(processedOrderIds) } }
+            });
+            console.log(`   ✅ Pedidos huérfanos eliminados: ${orphanedOrders.count}`);
+        } else {
+            console.log(`   ⚠️ ALERTA: 0 pedidos procesados. Se omite limpieza de pedidos para evitar pérdida de datos.`);
+        }
 
         // Limpiar Envíos que ya no están en Excel
-        const orphanedShipments = await (prisma as any).shipment.deleteMany({
-            where: { id: { notIn: Array.from(processedShipmentIds) } }
-        });
-        console.log(`   ✅ Envíos huérfanos eliminados: ${orphanedShipments.count}`);
+        if (processedShipmentIds.size > 0) {
+            const orphanedShipments = await (prisma as any).shipment.deleteMany({
+                where: { id: { notIn: Array.from(processedShipmentIds) } }
+            });
+            console.log(`   ✅ Envíos huérfanos eliminados: ${orphanedShipments.count}`);
+        } else {
+            console.log(`   ⚠️ ALERTA: 0 envíos procesados. Se omite limpieza de envíos para evitar pérdida de datos.`);
+        }
 
         // Limpiar Transacciones asociadas a registros que ya no existen
         const currentRefPrefixesOrder = ordersData.flatMap((o: any) => {

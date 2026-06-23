@@ -23,7 +23,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { CreditCard } from 'lucide-react';
-import { registerPayment } from '@/app/actions';
+import { registerPaymentFromForm } from '@/app/actions';
 
 export function PaymentDialog({
     clientId,
@@ -51,13 +51,14 @@ export function PaymentDialog({
         e.preventDefault();
         setLoading(true);
 
-        const res = await registerPayment(
-            clientId,
-            parseFloat(amount),
-            description,
-            reference,
-            method
-        );
+        const formData = new FormData();
+        formData.set('clientId', String(clientId));
+        formData.set('amount', amount);
+        formData.set('description', description);
+        formData.set('reference', reference);
+        formData.set('paymentMethod', method);
+
+        const res = await registerPaymentFromForm(formData);
 
         setLoading(false);
         if (res.success) {
@@ -68,7 +69,7 @@ export function PaymentDialog({
             setMethod('');
             // Ideally show a toast here
         } else {
-            alert('Error al registrar pago');
+            alert(res.error || 'Error al registrar pago');
         }
     };
 

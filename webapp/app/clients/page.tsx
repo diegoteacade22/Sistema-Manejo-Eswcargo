@@ -11,6 +11,9 @@ import { Suspense } from 'react';
 import { EditClientDialogWrapper as EditClientDialog } from '@/components/edit-client-dialog-wrapper';
 import { SortableColumn, SortOrder } from '@/components/ui/sortable-column';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 
 async function getClients(query: string, sortField: string = 'operations', sortOrder: SortOrder = 'desc') {
     let orderBy: any = {};

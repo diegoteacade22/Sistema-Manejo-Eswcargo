@@ -4,6 +4,7 @@
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/lib/auth';
+import { upsertOrderLedgerCharge } from '@/lib/client-ledger';
 
 export async function updateOrderItem(itemId: number, data: { quantity?: number; unit_price?: number }) {
     const session = await auth();
@@ -46,33 +47,17 @@ export async function updateOrderItem(itemId: number, data: { quantity?: number;
             data: { total_amount: newOrderTotal }
         });
 
-        // 4. Update Transaction (if exists)
-        // Check if there is a 'CARGO' transaction related to this order (Order #...)
-        const txRef = `Order #${currentItem.order.order_number || currentItem.order.id}`;
-
-        // Find existing transaction (CARGO)
-        const tx = await prisma.transaction.findFirst({
-            where: {
-                reference: { startsWith: txRef },
-                type: 'CARGO',
-                clientId: currentItem.order.clientId
-            }
+        await upsertOrderLedgerCharge(prisma, {
+            id: currentItem.order.id,
+            order_number: currentItem.order.order_number,
+            clientId: currentItem.order.clientId,
+            total_amount: newOrderTotal,
+            date: currentItem.order.date,
         });
 
-        if (tx) {
-            await prisma.transaction.update({
-                where: { id: tx.id },
-                data: { amount: -newOrderTotal } // Cargo is negative
-            });
-            console.log(`Updated transaction ${tx.id} for Order #${currentItem.order.id} to new total: ${newOrderTotal}`);
-        } else {
-            // If no transaction found by exact ref, try finding by description slightly loose?
-            // Or maybe it hasn't been synced yet. Since this is "local first", we might want to create it?
-            // For now, let's just update if found.
-            console.log(`No transaction found for Order #${currentItem.order.id} to update.`);
-        }
-
         revalidatePath(`/orders/${currentItem.orderId}`);
+        revalidatePath(`/clients/${currentItem.order.clientId}`);
+        revalidatePath('/analytics/financial');
         return { success: true };
     } catch (error) {
         console.error('Error updating order item:', error);

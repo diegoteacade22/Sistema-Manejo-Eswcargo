@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { upsertOrderLedgerCharge } from "@/lib/client-ledger";
 
 function getExpectedApiKey() {
     return (process.env.AGENT_API_KEY || process.env.AUTH_SECRET || "").trim();
@@ -192,6 +193,14 @@ export async function POST(req: Request) {
                 const fullOrder = await tx.order.findUnique({
                     where: { id: order.id },
                     include: { items: true },
+                });
+
+                await upsertOrderLedgerCharge(tx, {
+                    id: order.id,
+                    order_number: order.order_number,
+                    clientId: order.clientId,
+                    total_amount: order.total_amount,
+                    date: order.date,
                 });
 
                 return fullOrder;
