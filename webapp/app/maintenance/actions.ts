@@ -110,9 +110,11 @@ export async function syncExcel(days: number = 0) {
         const scriptPath = await findSyncScriptPath();
         const hookUrl = process.env.SYNC_HOOK_URL;
         const hookToken = process.env.SYNC_HOOK_TOKEN;
+        const isVercelRuntime = process.env.VERCEL === '1';
 
-        // Priorizar ejecución local para garantizar que se actualice esta misma instancia.
-        if (scriptPath) {
+        // En Vercel el script queda empaquetado, pero no existe el entorno Python.
+        // En produccion cloud se debe usar el hook remoto de sincronizacion.
+        if (!isVercelRuntime && scriptPath) {
             console.log(`Starting local Excel Sync (${days} days) with script: ${scriptPath}`);
             const { stdout, stderr } = await execAsync(`bash "${scriptPath}" ${days}`);
             console.log("Sync Output:", stdout);
@@ -149,7 +151,9 @@ export async function syncExcel(days: number = 0) {
 
         return {
             success: false,
-            message: `Error al sincronizar: no se encontró sync_excel.sh (cwd: ${process.cwd()}) y tampoco SYNC_HOOK_URL.`
+            message: isVercelRuntime
+                ? 'Error al sincronizar: produccion cloud requiere SYNC_HOOK_URL configurado.'
+                : `Error al sincronizar: no se encontró sync_excel.sh (cwd: ${process.cwd()}) y tampoco SYNC_HOOK_URL.`
         };
     } catch (error: any) {
         console.error("Sync Error:", error);

@@ -44,7 +44,7 @@ export default function MaintenancePage() {
         startTransition(async () => {
             const res = await syncExcel(days);
             if (res.success) {
-                setMessage({ text: `Sincronización finalizada (${syncScope}).`, type: 'success' });
+                setMessage({ text: res.message || `Sincronización finalizada (${syncScope}).`, type: 'success' });
             } else {
                 setMessage({ text: res.message, type: 'error' });
             }
