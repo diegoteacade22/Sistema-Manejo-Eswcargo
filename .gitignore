@@ -1,6 +1,11 @@
 .env
 .env.production
 .env.example
+.DS_Store
+.agent/
+.claude/
+.vscode/
+*.code-workspace
 *.db
 *.db-journal
 node_modules/
@@ -8,4 +13,13 @@ node_modules/
 .env.local
 .vercel
 google_credentials.json
-.env*.local
+*credentials*.json
+*.xlsx
+*.xls
+*.csv
+*.sqlite
+*.sqlite3
+logs/
+.venv/
+__pycache__/
+*.pyc
