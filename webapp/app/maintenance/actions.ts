@@ -66,6 +66,41 @@ async function findSyncScriptPath(): Promise<string | null> {
     return null;
 }
 
+async function triggerGitHubSyncWorkflow(days: number) {
+    const token = process.env.GITHUB_SYNC_TOKEN;
+    if (!token) return null;
+
+    const repo = process.env.GITHUB_SYNC_REPO || 'diegoteacade22/Sistema-Manejo-Eswcargo';
+    const workflow = process.env.GITHUB_SYNC_WORKFLOW || 'sync.yml';
+    const ref = process.env.GITHUB_SYNC_REF || 'main';
+    const daysInput = days === 0 ? 'FULL' : String(days);
+    const actionsUrl = `https://github.com/${repo}/actions/workflows/${workflow}`;
+
+    const response = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/${workflow}/dispatches`, {
+        method: 'POST',
+        headers: {
+            accept: 'application/vnd.github+json',
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+            'x-github-api-version': '2022-11-28',
+        },
+        body: JSON.stringify({
+            ref,
+            inputs: { days: daysInput },
+        }),
+    });
+
+    if (!response.ok) {
+        const responseText = await response.text();
+        throw new Error(`GitHub Actions rechazó la sincronización (${response.status}): ${responseText || 'sin detalle'}`);
+    }
+
+    return {
+        actionsUrl,
+        daysInput,
+    };
+}
+
 export async function revalidateSystem() {
     await requireAdminUser();
     revalidatePath('/', 'layout');
@@ -111,6 +146,14 @@ export async function syncExcel(days: number = 0) {
         const hookUrl = process.env.SYNC_HOOK_URL;
         const hookToken = process.env.SYNC_HOOK_TOKEN;
         const isVercelRuntime = process.env.VERCEL === '1';
+
+        const githubWorkflow = await triggerGitHubSyncWorkflow(days);
+        if (githubWorkflow) {
+            return {
+                success: true,
+                message: `Sincronización cloud iniciada en GitHub Actions (${githubWorkflow.daysInput}). Estado: ${githubWorkflow.actionsUrl}`
+            };
+        }
 
         // En Vercel el script queda empaquetado, pero no existe el entorno Python.
         // En produccion cloud se debe usar el hook remoto de sincronizacion.

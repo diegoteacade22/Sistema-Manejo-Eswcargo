@@ -3,7 +3,12 @@ name: 🔄 Sincronización Automática (Cloud)
 on:
   schedule:
     - cron: '0 */6 * * *' # Cada 6 horas
-  workflow_dispatch: # Permite ejecutarlo manualmente desde GitHub
+  workflow_dispatch: # Permite ejecutarlo manualmente desde GitHub o desde el panel
+    inputs:
+      days:
+        description: 'Rango a sincronizar: 7, 30, 0 o FULL'
+        required: false
+        default: '7'
 
 jobs:
   sync:
@@ -29,14 +34,22 @@ jobs:
         run: python3 download_sheet.py
 
       - name: 📊 Procesar Datos (Extract)
-        run: python3 extract_consolidated.py
+        env:
+          SYNC_DAYS: ${{ github.event.inputs.days || '7' }}
+        run: python3 extract_consolidated.py "$SYNC_DAYS"
 
       - name: 🚀 Configurar Node.js y Actualizar BD (Supabase)
         working-directory: ./webapp
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          SYNC_DAYS: ${{ github.event.inputs.days || '7' }}
         run: |
           npm install
           npx prisma generate
+          if [ "$SYNC_DAYS" = "0" ] || [ "$SYNC_DAYS" = "FULL" ]; then
+            export SYNC_MODE=FULL
+          else
+            export SYNC_MODE=DIFF
+          fi
           npx tsx prisma/seed_fast.ts
