@@ -1,8 +1,6 @@
 name: 🔄 Sincronización Automática (Cloud)
 
 on:
-  schedule:
-    - cron: '0 */6 * * *' # Cada 6 horas
   workflow_dispatch: # Permite ejecutarlo manualmente desde GitHub o desde el panel
     inputs:
       days:
@@ -38,7 +36,7 @@ jobs:
           SYNC_DAYS: ${{ github.event.inputs.days || '7' }}
         run: python3 extract_consolidated.py "$SYNC_DAYS"
 
-      - name: 🚀 Configurar Node.js y Actualizar BD (Supabase)
+      - name: 🚀 Configurar Node.js y Auditar BD (Supabase)
         working-directory: ./webapp
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -47,9 +45,11 @@ jobs:
         run: |
           npm install
           npx prisma generate
+          node scripts/audit-ledgers.mjs
           if [ "$SYNC_DAYS" = "0" ] || [ "$SYNC_DAYS" = "FULL" ]; then
             export SYNC_MODE=FULL
           else
             export SYNC_MODE=DIFF
           fi
           npx tsx prisma/seed_fast.ts
+          node scripts/audit-ledgers.mjs

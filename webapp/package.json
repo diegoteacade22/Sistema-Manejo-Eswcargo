@@ -8,6 +8,7 @@
     "build": "prisma generate && next build",
     "start": "node .next/standalone/server.js",
     "lint": "eslint",
+    "audit:ledgers": "node scripts/audit-ledgers.mjs",
     "e2e:permissions": "node scripts/e2e-permissions-check.js",
     "postinstall": "prisma generate"
   },
