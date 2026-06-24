@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "scripts": {
+    "vercel-build": "cd webapp && npm run build",
+    "build": "cd webapp && npm run build",
+    "postinstall": "cd webapp && npm install"
+  }
+}
