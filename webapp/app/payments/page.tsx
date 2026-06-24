@@ -4,8 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { CreditCard, History, Plus } from 'lucide-react';
-import { Suspense } from 'react';
+import { CreditCard, FileText, History } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { PaymentDialog } from '@/components/payment-dialog';
@@ -30,6 +29,9 @@ async function getPayments(sortField: string = 'date', sortOrder: 'asc' | 'desc'
         where: {
             clientId: client.id,
             type: 'PAGO'
+        },
+        include: {
+            receipt: true,
         },
         orderBy: sortField === 'amount'
             ? { amount: sortOrder }
@@ -106,6 +108,7 @@ export default async function PaymentsPage(props: { searchParams: Promise<{ sort
                                 </TableHead>
                                 <TableHead className="font-bold text-slate-900 dark:text-slate-100">Descripción / Referencia</TableHead>
                                 <TableHead className="font-bold text-slate-900 dark:text-slate-100">Método</TableHead>
+                                <TableHead className="font-bold text-slate-900 dark:text-slate-100">Comprobante</TableHead>
                                 <TableHead className="text-right pr-6 font-bold text-slate-900 dark:text-slate-100">
                                     <Link href={`?sort=amount&order=${sortField === 'amount' && sortOrder === 'asc' ? 'desc' : 'asc'}`} className="flex items-center justify-end hover:text-emerald-600 transition-colors">
                                         Monto {sortField === 'amount' && (sortOrder === 'asc' ? '↑' : '↓')}
@@ -136,6 +139,17 @@ export default async function PaymentsPage(props: { searchParams: Promise<{ sort
                                             <span className="text-slate-400">-</span>
                                         )}
                                     </TableCell>
+                                    <TableCell>
+                                        {payment.receipt ? (
+                                            <Button variant="ghost" size="sm" asChild>
+                                                <Link href={`/api/collections/receipts/${payment.receipt.id}`} target="_blank">
+                                                    <FileText className="mr-2 h-4 w-4" /> Ver
+                                                </Link>
+                                            </Button>
+                                        ) : (
+                                            <span className="text-slate-400">—</span>
+                                        )}
+                                    </TableCell>
                                     <TableCell className="text-right pr-6">
                                         <div className="flex items-center justify-end gap-2">
                                             <span className="text-lg font-black text-emerald-600 dark:text-emerald-400 font-mono">
@@ -150,7 +164,7 @@ export default async function PaymentsPage(props: { searchParams: Promise<{ sort
                             ))}
                             {payments.length === 0 && (
                                 <TableRow>
-                                    <TableCell colSpan={4} className="text-center py-20">
+                                    <TableCell colSpan={5} className="text-center py-20">
                                         <div className="flex flex-col items-center justify-center space-y-3 opacity-40">
                                             <CreditCard className="h-10 w-10 text-slate-400" />
                                             <p className="text-slate-500 font-medium">Aún no se han registrado pagos en tu cuenta.</p>

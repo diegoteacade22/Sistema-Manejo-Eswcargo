@@ -138,6 +138,25 @@ export function NewCollectionForm({ clients }: { clients: Client[] }) {
                 />
             </div>
 
+            <div className="space-y-2">
+                <Label htmlFor="reference">Referencia (Opcional)</Label>
+                <Input
+                    id="reference"
+                    name="reference"
+                    placeholder="# comprobante / hash USDT / transferencia"
+                />
+            </div>
+
+            <div className="space-y-2">
+                <Label htmlFor="proof">Comprobante (Foto o PDF)</Label>
+                <Input
+                    id="proof"
+                    name="proof"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,application/pdf"
+                />
+            </div>
+
             <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700" disabled={loading}>
                 {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 Registrar Cobranza

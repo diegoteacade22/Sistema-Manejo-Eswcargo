@@ -23,7 +23,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { CreditCard } from 'lucide-react';
-import { registerPayment } from '@/app/actions';
+import { registerPaymentFromForm } from '@/app/actions';
 
 export function PaymentDialog({
     clientId,
@@ -45,19 +45,22 @@ export function PaymentDialog({
     const [reference, setReference] = useState('');
     const [description, setDescription] = useState('');
     const [method, setMethod] = useState('');
+    const [proof, setProof] = useState<File | null>(null);
     const [loading, setLoading] = useState(false);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
 
-        const res = await registerPayment(
-            clientId,
-            parseFloat(amount),
-            description,
-            reference,
-            method
-        );
+        const formData = new FormData();
+        formData.set('clientId', String(clientId));
+        formData.set('amount', amount);
+        formData.set('description', description);
+        formData.set('reference', reference);
+        formData.set('paymentMethod', method);
+        if (proof) formData.set('proof', proof);
+
+        const res = await registerPaymentFromForm(formData);
 
         setLoading(false);
         if (res.success) {
@@ -66,9 +69,10 @@ export function PaymentDialog({
             setReference('');
             setDescription('');
             setMethod('');
+            setProof(null);
             // Ideally show a toast here
         } else {
-            alert('Error al registrar pago');
+            alert(res.error || 'Error al registrar pago');
         }
     };
 
@@ -147,6 +151,18 @@ export function PaymentDialog({
                             onChange={(e) => setDescription(e.target.value)}
                             className="col-span-3"
                             placeholder="Detalles adicionales..."
+                        />
+                    </div>
+                    <div className="grid grid-cols-4 items-center gap-4">
+                        <Label htmlFor="proof" className="text-right">
+                            Comprobante
+                        </Label>
+                        <Input
+                            id="proof"
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp,application/pdf"
+                            onChange={(e) => setProof(e.target.files?.[0] || null)}
+                            className="col-span-3"
                         />
                     </div>
                     <DialogFooter>

@@ -2,7 +2,7 @@
 import { prisma } from '@/lib/prisma'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
-import { Plus, CreditCard, ArrowRight } from 'lucide-react'
+import { Plus, FileText } from 'lucide-react'
 import {
     Table,
     TableBody,
@@ -20,7 +20,8 @@ export default async function CollectionsPage() {
             type: 'PAGO'
         },
         include: {
-            client: true
+            client: true,
+            receipt: true,
         },
         orderBy: {
             date: 'desc'
@@ -52,6 +53,7 @@ export default async function CollectionsPage() {
                             <TableHead>Cliente</TableHead>
                             <TableHead>Método</TableHead>
                             <TableHead>Detalle</TableHead>
+                            <TableHead>Comprobante</TableHead>
                             <TableHead className="text-right">Importe</TableHead>
                             <TableHead className="w-[50px]"></TableHead>
                         </TableRow>
@@ -59,7 +61,7 @@ export default async function CollectionsPage() {
                     <TableBody>
                         {collections.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={6} className="h-24 text-center">
+                                <TableCell colSpan={7} className="h-24 text-center">
                                     No hay cobranzas registradas recientemente.
                                 </TableCell>
                             </TableRow>
@@ -81,6 +83,15 @@ export default async function CollectionsPage() {
                                     </TableCell>
                                     <TableCell className="text-muted-foreground text-sm max-w-[200px] truncate">
                                         {tx.description}
+                                    </TableCell>
+                                    <TableCell>
+                                        {tx.receipt ? (
+                                            <Button variant="ghost" size="sm" asChild>
+                                                <Link href={`/api/collections/receipts/${tx.receipt.id}`} target="_blank">
+                                                    <FileText className="mr-2 h-4 w-4" /> Ver
+                                                </Link>
+                                            </Button>
+                                        ) : '—'}
                                     </TableCell>
                                     <TableCell className="text-right font-mono font-bold text-emerald-600 dark:text-emerald-400">
                                         {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Math.abs(tx.amount))}

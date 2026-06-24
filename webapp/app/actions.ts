@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation';
 import { requireAdminUser } from '@/lib/access';
 import { sendInvoiceEmail, sendPackingListEmail } from '@/app/email-actions';
 import { sendWhatsAppMessage } from '@/lib/whatsapp';
+import { createClientPaymentWithReceipt } from '@/lib/payment-receipts';
 
 type DeliveryChannel = 'EMAIL' | 'WHATSAPP' | 'SKIPPED' | 'FAILED';
 
@@ -334,27 +335,62 @@ export async function submitOrder(data: {
 
 export async function registerPayment(clientId: number, amount: number, description: string, reference: string, paymentMethod: string) {
     await requireAdminUser();
-    const finalAmount = Math.abs(amount); // Always positive for Payments (Credit)
 
     try {
-        const transaction = await prisma.transaction.create({
-            data: {
-                clientId,
-                type: 'PAGO',
-                paymentMethod,
-                amount: finalAmount,
-                date: new Date(),
-                description: description || 'Pago a cuenta',
-                reference
-            } as any,
+        const transaction = await createClientPaymentWithReceipt(prisma, {
+            clientId,
+            amount,
+            date: new Date(),
+            paymentMethod,
+            description: description || 'Pago a cuenta',
+            reference,
         });
 
         revalidatePath(`/clients/${clientId}`);
         revalidatePath('/clients');
+        revalidatePath('/collections');
+        revalidatePath('/payments');
+        revalidatePath('/analytics/financial');
+        revalidatePath('/');
         return { success: true, transaction };
     } catch (error) {
         console.error('Error registering payment:', error);
-        return { success: false, error: 'Failed to register payment' };
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to register payment' };
+    }
+}
+
+export async function registerPaymentFromForm(formData: FormData) {
+    await requireAdminUser();
+
+    const clientId = Number(formData.get('clientId'));
+    const amount = Number(formData.get('amount'));
+    const description = String(formData.get('description') || '');
+    const reference = String(formData.get('reference') || '');
+    const paymentMethod = String(formData.get('paymentMethod') || '');
+    const receiptValue = formData.get('proof');
+    const receiptFile = receiptValue instanceof File ? receiptValue : null;
+
+    try {
+        const transaction = await createClientPaymentWithReceipt(prisma, {
+            clientId,
+            amount,
+            date: new Date(),
+            paymentMethod,
+            description: description || 'Pago a cuenta',
+            reference,
+            receiptFile,
+        });
+
+        revalidatePath(`/clients/${clientId}`);
+        revalidatePath('/clients');
+        revalidatePath('/collections');
+        revalidatePath('/payments');
+        revalidatePath('/analytics/financial');
+        revalidatePath('/');
+        return { success: true, transaction };
+    } catch (error) {
+        console.error('Error registering payment from form:', error);
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to register payment' };
     }
 }
 

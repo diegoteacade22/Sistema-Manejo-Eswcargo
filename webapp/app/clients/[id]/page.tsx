@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Printer, Mail } from 'lucide-react';
+import { ArrowLeft, Printer, FileText } from 'lucide-react';
 import Link from 'next/link';
 import { PaymentDialog } from '@/components/payment-dialog';
 import { auth } from '@/lib/auth';
@@ -24,6 +24,7 @@ async function getClientDetails(id: string) {
         include: {
             transactions: {
                 orderBy: { date: 'asc' }, // ALWAYS fetch Ascending for perfect chronological ledger calculation
+                include: { receipt: true },
             },
             orders: {
                 orderBy: { date: 'desc' },
@@ -219,6 +220,7 @@ export default async function ClientPage(props: Props) {
                                         </TableHead>
                                         <TableHead className="font-bold text-slate-700 dark:text-slate-200">CONCEPTO</TableHead>
                                         <TableHead className="font-bold text-slate-700 dark:text-slate-200">REF</TableHead>
+                                        <TableHead className="font-bold text-slate-700 dark:text-slate-200">COMPROBANTE</TableHead>
                                         <TableHead className="text-right font-bold text-slate-700 dark:text-slate-200">
                                             <Link href={`?sort=amount&order=${sortField === 'amount' && sortOrder === 'asc' ? 'desc' : 'asc'}`} className="flex items-center justify-end hover:text-indigo-600 transition-colors">
                                                 MONTO {sortField === 'amount' && (sortOrder === 'asc' ? '↑' : '↓')}
@@ -230,7 +232,7 @@ export default async function ClientPage(props: Props) {
                                 <TableBody>
                                     {transactionsWithBalance.length === 0 ? (
                                         <TableRow>
-                                            <TableCell colSpan={5} className="text-center h-24 text-muted-foreground">
+                                            <TableCell colSpan={6} className="text-center h-24 text-muted-foreground">
                                                 No hay movimientos registrados.
                                             </TableCell>
                                         </TableRow>
@@ -245,6 +247,17 @@ export default async function ClientPage(props: Props) {
                                                 </TableCell>
                                                 <TableCell className="text-left text-xs text-muted-foreground">
                                                     {tx.reference || '-'}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {tx.receipt ? (
+                                                        <Button variant="ghost" size="sm" asChild>
+                                                            <Link href={`/api/collections/receipts/${tx.receipt.id}`} target="_blank">
+                                                                <FileText className="mr-2 h-4 w-4" /> Ver
+                                                            </Link>
+                                                        </Button>
+                                                    ) : (
+                                                        <span className="text-muted-foreground">—</span>
+                                                    )}
                                                 </TableCell>
                                                 <TableCell className={`text-right font-bold font-mono ${tx.amount < 0
                                                     ? 'text-red-600 dark:text-red-400' // Charges (Inv/Carga) - Negative
