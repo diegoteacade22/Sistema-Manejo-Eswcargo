@@ -75,6 +75,7 @@ async function triggerGitHubSyncWorkflow(days: number) {
     const ref = process.env.GITHUB_SYNC_REF || 'main';
     const daysInput = days === 0 ? 'FULL' : String(days);
     const actionsUrl = `https://github.com/${repo}/actions/workflows/${workflow}`;
+    const startedAt = new Date().toISOString();
 
     const response = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/${workflow}/dispatches`, {
         method: 'POST',
@@ -95,8 +96,25 @@ async function triggerGitHubSyncWorkflow(days: number) {
         throw new Error(`GitHub Actions rechazó la sincronización (${response.status}): ${responseText || 'sin detalle'}`);
     }
 
+    let runUrl = actionsUrl;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    const runsResponse = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/${workflow}/runs?branch=${encodeURIComponent(ref)}&event=workflow_dispatch&per_page=5`, {
+        headers: {
+            accept: 'application/vnd.github+json',
+            authorization: `Bearer ${token}`,
+            'x-github-api-version': '2022-11-28',
+        },
+    });
+
+    if (runsResponse.ok) {
+        const runsData = await runsResponse.json();
+        const matchingRun = runsData.workflow_runs?.find((run: any) => run.created_at >= startedAt);
+        runUrl = matchingRun?.html_url || runsData.workflow_runs?.[0]?.html_url || actionsUrl;
+    }
+
     return {
-        actionsUrl,
+        actionsUrl: runUrl,
         daysInput,
     };
 }
@@ -153,7 +171,7 @@ export async function syncExcel(days: number = 0) {
             revalidateDataViews();
             return {
                 success: true,
-                message: `Sincronización cloud iniciada (${githubWorkflow.daysInput}). Podés seguir trabajando; estado: ${githubWorkflow.actionsUrl}`
+                message: `OK: sincronización FLASH ${githubWorkflow.daysInput} días iniciada correctamente. Podés seguir trabajando. Seguimiento: ${githubWorkflow.actionsUrl}`
             };
         }
 
