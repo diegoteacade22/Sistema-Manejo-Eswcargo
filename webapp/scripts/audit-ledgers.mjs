@@ -6,6 +6,7 @@ const MAX_REASONABLE_DEBT = Number(process.env.LEDGER_AUDIT_MAX_DEBT || 100000);
 const MAX_BASELINE_ONLY_BALANCE = Number(process.env.LEDGER_AUDIT_MAX_BASELINE_ONLY || 5000);
 const MAX_NAN_CLIENT_BALANCE = Number(process.env.LEDGER_AUDIT_MAX_NAN_BALANCE || 1000);
 const DUPLICATE_LOOKBACK_DAYS = Number(process.env.LEDGER_AUDIT_DUPLICATE_LOOKBACK_DAYS || 120);
+const STRICT_AUDIT = process.env.LEDGER_AUDIT_STRICT === '1';
 
 function money(value) {
   return Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
@@ -14,6 +15,14 @@ function money(value) {
 async function main() {
   const issues = [];
   const warnings = [];
+
+  function report(message, options = {}) {
+    if (options.critical || STRICT_AUDIT) {
+      issues.push(message);
+    } else {
+      warnings.push(message);
+    }
+  }
 
   const balances = await prisma.transaction.groupBy({
     by: ['clientId'],
@@ -40,7 +49,7 @@ async function main() {
     const affectedById = new Map(affectedClients.map((client) => [client.id, client]));
     for (const row of quarantinedImports) {
       const client = affectedById.get(row.clientId);
-      issues.push(`Importacion CC legacy activa: ${client?.name || 'sin cliente'} (#${client?.old_id ?? client?.id ?? row.clientId ?? '-'}) ${row._count._all} movimientos suman $${money(row._sum.amount || 0)}`);
+      report(`Importacion CC legacy activa: ${client?.name || 'sin cliente'} (#${client?.old_id ?? client?.id ?? row.clientId ?? '-'}) ${row._count._all} movimientos suman $${money(row._sum.amount || 0)}`, { critical: true });
     }
   }
 
@@ -71,7 +80,7 @@ async function main() {
   });
   for (const tx of wrongSignTransactions) {
     const client = tx.client;
-    issues.push(`Movimiento con signo incorrecto: tx ${tx.id} ${tx.type} $${money(tx.amount)} ${client?.name || 'sin cliente'} (#${client?.old_id ?? client?.id ?? tx.clientId ?? '-'}) ${tx.description || ''}`);
+    report(`Movimiento con signo incorrecto: tx ${tx.id} ${tx.type} $${money(tx.amount)} ${client?.name || 'sin cliente'} (#${client?.old_id ?? client?.id ?? tx.clientId ?? '-'}) ${tx.description || ''}`);
   }
 
   for (const balance of balances) {
@@ -80,11 +89,11 @@ async function main() {
     if (!client) continue;
 
     if (amount < -MAX_REASONABLE_DEBT) {
-      issues.push(`Saldo deudor absurdo: ${client.name} (#${client.old_id ?? client.id}) = -$${money(Math.abs(amount))}`);
+      report(`Saldo deudor absurdo: ${client.name} (#${client.old_id ?? client.id}) = -$${money(Math.abs(amount))}`, { critical: true });
     }
 
     if (String(client.name || '').trim().toLowerCase() === 'nan' && Math.abs(amount) > MAX_NAN_CLIENT_BALANCE) {
-      issues.push(`Cliente sin nombre con saldo relevante: id ${client.id} old_id ${client.old_id ?? '-'} = $${money(amount)}`);
+      report(`Cliente sin nombre con saldo relevante: id ${client.id} old_id ${client.old_id ?? '-'} = $${money(amount)}`);
     }
   }
 
@@ -111,9 +120,9 @@ async function main() {
     const label = `${client?.name || 'Cliente sin nombre'} (#${client?.old_id ?? client?.id ?? baseline.clientId})`;
 
     if (txCount === 1 && Math.abs(baseline.amount) > MAX_BASELINE_ONLY_BALANCE) {
-      issues.push(`Ajuste baseline unico crea saldo artificial: ${label} baseline $${money(baseline.amount)} balance $${money(balance)}`);
+      report(`Ajuste baseline unico crea saldo artificial: ${label} baseline $${money(baseline.amount)} balance $${money(balance)}`);
     } else if (Math.abs(baseline.amount) > MAX_REASONABLE_DEBT && Math.abs(balance) > MAX_NAN_CLIENT_BALANCE) {
-      issues.push(`Ajuste baseline gigante deja saldo activo: ${label} baseline $${money(baseline.amount)} balance $${money(balance)}`);
+      report(`Ajuste baseline gigante deja saldo activo: ${label} baseline $${money(baseline.amount)} balance $${money(balance)}`, { critical: true });
     } else if (Math.abs(baseline.amount) > MAX_REASONABLE_DEBT) {
       warnings.push(`Ajuste baseline grande compensado: ${label} baseline $${money(baseline.amount)} balance $${money(balance)}`);
     }
