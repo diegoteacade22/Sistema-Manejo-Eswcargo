@@ -24,6 +24,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { CreditCard } from 'lucide-react';
 import { registerPaymentFromForm } from '@/app/actions';
+import { ReceiptInput } from '@/components/receipt-input';
 
 export function PaymentDialog({
     clientId,
@@ -154,16 +155,12 @@ export function PaymentDialog({
                         />
                     </div>
                     <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="proof" className="text-right">
+                        <Label className="text-right">
                             Comprobante
                         </Label>
-                        <Input
-                            id="proof"
-                            type="file"
-                            accept="image/jpeg,image/png,image/webp,application/pdf"
-                            onChange={(e) => setProof(e.target.files?.[0] || null)}
-                            className="col-span-3"
-                        />
+                        <div className="col-span-3">
+                            <ReceiptInput file={proof} onFileChange={setProof} inputId="dialog-proof" />
+                        </div>
                     </div>
                     <DialogFooter>
                         <Button type="submit" disabled={loading} className="bg-emerald-600 hover:bg-emerald-700 text-white">

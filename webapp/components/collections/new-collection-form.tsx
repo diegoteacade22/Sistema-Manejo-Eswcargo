@@ -16,6 +16,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import { Loader2 } from 'lucide-react'
 import { Client } from '@prisma/client'
+import { ReceiptInput } from '@/components/receipt-input'
 
 // Pre-defined payment methods
 import { useRouter } from 'next/navigation'
@@ -35,6 +36,7 @@ export function NewCollectionForm({ clients }: { clients: Client[] }) {
     // Controlled states for Selects to ensure data capture
     const [clientId, setClientId] = useState<string>('')
     const [paymentMethod, setPaymentMethod] = useState<string>('')
+    const [proof, setProof] = useState<File | null>(null)
 
     const [loading, setLoading] = useState(false)
     const router = useRouter()
@@ -46,6 +48,7 @@ export function NewCollectionForm({ clients }: { clients: Client[] }) {
             // But for safety:
             if (!formData.get('clientId')) formData.set('clientId', clientId);
             if (!formData.get('paymentMethod')) formData.set('paymentMethod', paymentMethod);
+            if (proof) formData.set('proof', proof);
 
             const result = await createCollection(formData)
             if (result && result.success) {
@@ -148,13 +151,7 @@ export function NewCollectionForm({ clients }: { clients: Client[] }) {
             </div>
 
             <div className="space-y-2">
-                <Label htmlFor="proof">Comprobante (Foto o PDF)</Label>
-                <Input
-                    id="proof"
-                    name="proof"
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp,application/pdf"
-                />
+                <ReceiptInput file={proof} onFileChange={setProof} />
             </div>
 
             <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700" disabled={loading}>
