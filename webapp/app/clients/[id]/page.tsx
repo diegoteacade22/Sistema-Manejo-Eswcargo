@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { PaymentDialog } from '@/components/payment-dialog';
 import { auth } from '@/lib/auth';
 import { notFound } from 'next/navigation';
-import { isOrderCharge, isShipmentCharge } from '@/lib/ledger-rules';
+import { isOrderCharge, isQuarantinedLedgerTransaction, isShipmentCharge } from '@/lib/ledger-rules';
 
 interface Props {
     params: Promise<{ id: string }>;
@@ -69,10 +69,12 @@ export default async function ClientPage(props: Props) {
     const sortField = searchParams.sort || 'date';
     const sortOrder = searchParams.order || 'desc';
 
+    const ledgerTransactions = client.transactions.filter((tx: any) => !isQuarantinedLedgerTransaction(tx));
+
     // Calculate Balance and Running Balances (Always Chronologically first)
     let runningBalance = 0;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let transactionsWithBalance = client.transactions.map((tx: any) => {
+    let transactionsWithBalance = ledgerTransactions.map((tx: any) => {
         runningBalance += tx.amount;
         return { ...tx, balance: runningBalance };
     });
@@ -90,9 +92,9 @@ export default async function ClientPage(props: Props) {
     });
 
     const finalBalance = runningBalance;
-    const totalPurchases = Math.abs(client.transactions.filter((t: any) => isOrderCharge(t)).reduce((acc: number, t: any) => acc + t.amount, 0));
-    const totalPayments = client.transactions.filter((t: any) => t.type === 'PAGO' && t.amount > 0).reduce((acc: number, t: any) => acc + t.amount, 0);
-    const totalFreights = Math.abs(client.transactions.filter((t: any) => isShipmentCharge(t)).reduce((acc: number, t: any) => acc + t.amount, 0));
+    const totalPurchases = Math.abs(ledgerTransactions.filter((t: any) => isOrderCharge(t)).reduce((acc: number, t: any) => acc + t.amount, 0));
+    const totalPayments = ledgerTransactions.filter((t: any) => t.type === 'PAGO' && t.amount > 0).reduce((acc: number, t: any) => acc + t.amount, 0);
+    const totalFreights = Math.abs(ledgerTransactions.filter((t: any) => isShipmentCharge(t)).reduce((acc: number, t: any) => acc + t.amount, 0));
 
     return (
         <div className="p-8 space-y-8">

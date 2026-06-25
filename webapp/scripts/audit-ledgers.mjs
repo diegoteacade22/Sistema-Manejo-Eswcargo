@@ -17,10 +17,32 @@ async function main() {
 
   const balances = await prisma.transaction.groupBy({
     by: ['clientId'],
-    where: { clientId: { not: null } },
+    where: {
+      clientId: { not: null },
+      NOT: { reference: { startsWith: 'CC-Import-' } },
+    },
     _sum: { amount: true },
     _count: { _all: true },
   });
+
+  const quarantinedImports = await prisma.transaction.groupBy({
+    by: ['clientId'],
+    where: { reference: { startsWith: 'CC-Import-' } },
+    _count: { _all: true },
+    _sum: { amount: true },
+  });
+  if (quarantinedImports.length > 0) {
+    const ids = quarantinedImports.map((item) => item.clientId).filter(Boolean);
+    const affectedClients = await prisma.client.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, old_id: true, name: true },
+    });
+    const affectedById = new Map(affectedClients.map((client) => [client.id, client]));
+    for (const row of quarantinedImports) {
+      const client = affectedById.get(row.clientId);
+      issues.push(`Importacion CC legacy activa: ${client?.name || 'sin cliente'} (#${client?.old_id ?? client?.id ?? row.clientId ?? '-'}) ${row._count._all} movimientos suman $${money(row._sum.amount || 0)}`);
+    }
+  }
 
   const clientIds = balances.map((balance) => balance.clientId).filter(Boolean);
   const clients = await prisma.client.findMany({
@@ -35,6 +57,7 @@ async function main() {
         { type: 'PAGO', amount: { lt: 0 } },
         { type: 'CARGO', amount: { gt: 0 } },
       ],
+      NOT: { reference: { startsWith: 'CC-Import-' } },
     },
     select: {
       id: true,
@@ -66,7 +89,10 @@ async function main() {
   }
 
   const baselines = await prisma.transaction.findMany({
-    where: { reference: { startsWith: 'CC-ZERO-BASELINE-2026:' } },
+    where: {
+      reference: { startsWith: 'CC-ZERO-BASELINE-2026:' },
+      NOT: { reference: { startsWith: 'CC-Import-' } },
+    },
     select: {
       id: true,
       clientId: true,
@@ -124,6 +150,7 @@ async function main() {
       clientId: { not: null },
       amount: { gt: 0 },
       date: { gte: duplicateSince },
+      NOT: { reference: { startsWith: 'CC-Import-' } },
     },
     select: {
       id: true,

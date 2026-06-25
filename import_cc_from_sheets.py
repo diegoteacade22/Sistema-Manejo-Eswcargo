@@ -41,6 +41,7 @@ CC_TAB_TO_CLIENT = {
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Import CC transactions from Google Sheets")
     parser.add_argument("--dry-run", action="store_true", help="Preview without inserting to DB")
+    parser.add_argument("--allow-legacy", action="store_true", help="Run deprecated CC-Import flow for controlled local audits only")
     return parser.parse_args()
 
 
@@ -186,6 +187,12 @@ def load_clients_from_json() -> Dict[str, int]:
 
 def main():
     args = parse_args()
+
+    if not args.allow_legacy:
+        raise SystemExit(
+            "Importador legacy bloqueado: este script genera CC-Import-* y puede inflar cuentas corrientes. "
+            "Usar el flujo CASHFLOW-RAW validado. Para auditoria local controlada: --allow-legacy."
+        )
     
     print("=" * 60)
     print("  IMPORTACIÓN CC: GOOGLE SHEETS → BASE DE DATOS")

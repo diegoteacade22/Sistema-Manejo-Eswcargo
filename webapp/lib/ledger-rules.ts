@@ -7,6 +7,7 @@ type LedgerText = {
 const ORDER_CHARGE_PATTERN = /(order\s*#?|pedido\s*#?|inv\s*#?|invoice\s*#?)/i;
 const SHIPMENT_CHARGE_PATTERN = /(env[ií]o\s*#?|flete|carga\s*#?)/i;
 const ADJUSTMENT_PATTERN = /(ajuste|baseline|opening|neutraliz|duplicate|final-adj|saldo a cero|saldada|zero)/i;
+const QUARANTINED_REFERENCE_PATTERN = /^CC-Import-/i;
 
 export function ledgerSearchText(tx: LedgerText) {
   return `${tx.description || ''} ${tx.reference || ''} ${tx.paymentMethod || ''}`.trim();
@@ -14,6 +15,10 @@ export function ledgerSearchText(tx: LedgerText) {
 
 export function isAdjustmentTransaction(tx: LedgerText) {
   return ADJUSTMENT_PATTERN.test(ledgerSearchText(tx));
+}
+
+export function isQuarantinedLedgerTransaction(tx: LedgerText) {
+  return QUARANTINED_REFERENCE_PATTERN.test(String(tx.reference || '').trim());
 }
 
 export function isOrderCharge(tx: LedgerText & { type?: string | null; amount?: number | null }) {

@@ -11,7 +11,7 @@ import Link from 'next/link';
 
 import { auth } from '@/lib/auth';
 import { DashboardPeriodSelector } from '@/components/analytics/dashboard-period-selector';
-import { isAdjustmentTransaction } from '@/lib/ledger-rules';
+import { isAdjustmentTransaction, isQuarantinedLedgerTransaction } from '@/lib/ledger-rules';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -89,7 +89,7 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
   let clientHistory: any[] = [];
   if (clientId) {
     clientHistory = await prisma.transaction.findMany({
-      where: { clientId },
+      where: { clientId, NOT: { reference: { startsWith: 'CC-Import-' } } },
       orderBy: { date: 'desc' },
       take: 10
     });
@@ -106,7 +106,10 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
     });
     const clientBalances = await prisma.transaction.groupBy({
       by: ['clientId'],
-      where: { clientId: { in: activeClientIds.map((client) => client.id) } },
+      where: {
+        clientId: { in: activeClientIds.map((client) => client.id) },
+        NOT: { reference: { startsWith: 'CC-Import-' } },
+      },
       _sum: { amount: true },
     });
     adminClientBalances = clientBalances as any[];
@@ -117,7 +120,7 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
   } else if (clientId) {
     // Para el cliente, su propio balance (deuda)
     const balanceResult = await prisma.transaction.aggregate({
-      where: { clientId: clientId },
+      where: { clientId: clientId, NOT: { reference: { startsWith: 'CC-Import-' } } },
       _sum: { amount: true }
     });
     totalReceivables = balanceResult._sum.amount || 0;
@@ -153,10 +156,11 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
   const periodTransactions = await prisma.transaction.findMany({
     where: {
       date: { gte: rangeStart },
+      NOT: { reference: { startsWith: 'CC-Import-' } },
       ...(clientId ? { clientId } : { clientId: { not: null } })
     }
   });
-  const operationalTransactions = periodTransactions.filter((tx) => !isAdjustmentTransaction(tx));
+  const operationalTransactions = periodTransactions.filter((tx) => !isAdjustmentTransaction(tx) && !isQuarantinedLedgerTransaction(tx));
 
   const cashCollectedPeriod = operationalTransactions
     .filter(tx => tx.type === 'PAGO' && tx.amount > 0)
@@ -323,7 +327,12 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
   const totalProfitPeriod = chartData.reduce((acc, curr) => acc + (curr.totalProfit || 0), 0);
 
   const futureTransactions = userRole === 'ADMIN'
-    ? await prisma.transaction.count({ where: { date: { gt: new Date() } } })
+    ? await prisma.transaction.count({
+      where: {
+        date: { gt: new Date() },
+        NOT: { reference: { startsWith: 'CC-Import-' } },
+      },
+    })
     : 0;
 
   const dataIssues: string[] = [];
@@ -341,6 +350,7 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
           { type: 'PAGO', amount: { lt: 0 } },
           { type: 'CARGO', amount: { gt: 0 } },
         ],
+        NOT: { reference: { startsWith: 'CC-Import-' } },
       },
     });
     if (wrongSignTransactions > 0) dataIssues.push(`${wrongSignTransactions} movimientos con signo incorrecto`);
@@ -354,6 +364,7 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
         clientId: { not: null },
         amount: { gt: 0 },
         date: { gte: rangeStart },
+        NOT: { reference: { startsWith: 'CC-Import-' } },
       },
       select: { clientId: true, date: true, amount: true, paymentMethod: true, reference: true },
     });

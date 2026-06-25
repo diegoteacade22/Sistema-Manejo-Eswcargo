@@ -10,6 +10,7 @@ import { SearchInput } from '@/components/search-input';
 import { Suspense } from 'react';
 import { EditClientDialogWrapper as EditClientDialog } from '@/components/edit-client-dialog-wrapper';
 import { SortableColumn, SortOrder } from '@/components/ui/sortable-column';
+import { isQuarantinedLedgerTransaction } from '@/lib/ledger-rules';
 
 
 async function getClients(query: string, sortField: string = 'operations', sortOrder: SortOrder = 'desc') {
@@ -39,7 +40,9 @@ async function getClients(query: string, sortField: string = 'operations', sortO
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const clientsWithBalance = clients.map((client: any) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const balance = client.transactions.reduce((acc: any, t: any) => acc + t.amount, 0);
+        const balance = client.transactions
+            .filter((t: any) => !isQuarantinedLedgerTransaction(t))
+            .reduce((acc: any, t: any) => acc + t.amount, 0);
         return {
             ...client,
             balance
