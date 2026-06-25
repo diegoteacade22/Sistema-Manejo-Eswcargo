@@ -9,3 +9,8 @@ node_modules/
 .vercel
 google_credentials.json
 .env*.local
+
+# runtime logs / generated sync outputs
+logs/
+webapp/logs/
+*.log
