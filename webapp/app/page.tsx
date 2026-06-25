@@ -11,6 +11,7 @@ import Link from 'next/link';
 
 import { auth } from '@/lib/auth';
 import { DashboardPeriodSelector } from '@/components/analytics/dashboard-period-selector';
+import { isAdjustmentTransaction } from '@/lib/ledger-rules';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -45,6 +46,7 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
       ordersToBuyCount: 0,
       pendingPurchaseQty: 0,
       dataIssues: [],
+      dataIssueDetails: [],
       clientId: userRole === 'CLIENT' ? null : undefined,
     };
   }
@@ -76,7 +78,8 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
       shipmentInTransitCount: 0,
       ordersToBuyCount: 0,
       pendingPurchaseQty: 0,
-      dataIssues: []
+      dataIssues: [],
+      dataIssueDetails: [],
     };
 
     clientId = client.id;
@@ -153,10 +156,6 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
       ...(clientId ? { clientId } : { clientId: { not: null } })
     }
   });
-  const isAdjustmentTransaction = (tx: { description: string | null; reference: string | null; paymentMethod: string | null }) => {
-    const text = `${tx.description || ''} ${tx.reference || ''} ${tx.paymentMethod || ''}`.toLowerCase();
-    return /(ajuste|baseline|opening|neutraliz|duplicate|final-adj|saldo a cero|saldada|zero)/i.test(text);
-  };
   const operationalTransactions = periodTransactions.filter((tx) => !isAdjustmentTransaction(tx));
 
   const cashCollectedPeriod = operationalTransactions
@@ -179,9 +178,11 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
     orderBy: { date_shipped: 'desc' }
   });
 
-  const shipmentInTransitCount = shipments.filter((shipment: any) =>
-    ['SALIENDO', 'LLEGANDO', 'EN TRANSITO', 'EN 🇦🇷', 'MIAMI', 'PARCIAL'].includes(String(shipment.status || '').toUpperCase())
-  ).length;
+  const activeShipmentStatuses = new Set(['SALIENDO', 'LLEGANDO', 'EN TRANSITO', 'EN TRANSITO A ARG', 'EN TRANSITO ARG', 'MIAMI', 'PARCIAL']);
+  const shipmentInTransitCount = shipments.filter((shipment: any) => {
+    const status = String(shipment.status || '').trim().toUpperCase();
+    return activeShipmentStatuses.has(status) && !shipment.date_arrived;
+  }).length;
 
   const ordersToBuyCount = orders.filter((order) => ['COMPRAR', 'RESERVADO'].includes(String(order.status || '').toUpperCase())).length;
 
@@ -325,12 +326,53 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
     ? await prisma.transaction.count({ where: { date: { gt: new Date() } } })
     : 0;
 
-  const dataIssues = [];
+  const dataIssues: string[] = [];
+  const dataIssueDetails: string[] = [];
   const shipmentsMissingFinancials = shipments.filter((shipment: any) =>
     (shipment.price_total || 0) === 0 || (shipment.cost_total || 0) === 0
   ).length;
   if (shipmentsMissingFinancials > 0) dataIssues.push(`${shipmentsMissingFinancials} envíos sin costo/precio`);
   if (futureTransactions > 0) dataIssues.push(`${futureTransactions} movimientos con fecha futura`);
+
+  if (userRole === 'ADMIN') {
+    const wrongSignTransactions = await prisma.transaction.count({
+      where: {
+        OR: [
+          { type: 'PAGO', amount: { lt: 0 } },
+          { type: 'CARGO', amount: { gt: 0 } },
+        ],
+      },
+    });
+    if (wrongSignTransactions > 0) dataIssues.push(`${wrongSignTransactions} movimientos con signo incorrecto`);
+
+    const extremeDebtors = adminClientBalances.filter((row) => (row._sum.amount || 0) < -100000).length;
+    if (extremeDebtors > 0) dataIssues.push(`${extremeDebtors} saldos deudores extremos`);
+
+    const recentPayments = await prisma.transaction.findMany({
+      where: {
+        type: 'PAGO',
+        clientId: { not: null },
+        amount: { gt: 0 },
+        date: { gte: rangeStart },
+      },
+      select: { clientId: true, date: true, amount: true, paymentMethod: true, reference: true },
+    });
+    const paymentGroups = new Map<string, number>();
+    for (const payment of recentPayments) {
+      const key = [
+        payment.clientId,
+        payment.date.toISOString().slice(0, 10),
+        Math.round(payment.amount * 100),
+        payment.paymentMethod || '',
+        payment.reference || '',
+      ].join('|');
+      paymentGroups.set(key, (paymentGroups.get(key) || 0) + 1);
+    }
+    const duplicatePayments = Array.from(paymentGroups.values()).filter((count) => count > 1).length;
+    if (duplicatePayments > 0) dataIssues.push(`${duplicatePayments} posibles pagos duplicados`);
+
+    dataIssueDetails.push(...dataIssues);
+  }
 
   return {
     totalReceivables,
@@ -348,6 +390,7 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
     ordersToBuyCount,
     pendingPurchaseQty,
     dataIssues,
+    dataIssueDetails,
     clientHistory,
     clientShipments: shipments.slice(0, 5),
     recentShipments: shipments.slice(0, 6),
@@ -401,6 +444,7 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
     ordersToBuyCount,
     pendingPurchaseQty,
     dataIssues,
+    dataIssueDetails,
     clientHistory,
     clientShipments,
     recentShipments,
@@ -566,6 +610,9 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
             <CardContent>
               <p className="text-2xl font-black text-red-600">{dataIssues.length}</p>
               <p className="text-xs text-muted-foreground">{dataIssues[0] || 'Sin alertas críticas'}</p>
+              {dataIssueDetails.length > 1 && (
+                <p className="text-[11px] text-muted-foreground mt-1">{dataIssueDetails.slice(1, 3).join(' · ')}</p>
+              )}
             </CardContent>
           </Card>
         </div>

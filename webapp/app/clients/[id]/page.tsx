@@ -9,6 +9,7 @@ import Link from 'next/link';
 import { PaymentDialog } from '@/components/payment-dialog';
 import { auth } from '@/lib/auth';
 import { notFound } from 'next/navigation';
+import { isOrderCharge, isShipmentCharge } from '@/lib/ledger-rules';
 
 interface Props {
     params: Promise<{ id: string }>;
@@ -66,7 +67,7 @@ export default async function ClientPage(props: Props) {
     }
 
     const sortField = searchParams.sort || 'date';
-    const sortOrder = searchParams.order || 'asc';
+    const sortOrder = searchParams.order || 'desc';
 
     // Calculate Balance and Running Balances (Always Chronologically first)
     let runningBalance = 0;
@@ -89,6 +90,9 @@ export default async function ClientPage(props: Props) {
     });
 
     const finalBalance = runningBalance;
+    const totalPurchases = Math.abs(client.transactions.filter((t: any) => isOrderCharge(t)).reduce((acc: number, t: any) => acc + t.amount, 0));
+    const totalPayments = client.transactions.filter((t: any) => t.type === 'PAGO' && t.amount > 0).reduce((acc: number, t: any) => acc + t.amount, 0);
+    const totalFreights = Math.abs(client.transactions.filter((t: any) => isShipmentCharge(t)).reduce((acc: number, t: any) => acc + t.amount, 0));
 
     return (
         <div className="p-8 space-y-8">
@@ -164,7 +168,7 @@ export default async function ClientPage(props: Props) {
                         <p className="text-xs text-muted-foreground uppercase font-semibold">Total Compras</p>
                         <p className="text-xl font-bold text-red-600">
                             {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(
-                                Math.abs(client.transactions.filter((t: any) => t.type === 'CARGO' && t.reference?.startsWith('Order')).reduce((acc: number, t: any) => acc + t.amount, 0))
+                                totalPurchases
                             )}
                         </p>
                     </CardContent>
@@ -174,7 +178,7 @@ export default async function ClientPage(props: Props) {
                         <p className="text-xs text-muted-foreground uppercase font-semibold">Total Pagos</p>
                         <p className="text-xl font-bold text-emerald-600">
                             {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(
-                                client.transactions.filter((t: any) => t.type === 'PAGO').reduce((acc: number, t: any) => acc + t.amount, 0)
+                                totalPayments
                             )}
                         </p>
                     </CardContent>
@@ -184,7 +188,7 @@ export default async function ClientPage(props: Props) {
                         <p className="text-xs text-muted-foreground uppercase font-semibold">Total Fletes</p>
                         <p className="text-xl font-bold text-amber-600">
                             {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(
-                                Math.abs(client.transactions.filter((t: any) => t.type === 'CARGO' && t.reference?.startsWith('Envío')).reduce((acc: number, t: any) => acc + t.amount, 0))
+                                totalFreights
                             )}
                         </p>
                     </CardContent>

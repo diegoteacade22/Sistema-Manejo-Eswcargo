@@ -5,6 +5,7 @@ const prisma = new PrismaClient();
 const MAX_REASONABLE_DEBT = Number(process.env.LEDGER_AUDIT_MAX_DEBT || 100000);
 const MAX_BASELINE_ONLY_BALANCE = Number(process.env.LEDGER_AUDIT_MAX_BASELINE_ONLY || 5000);
 const MAX_NAN_CLIENT_BALANCE = Number(process.env.LEDGER_AUDIT_MAX_NAN_BALANCE || 1000);
+const DUPLICATE_LOOKBACK_DAYS = Number(process.env.LEDGER_AUDIT_DUPLICATE_LOOKBACK_DAYS || 120);
 
 function money(value) {
   return Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
@@ -27,6 +28,28 @@ async function main() {
     select: { id: true, old_id: true, name: true },
   });
   const clientById = new Map(clients.map((client) => [client.id, client]));
+
+  const wrongSignTransactions = await prisma.transaction.findMany({
+    where: {
+      OR: [
+        { type: 'PAGO', amount: { lt: 0 } },
+        { type: 'CARGO', amount: { gt: 0 } },
+      ],
+    },
+    select: {
+      id: true,
+      clientId: true,
+      type: true,
+      amount: true,
+      description: true,
+      client: { select: { id: true, old_id: true, name: true } },
+    },
+    take: 20,
+  });
+  for (const tx of wrongSignTransactions) {
+    const client = tx.client;
+    issues.push(`Movimiento con signo incorrecto: tx ${tx.id} ${tx.type} $${money(tx.amount)} ${client?.name || 'sin cliente'} (#${client?.old_id ?? client?.id ?? tx.clientId ?? '-'}) ${tx.description || ''}`);
+  }
 
   for (const balance of balances) {
     const amount = balance._sum.amount || 0;
@@ -89,6 +112,47 @@ async function main() {
     if (nonZero.length > 1) {
       warnings.push(`Nombre duplicado con mas de una cuenta con saldo: ${name} -> ${nonZero.map((item) => `id ${item.client.id}: $${money(item.balance)}`).join(', ')}`);
     }
+  }
+
+  const duplicateSince = new Date();
+  duplicateSince.setDate(duplicateSince.getDate() - DUPLICATE_LOOKBACK_DAYS);
+  duplicateSince.setHours(0, 0, 0, 0);
+
+  const recentPayments = await prisma.transaction.findMany({
+    where: {
+      type: 'PAGO',
+      clientId: { not: null },
+      amount: { gt: 0 },
+      date: { gte: duplicateSince },
+    },
+    select: {
+      id: true,
+      clientId: true,
+      date: true,
+      amount: true,
+      paymentMethod: true,
+      reference: true,
+      description: true,
+      client: { select: { id: true, old_id: true, name: true } },
+    },
+    orderBy: { date: 'desc' },
+  });
+  const paymentGroups = new Map();
+  for (const payment of recentPayments) {
+    const key = [
+      payment.clientId,
+      payment.date.toISOString().slice(0, 10),
+      Math.round(payment.amount * 100),
+      payment.paymentMethod || '',
+      payment.reference || '',
+    ].join('|');
+    if (!paymentGroups.has(key)) paymentGroups.set(key, []);
+    paymentGroups.get(key).push(payment);
+  }
+  for (const group of paymentGroups.values()) {
+    if (group.length <= 1) continue;
+    const first = group[0];
+    warnings.push(`Posible pago duplicado: ${first.client?.name || 'sin cliente'} (#${first.client?.old_id ?? first.client?.id ?? first.clientId}) ${first.date.toISOString().slice(0, 10)} $${money(first.amount)} refs [${group.map((tx) => tx.id).join(', ')}]`);
   }
 
   if (warnings.length) {
