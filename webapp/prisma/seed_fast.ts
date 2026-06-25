@@ -406,11 +406,15 @@ async function main() {
         const importedTxs = JSON.parse(fs.readFileSync(transactionsFile, 'utf-8'));
         const quarantinedTxs = importedTxs.filter((tx: any) => String(tx?.reference || '').startsWith('CC-Import-'));
         if (quarantinedTxs.length > 0 && process.env.ALLOW_CC_IMPORT !== '1') {
-            throw new Error(`Importacion CC legacy bloqueada: transactions.json contiene ${quarantinedTxs.length} referencias CC-Import-*. Regenerar con el importador CASHFLOW-RAW validado o ejecutar con ALLOW_CC_IMPORT=1 solo en auditoria controlada.`);
+            console.warn(`   ⚠️ ${quarantinedTxs.length} transacciones CC-Import-* ignoradas para evitar duplicar cuentas corrientes legacy.`);
         }
         let importCount = 0;
 
         for (const tx of importedTxs) {
+            if (String(tx?.reference || '').startsWith('CC-Import-') && process.env.ALLOW_CC_IMPORT !== '1') {
+                continue;
+            }
+
             const txOldClientId = resolveImportedTxOldClientId(tx);
             if (!txOldClientId) {
                 console.log(`   ⚠️ Transacción sin clientId válido (${tx?.reference || 'sin referencia'}), saltando`);

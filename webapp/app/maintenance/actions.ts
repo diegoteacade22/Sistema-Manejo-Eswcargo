@@ -75,7 +75,6 @@ async function triggerGitHubSyncWorkflow(days: number) {
     const ref = process.env.GITHUB_SYNC_REF || 'main';
     const daysInput = days === 0 ? 'FULL' : String(days);
     const actionsUrl = `https://github.com/${repo}/actions/workflows/${workflow}`;
-    const startedAt = new Date(Date.now() - 10000);
 
     const response = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/${workflow}/dispatches`, {
         method: 'POST',
@@ -96,68 +95,10 @@ async function triggerGitHubSyncWorkflow(days: number) {
         throw new Error(`GitHub Actions rechazó la sincronización (${response.status}): ${responseText || 'sin detalle'}`);
     }
 
-    const run = await waitForGitHubSyncRun({ token, repo, workflow, ref, startedAt });
-
     return {
         actionsUrl,
         daysInput,
-        run,
     };
-}
-
-function sleep(ms: number) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-type GitHubWorkflowRun = {
-    id: number;
-    html_url: string;
-    status: string;
-    conclusion: string | null;
-    created_at: string;
-    head_branch: string;
-};
-
-async function fetchGitHubWorkflowRuns(input: { token: string; repo: string; workflow: string; ref: string }) {
-    const response = await fetch(`https://api.github.com/repos/${input.repo}/actions/workflows/${input.workflow}/runs?branch=${encodeURIComponent(input.ref)}&event=workflow_dispatch&per_page=10`, {
-        headers: {
-            accept: 'application/vnd.github+json',
-            authorization: `Bearer ${input.token}`,
-            'x-github-api-version': '2022-11-28',
-        },
-        cache: 'no-store',
-    });
-
-    if (!response.ok) {
-        const responseText = await response.text();
-        throw new Error(`No pude consultar GitHub Actions (${response.status}): ${responseText || 'sin detalle'}`);
-    }
-
-    const payload = await response.json();
-    return (payload.workflow_runs || []) as GitHubWorkflowRun[];
-}
-
-async function waitForGitHubSyncRun(input: { token: string; repo: string; workflow: string; ref: string; startedAt: Date }) {
-    const timeoutMs = Number(process.env.GITHUB_SYNC_WAIT_MS || 270000);
-    const deadline = Date.now() + timeoutMs;
-    let selectedRun: GitHubWorkflowRun | null = null;
-
-    while (Date.now() < deadline) {
-        const runs = await fetchGitHubWorkflowRuns(input);
-        selectedRun = runs.find((run) =>
-            run.head_branch === input.ref &&
-            new Date(run.created_at).getTime() >= input.startedAt.getTime()
-        ) || selectedRun;
-
-        if (selectedRun && selectedRun.status === 'completed') {
-            return selectedRun;
-        }
-
-        await sleep(selectedRun ? 8000 : 3000);
-    }
-
-    if (selectedRun) return selectedRun;
-    throw new Error(`GitHub Actions no expuso la corrida de sincronización antes del timeout.`);
 }
 
 export async function revalidateSystem() {
@@ -208,26 +149,11 @@ export async function syncExcel(days: number = 0) {
 
         const githubWorkflow = await triggerGitHubSyncWorkflow(days);
         if (githubWorkflow) {
-            const run = githubWorkflow.run;
-            if (run.status !== 'completed') {
-                return {
-                    success: false,
-                    message: `Sincronización enviada pero no finalizó dentro del tiempo esperado (${githubWorkflow.daysInput}). Estado: ${run.status}. Revisá ${run.html_url}`
-                };
-            }
-
-            if (run.conclusion !== 'success') {
-                return {
-                    success: false,
-                    message: `Sincronización falló en GitHub Actions (${githubWorkflow.daysInput}). Resultado: ${run.conclusion || 'sin resultado'}. Revisá ${run.html_url}`
-                };
-            }
-
             revalidatePath('/', 'layout');
             revalidateDataViews();
             return {
                 success: true,
-                message: `Sincronización finalizada (${githubWorkflow.daysInput}) en GitHub Actions. ${run.html_url}`
+                message: `Sincronización cloud iniciada (${githubWorkflow.daysInput}). Podés seguir trabajando; estado: ${githubWorkflow.actionsUrl}`
             };
         }
 
