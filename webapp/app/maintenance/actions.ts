@@ -151,7 +151,7 @@ export async function syncExcel(days: number = 0) {
         if (githubWorkflow) {
             return {
                 success: true,
-                message: `Sincronización cloud iniciada en GitHub Actions (${githubWorkflow.daysInput}). Estado: ${githubWorkflow.actionsUrl}`
+                message: `Sincronización cloud enviada a GitHub Actions (${githubWorkflow.daysInput}). No terminó todavía: revisá el estado acá ${githubWorkflow.actionsUrl}`
             };
         }
 
