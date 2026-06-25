@@ -1,6 +1,8 @@
 name: 🔄 Sincronización Automática (Cloud)
 
 on:
+  schedule:
+    - cron: '0 8 * * *' # Todas las noches: 08:00 UTC
   workflow_dispatch: # Permite ejecutarlo manualmente desde GitHub o desde el panel
     inputs:
       days:
@@ -37,14 +39,20 @@ jobs:
         run: python3 extract_consolidated.py "$SYNC_DAYS"
 
       - name: 🚀 Configurar Node.js y Auditar BD (Supabase)
-        working-directory: ./webapp
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
           SYNC_DAYS: ${{ github.event.inputs.days || '7' }}
         run: |
-          npm install
-          npx prisma generate
+          SYNC_RUNTIME="/tmp/eswcargo-sync-runtime"
+          rm -rf "$SYNC_RUNTIME"
+          mkdir -p "$SYNC_RUNTIME"
+          cp -R webapp/prisma "$SYNC_RUNTIME/prisma"
+          cp -R webapp/scripts "$SYNC_RUNTIME/scripts"
+          cd "$SYNC_RUNTIME"
+          npm init -y >/dev/null
+          npm install --silent prisma@5.22.0 @prisma/client@5.22.0 tsx@latest
+          npx prisma generate --schema prisma/schema.prisma
           node scripts/cleanup-legacy-ledger-imports.mjs
           node scripts/audit-ledgers.mjs
           if [ "$SYNC_DAYS" = "0" ] || [ "$SYNC_DAYS" = "FULL" ]; then

@@ -96,6 +96,7 @@ async function triggerGitHubSyncWorkflow(days: number) {
         throw new Error(`GitHub Actions rechazó la sincronización (${response.status}): ${responseText || 'sin detalle'}`);
     }
 
+    let runId: number | null = null;
     let runUrl = actionsUrl;
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
@@ -110,12 +111,70 @@ async function triggerGitHubSyncWorkflow(days: number) {
     if (runsResponse.ok) {
         const runsData = await runsResponse.json();
         const matchingRun = runsData.workflow_runs?.find((run: any) => run.created_at >= startedAt);
-        runUrl = matchingRun?.html_url || runsData.workflow_runs?.[0]?.html_url || actionsUrl;
+        const run = matchingRun || runsData.workflow_runs?.[0];
+        runId = run?.id || null;
+        runUrl = run?.html_url || actionsUrl;
     }
 
     return {
+        repo,
+        runId,
         actionsUrl: runUrl,
         daysInput,
+        token,
+    };
+}
+
+async function waitForGitHubSync(run: Awaited<ReturnType<typeof triggerGitHubSyncWorkflow>>) {
+    if (!run?.runId) {
+        return {
+            success: false,
+            message: `GitHub inició la sincronización, pero no devolvió el run exacto. Seguimiento: ${run?.actionsUrl || 'sin link'}`
+        };
+    }
+
+    const timeoutAt = Date.now() + 240000;
+    let lastStatus = 'queued';
+
+    while (Date.now() < timeoutAt) {
+        const response = await fetch(`https://api.github.com/repos/${run.repo}/actions/runs/${run.runId}`, {
+            headers: {
+                accept: 'application/vnd.github+json',
+                authorization: `Bearer ${run.token}`,
+                'x-github-api-version': '2022-11-28',
+            },
+        });
+
+        if (!response.ok) {
+            const responseText = await response.text();
+            return {
+                success: false,
+                message: `Error consultando GitHub (${response.status}): ${responseText || 'sin detalle'}`
+            };
+        }
+
+        const data = await response.json();
+        lastStatus = data.status || lastStatus;
+        if (data.status === 'completed') {
+            if (data.conclusion === 'success') {
+                return {
+                    success: true,
+                    message: `OK: actualización finalizada (${run.daysInput} días). Ya podés ver los cambios en el sistema.`
+                };
+            }
+
+            return {
+                success: false,
+                message: `GitHub terminó con estado ${data.conclusion || 'desconocido'}. Revisar: ${run.actionsUrl}`
+            };
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
+
+    return {
+        success: false,
+        message: `La actualización sigue en GitHub (${lastStatus}). Revisar: ${run.actionsUrl}`
     };
 }
 
@@ -157,6 +216,10 @@ export async function resetDatabase() {
     }
 }
 
+function syncScopeLabel(days: number) {
+    return days === 0 ? 'Completa' : `${days} días`;
+}
+
 export async function syncExcel(days: number = 0) {
     await requireAdminUser();
     try {
@@ -165,18 +228,6 @@ export async function syncExcel(days: number = 0) {
         const hookToken = process.env.SYNC_HOOK_TOKEN;
         const isVercelRuntime = process.env.VERCEL === '1';
 
-        const githubWorkflow = await triggerGitHubSyncWorkflow(days);
-        if (githubWorkflow) {
-            revalidatePath('/', 'layout');
-            revalidateDataViews();
-            return {
-                success: true,
-                message: `OK: sincronización FLASH ${githubWorkflow.daysInput} días iniciada correctamente. Podés seguir trabajando. Seguimiento: ${githubWorkflow.actionsUrl}`
-            };
-        }
-
-        // En Vercel el script queda empaquetado, pero no existe el entorno Python.
-        // En produccion cloud se debe usar el hook remoto de sincronizacion.
         if (!isVercelRuntime && scriptPath) {
             console.log(`Starting local Excel Sync (${days} days) with script: ${scriptPath}`);
             const { stdout, stderr } = await execAsync(`bash "${scriptPath}" ${days}`);
@@ -185,11 +236,11 @@ export async function syncExcel(days: number = 0) {
 
             revalidatePath('/', 'layout');
             revalidateDataViews();
-            return { success: true, message: `Sincronización finalizada (${days === 0 ? 'Completa' : days + ' días'}).` };
+            return { success: true, message: `OK: actualización rápida finalizada (${syncScopeLabel(days)}). Ya podés ver los cambios en el sistema.` };
         }
 
-        // Fallback remoto para entornos sin script local.
-        if (hookUrl) {
+        if (hookUrl && hookUrl.trim().length > 0) {
+            const startedAt = Date.now();
             const response = await fetch(hookUrl, {
                 method: 'POST',
                 headers: {
@@ -200,6 +251,7 @@ export async function syncExcel(days: number = 0) {
             });
 
             const responseText = await response.text();
+            const elapsedSeconds = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
             if (!response.ok) {
                 return {
                     success: false,
@@ -209,18 +261,52 @@ export async function syncExcel(days: number = 0) {
 
             revalidatePath('/', 'layout');
             revalidateDataViews();
-            return { success: true, message: `Sincronización en curso (${days === 0 ? 'Completa' : days + ' días'}) vía hook.` };
+            return {
+                success: true,
+                message: `OK: actualización rápida finalizada (${syncScopeLabel(days)}) en ${elapsedSeconds}s. Ya podés ver los cambios en el sistema.`,
+                log: responseText || undefined
+            };
+        }
+
+        if (isVercelRuntime) {
+            const githubWorkflow = await triggerGitHubSyncWorkflow(days);
+            const result = await waitForGitHubSync(githubWorkflow);
+            if (result.success) {
+                revalidatePath('/', 'layout');
+                revalidateDataViews();
+            }
+            return result;
         }
 
         return {
             success: false,
-            message: isVercelRuntime
-                ? 'Error al sincronizar: produccion cloud requiere SYNC_HOOK_URL configurado.'
-                : `Error al sincronizar: no se encontró sync_excel.sh (cwd: ${process.cwd()}) y tampoco SYNC_HOOK_URL.`
+            message: `Error al sincronizar: no se encontró sync_excel.sh (cwd: ${process.cwd()}) y tampoco SYNC_HOOK_URL.`
         };
     } catch (error: any) {
         console.error("Sync Error:", error);
         return { success: false, message: `Error al sincronizar: ${error.message}` };
+    }
+}
+
+export async function syncExcelInGitHub(days: number = 7) {
+    await requireAdminUser();
+
+    try {
+        const githubWorkflow = await triggerGitHubSyncWorkflow(days);
+        if (!githubWorkflow) {
+            return {
+                success: false,
+                message: 'Error: falta GITHUB_SYNC_TOKEN para ejecutar la sincronización opcional en GitHub.'
+            };
+        }
+
+        return {
+            success: true,
+            message: `GitHub iniciado (${githubWorkflow.daysInput}). Seguimiento: ${githubWorkflow.actionsUrl}`
+        };
+    } catch (error: any) {
+        console.error("GitHub Sync Error:", error);
+        return { success: false, message: `Error al iniciar GitHub: ${error.message}` };
     }
 }
 

@@ -40,7 +40,7 @@ export function MaintenanceClient() {
 
     const handleSync = (days: number) => {
         const syncScope = days === 0 ? 'completa' : `${days} días`;
-        setMessage({ text: `Sincronización en curso (${syncScope})...`, type: 'success' });
+        setMessage({ text: `Actualizando datos del Excel (${syncScope})...`, type: 'success' });
         startTransition(async () => {
             const res = await syncExcel(days);
             if (res.success) {
@@ -160,7 +160,7 @@ export function MaintenanceClient() {
                             <h4 className="text-sm font-semibold flex items-center gap-2">
                                 <RefreshCw className="h-4 w-4 text-emerald-500" /> Sincronizar con Excel (Drive)
                             </h4>
-                            <p className="text-xs text-muted-foreground">Seleccione la velocidad de actualización:</p>
+                            <p className="text-xs text-muted-foreground">Actualiza el sistema para ver cambios recientes del Excel.</p>
 
                             <div className="grid grid-cols-1 gap-2">
                                 <Button
@@ -170,7 +170,7 @@ export function MaintenanceClient() {
                                     disabled={isPending}
                                 >
                                     <Cloud className={`mr-2 h-4 w-4 ${isPending ? 'animate-bounce' : ''}`} />
-                                    ⚡ FLASH (Últimos 7 días)
+                                    ⚡ ACTUALIZAR AHORA (Últimos 7 días)
                                 </Button>
 
                                 <Button
@@ -180,7 +180,7 @@ export function MaintenanceClient() {
                                     disabled={isPending}
                                 >
                                     <Cloud className={`mr-2 h-4 w-4 ${isPending ? 'animate-bounce' : ''}`} />
-                                    🏃 RÁPIDA (Últimos 30 días)
+                                    🏃 ACTUALIZAR 30 DÍAS
                                 </Button>
 
                                 <Button
