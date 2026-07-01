@@ -8,8 +8,8 @@ from googleapiclient.http import MediaIoBaseDownload
 
 # Configuration
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-# ID Original: 12ba_3FX1xK6d8UmzkeRBXhCVYXfi8plL-Uga5tXpajE (Confirmado Feb 6)
-SPREADSHEET_ID = '12ba_3FX1xK6d8UmzkeRBXhCVYXfi8plL-Uga5tXpajE'
+# Planilla activa de produccion
+SPREADSHEET_ID = '1GhLokb_V5Yok2ubxBg8Tr0jxE3nFkwCD2sMvWDHZ20o'
 OUTPUT_FILE = os.path.join(SCRIPT_DIR, 'VENTAS COMPRAS 2023 al 2025 Para Sistema en Gemini.xlsx')
 SERVICE_ACCOUNT_FILE = os.path.join(SCRIPT_DIR, 'google_credentials.json')
 
