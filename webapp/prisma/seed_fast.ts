@@ -28,6 +28,10 @@ async function main() {
     const productsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'products_seed.json'), 'utf-8'));
     const shipmentsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'shipments_seed.json'), 'utf-8'));
     const ordersData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'orders_seed.json'), 'utf-8'));
+    const shipmentReconciliationPath = path.join(prismaDir, 'shipment_reconciliation_seed.json');
+    const shipmentReconciliationData = fs.existsSync(shipmentReconciliationPath)
+        ? JSON.parse(fs.readFileSync(shipmentReconciliationPath, 'utf-8'))
+        : [];
     const orderDuplicateCounts = new Map<number, number>();
     const uniqueOrdersByNumber = new Map<number, any>();
     for (const order of ordersData as any[]) {
@@ -297,6 +301,125 @@ async function main() {
 
         orderCounter++;
         if (orderCounter % 50 === 0) console.log(`   ...procesados ${orderCounter} pedidos`);
+    }
+
+    // 6.1 RECONCILIAR ASIGNACIONES DE ENVIO HISTORICAS
+    // Los cambios de ENVIO NRO no modifican la fecha de venta, por lo que no
+    // aparecen en un lote de 7/30 dias. Se reconstruyen solo los pedidos que
+    // tienen una asignacion actual en la planilla o una asignacion previa en BD.
+    const reconciliationByOrderNumber = new Map<number, any>(
+        (shipmentReconciliationData as any[])
+            .filter(order => Number.isInteger(order?.order_number))
+            .map(order => [order.order_number, order])
+    );
+    const sheetAssignedOrderNumbers = new Set<number>(
+        (shipmentReconciliationData as any[])
+            .filter(order => (order.items || []).some((item: any) => item.shipment_number))
+            .map(order => order.order_number)
+    );
+    const dbAssignedOrders = await prisma.order.findMany({
+        where: {
+            OR: [
+                { shipmentId: { not: null } },
+                { items: { some: { shipmentId: { not: null } } } }
+            ]
+        },
+        select: { id: true, order_number: true, shipmentId: true }
+    });
+    const dbAssignedByOrderNumber = new Map<number, any>(
+        dbAssignedOrders
+            .filter(order => typeof order.order_number === 'number')
+            .map(order => [order.order_number as number, order])
+    );
+    const reconciliationOrderNumbers = new Set<number>([
+        ...sheetAssignedOrderNumbers,
+        ...dbAssignedByOrderNumber.keys()
+    ]);
+    const reconciliationOrderIds: number[] = [];
+    const reconciliationItemsToCreate: any[] = [];
+    const affectedShipmentIds = new Set<number>();
+
+    for (const orderNumber of reconciliationOrderNumbers) {
+        if (syncedOrderNumbers.has(orderNumber)) continue;
+
+        const sourceOrder = reconciliationByOrderNumber.get(orderNumber);
+        const dbOrder = orderNumMap.get(orderNumber);
+        if (!sourceOrder || !dbOrder) {
+            console.warn(`   ⚠️ No se pudo reconciliar pedido #${orderNumber}: falta ${!sourceOrder ? 'detalle en planilla' : 'pedido en base'}.`);
+            continue;
+        }
+
+        const sourceItems = sourceOrder.items || [];
+        const sourceShipmentIds = Array.from(new Set<number>(
+            sourceItems
+                .map((item: any): number | null => item.shipment_number ? shipmentNumMap.get(item.shipment_number)?.id || null : null)
+                .filter((shipmentId: number | null | undefined): shipmentId is number => typeof shipmentId === 'number')
+        ));
+        const resolvedShipmentId = sourceShipmentIds.length === 1 ? sourceShipmentIds[0] : null;
+
+        if (dbOrder.shipmentId !== resolvedShipmentId) {
+            await prisma.order.update({
+                where: { id: dbOrder.id },
+                data: { shipmentId: resolvedShipmentId }
+            });
+        }
+
+        reconciliationOrderIds.push(dbOrder.id);
+        if (dbOrder.shipmentId) affectedShipmentIds.add(dbOrder.shipmentId);
+        sourceShipmentIds.forEach((shipmentId: number) => affectedShipmentIds.add(shipmentId));
+
+        for (const item of sourceItems) {
+            const shipmentId = item.shipment_number ? shipmentNumMap.get(item.shipment_number)?.id : null;
+            const product = item.sku ? productSkuMap.get(item.sku) : null;
+            reconciliationItemsToCreate.push({
+                orderId: dbOrder.id,
+                productId: product?.id || null,
+                productName: item.product_name || item.sku || 'Producto sin Nombre',
+                quantity: item.quantity,
+                unit_price: item.unit_price,
+                unit_cost: item.unit_cost,
+                subtotal: item.unit_price * item.quantity,
+                profit: item.profit,
+                shipmentId,
+                status: item.status
+            });
+        }
+    }
+
+    if (reconciliationOrderIds.length > 0) {
+        console.log(`   ↻ Reconciliando ${reconciliationOrderIds.length} pedidos con asignaciones historicas...`);
+        await prisma.orderItem.deleteMany({ where: { orderId: { in: reconciliationOrderIds } } });
+        if (reconciliationItemsToCreate.length > 0) {
+            await prisma.orderItem.createMany({ data: reconciliationItemsToCreate });
+        }
+    }
+
+    const shipmentIdsToRefresh = new Set<number>(affectedShipmentIds);
+    for (const order of normalizedOrdersData as any[]) {
+        for (const item of order.items || []) {
+            const shipmentId = item.shipment_number ? shipmentNumMap.get(item.shipment_number)?.id : null;
+            if (shipmentId) shipmentIdsToRefresh.add(shipmentId);
+        }
+    }
+
+    if (shipmentIdsToRefresh.size > 0) {
+        const assignedItems = await prisma.orderItem.groupBy({
+            by: ['shipmentId'],
+            where: { shipmentId: { in: Array.from(shipmentIdsToRefresh) } },
+            _sum: { quantity: true }
+        });
+        const itemCountByShipmentId = new Map(
+            assignedItems
+                .filter(group => typeof group.shipmentId === 'number')
+                .map(group => [group.shipmentId as number, group._sum.quantity || 0])
+        );
+
+        for (const shipmentId of shipmentIdsToRefresh) {
+            await (prisma as any).shipment.update({
+                where: { id: shipmentId },
+                data: { item_count: itemCountByShipmentId.get(shipmentId) || 0 }
+            });
+        }
     }
 
     // 6.7 SINCRONIZACIÓN MAESTRA DE TRANSACCIONES (CLIENTES Y PROVEEDORES)

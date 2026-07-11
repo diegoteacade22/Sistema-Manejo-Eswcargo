@@ -35,17 +35,21 @@ export function buildShipmentItems(shipment: any) {
     if (shipment?.orders) {
         shipment.orders.forEach((order: any) => {
             if (!order.items) return;
+            // Header-level shipment links are legacy fallback only. Explicit item
+            // assignments are the authoritative source when they exist.
+            const orderHasExplicitShipmentItems = order.items.some((item: any) => item.shipmentId);
 
             order.items.forEach((item: any) => {
                 if (shipmentItemsMap.has(item.id)) return;
 
                 const isInShipment =
                     item.shipmentId === shipment.id ||
-                    (!item.shipmentId && order.shipmentId === shipment.id);
+                    (!orderHasExplicitShipmentItems && !item.shipmentId && order.shipmentId === shipment.id);
 
                 if (isInShipment) {
                     shipmentItemsMap.set(item.id, {
                         ...item,
+                        order: item.order || order,
                         orderId: order.id,
                         orderNumber: order.order_number,
                     });

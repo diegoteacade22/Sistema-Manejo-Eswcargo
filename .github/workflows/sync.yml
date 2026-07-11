@@ -61,4 +61,5 @@ jobs:
             export SYNC_MODE=DIFF
           fi
           npx tsx prisma/seed_fast.ts
+          node scripts/audit-shipment-reconciliation.mjs
           node scripts/audit-ledgers.mjs || echo "::warning::Auditoria CC posterior con advertencias; revisar cuenta corriente sin bloquear sync."

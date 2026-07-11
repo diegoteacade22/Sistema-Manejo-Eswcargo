@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { generatePdfFromHtml } from '@/lib/pdf-generator';
 import { requireAdminUser } from '@/lib/access';
 import { getInvPdfFileName, savePdfToDriveFolder } from '@/lib/document-storage';
-import { filterExportableShipmentItems } from '@/lib/shipment-items';
+import { buildShipmentItems, filterExportableShipmentItems } from '@/lib/shipment-items';
 
 type PackingListDocument = {
     shipment: any;
@@ -41,27 +41,25 @@ async function trySavePdfToDriveFolder(pdfBuffer: Uint8Array, fileName: string) 
 async function buildPackingListDocument(shipmentId: number): Promise<PackingListDocument> {
     const shipment = await prisma.shipment.findUnique({
         where: { id: shipmentId },
-        include: { client: true }
+        include: {
+            client: true,
+            items: { include: { product: true, order: true } },
+            orders: {
+                include: {
+                    items: { include: { product: true } }
+                }
+            }
+        }
     });
 
     if (!shipment) {
         throw new Error('Envío no encontrado.');
     }
 
-    const shipmentItemsRaw = await prisma.orderItem.findMany({
-        where: {
-            OR: [
-                { shipmentId: shipmentId },
-                { order: { shipmentId: shipmentId } }
-            ]
-        },
-        include: {
-            product: true,
-            order: true
-        }
-    });
-
-    const shipmentItems = filterExportableShipmentItems(shipmentItemsRaw);
+    const shipmentItems = filterExportableShipmentItems(
+        buildShipmentItems(shipment),
+        shipment.status
+    );
 
     if (shipmentItems.length === 0) {
         throw new Error('No hay ítems exportables en este envío (solo se exportan SALIENDO/LLEGANDO).');

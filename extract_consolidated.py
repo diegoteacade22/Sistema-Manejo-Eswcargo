@@ -280,7 +280,11 @@ def extract_all():
     
     recent_order_ids = set(df_cv[col_order_name].tolist())
 
-    # Mapear detalles por pedido (Solo los recientes)
+    # Snapshot completo de detalles para reconciliar asignaciones de envíos.
+    # La fecha de venta no cambia cuando se reasigna o se quita un producto.
+    all_det_map = {}
+
+    # Mapear detalles por pedido (solo los recientes para el sync financiero)
     det_map = {}
     det_client_map = {} # Map order_id -> {id: ..., name: ...}
     order_status_map = {}
@@ -290,12 +294,7 @@ def extract_all():
         try: oid = int(oid)
         except: continue
         
-        if days_filter and oid not in recent_order_ids: continue
-        
-        if oid not in det_map: det_map[oid] = []
-        
         st = normalize_status(clean_text(row.get('ESTADO')))
-        if st != 'COMPRAR': order_status_map[oid] = st
         
         try:
             raw_env_nro = row.get('ENVIO NRO')
@@ -304,7 +303,7 @@ def extract_all():
         except:
             sn_val = None
 
-        det_map[oid].append({
+        item_data = {
             'sku': clean_text(row.get('SKU')),
             'quantity': int(clean_num(row.get('CANT') or row.get('CANTIDAD'))),
             'unit_price': clean_num(row.get('VTA UNI') or row.get('PRECIO')),
@@ -313,7 +312,8 @@ def extract_all():
             'product_name': clean_text(row.get('DETALLE')),
             'shipment_number': sn_val,
             'status': st
-        })
+        }
+        all_det_map.setdefault(oid, []).append(item_data)
 
         # --- NUEVO: Capturar cliente desde Detalles para Fallback ---
         if oid not in det_client_map: # Solo si no lo tenemos ya (asumimos consistencia por pedido)
@@ -330,6 +330,13 @@ def extract_all():
                      'id': c_id,
                      'name': c_name
                  }
+
+        if days_filter and oid not in recent_order_ids:
+            continue
+
+        det_map.setdefault(oid, []).append(item_data)
+        if st != 'COMPRAR':
+            order_status_map[oid] = st
     
     # ... (orders processing)
     
@@ -410,6 +417,18 @@ def extract_all():
         json.dump(orders, f, indent=2, ensure_ascii=False)
     with open(os.path.join(output_dir, 'payments_extra_seed.json'), 'w', encoding='utf-8') as f:
         json.dump(payments_only, f, indent=2, ensure_ascii=False)
+
+    shipment_reconciliation = [
+        {
+            'order_number': order_number,
+            'client_old_id': det_client_map.get(order_number, {}).get('id'),
+            'client_name_match': det_client_map.get(order_number, {}).get('name'),
+            'items': items
+        }
+        for order_number, items in all_det_map.items()
+    ]
+    with open(os.path.join(output_dir, 'shipment_reconciliation_seed.json'), 'w', encoding='utf-8') as f:
+        json.dump(shipment_reconciliation, f, indent=2, ensure_ascii=False)
 
     # 6. COMPRAS (CAB_COMPRAS + DETA_COMPRAS)
     print("🛒 Extrayendo Compras y Proveedores...")

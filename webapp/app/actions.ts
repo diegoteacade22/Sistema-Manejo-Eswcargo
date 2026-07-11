@@ -7,6 +7,7 @@ import { requireAdminUser } from '@/lib/access';
 import { sendInvoiceEmail, sendPackingListEmail } from '@/app/email-actions';
 import { sendWhatsAppMessage } from '@/lib/whatsapp';
 import { createClientPaymentWithReceipt } from '@/lib/payment-receipts';
+import { buildShipmentItems } from '@/lib/shipment-items';
 
 type DeliveryChannel = 'EMAIL' | 'WHATSAPP' | 'SKIPPED' | 'FAILED';
 
@@ -430,16 +431,21 @@ export async function registerShipmentCharge(shipmentId: number, clientId: numbe
 async function recalculateShipmentStats(shipmentId: number) {
     if (!shipmentId) return;
 
-    // Fetch all items assigned to this shipment EITHER directly OR via parent Order
-    const shipmentItems = await prisma.orderItem.findMany({
-        where: {
-            OR: [
-                { shipmentId: shipmentId },
-                { order: { shipmentId: shipmentId } }
-            ]
-        },
-        include: { product: true, order: true }
+    const shipment = await prisma.shipment.findUnique({
+        where: { id: shipmentId },
+        include: {
+            items: { include: { product: true, order: true } },
+            orders: {
+                include: {
+                    items: { include: { product: true } }
+                }
+            }
+        }
     });
+
+    if (!shipment) return;
+
+    const shipmentItems = buildShipmentItems(shipment);
 
     let totalWeight = 0;
     let totalCost = 0;
