@@ -338,6 +338,40 @@ async function main() {
     const reconciliationOrderIds: number[] = [];
     const reconciliationItemsToCreate: any[] = [];
     const affectedShipmentIds = new Set<number>();
+    const reconciliationDbOrderIds = Array.from(reconciliationOrderNumbers)
+        .filter(orderNumber => !syncedOrderNumbers.has(orderNumber))
+        .map(orderNumber => orderNumMap.get(orderNumber)?.id)
+        .filter((orderId): orderId is number => typeof orderId === 'number');
+    const currentReconciliationItems = reconciliationDbOrderIds.length > 0
+        ? await prisma.orderItem.findMany({
+            where: { orderId: { in: reconciliationDbOrderIds } },
+            select: {
+                orderId: true,
+                productName: true,
+                quantity: true,
+                unit_price: true,
+                unit_cost: true,
+                profit: true,
+                shipmentId: true,
+                status: true
+            }
+        })
+        : [];
+    const currentItemsByOrderId = new Map<number, any[]>();
+    for (const item of currentReconciliationItems) {
+        const items = currentItemsByOrderId.get(item.orderId) || [];
+        items.push(item);
+        currentItemsByOrderId.set(item.orderId, items);
+    }
+    const itemSignature = (item: any, shipmentId: number | null) => [
+        item.product_name || item.productName || item.sku || '',
+        item.quantity || 0,
+        item.unit_price || 0,
+        item.unit_cost || 0,
+        item.profit || 0,
+        shipmentId || '',
+        item.status || ''
+    ].join('|');
 
     for (const orderNumber of reconciliationOrderNumbers) {
         if (syncedOrderNumbers.has(orderNumber)) continue;
@@ -356,6 +390,18 @@ async function main() {
                 .filter((shipmentId: number | null | undefined): shipmentId is number => typeof shipmentId === 'number')
         ));
         const resolvedShipmentId = sourceShipmentIds.length === 1 ? sourceShipmentIds[0] : null;
+        const expectedItemSignatures: string[] = sourceItems
+            .map((item: any) => itemSignature(item, item.shipment_number ? shipmentNumMap.get(item.shipment_number)?.id || null : null))
+            .sort();
+        const currentItemSignatures: string[] = (currentItemsByOrderId.get(dbOrder.id) || [])
+            .map((item: any) => itemSignature(item, item.shipmentId))
+            .sort();
+        const itemsMatch = expectedItemSignatures.length === currentItemSignatures.length &&
+            expectedItemSignatures.every((signature, index) => signature === currentItemSignatures[index]);
+
+        if (itemsMatch && dbOrder.shipmentId === resolvedShipmentId) {
+            continue;
+        }
 
         if (dbOrder.shipmentId !== resolvedShipmentId) {
             await prisma.order.update({
