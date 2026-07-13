@@ -2,14 +2,43 @@
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Server, Database, RefreshCw, HardDrive, AlertTriangle, CheckCircle2, FileSpreadsheet, Cloud, Users, Rocket } from "lucide-react";
-import { useState, useTransition } from 'react';
-import { getGitHubSyncStatus, revalidateSystem, syncExcel, deployToProduction, applyProductionRefresh } from './actions';
+import { Server, Database, RefreshCw, HardDrive, AlertTriangle, CheckCircle2, Cloud, Users, Rocket, History, ExternalLink } from "lucide-react";
+import { useEffect, useState, useTransition } from 'react';
+import { getGitHubSyncStatus, getSyncControlCenter, revalidateSystem, syncExcel, deployToProduction, applyProductionRefresh } from './actions';
 import { DeleteEntityCard } from '@/components/delete-entity-card';
+
+type SyncControlCenter = Awaited<ReturnType<typeof getSyncControlCenter>>;
+
+function formatSyncDate(value: string | null) {
+    if (!value) return 'Sin registros';
+    return new Intl.DateTimeFormat('es-AR', {
+        dateStyle: 'short',
+        timeStyle: 'short',
+        timeZone: 'America/Argentina/Buenos_Aires',
+    }).format(new Date(value));
+}
+
+function syncResultLabel(status: string, conclusion: string | null) {
+    if (status !== 'completed') return status === 'queued' ? 'En cola' : 'En curso';
+    return conclusion === 'success' ? 'Validada' : conclusion || 'Sin resultado';
+}
 
 export function MaintenanceClient() {
     const [isPending, startTransition] = useTransition();
     const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
+    const [syncControl, setSyncControl] = useState<SyncControlCenter | null>(null);
+    const [isLoadingSyncControl, setIsLoadingSyncControl] = useState(true);
+
+    const loadSyncControl = async () => {
+        setIsLoadingSyncControl(true);
+        const result = await getSyncControlCenter();
+        setSyncControl(result);
+        setIsLoadingSyncControl(false);
+    };
+
+    useEffect(() => {
+        void loadSyncControl();
+    }, []);
 
     const handleRevalidate = () => {
         setMessage(null);
@@ -41,6 +70,7 @@ export function MaintenanceClient() {
         startTransition(async () => {
             const res = await getGitHubSyncStatus();
             setMessage({ text: res.message, type: res.success ? 'success' : 'error' });
+            await loadSyncControl();
         });
     };
 
@@ -92,6 +122,61 @@ export function MaintenanceClient() {
                     <p className="text-sm font-medium">{message.text}</p>
                 </div>
             )}
+
+            <section className="border-y border-slate-200 py-6 dark:border-slate-800">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <h3 className="flex items-center gap-2 text-lg font-semibold"><History className="h-5 w-5 text-emerald-500" /> Control de sincronización</h3>
+                        <p className="text-sm text-muted-foreground">Resultado real de las últimas actualizaciones cloud.</p>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => void loadSyncControl()} disabled={isLoadingSyncControl || isPending}>
+                        <RefreshCw className={`mr-2 h-4 w-4 ${isLoadingSyncControl ? 'animate-spin' : ''}`} />
+                        Actualizar estado
+                    </Button>
+                </div>
+
+                {isLoadingSyncControl ? (
+                    <p className="text-sm text-muted-foreground">Consultando actualizaciones...</p>
+                ) : !syncControl?.success ? (
+                    <p className="text-sm text-red-600 dark:text-red-400">{syncControl?.message || 'No se pudo cargar el control.'}</p>
+                ) : (
+                    <div className="space-y-4">
+                        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+                            <span className="font-medium">Última validada: {formatSyncDate(syncControl.lastSuccessAt)}</span>
+                            <span className={syncControl.exceptions.length ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}>{syncControl.message}</span>
+                        </div>
+
+                        {syncControl.exceptions.length > 0 && (
+                            <div className="space-y-2">
+                                {syncControl.exceptions.map((exception, index) => (
+                                    <div key={`${exception.title}-${index}`} className={`flex items-start justify-between gap-3 border-l-4 px-3 py-2 text-sm ${exception.level === 'error' ? 'border-red-500 bg-red-50 text-red-800 dark:bg-red-950/30 dark:text-red-300' : 'border-amber-500 bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-300'}`}>
+                                        <div><strong>{exception.title}</strong><p className="mt-1">{exception.detail}</p></div>
+                                        {exception.url && <a href={exception.url} target="_blank" rel="noreferrer" aria-label={`Ver detalle de ${exception.title}`}><ExternalLink className="h-4 w-4" /></a>}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        <div className="overflow-x-auto border border-slate-200 dark:border-slate-800">
+                            <table className="w-full min-w-[560px] text-left text-sm">
+                                <thead className="bg-slate-50 text-xs uppercase text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                                    <tr><th className="px-3 py-2">Finalización</th><th className="px-3 py-2">Rango</th><th className="px-3 py-2">Resultado</th><th className="px-3 py-2"></th></tr>
+                                </thead>
+                                <tbody>
+                                    {syncControl.history.slice(0, 6).map((run) => (
+                                        <tr key={run.id} className="border-t border-slate-100 dark:border-slate-800">
+                                            <td className="px-3 py-2">{formatSyncDate(run.updatedAt)}</td>
+                                            <td className="px-3 py-2">{run.scope}</td>
+                                            <td className={`px-3 py-2 font-medium ${run.status === 'completed' && run.conclusion === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>{syncResultLabel(run.status, run.conclusion)}</td>
+                                            <td className="px-3 py-2"><a className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-900 dark:hover:text-slate-100" href={run.url} target="_blank" rel="noreferrer">Detalle <ExternalLink className="h-3.5 w-3.5" /></a></td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+            </section>
 
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                 {/* System Status */}
