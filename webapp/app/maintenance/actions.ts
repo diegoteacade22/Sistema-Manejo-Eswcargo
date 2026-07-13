@@ -125,59 +125,6 @@ async function triggerGitHubSyncWorkflow(days: number) {
     };
 }
 
-async function waitForGitHubSync(run: Awaited<ReturnType<typeof triggerGitHubSyncWorkflow>>) {
-    if (!run?.runId) {
-        return {
-            success: false,
-            message: `GitHub inició la sincronización, pero no devolvió el run exacto. Seguimiento: ${run?.actionsUrl || 'sin link'}`
-        };
-    }
-
-    const timeoutAt = Date.now() + 240000;
-    let lastStatus = 'queued';
-
-    while (Date.now() < timeoutAt) {
-        const response = await fetch(`https://api.github.com/repos/${run.repo}/actions/runs/${run.runId}`, {
-            headers: {
-                accept: 'application/vnd.github+json',
-                authorization: `Bearer ${run.token}`,
-                'x-github-api-version': '2022-11-28',
-            },
-        });
-
-        if (!response.ok) {
-            const responseText = await response.text();
-            return {
-                success: false,
-                message: `Error consultando GitHub (${response.status}): ${responseText || 'sin detalle'}`
-            };
-        }
-
-        const data = await response.json();
-        lastStatus = data.status || lastStatus;
-        if (data.status === 'completed') {
-            if (data.conclusion === 'success') {
-                return {
-                    success: true,
-                    message: `OK: actualización finalizada (${run.daysInput} días). Ya podés ver los cambios en el sistema.`
-                };
-            }
-
-            return {
-                success: false,
-                message: `GitHub terminó con estado ${data.conclusion || 'desconocido'}. Revisar: ${run.actionsUrl}`
-            };
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 5000));
-    }
-
-    return {
-        success: false,
-        message: `La actualización sigue en GitHub (${lastStatus}). Revisar: ${run.actionsUrl}`
-    };
-}
-
 export async function revalidateSystem() {
     await requireAdminUser();
     revalidatePath('/', 'layout');
@@ -187,33 +134,10 @@ export async function revalidateSystem() {
 
 export async function resetDatabase() {
     await requireAdminUser();
-    try {
-        console.log("Resetting database...");
-        // In a real production app, this is dangerous. For this local tool, it's what's asked.
-        // We will run the seed command.
-        // Assuming 'npm run seed' runs 'ts-node prisma/seed.ts'
-
-        // Note: prisma migrate reset requires interaction or --force
-        await execAsync('npx prisma migrate reset --force --skip-seed');
-        // We skip seed in reset to run distinct scripts if needed, or just let it run if seed.ts is configured.
-        // But our seed.ts is empty/disabled. We need to run seed_shipments, seed_orders, etc.
-
-        // Let's explicitly run our seeders
-        await execAsync('npx ts-node prisma/seed_shipments.ts');
-        await execAsync('npx ts-node prisma/seed_orders.ts');
-        await execAsync('npx ts-node prisma/seed_suppliers.ts');
-
-        // Also seed products/clients if they are separate?
-        // Current seed.ts is empty. 
-        // Clients and Products were seeded before? 
-        // If we reset, we lose them. We need to know how to seed them.
-        // Checking task.md or codebase for 'seed_clients.ts' or 'seed_products.ts'.
-
-        return { success: true, message: 'Database reset and seeded successfully.' };
-    } catch (error: any) {
-        console.error("Seed error:", error);
-        return { success: false, message: `Error: ${error.message}` };
-    }
+    return {
+        success: false,
+        message: 'El reinicio de base está bloqueado desde el sistema. La recuperación se realiza únicamente con respaldo y un procedimiento controlado.'
+    };
 }
 
 function syncScopeLabel(days: number) {
@@ -270,12 +194,17 @@ export async function syncExcel(days: number = 0) {
 
         if (isVercelRuntime) {
             const githubWorkflow = await triggerGitHubSyncWorkflow(days);
-            const result = await waitForGitHubSync(githubWorkflow);
-            if (result.success) {
-                revalidatePath('/', 'layout');
-                revalidateDataViews();
+            if (!githubWorkflow) {
+                return {
+                    success: false,
+                    message: 'Error al sincronizar: producción cloud requiere GITHUB_SYNC_TOKEN.'
+                };
             }
-            return result;
+
+            return {
+                success: true,
+                message: `Actualización cloud iniciada (${githubWorkflow.daysInput} días). Verificá su finalización antes de emitir documentos: ${githubWorkflow.actionsUrl}`
+            };
         }
 
         return {
@@ -285,6 +214,56 @@ export async function syncExcel(days: number = 0) {
     } catch (error: any) {
         console.error("Sync Error:", error);
         return { success: false, message: `Error al sincronizar: ${error.message}` };
+    }
+}
+
+export async function getGitHubSyncStatus() {
+    await requireAdminUser();
+    try {
+        const token = process.env.GITHUB_SYNC_TOKEN;
+        if (!token) {
+            return { success: false, message: 'No está configurado el acceso para verificar la actualización cloud.' };
+        }
+
+        const repo = process.env.GITHUB_SYNC_REPO || 'diegoteacade22/Sistema-Manejo-Eswcargo';
+        const workflow = process.env.GITHUB_SYNC_WORKFLOW || 'sync.yml';
+        const ref = process.env.GITHUB_SYNC_REF || 'main';
+        const response = await fetch(
+            `https://api.github.com/repos/${repo}/actions/workflows/${workflow}/runs?branch=${encodeURIComponent(ref)}&per_page=1`,
+            {
+                headers: {
+                    accept: 'application/vnd.github+json',
+                    authorization: `Bearer ${token}`,
+                    'x-github-api-version': '2022-11-28',
+                },
+                cache: 'no-store',
+            }
+        );
+
+        if (!response.ok) {
+            return { success: false, message: `No se pudo verificar la actualización cloud (${response.status}).` };
+        }
+
+        const data = await response.json();
+        const run = data.workflow_runs?.[0];
+        if (!run) {
+            return { success: false, message: 'No hay actualizaciones cloud registradas todavía.' };
+        }
+
+        if (run.status !== 'completed') {
+            return { success: true, message: `La actualización cloud sigue ${run.status === 'queued' ? 'en cola' : 'en ejecución'}.` };
+        }
+
+        if (run.conclusion !== 'success') {
+            return { success: false, message: `La última actualización cloud terminó con estado ${run.conclusion || 'desconocido'}: ${run.html_url}` };
+        }
+
+        revalidatePath('/', 'layout');
+        revalidateDataViews();
+        return { success: true, message: 'OK: la última actualización cloud finalizó correctamente. Los datos ya están disponibles.' };
+    } catch (error: any) {
+        console.error('GitHub sync status error:', error);
+        return { success: false, message: `No se pudo verificar la actualización cloud: ${error.message}` };
     }
 }
 

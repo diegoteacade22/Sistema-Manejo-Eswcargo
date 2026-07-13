@@ -1,9 +1,20 @@
 #!/bin/bash
 # Sync Excel data using Consolidated Extractor and Fast Seeder
-# Usage: ./sync_excel.sh (siempre FULL)
+# Usage: ./sync_excel.sh [7|30|0|FULL]
 
-DAYS_FILTER="FULL"
-SYNC_MODE="FULL"
+REQUESTED_SCOPE="${1:-FULL}"
+REQUESTED_SCOPE_UPPER="$(printf '%s' "$REQUESTED_SCOPE" | tr '[:lower:]' '[:upper:]')"
+
+if [ "$REQUESTED_SCOPE" = "0" ] || [ "$REQUESTED_SCOPE_UPPER" = "FULL" ]; then
+   DAYS_FILTER="FULL"
+   SYNC_MODE="FULL"
+elif [[ "$REQUESTED_SCOPE" =~ ^[1-9][0-9]*$ ]]; then
+   DAYS_FILTER="$REQUESTED_SCOPE"
+   SYNC_MODE="DIFF"
+else
+   echo "Error: rango inválido '$REQUESTED_SCOPE'. Use 7, 30, 0 o FULL."
+   exit 2
+fi
 
 echo "🚀 Starting Excel Sync (Consolidated)..."
 echo "----------------------------------------"
@@ -51,6 +62,13 @@ else
 fi
 if [ $? -ne 0 ]; then
    echo "Error: Database update failed."
+   exit 1
+fi
+
+echo "-> Verifying shipment assignments..."
+node "$DIR/scripts/audit-shipment-reconciliation.mjs"
+if [ $? -ne 0 ]; then
+   echo "Error: Shipment assignment audit failed."
    exit 1
 fi
 

@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Server, Database, RefreshCw, HardDrive, AlertTriangle, CheckCircle2, FileSpreadsheet, Cloud, Users, Rocket } from "lucide-react";
 import { useState, useTransition } from 'react';
-import { revalidateSystem, resetDatabase, syncExcel, deployToProduction, applyProductionRefresh } from './actions';
+import { getGitHubSyncStatus, revalidateSystem, syncExcel, deployToProduction, applyProductionRefresh } from './actions';
 import { DeleteEntityCard } from '@/components/delete-entity-card';
 
 export function MaintenanceClient() {
@@ -23,21 +23,6 @@ export function MaintenanceClient() {
         });
     };
 
-    const handleReset = () => {
-        if (!confirm("ADVERTENCIA: Esto borrará TODOS los datos y reiniciará la base de datos con los datos de prueba (Seed). ¿Está seguro?")) {
-            return;
-        }
-        setMessage(null);
-        startTransition(async () => {
-            const res = await resetDatabase();
-            if (res.success) {
-                setMessage({ text: res.message, type: 'success' });
-            } else {
-                setMessage({ text: res.message || 'Error al resetear', type: 'error' });
-            }
-        });
-    };
-
     const handleSync = (days: number) => {
         const syncScope = days === 0 ? 'completa' : `${days} días`;
         setMessage({ text: `Actualizando datos del Excel (${syncScope})...`, type: 'success' });
@@ -48,6 +33,14 @@ export function MaintenanceClient() {
             } else {
                 setMessage({ text: res.message, type: 'error' });
             }
+        });
+    };
+
+    const handleCheckCloudSync = () => {
+        setMessage(null);
+        startTransition(async () => {
+            const res = await getGitHubSyncStatus();
+            setMessage({ text: res.message, type: res.success ? 'success' : 'error' });
         });
     };
 
@@ -147,15 +140,10 @@ export function MaintenanceClient() {
                             <RefreshCw className={`mr-2 h-4 w-4 ${isPending ? 'animate-spin' : ''}`} />
                             {isPending ? 'Procesando...' : 'Recargar Caché de Prisma'}
                         </Button>
-                        <Button
-                            variant="outline"
-                            className="w-full justify-start text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
-                            onClick={handleReset}
-                            disabled={isPending}
-                        >
-                            <AlertTriangle className="mr-2 h-4 w-4" />
-                            {isPending ? 'Reseteando...' : 'Resetear Base de Datos (Seed)'}
-                        </Button>
+                        <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+                            <p className="font-medium">Reinicio de base bloqueado</p>
+                            <p className="mt-1 text-xs">Las recuperaciones se realizan con respaldo y control; nunca desde esta pantalla.</p>
+                        </div>
                         <div className="pt-2 border-t dark:border-slate-800 space-y-3">
                             <h4 className="text-sm font-semibold flex items-center gap-2">
                                 <RefreshCw className="h-4 w-4 text-emerald-500" /> Sincronizar con Excel (Drive)
@@ -191,6 +179,15 @@ export function MaintenanceClient() {
                                 >
                                     <Cloud className={`mr-2 h-4 w-4 ${isPending ? 'animate-bounce' : ''}`} />
                                     🐢 COMPLETA (Histórico)
+                                </Button>
+                                <Button
+                                    variant="ghost"
+                                    className="justify-start"
+                                    onClick={handleCheckCloudSync}
+                                    disabled={isPending}
+                                >
+                                    <CheckCircle2 className={`mr-2 h-4 w-4 ${isPending ? 'animate-spin' : ''}`} />
+                                    Verificar última actualización cloud
                                 </Button>
                             </div>
                         </div>

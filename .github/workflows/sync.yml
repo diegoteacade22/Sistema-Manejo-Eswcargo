@@ -1,4 +1,5 @@
 name: 🔄 Sincronización Automática (Cloud)
+run-name: "Sync ESWCARGO ${{ github.event.inputs.days || '7' }} días"
 
 on:
   schedule:
@@ -9,6 +10,13 @@ on:
         description: 'Rango a sincronizar: 7, 30, 0 o FULL'
         required: false
         default: '7'
+
+concurrency:
+  group: eswcargo-cloud-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   sync:
