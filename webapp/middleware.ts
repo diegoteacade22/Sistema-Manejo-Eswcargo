@@ -7,9 +7,12 @@ const { auth } = NextAuth(authConfig);
 export default auth((req) => {
     const { nextUrl } = req;
     const isLoggedIn = !!req.auth;
+    const isPublicRoute = nextUrl.pathname === "/login" || nextUrl.pathname === "/setup-account";
 
-    // El middleware ahora es solo un pasamanos ya que la lógica 
-    // de protección está en auth.config.ts (callback authorized)
+    if (!isLoggedIn && !isPublicRoute) {
+        return NextResponse.redirect(new URL("/login", nextUrl));
+    }
+
     return NextResponse.next();
 });
 

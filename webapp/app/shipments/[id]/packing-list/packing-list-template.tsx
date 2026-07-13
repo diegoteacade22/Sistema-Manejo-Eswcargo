@@ -4,7 +4,7 @@ import { Button } from '../../../../components/ui/button';
 import { Printer, Package, Globe, Instagram, Facebook, Mail, Loader2, Download } from 'lucide-react';
 import { savePackingListPdfToDrive, sendPackingListEmail } from '../../../email-actions';
 import { useEffect, useTransition } from 'react';
-import { buildShipmentItems, filterExportableShipmentItems } from '../../../../lib/shipment-items';
+import { buildShipmentItems, filterExportableShipmentItems, getShipmentCargoDescription } from '../../../../lib/shipment-items';
 import { toInvNumber4 } from '../../../../lib/inv-filename';
 
 /* eslint-disable @next/next/no-img-element */
@@ -76,6 +76,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
         : '-';
 
     const shipmentItems = filterExportableShipmentItems(buildShipmentItems(shipment), shipment?.status);
+    const cargoDescription = getShipmentCargoDescription(shipment);
 
     // Colors
     // Dark Blue: #0D3B4C
@@ -308,6 +309,12 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                                         </tr>
                                     );
                                 })
+                            ) : cargoDescription ? (
+                                <tr>
+                                    <td colSpan={4} className="py-5 px-4 text-left text-gray-800 font-semibold uppercase">
+                                        {cargoDescription}
+                                    </td>
+                                </tr>
                             ) : (
                                 <tr>
                                     <td colSpan={4} className="py-8 text-center text-gray-500 italic">No items listed in orders.</td>

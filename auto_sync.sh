@@ -59,5 +59,9 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+echo "🔎 Verificando asignaciones y packing lists..."
+node scripts/audit-shipment-reconciliation.mjs
+node scripts/audit-packing-readiness.mjs
+
 echo "✅ Sincronización completada."
 echo ""

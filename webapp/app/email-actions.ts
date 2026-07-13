@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { generatePdfFromHtml } from '@/lib/pdf-generator';
 import { requireAdminUser } from '@/lib/access';
 import { getInvPdfFileName, savePdfToDriveFolder } from '@/lib/document-storage';
-import { buildShipmentItems, filterExportableShipmentItems } from '@/lib/shipment-items';
+import { buildShipmentItems, filterExportableShipmentItems, getShipmentCargoDescription } from '@/lib/shipment-items';
 
 type PackingListDocument = {
     shipment: any;
@@ -60,8 +60,9 @@ async function buildPackingListDocument(shipmentId: number): Promise<PackingList
         buildShipmentItems(shipment),
         shipment.status
     );
+    const cargoDescription = getShipmentCargoDescription(shipment);
 
-    if (shipmentItems.length === 0) {
+    if (shipmentItems.length === 0 && !cargoDescription) {
         throw new Error('No hay ítems exportables en este envío (solo se exportan SALIENDO/LLEGANDO).');
     }
 
@@ -78,6 +79,15 @@ async function buildPackingListDocument(shipmentId: number): Promise<PackingList
                 </tr>
              `;
     });
+
+    if (shipmentItems.length === 0) {
+        totalPcs = shipment.item_count || 0;
+        itemsHtml += `
+                <tr>
+                    <td colspan="4" style="padding: 12px; border-bottom: 1px solid #eee; font-weight: 600; text-transform: uppercase;">${cargoDescription}</td>
+                </tr>
+             `;
+    }
 
     itemsHtml += `
             <tr style="background-color: #f9f9f9; border-top: 2px solid #0D3B4C;">

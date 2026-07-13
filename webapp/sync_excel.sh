@@ -72,5 +72,11 @@ if [ $? -ne 0 ]; then
    exit 1
 fi
 
+node "$DIR/scripts/audit-packing-readiness.mjs"
+if [ $? -ne 0 ]; then
+   echo "Error: Packing readiness audit failed."
+   exit 1
+fi
+
 echo "----------------------------------------"
 echo "✅ Sync Completed! [Mode: $SYNC_MODE]"

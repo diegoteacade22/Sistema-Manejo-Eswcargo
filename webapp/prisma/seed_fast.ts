@@ -84,6 +84,31 @@ async function main() {
     const supplierOldIdMap = new Map<number, any>(dbSuppliers.filter(s => s.old_id !== null).map(s => [s.old_id as number, s]));
     const supplierNameMap = new Map<string, any>(dbSuppliers.map(s => [s.name.trim().toUpperCase(), s]));
 
+    // A partial spreadsheet read must never erase the items already assigned to
+    // an order. Abort before any writes so a retry can use a complete source.
+    const existingOrderIds = normalizedOrdersData
+        .map((order: any) => orderNumMap.get(order.order_number)?.id)
+        .filter((orderId): orderId is number => typeof orderId === 'number');
+    const existingItemCounts = existingOrderIds.length
+        ? await prisma.orderItem.groupBy({
+            by: ['orderId'],
+            where: { orderId: { in: existingOrderIds } },
+            _count: { _all: true },
+        })
+        : [];
+    const existingItemCountByOrderId = new Map(
+        existingItemCounts.map((group) => [group.orderId, group._count._all])
+    );
+    const incompleteOrders = normalizedOrdersData
+        .filter((order: any) => {
+            const dbOrder = orderNumMap.get(order.order_number);
+            return dbOrder && (order.items || []).length === 0 && (existingItemCountByOrderId.get(dbOrder.id) || 0) > 0;
+        })
+        .map((order: any) => `#${order.order_number}`);
+    if (incompleteOrders.length) {
+        throw new Error(`Sincronización detenida: la fuente no trajo el detalle de ${incompleteOrders.join(', ')}. No se eliminó ningún ítem.`);
+    }
+
     // 3. PROCESAR CLIENTES (Diferencial)
     console.log(`👥 Sincronizando ${clientsData.length} clientes...`);
     for (const c of clientsData) {
@@ -270,9 +295,6 @@ async function main() {
         }
         processedOrderIds.add(dbOrder.id);
 
-        // Actualizar Items
-        // Actualizar Items (USANDO createMany PARA VELOCIDAD)
-        await prisma.orderItem.deleteMany({ where: { orderId: dbOrder.id } });
         const orderItemsToCreate = o.items.map((item: any) => {
             const shipId = item.shipment_number ? shipmentNumMap.get(item.shipment_number)?.id : null;
             const dbProd = (item.sku && productSkuMap.has(item.sku)) ? productSkuMap.get(item.sku) : null;
@@ -290,9 +312,12 @@ async function main() {
             };
         });
 
-        if (orderItemsToCreate.length > 0) {
-            await prisma.orderItem.createMany({ data: orderItemsToCreate });
-        }
+        await prisma.$transaction(async (tx) => {
+            await tx.orderItem.deleteMany({ where: { orderId: dbOrder.id } });
+            if (orderItemsToCreate.length > 0) {
+                await tx.orderItem.createMany({ data: orderItemsToCreate });
+            }
+        });
 
         // Actualizar Transacciones (ELIMINACIÓN PRECISA para evitar borrar otros pedidos que contengan el mismo número)
         // No creamos aquí, colectamos para batch final
@@ -434,10 +459,12 @@ async function main() {
 
     if (reconciliationOrderIds.length > 0) {
         console.log(`   ↻ Reconciliando ${reconciliationOrderIds.length} pedidos con asignaciones historicas...`);
-        await prisma.orderItem.deleteMany({ where: { orderId: { in: reconciliationOrderIds } } });
-        if (reconciliationItemsToCreate.length > 0) {
-            await prisma.orderItem.createMany({ data: reconciliationItemsToCreate });
-        }
+        await prisma.$transaction(async (tx) => {
+            await tx.orderItem.deleteMany({ where: { orderId: { in: reconciliationOrderIds } } });
+            if (reconciliationItemsToCreate.length > 0) {
+                await tx.orderItem.createMany({ data: reconciliationItemsToCreate });
+            }
+        });
     }
 
     const shipmentIdsToRefresh = new Set<number>(affectedShipmentIds);

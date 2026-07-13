@@ -1,0 +1,41 @@
+name: Auditoría de fuente de packing
+run-name: "Auditar fuente packing #${{ inputs.shipment_number }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      shipment_number:
+        description: 'Número de envío a contrastar con la planilla'
+        required: true
+        default: '1215'
+
+permissions:
+  contents: read
+
+jobs:
+  audit-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Instalar dependencias de lectura
+        run: pip install pandas openpyxl google-api-python-client google-auth-httplib2 google-auth-oauthlib
+      - name: Descargar fuente vigente
+        run: |
+          echo '${{ secrets.GOOGLE_CREDENTIALS }}' > google_credentials.json
+          python3 download_sheet.py
+          python3 extract_consolidated.py FULL
+      - name: Generar contraste de packing
+        working-directory: webapp
+        env:
+          PACKING_SHIPMENT_NUMBER: ${{ inputs.shipment_number }}
+        run: node scripts/audit-packing-source.mjs
+      - name: Publicar reporte acotado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packing-source-${{ inputs.shipment_number }}
+          path: webapp/audit-output/
+          if-no-files-found: error

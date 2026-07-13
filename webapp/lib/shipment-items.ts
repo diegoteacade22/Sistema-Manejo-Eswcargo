@@ -65,3 +65,12 @@ export function getShipmentItemCount(shipment: any) {
     const shipmentItems = buildShipmentItems(shipment);
     return shipmentItems.reduce((sum: number, item: any) => sum + (item.quantity || 0), 0);
 }
+
+export function getShipmentCargoDescription(shipment: any) {
+    const description = shipment?.cargo_description;
+    return typeof description === 'string' ? description.trim() : '';
+}
+
+export function hasPrintableShipmentContent(shipment: any) {
+    return buildShipmentItems(shipment).length > 0 || Boolean(getShipmentCargoDescription(shipment));
+}

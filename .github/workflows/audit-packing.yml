@@ -1,0 +1,30 @@
+name: Auditoría programada de packing lists
+
+on:
+  schedule:
+    - cron: '30 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-packing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Revisar packing lists activos
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+          PACKING_AUDIT_SCOPE: all
+        run: |
+          AUDIT_RUNTIME="/tmp/eswcargo-packing-audit"
+          mkdir -p "$AUDIT_RUNTIME"
+          cp -R webapp/prisma "$AUDIT_RUNTIME/prisma"
+          cp -R webapp/scripts "$AUDIT_RUNTIME/scripts"
+          cd "$AUDIT_RUNTIME"
+          npm init -y >/dev/null
+          npm install --silent prisma@5.22.0 @prisma/client@5.22.0
+          npx prisma generate --schema prisma/schema.prisma
+          node scripts/audit-packing-readiness.mjs
