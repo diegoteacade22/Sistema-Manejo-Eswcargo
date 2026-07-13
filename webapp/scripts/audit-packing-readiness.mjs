@@ -32,6 +32,7 @@ async function main() {
     select: {
       id: true,
       shipment_number: true,
+      status: true,
       item_count: true,
       cargo_description: true,
       items: { select: { id: true } },
@@ -52,18 +53,25 @@ async function main() {
     return itemIds.size;
   };
 
-  const missingContent = shipments.filter((shipment) =>
+  const isOperationalPacking = (shipment) => {
+    const status = String(shipment.status || '').trim().toUpperCase();
+    return !['', 'COMPRAR', '100', '200', '#REF!'].includes(status);
+  };
+  const operationalShipments = shipments.filter(isOperationalPacking);
+
+  const missingContent = operationalShipments.filter((shipment) =>
     (shipment.item_count || 0) > 0 &&
     shipmentItemCount(shipment) === 0 &&
     !shipment.cargo_description?.trim()
   );
 
-  const cargoFallbacks = shipments.filter((shipment) =>
+  const cargoFallbacks = operationalShipments.filter((shipment) =>
     shipmentItemCount(shipment) === 0 && shipment.cargo_description?.trim()
   );
 
   if (cargoFallbacks.length) {
-    console.log(`Packing con descripción operativa: ${cargoFallbacks.map((shipment) => `#${shipment.shipment_number ?? shipment.id}`).join(', ')}.`);
+    const sample = cargoFallbacks.slice(0, 10).map((shipment) => `#${shipment.shipment_number ?? shipment.id}`).join(', ');
+    console.log(`Packing con descripción operativa: ${cargoFallbacks.length}${sample ? ` (${sample}${cargoFallbacks.length > 10 ? ', ...' : ''})` : ''}.`);
   }
 
   if (missingContent.length) {
@@ -72,7 +80,7 @@ async function main() {
     return;
   }
 
-  console.log(`✅ Auditoría de packing OK: ${shipments.length} envíos revisados${auditAll ? '' : ' en esta actualización'}.`);
+  console.log(`✅ Auditoría de packing OK: ${operationalShipments.length} envíos operativos revisados${auditAll ? '' : ' en esta actualización'}.`);
 }
 
 main()
