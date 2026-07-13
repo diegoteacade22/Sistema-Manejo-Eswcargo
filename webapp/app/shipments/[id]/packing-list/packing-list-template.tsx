@@ -4,7 +4,7 @@ import { Button } from '../../../../components/ui/button';
 import { Printer, Package, Globe, Instagram, Facebook, Mail, Loader2, Download } from 'lucide-react';
 import { savePackingListPdfToDrive, sendPackingListEmail } from '../../../email-actions';
 import { useEffect, useTransition } from 'react';
-import { buildShipmentItems, filterExportableShipmentItems, getShipmentCargoDescription } from '../../../../lib/shipment-items';
+import { buildShipmentItems, getShipmentCargoDescription } from '../../../../lib/shipment-items';
 import { toInvNumber4 } from '../../../../lib/inv-filename';
 
 /* eslint-disable @next/next/no-img-element */
@@ -75,7 +75,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
         ? new Date(shipment.date_shipped).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
         : '-';
 
-    const shipmentItems = filterExportableShipmentItems(buildShipmentItems(shipment), shipment?.status);
+    const shipmentItems = buildShipmentItems(shipment);
     const cargoDescription = getShipmentCargoDescription(shipment);
 
     // Colors

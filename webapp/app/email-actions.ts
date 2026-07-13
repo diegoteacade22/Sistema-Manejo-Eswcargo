@@ -6,7 +6,7 @@ import { prisma } from '@/lib/prisma';
 import { generatePdfFromHtml } from '@/lib/pdf-generator';
 import { requireAdminUser } from '@/lib/access';
 import { getInvPdfFileName, savePdfToDriveFolder } from '@/lib/document-storage';
-import { buildShipmentItems, filterExportableShipmentItems, getShipmentCargoDescription } from '@/lib/shipment-items';
+import { buildShipmentItems, getShipmentCargoDescription } from '@/lib/shipment-items';
 
 type PackingListDocument = {
     shipment: any;
@@ -56,10 +56,7 @@ async function buildPackingListDocument(shipmentId: number): Promise<PackingList
         throw new Error('Envío no encontrado.');
     }
 
-    const shipmentItems = filterExportableShipmentItems(
-        buildShipmentItems(shipment),
-        shipment.status
-    );
+    const shipmentItems = buildShipmentItems(shipment);
     const cargoDescription = getShipmentCargoDescription(shipment);
 
     if (shipmentItems.length === 0 && !cargoDescription) {

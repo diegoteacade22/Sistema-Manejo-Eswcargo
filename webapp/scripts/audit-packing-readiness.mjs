@@ -3,8 +3,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const prisma = new PrismaClient();
-const printableStatuses = ['SALIENDO', 'LLEGANDO'];
-
 async function main() {
   const auditAll = process.env.PACKING_AUDIT_SCOPE === 'all';
   const sourceShipmentNumbers = new Set();
@@ -29,7 +27,6 @@ async function main() {
 
   const shipments = await prisma.shipment.findMany({
     where: {
-      status: { in: printableStatuses },
       ...(auditAll ? {} : { shipment_number: { in: Array.from(sourceShipmentNumbers) } }),
     },
     select: {
@@ -37,18 +34,32 @@ async function main() {
       shipment_number: true,
       item_count: true,
       cargo_description: true,
-      _count: { select: { items: true } },
+      items: { select: { id: true } },
+      orders: { select: { items: { select: { id: true, shipmentId: true } } } },
     },
   });
 
+  const shipmentItemCount = (shipment) => {
+    const itemIds = new Set(shipment.items.map((item) => item.id));
+    for (const order of shipment.orders) {
+      const hasExplicitShipmentItems = order.items.some((item) => item.shipmentId);
+      for (const item of order.items) {
+        if (item.shipmentId === shipment.id || (!hasExplicitShipmentItems && !item.shipmentId)) {
+          itemIds.add(item.id);
+        }
+      }
+    }
+    return itemIds.size;
+  };
+
   const missingContent = shipments.filter((shipment) =>
     (shipment.item_count || 0) > 0 &&
-    shipment._count.items === 0 &&
+    shipmentItemCount(shipment) === 0 &&
     !shipment.cargo_description?.trim()
   );
 
   const cargoFallbacks = shipments.filter((shipment) =>
-    shipment._count.items === 0 && shipment.cargo_description?.trim()
+    shipmentItemCount(shipment) === 0 && shipment.cargo_description?.trim()
   );
 
   if (cargoFallbacks.length) {
@@ -61,7 +72,7 @@ async function main() {
     return;
   }
 
-  console.log(`✅ Auditoría de packing OK: ${shipments.length} envíos imprimibles revisados${auditAll ? '' : ' en esta actualización'}.`);
+  console.log(`✅ Auditoría de packing OK: ${shipments.length} envíos revisados${auditAll ? '' : ' en esta actualización'}.`);
 }
 
 main()
