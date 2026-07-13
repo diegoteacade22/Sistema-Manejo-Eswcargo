@@ -56,6 +56,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
     };
 
     const handlePrint = () => {
+        if (!hasConfirmedContent) return;
         const previousTitle = document.title;
         document.title = invBaseName;
 
@@ -77,6 +78,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
 
     const shipmentItems = buildShipmentItems(shipment);
     const cargoDescription = getShipmentCargoDescription(shipment);
+    const hasConfirmedContent = shipmentItems.length > 0 || Boolean(cargoDescription);
 
     // Colors
     // Dark Blue: #0D3B4C
@@ -122,7 +124,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                 <div className="flex gap-4">
                     <Button
                         onClick={handleSaveDrive}
-                        disabled={isSaving}
+                        disabled={isSaving || !hasConfirmedContent}
                         className="bg-emerald-600 hover:bg-emerald-700 text-white"
                     >
                         {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
@@ -130,13 +132,13 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                     </Button>
                     <Button
                         onClick={handleSendEmail}
-                        disabled={isSending}
+                        disabled={isSending || !hasConfirmedContent}
                         className={`${shipment.email_sent_at ? 'bg-gray-100 text-gray-800 hover:bg-gray-200 border border-gray-300' : 'bg-[#72C4B7] hover:bg-[#5aa89c] text-white'}`}
                     >
                         {isSending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
                         {shipment.email_sent_at ? 'Reenviar Email' : 'Enviar Email'}
                     </Button>
-                    <Button onClick={handlePrint} className="bg-[#0D3B4C] hover:bg-[#082a36] text-white">
+                    <Button onClick={handlePrint} disabled={!hasConfirmedContent} className="bg-[#0D3B4C] hover:bg-[#082a36] text-white">
                         <Printer className="mr-2 h-4 w-4" /> Imprimir / Guardar PDF
                     </Button>
                 </div>
@@ -145,6 +147,9 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                         <span className="mr-1">✓</span>
                         Email enviado el {new Date(shipment.email_sent_at).toLocaleDateString()} a las {new Date(shipment.email_sent_at).toLocaleTimeString()}
                     </p>
+                )}
+                {!hasConfirmedContent && (
+                    <p className="text-xs text-red-600 font-medium">Packing bloqueado: falta contenido confirmado.</p>
                 )}
             </div>
 
