@@ -61,6 +61,7 @@ jobs:
           npm init -y >/dev/null
           npm install --silent prisma@5.22.0 @prisma/client@5.22.0 tsx@latest
           npx prisma generate --schema prisma/schema.prisma
+          npx prisma migrate deploy --schema prisma/schema.prisma
           node scripts/cleanup-legacy-ledger-imports.mjs
           node scripts/audit-ledgers.mjs || echo "::warning::Auditoria CC previa con advertencias; se continua la sincronizacion operativa."
           if [ "$SYNC_DAYS" = "0" ] || [ "$SYNC_DAYS" = "FULL" ]; then

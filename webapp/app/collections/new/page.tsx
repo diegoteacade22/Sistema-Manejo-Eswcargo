@@ -26,6 +26,8 @@ export default async function NewCollectionPage() {
             notes: true,
             userId: true,
             canAccess: true,
+            active: true,
+            phone2: true,
             createdAt: true,
             updatedAt: true
         },

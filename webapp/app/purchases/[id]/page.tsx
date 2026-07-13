@@ -18,15 +18,11 @@ export default async function PurchaseDetailPage({ params }: { params: Promise<{
 
   if (Number.isNaN(purchaseId)) notFound();
 
-  const [purchase, clients] = await Promise.all([
+  const [purchase, clients, payments] = await Promise.all([
     (prisma as any).purchase.findUnique({
       where: { id: purchaseId },
       include: {
         supplier: { select: { name: true } },
-        payments: {
-          orderBy: { date: 'desc' },
-          take: 5,
-        },
         items: {
           include: {
             allocations: {
@@ -45,7 +41,12 @@ export default async function PurchaseDetailPage({ params }: { params: Promise<{
     prisma.client.findMany({
       select: { id: true, name: true },
       orderBy: { name: 'asc' }
-    })
+    }),
+    (prisma as any).purchasePayment.findMany({
+      where: { purchaseId },
+      orderBy: { date: 'desc' },
+      take: 5,
+    }),
   ]);
 
   if (!purchase) notFound();
@@ -98,11 +99,11 @@ export default async function PurchaseDetailPage({ params }: { params: Promise<{
             </Badge>
           </div>
 
-          {purchase.payments?.length > 0 && (
+          {payments.length > 0 && (
             <div className="md:col-span-5">
               <p className="text-muted-foreground mb-1">Últimos pagos</p>
               <div className="text-xs space-y-1">
-                {purchase.payments.map((payment: any) => (
+                {payments.map((payment: any) => (
                   <div key={payment.id} className="flex justify-between border rounded px-2 py-1">
                     <span>{new Date(payment.date).toLocaleDateString()} · {payment.payment_method || 'N/A'} · {payment.reference || 'sin ref'}</span>
                     <span className="font-semibold text-emerald-700">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(payment.amount || 0)}</span>

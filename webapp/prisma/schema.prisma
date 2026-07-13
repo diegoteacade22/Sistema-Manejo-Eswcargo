@@ -30,6 +30,8 @@ model Client {
   userId       String?       @unique
   segment      String?
   canAccess    Boolean       @default(true)
+  active       Boolean       @default(true)
+  phone2       String?
   user         User?         @relation(fields: [userId], references: [id])
   orders       Order[]
   shipments    Shipment[]
@@ -70,6 +72,7 @@ model Product {
   stock              Int            @default(0)
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
+  imageUrl           String?
   orderItems         OrderItem[]
   purchaseItems      PurchaseItem[]
 }
@@ -103,7 +106,6 @@ model Supplier {
   old_id       Int?          @unique
   orderItems   OrderItem[]
   purchases    Purchase[]
-  purchasePayments PurchasePayment[]
   transactions Transaction[]
 }
 
@@ -204,6 +206,7 @@ model Shipment {
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
   email_sent_at   DateTime?
+  cargo_description String?
   orders          Order[]
   items           OrderItem[]
   client          Client?     @relation(fields: [clientId], references: [id])
@@ -221,15 +224,13 @@ model Purchase {
   payment_status String         @default("PENDIENTE")
   paid_at        DateTime?
   payment_method String?
+  status         String         @default("ABIERTA")
+  receipt_url    String?
   notes          String?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   supplier       Supplier       @relation(fields: [supplierId], references: [id])
   items          PurchaseItem[]
-  payments       PurchasePayment[]
-
-  @@index([supplierId, payment_status])
-  @@index([due_date])
 }
 
 model PurchasePayment {
@@ -243,8 +244,6 @@ model PurchasePayment {
   notes           String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
-  purchase        Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
-  supplier        Supplier @relation(fields: [supplierId], references: [id])
 
   @@index([purchaseId, date])
   @@index([supplierId, date])
@@ -297,4 +296,29 @@ model Expense {
   businessUnit  String   @default("GENERAL")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+model ManualPackingItem {
+  id          Int      @id @default(autoincrement())
+  shipmentId  Int
+  description String
+  quantity    Int      @default(1)
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime
+
+  @@index([shipmentId])
+}
+
+model SupplierProduct {
+  id           Int      @id @default(autoincrement())
+  supplierId   Int
+  supplierSku  String?
+  supplierName String
+  ourSku       String?
+  ourProductId Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime
+
+  @@unique([supplierId, supplierSku, supplierName])
 }
