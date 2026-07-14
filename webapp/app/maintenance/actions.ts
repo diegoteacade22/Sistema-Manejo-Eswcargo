@@ -204,7 +204,7 @@ export async function syncExcel(days: number = 0) {
 
             return {
                 success: true,
-                message: `Actualización cloud iniciada (${githubWorkflow.daysInput} días). Verificá su finalización antes de emitir documentos: ${githubWorkflow.actionsUrl}`
+                message: `Actualización cloud en curso (${githubWorkflow.daysInput} días). Todavía no finalizó. Confirmá el resultado en "Actualizar estado": ${githubWorkflow.actionsUrl}`
             };
         }
 
@@ -252,7 +252,7 @@ export async function getGitHubSyncStatus() {
         }
 
         if (run.status !== 'completed') {
-            return { success: true, message: `La actualización cloud sigue ${run.status === 'queued' ? 'en cola' : 'en ejecución'}.` };
+            return { success: true, message: `La actualización cloud todavía no finalizó; sigue ${run.status === 'queued' ? 'en cola' : 'en ejecución'}.` };
         }
 
         if (run.conclusion !== 'success') {
@@ -389,9 +389,9 @@ export async function getSyncControlCenter() {
             const finishedAfterLatestSuccess = new Date(run.updatedAt).getTime() > latestSuccessMs;
             if (run.status === 'completed' && run.conclusion && run.conclusion !== 'success' && finishedAfterLatestSuccess) {
                 exceptions.push({
-                    level: 'error',
+                    level: 'warning',
                     title: `Actualización ${run.scope} con error`,
-                    detail: `Terminó con estado ${run.conclusion}. Sus cambios no deben considerarse aplicados.`,
+                    detail: `Terminó con estado ${run.conclusion}. Se mantiene como válida la actualización exitosa anterior hasta que corra una nueva correctamente.`,
                     url: run.url,
                 });
             }
