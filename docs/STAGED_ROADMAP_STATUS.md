@@ -71,6 +71,9 @@ ninguna escritura automatica sobre planillas ni base de datos.
   actual detecta pagos con signo negativo para Franco Pepe `#84` y Claudio
   Molina x IG `#261`, ademas de saldos y baselines que requieren clasificacion
   contable manual.
+- Reducir el tiempo de sincronizacion completa: la verificacion actual finalizo
+  correctamente en 261 segundos; la consistencia tiene prioridad mientras se
+  mide y optimiza el procesamiento sin volver a filtrar por fecha.
 
 ## Etapa 4: Panel operativo
 
