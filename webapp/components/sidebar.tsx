@@ -16,6 +16,7 @@ import {
     DollarSign,
     Wrench,
     PlusCircle,
+    ClipboardPaste,
     LogOut,
     ChevronRight,
     Briefcase,
@@ -64,6 +65,7 @@ const groups: RouteGroup[] = [
         roles: ['ADMIN'],
         routes: [
             { label: 'Clientes', icon: Users, href: '/clients', color: 'text-violet-500', roles: ['ADMIN'] },
+            { label: 'Bandeja de pedidos', icon: ClipboardPaste, href: '/orders/intake', color: 'text-cyan-400', roles: ['ADMIN'] },
             { label: 'Nueva Venta', icon: PlusCircle, href: '/orders/new', color: 'text-emerald-500', roles: ['ADMIN'] },
             { label: 'Pedidos', icon: ShoppingCart, href: '/orders', color: 'text-pink-700', roles: ['ADMIN'] },
             { label: 'BI: Comercial', icon: Users, href: '/analytics/sales', color: 'text-indigo-400', roles: ['ADMIN'] },

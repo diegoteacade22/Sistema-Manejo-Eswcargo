@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Package, Plus, Eye } from 'lucide-react';
+import { Package, Plus, Eye, ClipboardPaste } from 'lucide-react';
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { SearchInput } from '@/components/search-input';
@@ -96,9 +96,14 @@ export default async function OrdersPage(props: { searchParams: Promise<{ q?: st
                     <p className="text-muted-foreground mt-1">Seguimiento de envíos e importaciones</p>
                 </div>
                 {isAdmin && (
-                    <Button asChild className="bg-pink-600 hover:bg-pink-700 text-white shadow-lg shadow-pink-200">
-                        <Link href="/orders/new"><Plus className="mr-2 h-4 w-4" /> Nueva Venta</Link>
-                    </Button>
+                    <div className="flex gap-2">
+                        <Button asChild variant="outline">
+                            <Link href="/orders/intake"><ClipboardPaste className="mr-2 h-4 w-4" /> Bandeja</Link>
+                        </Button>
+                        <Button asChild className="bg-pink-600 hover:bg-pink-700 text-white shadow-lg shadow-pink-200">
+                            <Link href="/orders/new"><Plus className="mr-2 h-4 w-4" /> Nueva Venta</Link>
+                        </Button>
+                    </div>
                 )}
             </div>
 
