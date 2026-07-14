@@ -1,8 +1,8 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { ClipboardPaste, FileCheck2, Plus, Trash2 } from 'lucide-react';
+import { ClipboardPaste, FileCheck2, Mic, Plus, Square, Trash2 } from 'lucide-react';
 import { submitOrder } from '@/app/actions';
 import { ProductSearchSelect } from '@/components/product-search-select';
 import { Button } from '@/components/ui/button';
@@ -103,6 +103,8 @@ export default function OrderIntakeClient({ clients, products, shipments }: { cl
     const [clientId, setClientId] = useState('');
     const [items, setItems] = useState<DraftItem[]>([]);
     const [notice, setNotice] = useState('');
+    const [isListening, setIsListening] = useState(false);
+    const recognitionRef = useRef<any>(null);
 
     const total = useMemo(() => items.reduce((sum, item) => sum + item.quantity * item.price, 0), [items]);
     const canCreate = Boolean(clientId) && items.length > 0 && items.every((item) =>
@@ -138,6 +140,42 @@ export default function OrderIntakeClient({ clients, products, shipments }: { cl
     };
 
     const addItem = () => setItems((current) => [...current, { raw: '', productId: '', quantity: 1, price: 0, cost: 0, shipmentNumber: '', matched: false }]);
+
+    useEffect(() => () => recognitionRef.current?.stop(), []);
+
+    const toggleDictation = () => {
+        if (isListening) {
+            recognitionRef.current?.stop();
+            return;
+        }
+
+        const Recognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!Recognition) {
+            setNotice('El dictado no está disponible en este navegador. Podés pegar el texto recibido.');
+            return;
+        }
+
+        const recognition = new Recognition();
+        recognition.lang = 'es-AR';
+        recognition.interimResults = true;
+        recognition.continuous = true;
+        recognition.onresult = (event: any) => {
+            let finalText = '';
+            for (let index = event.resultIndex; index < event.results.length; index++) {
+                if (event.results[index].isFinal) finalText += event.results[index][0].transcript;
+            }
+            if (finalText) setRawText((current) => `${current}${current ? '\n' : ''}${finalText.trim()}`);
+        };
+        recognition.onerror = () => {
+            setNotice('No se pudo transcribir el dictado. Revisá el permiso del micrófono e intentá nuevamente.');
+            setIsListening(false);
+        };
+        recognition.onend = () => setIsListening(false);
+        recognitionRef.current = recognition;
+        recognition.start();
+        setNotice('');
+        setIsListening(true);
+    };
 
     const createOrder = () => {
         if (!canCreate) {
@@ -187,9 +225,15 @@ export default function OrderIntakeClient({ clients, products, shipments }: { cl
                 <div className="space-y-3">
                     <Label htmlFor="whatsapp-text">Texto recibido</Label>
                     <Textarea id="whatsapp-text" value={rawText} onChange={(event) => setRawText(event.target.value)} className="min-h-[360px] font-mono text-sm" placeholder="Pegá el mensaje recibido..." />
-                    <Button type="button" variant="outline" onClick={extractDraft} disabled={!rawText.trim()}>
-                        <ClipboardPaste className="mr-2 h-4 w-4" /> Generar borrador
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                        <Button type="button" variant="outline" onClick={extractDraft} disabled={!rawText.trim()}>
+                            <ClipboardPaste className="mr-2 h-4 w-4" /> Generar borrador
+                        </Button>
+                        <Button type="button" variant={isListening ? 'destructive' : 'outline'} onClick={toggleDictation}>
+                            {isListening ? <Square className="mr-2 h-4 w-4" /> : <Mic className="mr-2 h-4 w-4" />}
+                            {isListening ? 'Detener dictado' : 'Dictar pedido'}
+                        </Button>
+                    </div>
                 </div>
 
                 <div className="space-y-4 border border-border p-4">
