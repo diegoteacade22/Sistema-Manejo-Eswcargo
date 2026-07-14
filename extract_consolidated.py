@@ -178,16 +178,26 @@ def extract_all():
     df_env_raw = xl.parse('CABE_ENVIOS', header=None, nrows=10)
     h_idx = 0
     for idx, row in df_env_raw.iterrows():
-        if 'NRO ENVIO' in [str(x).upper().strip() for x in row.values]:
+        headers = [str(x).upper().strip() for x in row.values]
+        if 'NRO ENVIO' in headers or 'NUMERO' in headers:
             h_idx = idx
             break
     df_env = xl.parse('CABE_ENVIOS', header=h_idx)
     df_env.columns = [str(c).upper().strip() for c in df_env.columns]
+    shipment_number_col = next(
+        (column for column in df_env.columns if column in ('NRO ENVIO', 'NUMERO')),
+        None,
+    )
+    if not shipment_number_col:
+        raise KeyError(
+            "No se encontró la columna de número de envío en CABE_ENVIOS. "
+            f"Columnas disponibles: {list(df_env.columns)}"
+        )
     shipments = []
     
     now = datetime.now()
     for _, row in df_env.iterrows():
-        s_num = row.get('NRO ENVIO')
+        s_num = row.get(shipment_number_col)
         if pd.isna(s_num): continue
         try: s_num = int(s_num)
         except: continue
@@ -216,7 +226,7 @@ def extract_all():
             'date_arrived': clean_date(row.get('FECHA LLEG')),
             'weight_fw': clean_num(row.get('PESO')),
             'weight_cli': clean_num(row.get('PESO.1')),
-            'type_load': clean_text(row.get('TIPO CARGA')),
+            'type_load': clean_text(row.get('TIPO CARGA')) or clean_text(row.get('TIPO')),
             'status': normalize_status(clean_text(row.get('LLEGO?'))),
             'notes': clean_text(row.get('OBSERVACION')),
             'price_total': clean_num(row.get('ENVIO COB')),
@@ -507,7 +517,7 @@ def extract_all():
         print(f"   - {key}: {value}")
 
     if force_full:
-        required_non_empty = ['clients', 'products', 'suppliers', 'orders']
+        required_non_empty = ['clients', 'products', 'suppliers', 'shipments', 'orders']
         missing = [k for k in required_non_empty if summary[k] == 0]
         if missing:
             raise RuntimeError(f"Extracción FULL inválida: hojas críticas vacías ({', '.join(missing)}).")

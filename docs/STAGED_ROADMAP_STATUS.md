@@ -48,6 +48,8 @@ ninguna escritura automatica sobre planillas ni base de datos.
   vencimientos, con reporte descargable.
 - La sincronizacion desde mantenimiento y la diaria cloud usan fuente completa;
   un cambio historico ya no depende de los ultimos 7 o 30 dias.
+- La extraccion reconoce las cabeceras `NUMERO` y `NRO ENVIO`; una fuente
+  completa sin envios ahora detiene el proceso en vez de ocultar el problema.
 
 ### Pendiente
 
