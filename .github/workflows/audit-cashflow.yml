@@ -1,0 +1,38 @@
+name: Auditoria diaria de Cash Flow
+
+on:
+  schedule:
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Instalar dependencias
+        run: pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
+
+      - name: Configurar credenciales de solo lectura
+        run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > google_credentials.json
+
+      - name: Auditar Cash Flow sin modificar datos
+        run: python3 audit_cashflow_sheet.py
+
+      - name: Conservar reporte de auditoria
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cashflow-health
+          path: audit-output/cashflow-health.json
+          if-no-files-found: warn

@@ -14,3 +14,6 @@ google_credentials.json
 logs/
 webapp/logs/
 *.log
+
+# read-only audit artifacts
+/audit-output/
