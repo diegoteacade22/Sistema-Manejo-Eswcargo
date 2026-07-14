@@ -39,7 +39,8 @@ fi
 echo "-> Downloading latest Sheet from Google Drive..."
 "$PYTHON_EXEC" "$APP_ROOT/download_sheet.py"
 if [ $? -ne 0 ]; then
-   echo "Warning: Google Sheet Sync failed or skipped. Continuing with local file..."
+   echo "Error: no se pudo descargar la planilla actual. La sincronización se detuvo para no aplicar datos anteriores."
+   exit 1
 fi
 
 # 2. Extract Data
@@ -75,6 +76,12 @@ fi
 node "$DIR/scripts/audit-packing-readiness.mjs"
 if [ $? -ne 0 ]; then
    echo "Error: Packing readiness audit failed."
+   exit 1
+fi
+
+node "$DIR/scripts/audit-invoice-readiness.mjs"
+if [ $? -ne 0 ]; then
+   echo "Error: Invoice readiness audit failed."
    exit 1
 fi
 

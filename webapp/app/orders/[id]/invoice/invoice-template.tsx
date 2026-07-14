@@ -83,6 +83,7 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
 
     const totalValue = order.total_amount;
     const items = order.items || [];
+    const hasConfirmedInvoice = items.length > 0 && Number(totalValue || 0) > 0;
     const customerId = order.client.old_id || order.client.id;
 
     return (
@@ -122,7 +123,7 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
                     <div className="flex gap-3">
                         <Button
                             onClick={handleSaveDrive}
-                            disabled={isSaving}
+                            disabled={isSaving || !hasConfirmedInvoice}
                             className="bg-emerald-600 hover:bg-emerald-700 text-white"
                         >
                             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
@@ -131,13 +132,14 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
                         <Button
                             variant="outline"
                             onClick={handlePrint}
+                            disabled={!hasConfirmedInvoice}
                             className="border-slate-400 hover:bg-slate-100 text-slate-700 font-bold"
                         >
                             <Printer className="mr-2 h-4 w-4" /> Imprimir
                         </Button>
                         <Button
                             onClick={handleSendEmail}
-                            disabled={isSending}
+                            disabled={isSending || !hasConfirmedInvoice}
                             className="bg-indigo-600 hover:bg-indigo-700 text-white"
                         >
                             {isSending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
@@ -145,6 +147,11 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
                         </Button>
                     </div>
                 </div>
+                {!hasConfirmedInvoice && (
+                    <p className="no-print rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                        Invoice bloqueado: faltan productos confirmados o un total mayor a USD 0.
+                    </p>
+                )}
 
                 {/* Main Invoice Sheet */}
                 <div
@@ -290,4 +297,3 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
         </div>
     );
 }
-

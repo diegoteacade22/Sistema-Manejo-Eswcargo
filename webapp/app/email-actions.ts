@@ -22,6 +22,17 @@ type InvoiceDocument = {
     fileName: string;
 };
 
+function assertInvoiceIsReady(order: { items: Array<{ quantity: number; unit_price: number }>; total_amount: number | null }) {
+    if (!order.items.length) {
+        throw new Error('No se puede emitir el invoice: el pedido no tiene productos confirmados.');
+    }
+
+    const total = Number(order.total_amount || 0);
+    if (!Number.isFinite(total) || total <= 0) {
+        throw new Error('No se puede emitir el invoice: el total del pedido debe ser mayor a USD 0.');
+    }
+}
+
 async function trySavePdfToDriveFolder(pdfBuffer: Uint8Array, fileName: string) {
     try {
         const savedPath = await savePdfToDriveFolder(pdfBuffer, fileName);
@@ -60,7 +71,7 @@ async function buildPackingListDocument(shipmentId: number): Promise<PackingList
     const cargoDescription = getShipmentCargoDescription(shipment);
 
     if (shipmentItems.length === 0 && !cargoDescription) {
-        throw new Error('No hay ítems exportables en este envío (solo se exportan SALIENDO/LLEGANDO).');
+        throw new Error('No se puede emitir el packing: faltan artículos o una descripción operativa confirmada.');
     }
 
     let itemsHtml = '';
@@ -189,6 +200,8 @@ async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocument> {
     if (!order) {
         throw new Error('Pedido no encontrado.');
     }
+
+    assertInvoiceIsReady(order);
 
     let itemsHtml = '';
     let totalPcs = 0;

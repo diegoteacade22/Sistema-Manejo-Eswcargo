@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euo pipefail
+
 # Sincronización siempre COMPLETA desde Sheets
 SYNC_FILTER="FULL"
 SYNC_MODE="FULL"
@@ -24,11 +26,13 @@ echo "🔄 EJECUTANDO SINCRONIZACIÓN AUTOMÁTICA (MODO COMPLETO)..."
 echo "------------------------------------------------------------"
 
 # 1. Download (Try up to 2 times)
-$PYTHON_EXEC download_sheet.py
-if [ $? -ne 0 ]; then
+if ! $PYTHON_EXEC download_sheet.py; then
     echo "⚠️  Fallo primera descarga, reintentando..."
     sleep 2
-    $PYTHON_EXEC download_sheet.py
+    if ! $PYTHON_EXEC download_sheet.py; then
+        echo "❌ No se pudo descargar la planilla actual. Se cancela para no usar una copia anterior."
+        exit 1
+    fi
 fi
 
 # 2. Extract (siempre completo)
@@ -62,6 +66,7 @@ fi
 echo "🔎 Verificando asignaciones y packing lists..."
 node scripts/audit-shipment-reconciliation.mjs
 node scripts/audit-packing-readiness.mjs
+node scripts/audit-invoice-readiness.mjs
 
 echo "✅ Sincronización completada."
 echo ""
