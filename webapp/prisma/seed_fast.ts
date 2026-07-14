@@ -753,8 +753,10 @@ async function main() {
         }
     }
 
-    // 7. LIMPIEZA DE HUERFANOS (Solo en Sincronización Completa)
-    if (isFullSync) {
+    // 7. LIMPIEZA DE HUERFANOS (solo bajo una operación explícita y controlada).
+    // Una descarga o extracción parcial nunca debe borrar registros productivos.
+    const allowDestructiveFullReconciliation = process.env.ALLOW_DESTRUCTIVE_FULL_RECONCILIATION === '1';
+    if (isFullSync && allowDestructiveFullReconciliation) {
         console.log("🧹 Iniciando limpieza de registros huérfanos...");
 
         // Limpiar Pedidos que ya no están en Excel
@@ -801,6 +803,8 @@ async function main() {
             where: { id: { notIn: Array.from(processedPurchaseIds) } }
         });
         console.log(`   ✅ Compras huérfanas eliminadas: ${orphanedPurchases.count}`);
+    } else if (isFullSync) {
+        console.log('🛡️ Limpieza de huérfanos omitida: requiere ALLOW_DESTRUCTIVE_FULL_RECONCILIATION=1.');
     }
 
     const endTime = Date.now();
