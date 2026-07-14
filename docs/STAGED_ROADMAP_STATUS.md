@@ -21,6 +21,8 @@ ninguna escritura automatica sobre planillas ni base de datos.
   movimientos, ademas de las auditorias de datos actuales.
 - Revisar el unico packing operativo sin contenido confirmado, `#1048`, cuando
   exista fuente documental; no se deben inventar articulos.
+- Completar la cabecera del envio `#1172` para el pedido `#2479`; el contraste
+  lo deja como advertencia y no inventa una cabecera faltante.
 
 ## Etapa 2: Bandeja de pedidos
 
@@ -65,7 +67,10 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Definir formato normalizado, responsable y reglas de importacion para cada
   pestana de Cash Flow antes de habilitar cualquier escritura.
 - Ejecutar una reconciliacion de cuenta corriente vigente y revisar sus alertas
-  antes de modificar signos, duplicados o ajustes historicos.
+  antes de modificar signos, duplicados o ajustes historicos. La auditoria
+  actual detecta pagos con signo negativo para Franco Pepe `#84` y Claudio
+  Molina x IG `#261`, ademas de saldos y baselines que requieren clasificacion
+  contable manual.
 
 ## Etapa 4: Panel operativo
 
