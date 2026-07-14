@@ -3,10 +3,24 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const prisma = new PrismaClient();
+
+function loadKnownEmptyPackingExceptions(prismaDir) {
+  const exceptionPath = path.join(prismaDir, 'packing-readiness-exceptions.json');
+  if (!fs.existsSync(exceptionPath)) return new Map();
+
+  const entries = JSON.parse(fs.readFileSync(exceptionPath, 'utf8'));
+  return new Map(
+    (entries.knownEmptyOperationalShipments || [])
+      .filter((entry) => Number.isInteger(entry?.shipment_number))
+      .map((entry) => [entry.shipment_number, entry.reason || 'Sin detalle'])
+  );
+}
+
 async function main() {
   const auditAll = process.env.PACKING_AUDIT_SCOPE === 'all';
   const sourceShipmentNumbers = new Set();
   const prismaDir = path.join(process.cwd(), 'prisma');
+  const knownEmptyPackingExceptions = loadKnownEmptyPackingExceptions(prismaDir);
 
   for (const fileName of ['shipments_seed.json', 'shipment_reconciliation_seed.json']) {
     const seedPath = path.join(prismaDir, fileName);
@@ -74,8 +88,22 @@ async function main() {
     console.log(`Packing con descripción operativa: ${cargoFallbacks.length}${sample ? ` (${sample}${cargoFallbacks.length > 10 ? ', ...' : ''})` : ''}.`);
   }
 
-  if (missingContent.length) {
-    console.error(`Packing sin contenido imprimible: ${missingContent.map((shipment) => `#${shipment.shipment_number ?? shipment.id}`).join(', ')}.`);
+  const knownMissingContent = missingContent.filter((shipment) =>
+    knownEmptyPackingExceptions.has(shipment.shipment_number)
+  );
+  const blockingMissingContent = missingContent.filter((shipment) =>
+    !knownEmptyPackingExceptions.has(shipment.shipment_number)
+  );
+
+  if (knownMissingContent.length) {
+    const detail = knownMissingContent
+      .map((shipment) => `#${shipment.shipment_number}: ${knownEmptyPackingExceptions.get(shipment.shipment_number)}`)
+      .join('; ');
+    console.warn(`Packing sin contenido conocido y bloqueado para emisión: ${detail}.`);
+  }
+
+  if (blockingMissingContent.length) {
+    console.error(`Packing sin contenido imprimible: ${blockingMissingContent.map((shipment) => `#${shipment.shipment_number ?? shipment.id}`).join(', ')}.`);
     process.exitCode = 1;
     return;
   }

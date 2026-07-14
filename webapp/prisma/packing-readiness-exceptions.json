@@ -1,0 +1,8 @@
+{
+  "knownEmptyOperationalShipments": [
+    {
+      "shipment_number": 1048,
+      "reason": "No existe cabecera ni detalle verificable en la fuente; el documento permanece bloqueado."
+    }
+  ]
+}

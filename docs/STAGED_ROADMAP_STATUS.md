@@ -19,8 +19,8 @@ ninguna escritura automatica sobre planillas ni base de datos.
   actualizado, removido o rechazado, con su causa.
 - Pruebas de interfaz autenticada para packing, invoice, asignaciones y
   movimientos, ademas de las auditorias de datos actuales.
-- Revisar el unico packing operativo sin contenido confirmado cuando exista
-  fuente documental; no se deben inventar articulos.
+- Revisar el unico packing operativo sin contenido confirmado, `#1048`, cuando
+  exista fuente documental; no se deben inventar articulos.
 
 ## Etapa 2: Bandeja de pedidos
 
@@ -50,6 +50,9 @@ ninguna escritura automatica sobre planillas ni base de datos.
   un cambio historico ya no depende de los ultimos 7 o 30 dias.
 - La extraccion reconoce las cabeceras `NUMERO` y `NRO ENVIO`; una fuente
   completa sin envios ahora detiene el proceso en vez de ocultar el problema.
+- El envio `#1048` queda como excepcion documentada: sigue bloqueado para
+  imprimir o enviar y visible en Mantenimiento, pero no detiene una
+  sincronizacion correcta por otros datos.
 
 ### Pendiente
 
