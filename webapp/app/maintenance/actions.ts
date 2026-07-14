@@ -5,6 +5,7 @@ import { exec } from 'child_process';
 import { spawn } from 'child_process';
 import { promisify } from 'util';
 import { requireAdminUser } from '@/lib/access';
+import { prisma } from '@/lib/prisma';
 import path from 'path';
 import { access } from 'fs/promises';
 
@@ -277,6 +278,50 @@ type SyncHistoryItem = {
     url: string;
 };
 
+type SyncException = {
+    level: 'error' | 'warning';
+    title: string;
+    detail: string;
+    url?: string;
+};
+
+async function getPackingContentExceptions(): Promise<SyncException[]> {
+    const shipments = await prisma.shipment.findMany({
+        select: {
+            id: true,
+            shipment_number: true,
+            status: true,
+            item_count: true,
+            cargo_description: true,
+            items: { select: { id: true } },
+            orders: { select: { items: { select: { id: true, shipmentId: true } } } },
+        },
+    });
+
+    return shipments
+        .filter((shipment) => !['', 'COMPRAR', '100', '200', '#REF!'].includes(String(shipment.status || '').trim().toUpperCase()))
+        .filter((shipment) => {
+            if (!shipment.item_count || shipment.cargo_description?.trim()) return false;
+
+            const itemIds = new Set(shipment.items.map((item) => item.id));
+            for (const order of shipment.orders) {
+                const hasExplicitShipmentItems = order.items.some((item) => item.shipmentId);
+                for (const item of order.items) {
+                    if (item.shipmentId === shipment.id || (!hasExplicitShipmentItems && !item.shipmentId)) {
+                        itemIds.add(item.id);
+                    }
+                }
+            }
+            return itemIds.size === 0;
+        })
+        .map((shipment) => ({
+            level: 'error' as const,
+            title: `Packing #${shipment.shipment_number ?? shipment.id} sin contenido confirmado`,
+            detail: 'No se puede emitir hasta cargar artículos o una descripción operativa verificada.',
+            url: `/shipments/${shipment.id}/packing-list`,
+        }));
+}
+
 function getSyncScope(run: any) {
     const title = String(run.display_title || run.name || '');
     const match = title.match(/(?:Sync ESWCARGO\s+)?(FULL|\d+)\s*d[ií]as?/i);
@@ -335,7 +380,7 @@ export async function getSyncControlCenter() {
             url: run.html_url,
         }));
         const now = Date.now();
-        const exceptions: Array<{ level: 'error' | 'warning'; title: string; detail: string; url?: string }> = [];
+        const exceptions: SyncException[] = [];
         const latestSuccess = history.find((run) => run.status === 'completed' && run.conclusion === 'success');
         const latestSuccessMs = latestSuccess ? new Date(latestSuccess.updatedAt).getTime() : 0;
 
@@ -374,6 +419,8 @@ export async function getSyncControlCenter() {
                 url: latestSuccess.url,
             });
         }
+
+        exceptions.push(...await getPackingContentExceptions());
 
         return {
             success: true,
