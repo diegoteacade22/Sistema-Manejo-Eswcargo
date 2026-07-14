@@ -141,12 +141,11 @@ export async function resetDatabase() {
     };
 }
 
-function syncScopeLabel(days: number) {
-    return days === 0 ? 'Completa' : `${days} días`;
-}
-
-export async function syncExcel(days: number = 0) {
+export async function syncExcel(_requestedDays: number = 0) {
     await requireAdminUser();
+    // Un cambio de asignación puede pertenecer a un pedido antiguo. La fuente
+    // operativa se procesa completa para que no dependa de la fecha de venta.
+    const days = 0;
     try {
         const scriptPath = await findSyncScriptPath();
         const hookUrl = process.env.SYNC_HOOK_URL;
@@ -161,7 +160,7 @@ export async function syncExcel(days: number = 0) {
 
             revalidatePath('/', 'layout');
             revalidateDataViews();
-            return { success: true, message: `OK: actualización rápida finalizada (${syncScopeLabel(days)}). Ya podés ver los cambios en el sistema.` };
+            return { success: true, message: `OK: actualización completa finalizada. Ya podés ver los cambios en el sistema.` };
         }
 
         if (hookUrl && hookUrl.trim().length > 0) {
@@ -188,7 +187,7 @@ export async function syncExcel(days: number = 0) {
             revalidateDataViews();
             return {
                 success: true,
-                message: `OK: actualización rápida finalizada (${syncScopeLabel(days)}) en ${elapsedSeconds}s. Ya podés ver los cambios en el sistema.`,
+                message: `OK: actualización completa finalizada en ${elapsedSeconds}s. Ya podés ver los cambios en el sistema.`,
                 log: responseText || undefined
             };
         }
@@ -204,7 +203,7 @@ export async function syncExcel(days: number = 0) {
 
             return {
                 success: true,
-                message: `Actualización cloud en curso (${githubWorkflow.daysInput} días). Todavía no finalizó. Confirmá el resultado en "Actualizar estado": ${githubWorkflow.actionsUrl}`
+                message: `Actualización cloud completa en curso. Todavía no finalizó. Confirmá el resultado en "Actualizar estado" antes de emitir documentos: ${githubWorkflow.actionsUrl}`
             };
         }
 
@@ -441,11 +440,11 @@ export async function getSyncControlCenter() {
     }
 }
 
-export async function syncExcelInGitHub(days: number = 7) {
+export async function syncExcelInGitHub() {
     await requireAdminUser();
 
     try {
-        const githubWorkflow = await triggerGitHubSyncWorkflow(days);
+        const githubWorkflow = await triggerGitHubSyncWorkflow(0);
         if (!githubWorkflow) {
             return {
                 success: false,
