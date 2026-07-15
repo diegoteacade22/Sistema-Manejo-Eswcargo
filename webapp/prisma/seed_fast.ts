@@ -16,6 +16,28 @@ function resolveImportedTxOldClientId(tx: any): number | null {
     return Number.isFinite(parsedClientId) ? parsedClientId : null;
 }
 
+function itemSyncSignature(item: any) {
+    const money = (value: any) => Number(value || 0).toFixed(6);
+    return [
+        item.productId || '',
+        String(item.productName || '').trim(),
+        Number(item.quantity || 0),
+        money(item.unit_price),
+        money(item.unit_cost),
+        money(item.subtotal),
+        money(item.profit),
+        item.shipmentId || '',
+        String(item.status || '').trim(),
+    ].join('|');
+}
+
+function sameItemSet(currentItems: any[], nextItems: any[]) {
+    if (currentItems.length !== nextItems.length) return false;
+    const current = currentItems.map(itemSyncSignature).sort();
+    const next = nextItems.map(itemSyncSignature).sort();
+    return current.every((signature, index) => signature === next[index]);
+}
+
 async function main() {
     const isFullSync = process.env.SYNC_MODE === 'FULL';
     console.log(`🚀 Iniciando Sembrado Rápido (Consolidado) - Modo: ${isFullSync ? 'COMPLETO' : 'DIFERENCIAL'}...`);
@@ -61,7 +83,7 @@ async function main() {
     const [dbClients, dbProducts, dbShipments, dbOrders, dbSuppliers] = await Promise.all([
         prisma.client.findMany({ select: { id: true, old_id: true, name: true, email: true, phone: true } }),
         prisma.product.findMany({ select: { id: true, sku: true, lp1: true, stock: true } }),
-        (prisma as any).shipment.findMany({ select: { id: true, shipment_number: true, status: true, notes: true, forwarder: true, weight_fw: true, price_total: true, cost_total: true, date_shipped: true, date_arrived: true, clientId: true } }),
+        (prisma as any).shipment.findMany({ select: { id: true, shipment_number: true, status: true, notes: true, forwarder: true, weight_fw: true, price_total: true, cost_total: true, date_shipped: true, date_arrived: true, clientId: true, item_count: true } }),
         prisma.order.findMany({
             select: {
                 id: true,
@@ -80,6 +102,7 @@ async function main() {
     const clientNameMap = new Map<string, any>(dbClients.map(c => [c.name.trim().toUpperCase(), c]));
     const productSkuMap = new Map<string, any>(dbProducts.map(p => [p.sku, p]));
     const shipmentNumMap = new Map<number, any>(dbShipments.filter((s: any) => s.shipment_number !== null).map((s: any) => [s.shipment_number as number, s]));
+    const shipmentById = new Map<number, any>(dbShipments.map((shipment: any) => [shipment.id, shipment]));
     const orderNumMap = new Map<number, any>(dbOrders.filter(o => o.order_number !== null).map(o => [o.order_number as number, o]));
     const supplierOldIdMap = new Map<number, any>(dbSuppliers.filter(s => s.old_id !== null).map(s => [s.old_id as number, s]));
     const supplierNameMap = new Map<string, any>(dbSuppliers.map(s => [s.name.trim().toUpperCase(), s]));
@@ -89,20 +112,33 @@ async function main() {
     const existingOrderIds = normalizedOrdersData
         .map((order: any) => orderNumMap.get(order.order_number)?.id)
         .filter((orderId): orderId is number => typeof orderId === 'number');
-    const existingItemCounts = existingOrderIds.length
-        ? await prisma.orderItem.groupBy({
-            by: ['orderId'],
+    const existingOrderItems = existingOrderIds.length
+        ? await prisma.orderItem.findMany({
             where: { orderId: { in: existingOrderIds } },
-            _count: { _all: true },
+            select: {
+                orderId: true,
+                productId: true,
+                productName: true,
+                quantity: true,
+                unit_price: true,
+                unit_cost: true,
+                subtotal: true,
+                profit: true,
+                shipmentId: true,
+                status: true,
+            },
         })
         : [];
-    const existingItemCountByOrderId = new Map(
-        existingItemCounts.map((group) => [group.orderId, group._count._all])
-    );
+    const existingItemsByOrderId = new Map<number, any[]>();
+    for (const item of existingOrderItems) {
+        const items = existingItemsByOrderId.get(item.orderId) || [];
+        items.push(item);
+        existingItemsByOrderId.set(item.orderId, items);
+    }
     const incompleteOrders = normalizedOrdersData
         .filter((order: any) => {
             const dbOrder = orderNumMap.get(order.order_number);
-            return dbOrder && (order.items || []).length === 0 && (existingItemCountByOrderId.get(dbOrder.id) || 0) > 0;
+            return dbOrder && (order.items || []).length === 0 && (existingItemsByOrderId.get(dbOrder.id)?.length || 0) > 0;
         })
         .map((order: any) => `#${order.order_number}`);
     if (incompleteOrders.length) {
@@ -232,6 +268,7 @@ async function main() {
     // 6. PROCESAR PEDIDOS
     console.log(`📑 Sincronizando ${normalizedOrdersData.length} pedidos...`);
     let orderCounter = 0;
+    let orderItemsReplaced = 0;
     const syncedOrderNumbers = new Set(normalizedOrdersData.map((o: any) => o.order_number));
 
     for (const o of (normalizedOrdersData as any[])) {
@@ -312,12 +349,17 @@ async function main() {
             };
         });
 
-        await prisma.$transaction(async (tx) => {
-            await tx.orderItem.deleteMany({ where: { orderId: dbOrder.id } });
-            if (orderItemsToCreate.length > 0) {
-                await tx.orderItem.createMany({ data: orderItemsToCreate });
-            }
-        });
+        const currentItems = existingItemsByOrderId.get(dbOrder.id) || [];
+        if (!sameItemSet(currentItems, orderItemsToCreate)) {
+            await prisma.$transaction(async (tx) => {
+                await tx.orderItem.deleteMany({ where: { orderId: dbOrder.id } });
+                if (orderItemsToCreate.length > 0) {
+                    await tx.orderItem.createMany({ data: orderItemsToCreate });
+                }
+            });
+            existingItemsByOrderId.set(dbOrder.id, orderItemsToCreate);
+            orderItemsReplaced++;
+        }
 
         // Actualizar Transacciones (ELIMINACIÓN PRECISA para evitar borrar otros pedidos que contengan el mismo número)
         // No creamos aquí, colectamos para batch final
@@ -327,6 +369,7 @@ async function main() {
         orderCounter++;
         if (orderCounter % 50 === 0) console.log(`   ...procesados ${orderCounter} pedidos`);
     }
+    console.log(`   ↻ Ítems reemplazados por cambios reales: ${orderItemsReplaced}/${normalizedOrdersData.length}`);
 
     // 6.1 RECONCILIAR ASIGNACIONES DE ENVIO HISTORICAS
     // Los cambios de ENVIO NRO no modifican la fecha de venta, por lo que no
@@ -488,10 +531,14 @@ async function main() {
         );
 
         for (const shipmentId of shipmentIdsToRefresh) {
+            const existingShipment = shipmentById.get(shipmentId);
+            const nextItemCount = itemCountByShipmentId.get(shipmentId) || 0;
+            if (existingShipment?.item_count === nextItemCount) continue;
             await (prisma as any).shipment.update({
                 where: { id: shipmentId },
-                data: { item_count: itemCountByShipmentId.get(shipmentId) || 0 }
+                data: { item_count: nextItemCount }
             });
+            if (existingShipment) existingShipment.item_count = nextItemCount;
         }
     }
 
