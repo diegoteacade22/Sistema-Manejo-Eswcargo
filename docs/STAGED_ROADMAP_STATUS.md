@@ -84,3 +84,22 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Vista financiera: caja, vencimientos, cobranzas, rentabilidad y fecha de
   ultima fuente verificada.
 - Alertas accionables conectadas a los controles de las etapas 1 y 3.
+
+## Etapa 5: Rendimiento y supervisión de sincronización
+
+### Implementado
+
+- La sincronización completa compara los ítems de cada pedido y solo los
+  reemplaza cuando hay una diferencia real en producto, cantidad, precio,
+  envío o estado.
+- Los contadores de artículos de envío se actualizan solamente si cambiaron.
+- La corrida completa verificada bajó de 261 a 57 segundos, manteniendo las
+  auditorías de asignaciones, packing e invoice en estado correcto.
+
+### Pendiente
+
+- Crear una prueba controlada fuera de producción que simule agregar, quitar y
+  reasignar productos para demostrar que solo los pedidos afectados se
+  reescriben.
+- Registrar tiempos por etapa de sincronización y alertar si el total supera el
+  umbral operativo acordado.
