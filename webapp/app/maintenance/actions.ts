@@ -8,6 +8,7 @@ import { requireAdminUser } from '@/lib/access';
 import { prisma } from '@/lib/prisma';
 import path from 'path';
 import { access } from 'fs/promises';
+import clientBalanceControls from '@/scripts/client-balance-controls.json';
 
 const execAsync = promisify(exec);
 
@@ -317,6 +318,8 @@ function orderNumberFromTransaction(reference: string | null, description: strin
 
 async function getLedgerIntegrityExceptions(): Promise<SyncException[]> {
     const exceptions: SyncException[] = [];
+    const cashFlowClientOldIds = new Set(clientBalanceControls.cashFlowAccounts.map((account) => account.oldId));
+    const confirmedZeroClientOldIds = new Set(clientBalanceControls.lockedBalances.map((account) => account.oldId));
     const orderChargeTransactions = await prisma.transaction.findMany({
         where: {
             clientId: { not: null },
@@ -426,6 +429,63 @@ async function getLedgerIntegrityExceptions(): Promise<SyncException[]> {
             level: 'warning',
             title: `${baselineOnlyAccounts.length} cuenta(s) con solo un ajuste histórico`,
             detail: `${examples}. No existe movimiento operativo asociado en el sistema; conservar hasta contrastar el saldo con respaldo externo.`,
+            url: '/analytics/financial',
+        });
+    }
+
+    const baselineMixedAccounts = [...new Map(
+        baselineTransactions
+            .filter((baseline) => {
+                if (baseline.clientId === null || cashFlowClientOldIds.has(baseline.client?.old_id ?? -1)) return false;
+                return (baselineBalanceByClientId.get(baseline.clientId)?._count._all || 0) > 1;
+            })
+            .map((baseline) => [baseline.clientId, baseline]),
+    ).values()];
+    if (baselineMixedAccounts.length) {
+        const examples = baselineMixedAccounts
+            .slice(0, 4)
+            .map((baseline) => `${baseline.client?.name || 'Cliente'} #${baseline.client?.old_id ?? '-'} (${money(baselineBalanceByClientId.get(baseline.clientId!)?._sum.amount || 0)})`)
+            .join('; ');
+        exceptions.push({
+            level: 'warning',
+            title: `${baselineMixedAccounts.length} cuenta(s) con ajuste histórico y movimientos mezclados`,
+            detail: `${examples}. No se separan ni recalculan automáticamente: requiere respaldos para distinguir el saldo inicial de los movimientos operativos.`,
+            url: '/analytics/financial',
+        });
+    }
+
+    const accountTransactions = await prisma.transaction.findMany({
+        where: { clientId: { not: null } },
+        select: {
+            clientId: true,
+            reference: true,
+            client: { select: { old_id: true, name: true } },
+        },
+    });
+    const accountTransactionsByClient = new Map<number, typeof accountTransactions>();
+    for (const transaction of accountTransactions) {
+        if (transaction.clientId === null) continue;
+        accountTransactionsByClient.set(transaction.clientId, [...(accountTransactionsByClient.get(transaction.clientId) || []), transaction]);
+    }
+    const operationalAccountsWithoutFinancialSource = [...accountTransactionsByClient.values()]
+        .filter((transactions) => {
+            const client = transactions[0]?.client;
+            const oldId = client?.old_id;
+            const hasBaseline = transactions.some((transaction) => String(transaction.reference || '').startsWith('CC-ZERO-BASELINE-2026:'));
+            return !hasBaseline && !cashFlowClientOldIds.has(oldId ?? -1) && !confirmedZeroClientOldIds.has(oldId ?? -1);
+        });
+    if (operationalAccountsWithoutFinancialSource.length) {
+        const examples = operationalAccountsWithoutFinancialSource
+            .slice(0, 4)
+            .map((transactions) => {
+                const client = transactions[0]?.client;
+                return `${client?.name || 'Cliente'} #${client?.old_id ?? '-'}`;
+            })
+            .join('; ');
+        exceptions.push({
+            level: 'warning',
+            title: `${operationalAccountsWithoutFinancialSource.length} cuenta(s) operativa(s) sin fuente financiera vigente`,
+            detail: `${examples}. No se consideran conciliadas hasta contar con Cash Flow, Invoice o comprobantes verificables.`,
             url: '/analytics/financial',
         });
     }
