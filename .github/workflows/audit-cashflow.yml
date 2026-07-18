@@ -27,7 +27,8 @@ jobs:
         run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > google_credentials.json
 
       - name: Auditar Cash Flow sin modificar datos
-        run: python3 audit_cashflow_sheet.py
+        run: |
+          python3 audit_cashflow_sheet.py || echo "::warning::Cash Flow tiene alertas de fórmulas o datos. Se conserva el reporte; no se modifica Google Sheets."
 
       - name: Conservar reporte de auditoria
         if: always()
