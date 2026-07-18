@@ -93,6 +93,7 @@ jobs:
           node scripts/audit-cash-flow-raw-drift.mjs --source /tmp/cashflow-raw-source.json
           python3 scripts/audit-cashflow-invoice-references.py --summary
           node scripts/audit-ledgers.mjs || echo "::warning::Auditoria CC previa con advertencias; se continua la sincronizacion operativa."
+          node scripts/audit-client-account-coverage.mjs --summary
           node scripts/audit-ledger-duplicates.mjs || echo "::warning::Posibles duplicados o documentos repetidos en Cuenta Corriente; revisar Mantenimiento antes de emitir cobros."
           node scripts/audit-supplier-ledgers.mjs || echo "::warning::Proveedores con movimientos a revisar; no se modificaron saldos automaticamente."
           if [ "$SYNC_DAYS" = "0" ] || [ "$SYNC_DAYS" = "FULL" ]; then
@@ -106,6 +107,7 @@ jobs:
           node scripts/audit-invoice-readiness.mjs
           node scripts/audit-cash-flow-raw-drift.mjs --source /tmp/cashflow-raw-source.json
           node scripts/audit-ledgers.mjs || echo "::warning::Auditoria CC posterior con advertencias; revisar cuenta corriente sin bloquear sync."
+          node scripts/audit-client-account-coverage.mjs --summary
           node scripts/audit-ledger-duplicates.mjs || echo "::warning::Posibles duplicados o documentos repetidos en Cuenta Corriente; revisar Mantenimiento antes de emitir cobros."
           node scripts/audit-supplier-ledgers.mjs || echo "::warning::Proveedores con movimientos a revisar; no se modificaron saldos automaticamente."
           echo "- Actualización y auditorías: $(( $(date +%s) - stage_started_at ))s" >> "$GITHUB_STEP_SUMMARY"

@@ -200,3 +200,6 @@ ninguna escritura automatica sobre planillas ni base de datos.
   creados con 40 segundos de diferencia, pero Cash Flow no aporta una fila que
   pruebe si corresponde conservar uno o los dos. No se elimina ninguno sin
   comprobante.
+- Las 30 cuentas con solo ajuste histórico, las 19 con ajuste mixto y las 3
+  sin fuente financiera quedan visibles en cada sincronización. No se deben
+  considerar conciliadas ni modificar hasta contar con evidencia externa.

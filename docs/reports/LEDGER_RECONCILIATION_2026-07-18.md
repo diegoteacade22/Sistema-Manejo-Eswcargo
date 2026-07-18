@@ -52,3 +52,22 @@ un reporte de diferencias y una aprobacion explicita.
 - La auditoría de duplicados revisa ahora cada `CARGO` que referencia un pedido y lo contrasta con el cliente actual del pedido fuente.
 - Si difieren, el proceso lo reporta como una inconsistencia de asignación y Mantenimiento lo muestra como error. No mueve el cargo ni cambia el cliente automáticamente.
 - Validación posterior a la corrección: `wrongClientOrderCharges = 0`.
+- La auditoría de duplicados recorre ahora el historial completo de cuentas
+  corrientes por defecto. Se puede acotar solo mediante
+  `LEDGER_DUPLICATE_LOOKBACK_DAYS` para un diagnóstico puntual.
+
+## Cobertura completa de cuentas
+
+La auditoría de solo lectura recorrió las 68 cuentas con movimientos actuales:
+
+- 11 cuentan con fuente directa en `CASH FLOW 2026`.
+- 5 tienen saldo cero confirmado.
+- 30 contienen únicamente un ajuste histórico de arrastre.
+- 19 combinan ajuste histórico y movimientos posteriores.
+- 3 contienen movimiento operativo sin pestaña financiera de respaldo.
+
+Los últimos controles completos no encontraron duplicados exactos ni cargos de
+pedido asignados a un cliente distinto. Se mantienen abiertos únicamente el
+cargo repetido por referencia `#2352` y el posible pago doble de Marcos Roku,
+porque la fuente no permite determinar de forma documental cuál movimiento
+debería eliminarse.

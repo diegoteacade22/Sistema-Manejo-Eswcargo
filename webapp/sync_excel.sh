@@ -93,6 +93,7 @@ else
    echo "⚠️ No se pudo leer Cash Flow; se mantiene la escritura financiera deshabilitada."
 fi
 run_stage "Auditoría de cuenta corriente previa" node "$DIR/scripts/audit-ledgers.mjs" || echo "⚠️ Cuenta corriente con advertencias; se mantiene la sincronización operativa sin movimientos financieros."
+run_stage "Cobertura de cuentas corrientes previa" node "$DIR/scripts/audit-client-account-coverage.mjs" --summary
 run_stage "Auditoría de duplicados CC previa" node "$DIR/scripts/audit-ledger-duplicates.mjs" || echo "⚠️ Posibles duplicados o documentos repetidos en Cuenta Corriente; revisar antes de emitir cobros."
 if [ -x "$DIR/node_modules/.bin/tsx" ]; then
    run_stage "Actualización de base" env SYNC_MODE=$SYNC_MODE ALLOW_FINANCIAL_LEDGER_SYNC=0 "$DIR/node_modules/.bin/tsx" prisma/seed_fast.ts
@@ -131,6 +132,7 @@ if [ -f "$CASHFLOW_RAW_EXPORT" ]; then
 fi
 
 run_stage "Auditoría de cuenta corriente" node "$DIR/scripts/audit-ledgers.mjs" || echo "⚠️ Cuenta corriente con advertencias; revisar antes de emitir cobros."
+run_stage "Cobertura de cuentas corrientes" node "$DIR/scripts/audit-client-account-coverage.mjs" --summary
 run_stage "Auditoría de duplicados CC" node "$DIR/scripts/audit-ledger-duplicates.mjs" || echo "⚠️ Posibles duplicados o documentos repetidos en Cuenta Corriente; revisar Mantenimiento antes de emitir cobros."
 run_stage "Auditoría de cuentas de proveedores" node "$DIR/scripts/audit-supplier-ledgers.mjs" || echo "⚠️ Proveedores con movimientos a revisar; no se modificaron saldos automáticamente."
 

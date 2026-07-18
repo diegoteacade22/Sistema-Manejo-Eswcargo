@@ -1,7 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
-const DAYS = Number(process.env.LEDGER_DUPLICATE_LOOKBACK_DAYS || 730);
+const LOOKBACK_DAYS = Number(process.env.LEDGER_DUPLICATE_LOOKBACK_DAYS || 0);
 const ADJUSTMENT_PATTERN = /(ajuste|baseline|opening|neutraliz|duplicate|final-adj|saldo a cero|saldada|zero)/i;
 
 function ledgerSearchText(tx) {
@@ -69,12 +69,17 @@ function summarize(group) {
 }
 
 async function main() {
-  const since = new Date();
-  since.setDate(since.getDate() - DAYS);
-  since.setHours(0, 0, 0, 0);
+  const since = LOOKBACK_DAYS > 0 ? new Date() : null;
+  if (since) {
+    since.setDate(since.getDate() - LOOKBACK_DAYS);
+    since.setHours(0, 0, 0, 0);
+  }
 
   const transactions = await prisma.transaction.findMany({
-    where: { clientId: { not: null }, date: { gte: since } },
+    where: {
+      clientId: { not: null },
+      ...(since ? { date: { gte: since } } : {}),
+    },
     select: {
       id: true,
       clientId: true,
@@ -171,7 +176,7 @@ async function main() {
 
   const report = {
     generatedAt: new Date().toISOString(),
-    lookbackDays: DAYS,
+    lookbackDays: LOOKBACK_DAYS || null,
     analyzedTransactions: operational.length,
     exactDuplicates,
     documentDuplicates,

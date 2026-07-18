@@ -413,6 +413,23 @@ async function getLedgerIntegrityExceptions(): Promise<SyncException[]> {
         })
         : [];
     const baselineBalanceByClientId = new Map(baselineBalances.map((balance) => [balance.clientId, balance]));
+    const baselineOnlyAccounts = baselineTransactions.filter((baseline) => {
+        if (baseline.clientId === null) return false;
+        return (baselineBalanceByClientId.get(baseline.clientId)?._count._all || 0) === 1;
+    });
+    if (baselineOnlyAccounts.length) {
+        const examples = baselineOnlyAccounts
+            .slice(0, 4)
+            .map((baseline) => `${baseline.client?.name || 'Cliente'} #${baseline.client?.old_id ?? '-'} (${money(baseline.amount)})`)
+            .join('; ');
+        exceptions.push({
+            level: 'warning',
+            title: `${baselineOnlyAccounts.length} cuenta(s) con solo un ajuste histórico`,
+            detail: `${examples}. No existe movimiento operativo asociado en el sistema; conservar hasta contrastar el saldo con respaldo externo.`,
+            url: '/analytics/financial',
+        });
+    }
+
     const artificialBaselines = baselineTransactions.filter((baseline) => {
         if (baseline.clientId === null) return false;
         const balance = baselineBalanceByClientId.get(baseline.clientId);
