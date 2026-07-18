@@ -18,8 +18,10 @@ SERVICE_ACCOUNT_FILE = os.environ.get(
     os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", "google_credentials.json")),
 )
 SALES_SPREADSHEET_ID = os.environ.get("SALES_SPREADSHEET_ID", "1GhLokb_V5Yok2ubxBg8Tr0jxE3nFkwCD2sMvWDHZ20o")
+HISTORICAL_SALES_SPREADSHEET_ID = os.environ.get("HISTORICAL_SALES_SPREADSHEET_ID", "12ba_3FX1xK6d8UmzkeRBXhCVYXfi8plL-Uga5tXpajE")
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 EPSILON = 0.01
+ROUNDING_TOLERANCE = float(os.environ.get("CASHFLOW_INVOICE_ROUNDING_TOLERANCE", "1"))
 INVOICE_PATTERN = re.compile(r"\bINV(?:OICE)?\s*#?\s*(\d+)\b", re.IGNORECASE)
 REVERSAL_PATTERN = re.compile(r"\b(?:DEVOL(?:UCION)?|RETORNO|REFUND|REVERS)\b", re.IGNORECASE)
 
@@ -97,9 +99,9 @@ def source_invoice_rows(service, config):
     return invoices, skipped
 
 
-def sales_by_invoice(service):
+def sales_by_invoice(service, spreadsheet_id):
     values = service.spreadsheets().values().get(
-        spreadsheetId=SALES_SPREADSHEET_ID, range="'CABE_VENTAS'!A1:N2000", majorDimension="ROWS"
+        spreadsheetId=spreadsheet_id, range="'CABE_VENTAS'!A1:N2000", majorDimension="ROWS"
     ).execute().get("values", [])
     header_row, headers = find_header(values, "INVOICE")
     indexes = {name: headers.index(name) for name in ("INVOICE", "CLIENTE", "NRO CLI", "FECHA", "TOTAL USD")}
@@ -124,21 +126,45 @@ def main():
     credentials = service_account.Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
     service = build("sheets", "v4", credentials=credentials)
     cashflow, skipped_sheets = source_invoice_rows(service, config)
-    sales = sales_by_invoice(service)
+    sales = sales_by_invoice(service, SALES_SPREADSHEET_ID)
+    historical_sales = sales_by_invoice(service, HISTORICAL_SALES_SPREADSHEET_ID)
     results = []
     balance_delta_conflicts = []
     for row in cashflow:
         if row["isReversal"]:
             continue
-        matching_sales = [sale for sale in sales.get(row["invoice"], []) if sale["oldId"] == row["oldId"]]
+        current_sales = sales.get(row["invoice"], [])
+        historical = historical_sales.get(row["invoice"], [])
+        matching_sales = [sale for sale in current_sales if sale["oldId"] == row["oldId"]]
+        historical_matching_sales = [sale for sale in historical if sale["oldId"] == row["oldId"]]
+        verifiable_sales = [sale for sale in matching_sales if (sale["amount"] or 0) != 0]
+        source_name = "current"
+        if not verifiable_sales and historical_matching_sales:
+            matching_sales = historical_matching_sales
+            verifiable_sales = [sale for sale in matching_sales if (sale["amount"] or 0) != 0]
+            source_name = "historical"
         classification = "matching"
-        if not sales.get(row["invoice"]):
+        if not current_sales and not historical:
             classification = "invoice_missing_in_sales"
         elif not matching_sales:
             classification = "client_mismatch"
-        elif not any(sale["amount"] is not None and abs(abs(row["listedAmount"] or 0) - abs(sale["amount"])) <= EPSILON for sale in matching_sales):
-            classification = "amount_mismatch" if any((sale["amount"] or 0) != 0 for sale in matching_sales) else "sales_amount_unverifiable"
-        reviewed = {**row, "classification": classification, "sales": matching_sales or sales.get(row["invoice"], [])}
+        else:
+            differences = [
+                abs(abs(row["listedAmount"] or 0) - abs(sale["amount"]))
+                for sale in matching_sales
+                if sale["amount"] is not None
+            ]
+            if not any(difference <= EPSILON for difference in differences):
+                if any(difference <= ROUNDING_TOLERANCE for difference in differences):
+                    classification = "rounding_difference"
+                else:
+                    classification = "amount_mismatch" if verifiable_sales else "sales_amount_unverifiable"
+        reviewed = {
+            **row,
+            "classification": classification,
+            "salesSource": source_name,
+            "sales": matching_sales or current_sales or historical,
+        }
         results.append(reviewed)
         if row["systemAmount"] > EPSILON:
             balance_delta_conflicts.append(reviewed)
@@ -156,7 +182,11 @@ def main():
     for row in results:
         counts[row["classification"]] += 1
     report = {
-        "source": {"cashFlowSpreadsheet": config["spreadsheetId"], "salesSpreadsheet": SALES_SPREADSHEET_ID},
+        "source": {
+            "cashFlowSpreadsheet": config["spreadsheetId"],
+            "salesSpreadsheet": SALES_SPREADSHEET_ID,
+            "historicalSalesSpreadsheet": HISTORICAL_SALES_SPREADSHEET_ID,
+        },
         "cashFlowInvoiceRows": len(cashflow),
         "reviewedInvoiceRows": len(results),
         "counts": dict(sorted(counts.items())),

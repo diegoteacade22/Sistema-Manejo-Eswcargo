@@ -2,8 +2,10 @@
 
 ## Alcance
 
-- Lectura exclusiva de las 11 cuentas de `CASH FLOW 2026` y de
-  `CABE_VENTAS` en `VENTAS - COMPRAS 2025-2026`.
+- Lectura exclusiva de las 11 cuentas de `CASH FLOW 2026`, de
+  `CABE_VENTAS` en `VENTAS - COMPRAS 2025-2026` y del archivo historico
+  `VENTAS COMPRAS 2023 al 2025` para ventas cuya planilla actual conserva
+  total cero.
 - No se modificaron planillas, pedidos, pagos ni movimientos de ESWCARGO.
 - La auditoria de produccion separada confirma cero duplicados exactos de
   cargos o pagos en el sistema.
@@ -12,9 +14,9 @@
 
 | Situacion | Referencias Invoice |
 | --- | ---: |
-| Cliente e importe coinciden con la venta | 157 |
-| Venta historica con total cero, no verificable | 96 |
-| Importe distinto a la venta | 15 |
+| Cliente e importe coinciden con la venta | 239 |
+| Diferencia menor o igual a USD 1 (redondeo) | 2 |
+| Importe distinto a la venta | 27 |
 | Cliente distinto al de la venta | 5 |
 | Invoice no existente en `CABE_VENTAS` | 1 |
 
@@ -35,12 +37,15 @@ real al que corresponde.
 
 ## Diferencias que requieren correccion de fuente o respaldo documental
 
-- Importe distinto: Marcos `#2288`, `#2357`, `#2467`, `#2510`, `#2548`; Aylen
-  `#2270`, `#2275`, `#2294`, `#2419`; Facu `#2282`; Luca `#2280`, `#2287`,
-  `#2349` y las dos filas de `#2352`.
+- Importe distinto: Marcos `#1963`, `#1995`, `#1968`, `#1974`, `#2015`,
+  `#2033`, `#2041`, `#2095`, `#2096`, `#2118`, `#2245`, `#2288`, `#2357`,
+  `#2412`, `#2467`, `#2510`, `#2548`; Aylen `#2270`, `#2275`, `#2294`,
+  `#2419`; Facu `#2282`, `#2372`; Luca `#2280`, `#2287` y las dos filas de
+  `#2352`.
 - Cliente distinto: Marcos `#2131`; Aylen `#2284`; Facu `#2175` y `#2484`;
   Luca `#2232`.
 - Sin venta en la fuente: Aylen `#2641`, USD 45.200.
+- Redondeos sin correccion automatica: Marcos `#1982` y Luca `#2349`.
 
 ## Regla aplicada
 
