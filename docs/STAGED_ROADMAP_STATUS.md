@@ -248,8 +248,9 @@ ninguna escritura automatica sobre planillas ni base de datos.
   referencias no aparecen en las fuentes de ventas/compras actuales ni
   históricas consultadas. Ocho cargos antiguos también mencionan compras que
   no tienen registro interno vinculado.
-- Las 30 cuentas con solo ajuste histórico, las 19 con ajuste mixto y las 3
-  sin fuente financiera quedan visibles en cada sincronización. No se deben
+- Las 30 cuentas con solo ajuste histórico, las 19 con ajuste mixto y las 2
+  sin fuente financiera pendiente quedan visibles en cada sincronización. Jose
+  JR `#291` se cerró con seis cabeceras de envío y pagos por el mismo total. No se deben
   considerar conciliadas ni modificar hasta contar con evidencia externa.
 - Los reportes `PENDING_SOURCE_EVIDENCE_2026-07-18.md` y
   `CASHFLOW_SOURCE_SCOPE_2026-07-18.md` reúnen los casos que no pueden cerrarse
@@ -286,10 +287,11 @@ ninguna escritura automatica sobre planillas ni base de datos.
 
 ### Pendiente
 
-- Cargar y revisar documentación para las 52 cuentas de la cola. La evidencia
+- Cargar y revisar documentación para las 51 cuentas de la cola. La evidencia
   debe permitir decidir cada corrección de forma individual; no se aplicará
   ningún ajuste masivo de saldo.
-- Resolver primero los tres saldos operativos sin fuente financiera vigente:
-  Jose JR, Nicolas - AudioPhones y Nicolas Iphone Bsas.
-- Revaluar el posible doble pago de Marcos Roku solo cuando exista el
-  comprobante de los movimientos `1173202` y `1173203`.
+- Resolver los dos saldos operativos sin fuente financiera vigente: Nicolas -
+  AudioPhones y Nicolas Iphone Bsas. Jose JR `#291` quedó conciliado con seis
+  cabeceras de envío y dos pagos que cierran en USD 231.144.
+- Marcos Roku `#162` fue cerrado en etapa 5 con la evidencia de Cash Flow: no
+  conserva pagos ni cargos documentales duplicados.

@@ -13,11 +13,10 @@ Para cerrar una cuenta se requiere Invoice, recibo, comprobante bancario o
 confirmación comercial verificable. Una planilla histórica sirve para buscar
 el respaldo, pero no habilita una modificación automática.
 
-## Sin fuente financiera vigente (3)
+## Sin fuente financiera vigente (2)
 
 | ID anterior | Cliente | Saldo USD |
 | ---: | --- | ---: |
-| 291 | Jose JR | 231,144.00 |
 | 153 | Nicolas - AudioPhones | 22,248.00 |
 | 197 | Nicolas Iphone Bsas | 9,674.00 |
 
@@ -84,5 +83,6 @@ el respaldo, pero no habilita una modificación automática.
 
 Las 11 cuentas conectadas a `CASH FLOW 2026` mantienen su saldo final
 coincidente con la fuente. Las 5 cuentas con saldo cero confirmado no requieren
-acción. Los detalles de diferencias de Invoice y las fuentes permitidas están
-en `CASHFLOW_SOURCE_SCOPE_2026-07-18.md`.
+acción. Jose JR `#291` también quedó conciliado: seis cabeceras de envío y dos
+pagos suman USD 231.144, con saldo final cero. Los detalles de diferencias de
+Invoice y las fuentes permitidas están en `CASHFLOW_SOURCE_SCOPE_2026-07-18.md`.

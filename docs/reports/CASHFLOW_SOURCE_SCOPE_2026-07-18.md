@@ -25,7 +25,8 @@ La auditoría de cuentas corrientes vigente reporta 68 cuentas:
 | Saldo cero confirmado | 5 | Sin acción pendiente. |
 | Solo ajuste histórico | 30 | Mantener; requiere comprobante externo antes de tocar el ajuste base. |
 | Ajuste histórico mixto | 19 | Mantener; requiere comprobante externo antes de separar o reemplazar movimientos. |
-| Operativa sin fuente Cash Flow | 3 | Revisar con documentación comercial antes de declarar saldo conciliado. |
+| Operativa sin fuente Cash Flow | 2 | Revisar con documentación comercial antes de declarar saldo conciliado. |
+| Conciliada por cabeceras de envío | 1 | Jose JR `#291`: seis envíos y dos pagos cierran en cero. |
 
 No se debe usar una fuente histórica para transformar automáticamente ninguna
 de las 52 cuentas que no tienen una fuente financiera vigente directa.
@@ -57,7 +58,7 @@ filas reordenadas, devoluciones y ajustes manuales.
 | Facu Fabri, `#2484` | USD 14.475, 19/05/2026. | Ventas vigentes lo asignan a Federico Canning por USD 7.685. | No reasignar ni modificar monto sin comprobante. |
 | Luca Sta Fe Nahuel, `#2232` | USD 10.460, 04/12/2025. | Ventas vigentes lo asignan a Lucas Cly por USD 0. | No reasignar sin comprobante. |
 | Aylen Gentiletti, `#2641` | USD 45.200. | No aparece en ventas actual ni histórica. | Mantener cargo; identificar Invoice o comprobante. |
-| Marcos Roku, pago manual 09/07/2026 | Dos pagos de USD 14.700, tx `1173202` y `1173203`. | Cash Flow no contiene una fila que demuestre cuál conservar. | No eliminar ninguno sin recibo de caja o banco. |
+| Marcos Roku, pagos y `#2525` | Dos pagos manuales y un cargo de pedido. | Cash Flow identifica dos cobros de USD 15.000 menos comisiones y la Invoice `#2525`. | Resuelto: se conservaron las líneas fuente y se retiraron los duplicados. |
 
 La quinta diferencia de cliente detectada es un cruce histórico de Invoice
 `#2131` entre Marcos y Barbieri Family. Tampoco se modifica porque la venta

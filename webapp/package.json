@@ -18,6 +18,7 @@
     "rebuild:cashflow-octavio": "node scripts/rebuild-cashflow-octavio-20260718.mjs",
     "rebuild:cashflow-raw": "node scripts/rebuild-cashflow-raw-ledger.mjs",
     "resolve:marcos-cashflow-dupes": "node scripts/resolve-marcos-cashflow-duplicates-20260718.mjs",
+    "restore:jose-jr-shipment-charges": "node scripts/restore-jose-jr-shipment-charges-20260718.mjs",
     "audit:cashflow-invoices": "python3 scripts/audit-cashflow-invoice-references.py --summary",
     "test:payment-duplicate-guard": "tsx scripts/test-payment-duplicate-guard.ts",
     "test:financial-concurrency-guards": "tsx scripts/test-financial-concurrency-guards.ts",

@@ -34,9 +34,9 @@ ninguno.
 
 ## Cuenta Marcos Roku
 
-El sistema contiene dos pagos manuales de USD 14.700 del 09/07/2026. La pestaña
-`MARCOS CC` no tiene una fila de esa fecha que permita demostrar si hubo uno o
-dos pagos reales. Se preservan ambos hasta contar con comprobantes.
+El caso fue resuelto: las dos acreditaciones manuales y el cargo duplicado de
+`#2525` se sustituyeron por sus líneas fuente de `MARCOS CC`. El saldo quedó
+verificado y no hay pagos ni cargos documentales duplicados.
 
 ## Cash Flow y proveedores
 

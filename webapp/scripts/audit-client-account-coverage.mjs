@@ -11,13 +11,16 @@ function round(amount) {
   return Math.round(amount * 100) / 100;
 }
 
-function accountStatus(transactions, client) {
+function accountStatus(transactions, client, shipmentReconciledClientIds) {
   const hasBaseline = transactions.some((transaction) => String(transaction.reference || '').startsWith('CC-ZERO-BASELINE-2026:'));
   const onlyBaseline = hasBaseline && transactions.every((transaction) => String(transaction.reference || '').startsWith('CC-ZERO-BASELINE-2026:'));
   const hasReconciliationAdjustment = transactions.some((transaction) => String(transaction.reference || '').startsWith('CASHFLOW-RECONCILIATION-2026:'));
   if (hasReconciliationAdjustment && cashFlowClientIds.has(client.old_id)) return 'cashflow_adjustment_requires_detail';
   if (hasReconciliationAdjustment && confirmedZeroClientIds.has(client.old_id)) return 'locked_zero_adjustment_requires_evidence';
   if (cashFlowClientIds.has(client.old_id)) return 'cashflow_source';
+  if (shipmentReconciledClientIds.has(client.id) && Math.abs(transactions.reduce((sum, transaction) => sum + transaction.amount, 0)) <= 0.01) {
+    return 'shipment_source_reconciled';
+  }
   if (confirmedZeroClientIds.has(client.old_id)) return 'confirmed_zero';
   if (onlyBaseline) return 'baseline_only_requires_evidence';
   if (hasBaseline) return 'baseline_mixed_requires_evidence';
@@ -36,6 +39,11 @@ async function main() {
     },
     orderBy: [{ clientId: 'asc' }, { date: 'asc' }, { id: 'asc' }],
   });
+  const shipmentReconciliations = await prisma.accountEvidence.findMany({
+    where: { category: 'SHIPMENT_CHARGE_RECONCILIATION' },
+    select: { clientId: true },
+  });
+  const shipmentReconciledClientIds = new Set(shipmentReconciliations.map((evidence) => evidence.clientId));
 
   const grouped = new Map();
   for (const transaction of transactions) {
@@ -52,7 +60,7 @@ async function main() {
       clientId: client.id,
       oldId: client.old_id,
       client: client.name,
-      status: accountStatus(group, client),
+      status: accountStatus(group, client, shipmentReconciledClientIds),
       transactionCount: group.length,
       balance: round(group.reduce((sum, transaction) => sum + transaction.amount, 0)),
       baselineTransactionCount: baselineTransactions.length,
