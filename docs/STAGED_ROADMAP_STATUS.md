@@ -113,6 +113,9 @@ ninguna escritura automatica sobre planillas ni base de datos.
   validada; elimina la leyenda genérica "actualizado hoy".
 - Mantenimiento muestra hasta 50 cambios recientes para no ocultar las
   excepciones de una corrida completa.
+- El Dashboard administrativo muestra todas las excepciones calculadas y
+  enlaza directamente al centro de Mantenimiento; ya no deja alertas ocultas
+  detrás de un único resumen.
 
 ### Pendiente
 
@@ -148,6 +151,12 @@ ninguna escritura automatica sobre planillas ni base de datos.
   cuentas, detecta faltantes, signos opuestos, cambios, referencias repetidas
   y extras, y verifica que el saldo final de cada cuenta siga coincidiendo con
   la fuente. No crea ni altera movimientos financieros.
+- Contraste de referencias Invoice en modo solo lectura contra ventas actuales
+  e históricas antes de cada sincronización. Las diferencias quedan visibles y
+  no alteran cuentas conciliadas.
+- Los cargos manuales de envío son idempotentes por envío y cliente: un reintento
+  actualiza el cargo existente en vez de crear otro. Los pagos de compras se
+  rechazan si repiten compra, fecha, monto, método y referencia.
 
 ### Pendiente
 
