@@ -226,3 +226,7 @@ ninguna escritura automatica sobre planillas ni base de datos.
   Invoice `#2352` de Luca tiene dos cargos respaldados en la cuenta histórica;
   permanece visible como referencia compartida, pero no se elimina como
   duplicado.
+- `CLIENT_ACCOUNT_REVIEW_QUEUE_2026-07-18.md` enumera las 52 cuentas que no
+  pueden marcarse como conciliadas automáticamente, ordenadas por tipo de
+  evidencia faltante y saldo. Las 11 cuentas conectadas a Cash Flow y las 5
+  cuentas con saldo cero confirmado ya están conciliadas.
