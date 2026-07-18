@@ -12,6 +12,7 @@
     "test:sync-delta": "tsx scripts/test-sync-item-delta.ts",
     "test:sync-source": "tsx scripts/test-sync-source-normalization.ts",
     "revert:ledger-batch:20260718": "node scripts/revert-duplicate-ledger-batch-20260718.mjs",
+    "restore:shipment-clients:20260718": "node scripts/restore-missing-shipment-clients-20260718.mjs",
     "e2e:permissions": "node scripts/e2e-permissions-check.js",
     "postinstall": "prisma generate"
   },

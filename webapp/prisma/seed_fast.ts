@@ -21,6 +21,10 @@ function nullableEqual(left: unknown, right: unknown) {
     return (left ?? null) === (right ?? null);
 }
 
+function numericEqual(left: unknown, right: unknown) {
+    return Math.abs(Number(left || 0) - Number(right || 0)) < 0.000001;
+}
+
 function resolveImportedTxOldClientId(tx: any): number | null {
     const reference = String(tx?.reference || '').toUpperCase();
 
@@ -250,10 +254,11 @@ async function main() {
         const dbClientId = s.old_client_id
             ? clientOldIdMap.get(s.old_client_id)?.id
             : (s.client_name_match ? clientNameMap.get(s.client_name_match.trim().toUpperCase())?.id : null);
+        const resolvedShipmentClientId = dbClientId ?? existing?.clientId ?? null;
 
         const data = {
             ...s,
-            clientId: dbClientId,
+            clientId: resolvedShipmentClientId,
             date_shipped: parseSafeDate(s.date_shipped),
             date_arrived: parseSafeDate(s.date_arrived)
         };
@@ -275,17 +280,17 @@ async function main() {
                 existing.status !== s.status ||
                 existing.notes !== s.notes ||
                 existing.forwarder !== s.forwarder ||
-                existing.weight_fw !== s.weight_fw ||
-                existing.price_total !== s.price_total ||
-                existing.cost_total !== s.cost_total ||
+                !numericEqual(existing.weight_fw, s.weight_fw) ||
+                !numericEqual(existing.price_total, s.price_total) ||
+                !numericEqual(existing.cost_total, s.cost_total) ||
                 shippedTime !== existingShipped ||
                 arrivedTime !== existingArrived ||
-                existing.clientId !== dbClientId;
+                existing.clientId !== resolvedShipmentClientId;
 
             if (hasChanges) {
                 const before = { clientId: existing.clientId, status: existing.status, forwarder: existing.forwarder, weight_fw: existing.weight_fw, price_total: existing.price_total, cost_total: existing.cost_total, date_shipped: existing.date_shipped?.toISOString?.() || null, date_arrived: existing.date_arrived?.toISOString?.() || null };
                 dbShipment = await (prisma as any).shipment.update({ where: { id: existing.id }, data });
-                trackChange({ entity: 'SHIPMENT', entityKey: `#${s.shipment_number}`, action: 'UPDATED', reason: 'Cambió cabecera de envío en la fuente operativa.', before, after: { clientId: dbClientId, status: s.status, forwarder: s.forwarder, weight_fw: s.weight_fw, price_total: s.price_total, cost_total: s.cost_total, date_shipped: data.date_shipped?.toISOString?.() || null, date_arrived: data.date_arrived?.toISOString?.() || null } });
+                trackChange({ entity: 'SHIPMENT', entityKey: `#${s.shipment_number}`, action: 'UPDATED', reason: 'Cambió cabecera de envío en la fuente operativa.', before, after: { clientId: resolvedShipmentClientId, status: s.status, forwarder: s.forwarder, weight_fw: s.weight_fw, price_total: s.price_total, cost_total: s.cost_total, date_shipped: data.date_shipped?.toISOString?.() || null, date_arrived: data.date_arrived?.toISOString?.() || null } });
             } else {
                 dbShipment = existing;
             }
@@ -303,6 +308,7 @@ async function main() {
     for (const o of (normalizedOrdersData as any[])) {
         const existing = orderNumMap.get(o.order_number);
         const dbClientId = o.client_old_id ? clientOldIdMap.get(o.client_old_id)?.id : (o.client_name_match ? clientNameMap.get(o.client_name_match.trim().toUpperCase())?.id : null);
+        const resolvedOrderClientId = dbClientId ?? existing?.clientId ?? unknownClientId;
 
         const orderDate = parseSafeDate(o.date) || new Date();
         const items = o.items || [];
@@ -329,7 +335,7 @@ async function main() {
 
         const orderData = {
             order_number: o.order_number,
-            clientId: dbClientId || unknownClientId,
+            clientId: resolvedOrderClientId,
             date: orderDate,
             status: resolvedStatus,
             shipmentId: resolvedShipmentId,
@@ -347,8 +353,8 @@ async function main() {
         } else {
             if (
                 existing.status !== resolvedStatus ||
-                existing.total_amount !== totalAmount ||
-                existing.clientId !== (dbClientId || unknownClientId) ||
+                !numericEqual(existing.total_amount, totalAmount) ||
+                existing.clientId !== resolvedOrderClientId ||
                 existing.shipmentId !== resolvedShipmentId
             ) {
                 const before = { clientId: existing.clientId, status: existing.status, shipmentId: existing.shipmentId, total_amount: existing.total_amount };
