@@ -57,7 +57,7 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Ventas/Compras es la unica fuente automatica de pedidos, articulos y envios.
 - Cash Flow queda separado como fuente de consulta y reconciliacion; no escribe
   en la operacion.
-- Auditoria diaria de solo lectura sobre caja, 12 cuentas corrientes y
+- Auditoria de solo lectura sobre caja, 70 cuentas corrientes y
   vencimientos, con reporte descargable.
 - La sincronizacion desde mantenimiento y la diaria cloud usan fuente completa;
   un cambio historico ya no depende de los ultimos 7 o 30 dias.
