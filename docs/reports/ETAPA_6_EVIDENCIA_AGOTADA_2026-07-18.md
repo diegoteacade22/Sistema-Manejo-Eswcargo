@@ -18,6 +18,7 @@ Drive autorizadas. No se modificó ninguna Google Sheet.
 | Nicolas Iphone Bsas `#197` | Venta #2421 por USD 9.370, cancelada. El sistema conserva un pago de arqueo inicial por USD 9.674. | USD 304 | No modificar. La venta cancelada no permite transformar el arqueo en un cargo ni justificar la diferencia. |
 | Franco Pepe `#84` | El movimiento `#417888` es un `PAGO` de USD -21.001,80 del 19/04/2026, sin referencia. Las ventas históricas localizadas no coinciden en fecha ni importe. | Signo y comprobante ausentes | No modificar. Requiere recibo o Invoice que identifique el caso. |
 | Claudio Molina x IG `#261` | El movimiento `#454256` es un `PAGO` de USD -76.000 del 06/05/2026, sin referencia. La conversación encontrada habla de conciliar la cuenta, pero no acredita ese importe ni su signo. | Signo y comprobante ausentes | No modificar. Requiere recibo, Invoice o planilla del cliente que vincule fecha e importe. |
+| Ciro Dapero `#210` | El respaldo histórico `VENTAS COMPRAS 2023 al 2025` registra la venta #2119 por USD 66.319, con USD 66.139 pagados y saldo USD -180 al 15/09/2025. La apertura histórica de producción es USD 66.332. | USD 193 y falta de trazabilidad desde la venta al ajuste de apertura | No modificar. El respaldo comercial no justifica el importe exacto de la apertura ni su signo contable. |
 
 ## Fuentes consultadas
 
@@ -27,6 +28,9 @@ Drive autorizadas. No se modificó ninguna Google Sheet.
 - `CASH FLOW 2025`, `VENTAS COMPRAS 2023 al 2025` y los respaldos históricos
   localizados en Drive: las búsquedas dirigidas no hallaron un comprobante
   financiero individual para los dos movimientos indicados.
+- Para Ciro Dapero se encontró actividad comercial histórica, pero no un
+  comprobante que explique la diferencia de USD 193 contra su apertura en
+  producción; por eso tampoco se aplicó una corrección.
 
 ## Hallazgos de consistencia histórica
 
