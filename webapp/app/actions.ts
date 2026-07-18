@@ -215,6 +215,8 @@ export async function submitOrder(data: {
         status?: string;
     }[];
     notes?: string;
+    paymentMethod?: string;
+    dispatchConfirmed?: boolean;
 }) {
     await requireAdminUser();
     if (!data.clientId || data.items.length === 0) {
@@ -229,7 +231,9 @@ export async function submitOrder(data: {
         const newOrderNumber = (lastOrder?.order_number || 0) + 1;
 
         // Pre-fetch shipments for resolution
-        const shipmentNumbers = data.items.map(i => i.shipment_number).filter(n => n !== null && n !== undefined) as number[];
+        const shipmentNumbers = [...new Set(data.items
+            .map(i => i.shipment_number)
+            .filter((n): n is number => Number.isInteger(n) && (n as number) > 0))];
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const shipments = await (prisma as any).shipment.findMany({
             where: { shipment_number: { in: shipmentNumbers } },
@@ -237,6 +241,12 @@ export async function submitOrder(data: {
         });
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const shipmentMap = new Map(shipments.map((s: any) => [s.shipment_number, s.id]));
+        if (shipmentNumbers.length && !data.dispatchConfirmed) {
+            return { success: false, message: 'Confirmá el despacho antes de asignar productos a un envío.' };
+        }
+        if (shipmentMap.size !== shipmentNumbers.length) {
+            return { success: false, message: 'Uno o más números de envío no existen. Corregí el borrador antes de aprobar.' };
+        }
 
         // Transaction DB
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -251,6 +261,7 @@ export async function submitOrder(data: {
                     total_amount: totalAmount,
                     type: data.type,
                     notes: data.notes,
+                    paymentMethod: data.paymentMethod,
                     items: {
                         create: data.items.map(item => {
                             const shipmentId = item.shipment_number ? shipmentMap.get(item.shipment_number) : null;

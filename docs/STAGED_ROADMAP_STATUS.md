@@ -42,13 +42,15 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Bandeja para pegar texto de WhatsApp y generar un borrador editable.
 - Dictado desde el navegador que completa el mismo borrador.
 - Confirmacion explicita antes de crear el pedido mediante el circuito canonico.
+- Condición de pago estructurada en el pedido, sin crear pagos automáticos.
+- Confirmación obligatoria de despacho y validación de servidor para cada
+  número de envío asignado.
 
 ### Pendiente
 
 - Conexion directa con WhatsApp Business: requiere credenciales y aprobacion de
   la cuenta de Meta.
 - Transcripcion de archivos de audio: requiere definir proveedor y credenciales.
-- Campo estructurado de pago y validacion de despacho dentro del borrador.
 
 ## Etapa 3: Planillas y Cash Flow
 

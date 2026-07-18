@@ -102,12 +102,15 @@ export default function OrderIntakeClient({ clients, products, shipments }: { cl
     const [rawText, setRawText] = useState('');
     const [clientId, setClientId] = useState('');
     const [items, setItems] = useState<DraftItem[]>([]);
+    const [paymentMethod, setPaymentMethod] = useState('PENDIENTE');
+    const [dispatchConfirmed, setDispatchConfirmed] = useState(false);
     const [notice, setNotice] = useState('');
     const [isListening, setIsListening] = useState(false);
     const recognitionRef = useRef<any>(null);
 
     const total = useMemo(() => items.reduce((sum, item) => sum + item.quantity * item.price, 0), [items]);
-    const canCreate = Boolean(clientId) && items.length > 0 && items.every((item) =>
+    const hasShipmentAssignment = items.some((item) => Boolean(item.shipmentNumber));
+    const canCreate = Boolean(clientId) && items.length > 0 && (!hasShipmentAssignment || dispatchConfirmed) && items.every((item) =>
         item.productId &&
         item.quantity > 0 &&
         item.price > 0 &&
@@ -142,6 +145,9 @@ export default function OrderIntakeClient({ clients, products, shipments }: { cl
     const addItem = () => setItems((current) => [...current, { raw: '', productId: '', quantity: 1, price: 0, cost: 0, shipmentNumber: '', matched: false }]);
 
     useEffect(() => () => recognitionRef.current?.stop(), []);
+    useEffect(() => {
+        if (!hasShipmentAssignment) setDispatchConfirmed(false);
+    }, [hasShipmentAssignment]);
 
     const toggleDictation = () => {
         if (isListening) {
@@ -179,7 +185,9 @@ export default function OrderIntakeClient({ clients, products, shipments }: { cl
 
     const createOrder = () => {
         if (!canCreate) {
-            setNotice('Completá cliente, producto, cantidad, precio y verificá cada número de envío antes de aprobar.');
+            setNotice(hasShipmentAssignment && !dispatchConfirmed
+                ? 'Confirmá la asignación de despacho antes de aprobar un pedido con envío.'
+                : 'Completá cliente, producto, cantidad, precio y verificá cada número de envío antes de aprobar.');
             return;
         }
 
@@ -189,7 +197,9 @@ export default function OrderIntakeClient({ clients, products, shipments }: { cl
                 clientId: Number(clientId),
                 date: new Date(),
                 type: 'CELL-NEW',
-                notes: `Borrador aprobado desde WhatsApp:\n${rawText}`.slice(0, 5000),
+                paymentMethod: paymentMethod === 'PENDIENTE' ? undefined : paymentMethod,
+                dispatchConfirmed,
+                notes: `Borrador aprobado desde WhatsApp:\nCondición de pago: ${paymentMethod}.\n${rawText}`.slice(0, 5000),
                 items: items.map((item) => ({
                     productId: Number(item.productId),
                     name: products.find((product) => product.id === Number(item.productId))?.name || 'Producto confirmado',
@@ -249,6 +259,33 @@ export default function OrderIntakeClient({ clients, products, shipments }: { cl
                             <Label>Total</Label>
                             <div className="h-10 border border-input px-3 py-2 font-mono font-semibold">USD {total.toFixed(2)}</div>
                         </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                            <Label>Condición de pago</Label>
+                            <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="PENDIENTE">Pendiente de cobro</SelectItem>
+                                    <SelectItem value="TRANSFERENCIA">Transferencia informada</SelectItem>
+                                    <SelectItem value="EFECTIVO">Efectivo informado</SelectItem>
+                                    <SelectItem value="TARJETA">Tarjeta informada</SelectItem>
+                                    <SelectItem value="OTRO">Otro medio informado</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <p className="text-xs text-muted-foreground">No registra un pago. El cobro se confirma desde Cuenta Corriente.</p>
+                        </div>
+                        <label className={`flex items-start gap-3 border border-border p-3 text-sm ${hasShipmentAssignment ? 'cursor-pointer' : 'opacity-60'}`}>
+                            <input
+                                type="checkbox"
+                                checked={dispatchConfirmed}
+                                disabled={!hasShipmentAssignment}
+                                onChange={(event) => setDispatchConfirmed(event.target.checked)}
+                                className="mt-0.5 h-4 w-4"
+                            />
+                            <span><strong>Despacho confirmado</strong><br /><span className="text-xs text-muted-foreground">Verifiqué que los números de envío asignados son correctos.</span></span>
+                        </label>
                     </div>
 
                     <div className="space-y-3">
