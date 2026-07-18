@@ -20,12 +20,13 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Las cabeceras duplicadas e incompatibles se rechazan sin sobrescribir el
   registro productivo. Los proveedores se identifican por codigo, no por
   nombre repetido.
+- Prueba autenticada de producción: aislamiento de cliente, costos sensibles,
+  detalle de envío, Packing e Invoice propios/ajenos, asignación de compra,
+  movimiento propio y acceso administrativo. Los datos QA se crean aislados y
+  se eliminan al final de cada corrida.
 
 ### Pendiente
 
-- Ampliar la prueba autenticada a asignaciones y movimientos. Ya cubre en
-  producción aislamiento de cliente, costos sensibles, detalle de envío,
-  Packing e Invoice propios/ajenos y acceso administrativo.
 - Revisar el unico packing operativo sin contenido confirmado, `#1048`, cuando
   exista fuente documental; no se deben inventar articulos.
 - Completar la cabecera del envio `#1172` para el pedido `#2479`; el contraste

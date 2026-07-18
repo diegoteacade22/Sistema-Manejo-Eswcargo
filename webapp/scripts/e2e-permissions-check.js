@@ -175,6 +175,59 @@ async function run() {
       },
     });
 
+    const orderItemA = await prisma.orderItem.findFirstOrThrow({
+      where: { orderId: created.orderA.id },
+      orderBy: { id: 'asc' },
+    });
+    created.supplier = await prisma.supplier.create({
+      data: {
+        old_id: 840000 + (now % 10000),
+        name: `QA Supplier ${now}`,
+      },
+    });
+    created.purchase = await prisma.purchase.create({
+      data: {
+        invoice_number: `QA-PURCHASE-${now}`,
+        date: new Date(),
+        supplierId: created.supplier.id,
+        total_amount: 80,
+        balance_due: 80,
+        status: 'ABIERTA',
+        items: {
+          create: [{
+            productName: 'QA Item A',
+            quantity: 1,
+            unit_cost: 80,
+            subtotal: 80,
+          }],
+        },
+      },
+      include: { items: true },
+    });
+    created.allocation = await prisma.purchaseAllocation.create({
+      data: {
+        purchaseItemId: created.purchase.items[0].id,
+        clientId: created.clientA.id,
+        orderId: created.orderA.id,
+        orderItemId: orderItemA.id,
+        quantity: 1,
+        unit_cost_snapshot: 80,
+        unit_price_snapshot: 150,
+        notes: `QA allocation ${now}`,
+      },
+    });
+    created.transaction = await prisma.transaction.create({
+      data: {
+        clientId: created.clientA.id,
+        date: new Date(),
+        type: 'PAGO',
+        amount: 10,
+        description: `QA E2E Movement ${now}`,
+        reference: `QA-MOVEMENT-${now}`,
+        paymentMethod: 'QA',
+      },
+    });
+
     browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
     const page = await browser.newPage();
     page.setDefaultTimeout(20000);
@@ -215,6 +268,10 @@ async function run() {
     await page.waitForFunction(() => document.body.innerText.toUpperCase().includes('QA ITEM A'), { timeout: 5000 }).catch(() => undefined);
     const packingText = await page.evaluate(() => document.body.innerText);
     assert(packingText.toUpperCase().includes('QA ITEM A'), `Packing propio no muestra el ítem confirmado: ${packingText.slice(0, 500)}`);
+
+    await page.goto(`${BASE_URL}/`, { waitUntil: 'networkidle2' });
+    const clientDashboardText = await page.evaluate(() => document.body.innerText);
+    assert(clientDashboardText.includes(`QA E2E Movement ${now}`), 'Cliente no ve su movimiento propio en el portal');
 
     const foreignPackingResponse = await page.goto(`${BASE_URL}/shipments/${created.shipmentB.id}/packing-list`, { waitUntil: 'networkidle2' });
     assert((foreignPackingResponse?.status?.() ?? 0) === 404, 'Cliente pudo abrir Packing ajeno');
@@ -257,16 +314,43 @@ async function run() {
     const adminInvoiceResponse = await page.goto(`${BASE_URL}/orders/${created.orderA.id}/invoice`, { waitUntil: 'networkidle2' });
     assert((adminInvoiceResponse?.status?.() ?? 0) === 200, 'Admin no puede abrir Invoice');
 
+    const adminPurchaseResponse = await page.goto(`${BASE_URL}/purchases/${created.purchase.id}`, { waitUntil: 'networkidle2' });
+    assert((adminPurchaseResponse?.status?.() ?? 0) === 200, 'Admin no puede abrir la compra de prueba');
+    const purchaseText = await page.evaluate(() => document.body.innerText);
+    assert(purchaseText.includes('QA Item A'), 'La compra de prueba no muestra el artículo asignado');
+    assert(purchaseText.includes('Asignado: 1'), 'La asignación de compra no se refleja en el detalle administrativo');
+
     console.log('E2E_RESULT ok=true');
     console.log('E2E_RESULT client_isolation=true');
     console.log('E2E_RESULT no_sensitive_costs_for_client=true');
     console.log('E2E_RESULT admin_access_ok=true');
     console.log('E2E_RESULT packing_and_invoice_access=true');
+    console.log('E2E_RESULT allocation_and_client_movement=true');
   } finally {
     if (browser) {
       await browser.close();
     }
 
+    if (created.transaction?.id) {
+      await safeDelete({ id: created.transaction.id }, 'transaction', async () => {
+        await prisma.transaction.delete({ where: { id: created.transaction.id } });
+      });
+    }
+    if (created.allocation?.id) {
+      await safeDelete({ id: created.allocation.id }, 'allocation', async () => {
+        await prisma.purchaseAllocation.delete({ where: { id: created.allocation.id } });
+      });
+    }
+    if (created.purchase?.id) {
+      await safeDelete({ id: created.purchase.id }, 'purchase', async () => {
+        await prisma.purchase.delete({ where: { id: created.purchase.id } });
+      });
+    }
+    if (created.supplier?.id) {
+      await safeDelete({ id: created.supplier.id }, 'supplier', async () => {
+        await prisma.supplier.delete({ where: { id: created.supplier.id } });
+      });
+    }
     if (created.orderA?.id) {
       await safeDelete({ id: created.orderA.id }, 'orderA', async () => {
         await prisma.order.delete({ where: { id: created.orderA.id } });
