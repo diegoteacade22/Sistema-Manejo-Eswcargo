@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { assertAgentProvidedTotal, canonicalizeAgentOrderItems } from "@/lib/agent-order";
 
 function getExpectedApiKey() {
     return (process.env.AGENT_API_KEY || process.env.AUTH_SECRET || "").trim();
@@ -137,7 +138,6 @@ export async function POST(req: Request) {
         }
 
         if (action === "createOrder") {
-            const items = Array.isArray(data?.items) ? data.items : [];
             const submissionKey = String(data?.idempotencyKey || '').trim();
 
             if (!submissionKey || submissionKey.length > 160) {
@@ -152,11 +152,19 @@ export async function POST(req: Request) {
                 return NextResponse.json({ ok: true, action, created: { id: previousSubmission.orderId }, replayed: true });
             }
 
+            let normalizedOrder;
+            try {
+                normalizedOrder = canonicalizeAgentOrderItems(data?.items);
+                assertAgentProvidedTotal(data?.total_amount, normalizedOrder.totalAmount);
+            } catch (error: any) {
+                return NextResponse.json({ error: error?.message || 'Los ítems del pedido no son válidos.' }, { status: 400 });
+            }
+
             const payload = {
                 clientId: parseNumber(data?.clientId, 0),
                 date: toDateOrNow(data?.date),
                 status: String(data?.status || "NUEVO").trim(),
-                total_amount: parseNumber(data?.total_amount, 0),
+                total_amount: normalizedOrder.totalAmount,
                 currency: String(data?.currency || "USD").trim(),
                 notes: data?.notes ? String(data.notes).trim() : null,
                 type: data?.type ? String(data.type).trim() : null,
@@ -168,43 +176,46 @@ export async function POST(req: Request) {
                 return NextResponse.json({ error: "clientId es obligatorio" }, { status: 400 });
             }
 
-            const normalizedItems = items.map((item: any) => ({
-                productId: item?.productId ? parseNumber(item.productId, 0) : null,
-                productName: String(item?.productName || "Item").trim(),
-                quantity: parseNumber(item?.quantity, 1),
-                unit_price: parseNumber(item?.unit_price, 0),
-                unit_cost: parseNumber(item?.unit_cost, 0),
-                subtotal: parseNumber(item?.subtotal, parseNumber(item?.quantity, 1) * parseNumber(item?.unit_price, 0)),
-                supplierId: item?.supplierId ? parseNumber(item.supplierId, 0) : null,
-                status: item?.status ? String(item.status).trim() : null,
-            }));
-
             if (dryRun) {
                 return NextResponse.json({
                     ok: true,
                     action,
                     dryRun: true,
-                    payload: { ...payload, items: normalizedItems },
+                    payload: { ...payload, items: normalizedOrder.items },
                 });
             }
 
             let created;
             try {
                 created = await prisma.$transaction(async (tx) => {
+                    const lastOrder = await tx.order.findFirst({
+                        where: { order_number: { not: null } },
+                        orderBy: { order_number: 'desc' },
+                        select: { order_number: true },
+                    });
+                    const orderNumber = (lastOrder?.order_number || 0) + 1;
                     const order = await tx.order.create({
-                        data: payload,
+                        data: {
+                            ...payload,
+                            order_number: orderNumber,
+                            items: { create: normalizedOrder.items },
+                        },
                     });
 
                     await tx.orderSubmissionGuard.create({
                         data: { submissionKey, orderId: order.id },
                     });
 
-                    if (normalizedItems.length > 0) {
-                        await tx.orderItem.createMany({
-                            data: normalizedItems.map((item: any) => ({
-                                ...item,
-                                orderId: order.id,
-                            })),
+                    if (normalizedOrder.totalAmount > 0) {
+                        await tx.transaction.create({
+                            data: {
+                                clientId: payload.clientId,
+                                date: payload.date,
+                                type: 'CARGO',
+                                amount: -normalizedOrder.totalAmount,
+                                description: `Pedido #${orderNumber}`,
+                                reference: `Order #${orderNumber}`,
+                            },
                         });
                     }
 

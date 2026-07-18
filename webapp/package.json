@@ -25,6 +25,7 @@
     "reconcile:stale-order-charges": "node scripts/remove-stale-neutralized-order-charges-20260718.mjs",
     "test:sync-delta": "tsx scripts/test-sync-item-delta.ts",
     "test:sync-source": "tsx scripts/test-sync-source-normalization.ts",
+    "test:agent-order": "tsx scripts/test-agent-order-invariants.ts",
     "test:cashflow-reconciliation": "node scripts/test-cashflow-reconciliation.mjs",
     "revert:ledger-batch:20260718": "node scripts/revert-duplicate-ledger-batch-20260718.mjs",
     "restore:shipment-clients:20260718": "node scripts/restore-missing-shipment-clients-20260718.mjs",
