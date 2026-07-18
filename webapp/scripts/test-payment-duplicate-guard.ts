@@ -5,9 +5,9 @@ async function main() {
     const duplicateQueryCalls: Array<Record<string, unknown>> = [];
     const duplicateClient = {
         transaction: {
-            findFirst: async (query: Record<string, unknown>) => {
+            findMany: async (query: Record<string, unknown>) => {
                 duplicateQueryCalls.push(query);
-                return { id: 10 };
+                return [{ id: 10, reference: 'manual' }];
             },
             create: async () => {
                 throw new Error('No debe crear un pago duplicado.');
@@ -32,11 +32,14 @@ async function main() {
     const created: Array<Record<string, unknown>> = [];
     const cleanClient = {
         transaction: {
-            findFirst: async () => null,
+            findMany: async () => [],
             create: async (query: Record<string, any>) => {
                 created.push(query.data);
                 return { id: 11, ...query.data };
             },
+        },
+        clientPaymentGuard: {
+            create: async () => ({ id: 1 }),
         },
     };
 

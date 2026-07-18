@@ -26,6 +26,15 @@ function cleanText(value?: string | null) {
     return trimmed || null;
 }
 
+function paymentReferenceKey(value: string) {
+    return value
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase()
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
 function normalizeDateRange(date: Date) {
     const start = new Date(date);
     start.setHours(0, 0, 0, 0);
@@ -63,7 +72,7 @@ async function readReceiptFile(file: File | null | undefined) {
     };
 }
 
-export async function createClientPaymentWithReceipt(tx: TxClient, input: PaymentInput) {
+async function persistClientPayment(tx: TxClient, input: PaymentInput) {
     if (!input.clientId || !Number.isFinite(input.amount) || input.amount <= 0) {
         throw new Error('Cliente e importe válido son requeridos.');
     }
@@ -73,29 +82,29 @@ export async function createClientPaymentWithReceipt(tx: TxClient, input: Paymen
     const paymentMethod = cleanText(input.paymentMethod);
     const reference = cleanText(input.reference);
     const referenceValue = reference || 'Manual';
+    const referenceKey = paymentReferenceKey(referenceValue);
     const description = cleanText(input.description) || `Cobranza - ${paymentMethod || 'Pago'}`;
     const receipt = await readReceiptFile(input.receiptFile);
     const { start, end } = normalizeDateRange(date);
 
-    const duplicate = await tx.transaction.findFirst({
+    const candidates = await tx.transaction.findMany({
         where: {
             clientId: input.clientId,
             type: 'PAGO',
             amount,
-            reference: referenceValue,
             date: {
                 gte: start,
                 lt: end,
             },
         },
-        select: { id: true },
+        select: { id: true, reference: true },
     });
 
-    if (duplicate) {
+    if (candidates.some((candidate) => paymentReferenceKey(candidate.reference || 'Manual') === referenceKey)) {
         throw new Error('Ya existe un pago con el mismo cliente, fecha, monto y referencia. Usá una referencia distinta si son pagos separados.');
     }
 
-    return tx.transaction.create({
+    const transaction = await tx.transaction.create({
         data: {
             clientId: input.clientId,
             type: 'PAGO',
@@ -108,4 +117,32 @@ export async function createClientPaymentWithReceipt(tx: TxClient, input: Paymen
         },
         include: { receipt: true },
     });
+    await tx.clientPaymentGuard.create({
+        data: {
+            clientId: input.clientId,
+            paymentDate: start,
+            amount,
+            referenceKey,
+            transactionId: transaction.id,
+        },
+    });
+    return transaction;
+}
+
+export async function createClientPaymentWithReceipt(tx: TxClient, input: PaymentInput) {
+    if ('$transaction' in tx && typeof tx.$transaction === 'function') {
+        try {
+            return await tx.$transaction(
+                (transaction) => persistClientPayment(transaction, input),
+                { isolationLevel: 'Serializable' },
+            );
+        } catch (error: any) {
+            if (error?.code === 'P2002' || error?.code === 'P2034') {
+                throw new Error('Ya existe un pago con el mismo cliente, fecha, monto y referencia. Usá una referencia distinta si son pagos separados.');
+            }
+            throw error;
+        }
+    }
+
+    return persistClientPayment(tx, input);
 }

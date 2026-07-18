@@ -169,6 +169,20 @@ model Transaction {
   client        Client?   @relation(fields: [clientId], references: [id])
   supplier      Supplier? @relation(fields: [supplierId], references: [id])
   receipt       PaymentReceipt?
+  paymentGuard  ClientPaymentGuard?
+}
+
+model ClientPaymentGuard {
+  id           Int         @id @default(autoincrement())
+  clientId     Int
+  paymentDate  DateTime    @db.Date
+  amount       Float
+  referenceKey String
+  transactionId Int        @unique
+  transaction  Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime    @default(now())
+
+  @@unique([clientId, paymentDate, amount, referenceKey])
 }
 
 model SyncRun {

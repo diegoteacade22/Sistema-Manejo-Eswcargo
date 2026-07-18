@@ -173,6 +173,9 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - El flujo cloud declara de forma explícita la ubicación de las credenciales
   de Google para las auditorías de Cash Flow, evitando que una ejecución use
   una ruta temporal distinta.
+- Los pagos manuales quedan protegidos por una clave transaccional en base de
+  datos. Dos solicitudes simultáneas con cliente, fecha, monto y referencia
+  iguales no pueden crear dos cobros.
 - Se eliminaron tres pares históricos de cargo equivocado y ajuste
   compensatorio (`#2398`, `#2399`, `#2470`) después de validar que cada par
   mantenía el saldo neto en cero y que la fuente operativa atribuye los pedidos
