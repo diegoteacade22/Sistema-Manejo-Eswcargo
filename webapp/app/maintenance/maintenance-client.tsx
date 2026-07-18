@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Server, Database, RefreshCw, HardDrive, AlertTriangle, CheckCircle2, Cloud, Users, Rocket, History, ExternalLink, FileCheck2 } from "lucide-react";
+import { Server, Database, RefreshCw, HardDrive, AlertTriangle, CheckCircle2, Cloud, Users, Rocket, History, ExternalLink, FileCheck2, Landmark } from "lucide-react";
 import { useEffect, useState, useTransition } from 'react';
 import { getGitHubSyncStatus, getSyncControlCenter, revalidateSystem, syncExcel, deployToProduction, applyProductionRefresh } from './actions';
 import { DeleteEntityCard } from '@/components/delete-entity-card';
@@ -327,6 +327,25 @@ export function MaintenanceClient() {
                             </p>
                             <Button variant="secondary" className="w-full">
                                 Registrar evidencia
+                            </Button>
+                        </CardContent>
+                    </Card>
+                </Link>
+
+                <Link href="/maintenance/accounts-review">
+                    <Card className="dark:bg-slate-900 dark:border-slate-800 hover:border-amber-500 transition-colors cursor-pointer h-full">
+                        <CardHeader>
+                            <CardTitle className="flex items-center gap-2">
+                                <Landmark className="h-5 w-5 text-amber-500" /> Revisión de cuentas
+                            </CardTitle>
+                            <CardDescription>Saldos, origen y respaldos pendientes</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <p className="text-sm text-muted-foreground mb-4">
+                                Controle cuentas con ajustes históricos antes de aplicar una corrección.
+                            </p>
+                            <Button variant="secondary" className="w-full">
+                                Ver cuentas
                             </Button>
                         </CardContent>
                     </Card>
