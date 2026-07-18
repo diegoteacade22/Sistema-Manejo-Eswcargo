@@ -240,15 +240,20 @@ export async function assignPurchaseToClient(input: AssignPurchaseInput) {
         throw new Error('Ítem de compra no encontrado.');
       }
 
-      const allocated = await tx.purchaseAllocation.aggregate({
-        where: { purchaseItemId: input.purchaseItemId },
-        _sum: { quantity: true }
+      const reservation = await tx.purchaseItem.updateMany({
+        where: {
+          id: purchaseItem.id,
+          allocated_quantity: { lte: purchaseItem.quantity - input.quantity },
+        },
+        data: { allocated_quantity: { increment: input.quantity } },
       });
 
-      const allocatedQty = allocated?._sum?.quantity ?? 0;
-      const pendingQty = purchaseItem.quantity - allocatedQty;
-
-      if (input.quantity > pendingQty) {
+      if (reservation.count !== 1) {
+        const currentItem = await tx.purchaseItem.findUnique({
+          where: { id: purchaseItem.id },
+          select: { quantity: true, allocated_quantity: true },
+        });
+        const pendingQty = Math.max(0, (currentItem?.quantity || 0) - (currentItem?.allocated_quantity || 0));
         throw new Error(`No hay cantidad suficiente. Pendiente: ${pendingQty}.`);
       }
 
@@ -318,7 +323,7 @@ export async function assignPurchaseToClient(input: AssignPurchaseInput) {
         allocationId: allocation.id,
         orderId: updatedOrder.id,
       };
-    });
+    }, { isolationLevel: 'Serializable' });
 
     revalidatePath('/purchases');
     revalidatePath('/orders');

@@ -95,6 +95,7 @@ fi
 run_stage "Auditoría de cuenta corriente previa" node "$DIR/scripts/audit-ledgers.mjs" || echo "⚠️ Cuenta corriente con advertencias; se mantiene la sincronización operativa sin movimientos financieros."
 run_stage "Cobertura de cuentas corrientes previa" node "$DIR/scripts/audit-client-account-coverage.mjs" --summary
 run_stage "Auditoría de duplicados CC previa" node "$DIR/scripts/audit-ledger-duplicates.mjs" || echo "⚠️ Posibles duplicados o documentos repetidos en Cuenta Corriente; revisar antes de emitir cobros."
+run_stage "Auditoría de reservas de compra previa" node "$DIR/scripts/audit-purchase-allocations.mjs"
 if [ -x "$DIR/node_modules/.bin/tsx" ]; then
    run_stage "Actualización de base" env SYNC_MODE=$SYNC_MODE ALLOW_FINANCIAL_LEDGER_SYNC=0 "$DIR/node_modules/.bin/tsx" prisma/seed_fast.ts
 elif [ -x "$DIR/node_modules/.bin/ts-node" ]; then
@@ -134,6 +135,7 @@ fi
 run_stage "Auditoría de cuenta corriente" node "$DIR/scripts/audit-ledgers.mjs" || echo "⚠️ Cuenta corriente con advertencias; revisar antes de emitir cobros."
 run_stage "Cobertura de cuentas corrientes" node "$DIR/scripts/audit-client-account-coverage.mjs" --summary
 run_stage "Auditoría de duplicados CC" node "$DIR/scripts/audit-ledger-duplicates.mjs" || echo "⚠️ Posibles duplicados o documentos repetidos en Cuenta Corriente; revisar Mantenimiento antes de emitir cobros."
+run_stage "Auditoría de reservas de compra" node "$DIR/scripts/audit-purchase-allocations.mjs"
 run_stage "Auditoría de cuentas de proveedores" node "$DIR/scripts/audit-supplier-ledgers.mjs" || echo "⚠️ Proveedores con movimientos a revisar; no se modificaron saldos automáticamente."
 
 echo "----------------------------------------"

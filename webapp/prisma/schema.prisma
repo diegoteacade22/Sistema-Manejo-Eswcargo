@@ -131,6 +131,15 @@ model Order {
   shipment        Shipment?   @relation(fields: [shipmentId], references: [id])
   items           OrderItem[]
   allocations     PurchaseAllocation[]
+  submissionGuard OrderSubmissionGuard?
+}
+
+model OrderSubmissionGuard {
+  id            Int      @id @default(autoincrement())
+  submissionKey String   @unique
+  orderId       Int      @unique
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
 }
 
 model OrderItem {
@@ -314,6 +323,7 @@ model PurchaseItem {
   sku         String?
   productName String
   quantity    Int
+  allocated_quantity Int @default(0)
   unit_cost   Float
   subtotal    Float
   purchase    Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)

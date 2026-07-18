@@ -96,6 +96,12 @@ function findClient(text: string, clients: Client[]) {
     return matches.length === 1 ? String(matches[0].id) : '';
 }
 
+function newSubmissionKey() {
+    return typeof crypto?.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `order-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export default function OrderIntakeClient({ clients, products, shipments }: { clients: Client[]; products: Product[]; shipments: number[] }) {
     const router = useRouter();
     const [isPending, startTransition] = useTransition();
@@ -105,6 +111,7 @@ export default function OrderIntakeClient({ clients, products, shipments }: { cl
     const [paymentMethod, setPaymentMethod] = useState('PENDIENTE');
     const [dispatchConfirmed, setDispatchConfirmed] = useState(false);
     const [notice, setNotice] = useState('');
+    const [submissionKey] = useState(newSubmissionKey);
     const [isListening, setIsListening] = useState(false);
     const recognitionRef = useRef<any>(null);
 
@@ -199,6 +206,7 @@ export default function OrderIntakeClient({ clients, products, shipments }: { cl
                 type: 'CELL-NEW',
                 paymentMethod: paymentMethod === 'PENDIENTE' ? undefined : paymentMethod,
                 dispatchConfirmed,
+                submissionKey,
                 notes: `Borrador aprobado desde WhatsApp:\nCondición de pago: ${paymentMethod}.\n${rawText}`.slice(0, 5000),
                 items: items.map((item) => ({
                     productId: Number(item.productId),

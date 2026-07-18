@@ -138,6 +138,19 @@ export async function POST(req: Request) {
 
         if (action === "createOrder") {
             const items = Array.isArray(data?.items) ? data.items : [];
+            const submissionKey = String(data?.idempotencyKey || '').trim();
+
+            if (!submissionKey || submissionKey.length > 160) {
+                return NextResponse.json({ error: "idempotencyKey es obligatorio para crear un pedido" }, { status: 400 });
+            }
+
+            const previousSubmission = await prisma.orderSubmissionGuard.findUnique({
+                where: { submissionKey },
+                select: { orderId: true },
+            });
+            if (previousSubmission) {
+                return NextResponse.json({ ok: true, action, created: { id: previousSubmission.orderId }, replayed: true });
+            }
 
             const payload = {
                 clientId: parseNumber(data?.clientId, 0),
@@ -175,27 +188,44 @@ export async function POST(req: Request) {
                 });
             }
 
-            const created = await prisma.$transaction(async (tx) => {
-                const order = await tx.order.create({
-                    data: payload,
-                });
-
-                if (normalizedItems.length > 0) {
-                    await tx.orderItem.createMany({
-                        data: normalizedItems.map((item: any) => ({
-                            ...item,
-                            orderId: order.id,
-                        })),
+            let created;
+            try {
+                created = await prisma.$transaction(async (tx) => {
+                    const order = await tx.order.create({
+                        data: payload,
                     });
+
+                    await tx.orderSubmissionGuard.create({
+                        data: { submissionKey, orderId: order.id },
+                    });
+
+                    if (normalizedItems.length > 0) {
+                        await tx.orderItem.createMany({
+                            data: normalizedItems.map((item: any) => ({
+                                ...item,
+                                orderId: order.id,
+                            })),
+                        });
+                    }
+
+                    return tx.order.findUnique({
+                        where: { id: order.id },
+                        include: { items: true },
+                    });
+                }, { isolationLevel: 'Serializable' });
+            } catch (error: any) {
+                if (error?.code === 'P2002' || error?.code === 'P2034') {
+                    const replayed = await prisma.orderSubmissionGuard.findUnique({
+                        where: { submissionKey },
+                        select: { orderId: true },
+                    });
+                    if (replayed) {
+                        return NextResponse.json({ ok: true, action, created: { id: replayed.orderId }, replayed: true });
+                    }
+                    return NextResponse.json({ error: 'Otra operación creó o modificó un pedido al mismo tiempo. Reintentá con la misma idempotencyKey.' }, { status: 409 });
                 }
-
-                const fullOrder = await tx.order.findUnique({
-                    where: { id: order.id },
-                    include: { items: true },
-                });
-
-                return fullOrder;
-            });
+                throw error;
+            }
 
             return NextResponse.json({ ok: true, action, created });
         }

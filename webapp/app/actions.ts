@@ -217,18 +217,28 @@ export async function submitOrder(data: {
     notes?: string;
     paymentMethod?: string;
     dispatchConfirmed?: boolean;
+    submissionKey?: string;
 }) {
     await requireAdminUser();
     if (!data.clientId || data.items.length === 0) {
         return { success: false, message: 'Faltan datos requeridos (Cliente o Items)' };
     }
 
+    const submissionKey = data.submissionKey?.trim();
+    if (!submissionKey || submissionKey.length > 160) {
+        return { success: false, message: 'Falta el identificador de confirmación del pedido. Recargá el borrador antes de aprobar.' };
+    }
+
+    const previousSubmission = await prisma.orderSubmissionGuard.findUnique({
+        where: { submissionKey },
+        select: { orderId: true },
+    });
+    if (previousSubmission) {
+        return { success: true, orderId: previousSubmission.orderId, delivery: [], warning: null, replayed: true };
+    }
+
     try {
         const totalAmount = data.items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-
-        // Find max order number to increment (simple logic for now)
-        const lastOrder = await prisma.order.findFirst({ orderBy: { order_number: 'desc' } });
-        const newOrderNumber = (lastOrder?.order_number || 0) + 1;
 
         // Pre-fetch shipments for resolution
         const shipmentNumbers = [...new Set(data.items
@@ -251,6 +261,8 @@ export async function submitOrder(data: {
         // Transaction DB
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const result = await prisma.$transaction(async (tx: any) => {
+            const lastOrder = await tx.order.findFirst({ orderBy: { order_number: 'desc' } });
+            const newOrderNumber = (lastOrder?.order_number || 0) + 1;
             // 1. Create Order
             const order = await tx.order.create({
                 data: {
@@ -286,6 +298,10 @@ export async function submitOrder(data: {
                 }
             });
 
+            await tx.orderSubmissionGuard.create({
+                data: { submissionKey, orderId: order.id },
+            });
+
             // 2. Create Debt Transaction (Cargo)
             await tx.transaction.create({
                 data: {
@@ -299,7 +315,7 @@ export async function submitOrder(data: {
             });
 
             return order;
-        });
+        }, { isolationLevel: 'Serializable' });
 
         // Recalculate Shipment Stats for all affected shipments
         // (Do this OUTSIDE the transaction for performance/deadlock safety, as it's a recalibration)
@@ -339,8 +355,18 @@ export async function submitOrder(data: {
             warning: deliveryErrors.length ? `Pedido creado con alertas de envío automático: ${deliveryErrors.join(' | ')}` : null
         };
 
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error creating order:', error);
+        if (error?.code === 'P2002' || error?.code === 'P2034') {
+            const existingSubmission = await prisma.orderSubmissionGuard.findUnique({
+                where: { submissionKey },
+                select: { orderId: true },
+            });
+            if (existingSubmission) {
+                return { success: true, orderId: existingSubmission.orderId, delivery: [], warning: null, replayed: true };
+            }
+            return { success: false, message: 'Otra operación modificó los pedidos al mismo tiempo. Actualizá la pantalla antes de reintentar.' };
+        }
         return { success: false, message: 'Error interno al crear el pedido' };
     }
 }

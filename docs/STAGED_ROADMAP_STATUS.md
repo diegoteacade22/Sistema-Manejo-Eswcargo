@@ -183,6 +183,13 @@ ninguna escritura automatica sobre planillas ni base de datos.
   movimiento de proveedor, antes de que pueda afectar el saldo.
 - Pruebas transaccionales verifican los tres controles de duplicación
   financiera y se revierten sin dejar datos de prueba.
+- La asignación de compras reserva cantidad de forma atómica. La reserva no
+  puede superar la cantidad comprada aunque dos operadores confirmen al mismo
+  tiempo; un control pre/post sincronización contrasta el contador contra las
+  asignaciones reales y detiene la corrida ante cualquier deriva.
+- El alta de pedidos desde la pantalla, bandeja de WhatsApp y API de agente
+  exige una clave de idempotencia. Un reintento devuelve el pedido original en
+  lugar de crear otro pedido, cargo o documento.
 - Se eliminaron tres pares históricos de cargo equivocado y ajuste
   compensatorio (`#2398`, `#2399`, `#2470`) después de validar que cada par
   mantenía el saldo neto en cero y que la fuente operativa atribuye los pedidos
@@ -216,9 +223,3 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - El reporte `PENDING_SOURCE_EVIDENCE_2026-07-18.md` reúne los casos que no
   pueden cerrarse sin comprobante: Packing `#1048`, pedido `#2223`, Invoice
   `#2352`, pago de Marcos Roku y diferencias de proveedor/Cash Flow.
-- Proteger la asignación simultánea de un mismo ítem de compra. Hoy dos
-  operadores podrían calcular disponibilidad antes de que el otro confirme;
-  requiere convertir todo el circuito de asignación en una operación
-  transaccional y no se aplicará como cambio aislado.
-- Incorporar una clave de idempotencia al alta de pedidos para evitar que un
-  reintento después de perder la respuesta cree un pedido y cargo repetidos.

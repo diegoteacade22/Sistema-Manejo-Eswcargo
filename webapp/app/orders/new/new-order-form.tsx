@@ -51,6 +51,12 @@ interface OrderItemRow {
     status: string;
 }
 
+function newSubmissionKey() {
+    return typeof crypto?.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `order-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export default function NewOrderForm({ clients, products, suppliers, shipments }: { clients: Client[], products: Product[], suppliers: Supplier[], shipments: Shipment[] }) {
     const router = useRouter();
     const [isPending, startTransition] = useTransition();
@@ -59,6 +65,7 @@ export default function NewOrderForm({ clients, products, suppliers, shipments }
     const [type, setType] = useState<string>('CELL-NEW'); // Default type
     const [items, setItems] = useState<OrderItemRow[]>([]);
     const [notes, setNotes] = useState('');
+    const [submissionKey] = useState(newSubmissionKey);
 
     const addItem = () => {
         setItems([...items, {
@@ -127,7 +134,8 @@ export default function NewOrderForm({ clients, products, suppliers, shipments }
                     shipment_number: i.shipment_number !== '' ? Number(i.shipment_number) : null,
                     status: i.status
                 })),
-                notes
+                notes,
+                submissionKey,
             };
 
             const result = await submitOrder(payload);
