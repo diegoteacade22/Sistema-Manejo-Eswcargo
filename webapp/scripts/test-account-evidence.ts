@@ -18,6 +18,18 @@ async function main() {
   let evidenceCreated = false;
   const nonce = Date.now().toString();
   const evidenceFile = new File([Buffer.from(`%PDF-1.4\n% evidencia QA ${nonce}\n`)], `qa-${nonce}.pdf`, { type: 'application/pdf' });
+  let unlinkedReceiptRejected = false;
+  try {
+    await createAccountEvidence(prisma, {
+      clientId: transaction.clientId,
+      category: 'PAYMENT_RECEIPT',
+      evidenceFile,
+    });
+  } catch {
+    unlinkedReceiptRejected = true;
+  }
+  if (!unlinkedReceiptRejected) throw new Error('Se aceptó un recibo de pago sin movimiento vinculado.');
+
   try {
     await prisma.$transaction(async (tx) => {
       const result = await createAccountEvidence(tx, {

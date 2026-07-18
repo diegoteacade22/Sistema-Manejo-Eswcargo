@@ -91,6 +91,9 @@ export async function createAccountEvidence(db: TxClient, input: AccountEvidence
     if (!client) throw new Error('La cuenta seleccionada ya no existe.');
 
     const transactionId = input.transactionId || null;
+    if (category === 'PAYMENT_RECEIPT' && !transactionId) {
+        throw new Error('Un recibo de pago debe quedar vinculado al movimiento que respalda.');
+    }
     let transactionSnapshot: {
         date: Date;
         type: string;
