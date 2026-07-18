@@ -11,6 +11,12 @@ export async function getFinancialAnalytics(monthsToAnalyze: number = 6) {
     const now = new Date();
     const rangeStart = startOfMonth(subMonths(now, monthsToAnalyze - 1));
 
+    const lastVerifiedSync = await prisma.syncRun.findFirst({
+        where: { status: 'completed', finishedAt: { not: null } },
+        orderBy: { finishedAt: 'desc' },
+        select: { finishedAt: true, summary: true },
+    });
+
     const orders = await prisma.order.findMany({
         where: { date: { gte: rangeStart } },
         include: { items: true }
@@ -89,6 +95,11 @@ export async function getFinancialAnalytics(monthsToAnalyze: number = 6) {
 
     return {
         monthlyData: months,
+        metadata: {
+            generatedAt: now.toISOString(),
+            lastVerifiedSyncAt: lastVerifiedSync?.finishedAt?.toISOString() || null,
+            source: 'Pedidos, envios, gastos y movimientos del sistema sincronizado',
+        },
         summary: {
             totalRevenue: months.reduce((sum: number, m: any) => sum + m.revenue, 0),
             totalNetProfit: months.reduce((sum: number, m: any) => sum + m.netProfit, 0),

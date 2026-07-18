@@ -98,6 +98,8 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Lista de Packing bloqueados: detecta envíos operativos con cantidades
   declaradas pero sin artículos vinculados ni descripción imprimible. Solo
   informa y lleva al documento; no completa ni modifica datos.
+- Vista financiera con marca de fuente, cálculo y última sincronización
+  validada; elimina la leyenda genérica "actualizado hoy".
 - Mantenimiento muestra hasta 50 cambios recientes para no ocultar las
   excepciones de una corrida completa.
 
@@ -106,8 +108,8 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Extender la vista de hoy con cobros esperados en una lista accionable. Las
   cuentas por cobrar actuales ya se muestran como Top 5, pero falta separarlas
   por vencimiento confirmado desde una fuente financiera normalizada.
-- Vista financiera: caja, vencimientos, cobranzas, rentabilidad y fecha de
-  ultima fuente verificada.
+- Integrar vencimientos y cobranzas esperadas cuando exista una fuente
+  financiera normalizada que confirme fecha de vencimiento y compromiso.
 - Alertas accionables conectadas a los controles de las etapas 1 y 3.
 
 ## Etapa 5: Rendimiento y supervisión de sincronización

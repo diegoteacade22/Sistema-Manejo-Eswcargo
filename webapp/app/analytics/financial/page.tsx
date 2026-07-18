@@ -8,7 +8,7 @@ import {
     LineChart, Line, AreaChart, Area, ComposedChart
 } from 'recharts';
 import { getFinancialAnalytics } from '@/app/analytics-actions';
-import { DollarSign, TrendingUp, TrendingDown, Target, BrainCircuit, Wallet, Activity, Zap } from 'lucide-react';
+import { DollarSign, TrendingUp, TrendingDown, Target, BrainCircuit, Wallet, Activity, Zap, Clock3 } from 'lucide-react';
 
 import { PeriodSelector } from '@/components/analytics/period-selector';
 
@@ -32,6 +32,9 @@ export default function FinancialDashboard() {
     const lastMonth = data.monthlyData[data.monthlyData.length - 1];
     const prevMonth = data.monthlyData[data.monthlyData.length - 2];
     const profitGrowth = prevMonth && prevMonth.netProfit !== 0 ? ((lastMonth.netProfit - prevMonth.netProfit) / Math.abs(prevMonth.netProfit)) * 100 : 0;
+    const formatDateTime = (value: string | null | undefined) => value
+        ? new Intl.DateTimeFormat('es-AR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date(value))
+        : 'Sin sincronización validada';
 
     return (
         <div className="p-8 space-y-8 animate-in fade-in slide-in-from-bottom-5 duration-700">
@@ -166,13 +169,17 @@ export default function FinancialDashboard() {
                                     <p className="text-lg font-black">{data.summary.avgMargin > 15 ? 'A+' : 'B'}</p>
                                 </div>
                                 <div className="text-right text-[10px] text-slate-400">
-                                    Actualizado hoy<br />{new Date().toLocaleDateString()}
+                                    <span className="inline-flex items-center gap-1"><Clock3 className="h-3 w-3" /> Fuente validada</span><br />
+                                    {formatDateTime(data.metadata?.lastVerifiedSyncAt)}
                                 </div>
                             </div>
                         </div>
                     </CardContent>
                 </Card>
             </div>
+            <p className="text-xs text-muted-foreground">
+                Informe calculado {formatDateTime(data.metadata?.generatedAt)}. Fuente: {data.metadata?.source || 'Sistema operativo'}.
+            </p>
         </div>
     );
 }
