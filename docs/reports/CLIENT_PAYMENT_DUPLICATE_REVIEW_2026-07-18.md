@@ -7,27 +7,20 @@ producción, desde 2025-02-01 hasta 2026-07-18. La consulta agrupa pagos por
 cliente, fecha, importe y referencia, sin permitir que una diferencia de método
 de pago o descripción oculte una posible repetición.
 
-## Hallazgo
+## Resultado vigente
 
-Un único grupo requiere comprobante antes de cualquier cambio:
+No quedan grupos de pagos duplicados en producción. La auditoría actual
+analizó 1.219 movimientos y no encontró pagos repetidos, cargos duplicados ni
+documentos repetidos.
 
-| Cliente | Fecha | Importe | Referencia | Movimientos |
-| --- | --- | ---: | --- | --- |
-| Marcos Roku `#162` | 2026-07-09 | USD 14.700 | `Manual` | `1173202`, `1173203` |
-
-- `1173202`: 15:31:58, descripción `CAja 15k - 300`, método vacío.
-- `1173203`: 15:32:39, descripción `Caja Transporte 15 - 300 comi`, método
-  `EFECTIVO`.
-- La diferencia de creación es de 40 segundos.
-- La lectura actual de `MARCOS CC` en `CASH FLOW 2026` no contiene una fila de
-  USD 14.700 de esa fecha. Por ello la fuente no prueba si existió un pago o
-  dos pagos independientes.
+El grupo de Marcos Roku `#162` fue resuelto durante la reconstrucción de Cash
+Flow: los movimientos manuales `1173202` y `1173203` fueron retirados porque
+las filas fuente ya conservaban los dos cobros netos y el cargo del pedido
+correspondiente. El saldo final de Marcos continúa coincidiendo exactamente
+con `MARCOS CC`.
 
 ## Decisión aplicada
 
-No se eliminó ningún movimiento ni se modificó `CASH FLOW 2026`.
-
 El alta de pagos ahora bloquea una nueva repetición con el mismo cliente,
 fecha, importe y referencia aunque cambie u omita el método de pago. La
-auditoría se ejecuta antes y después de cada sincronización y Mantenimiento
-mantiene visible el caso hasta que se aporte un comprobante.
+auditoría se ejecuta antes y después de cada sincronización.

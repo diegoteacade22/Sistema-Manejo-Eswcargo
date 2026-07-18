@@ -29,8 +29,9 @@ se modificaron Google Sheets.
 - Baselines historicos sin evidencia documental: 30 cuentas con solo baseline,
   19 mixtas y 2 operativas sin fuente financiera. Jose JR se reconcilió luego
   con seis cabeceras de envío y sus pagos correspondientes.
-- Dos diferencias historicas de proveedores: `INV-5725` de FREEZIA y
-  `0163445-IN` de PLANET CELLULAR.
+- Una diferencia histórica de proveedor: `0163445-IN` de PLANET CELLULAR.
+  `INV-5725` de FREEZIA quedó conciliada en producción contra Invoice y
+  transferencia Mercury de USD 7.300.
 - Formulas de `PROXIMOS VENCIMIENTOS` indicadas en el plan de etapa 3. No se
   modifica ninguna planilla desde este sistema.
 

@@ -8,19 +8,23 @@ de ventas/compras actual e historica.
 
 - Movimientos auditados: 15.
 - Duplicados exactos: 0.
-- Diferencias cargo/pago con la misma referencia: 2.
+- Diferencias cargo/pago con la misma referencia: 1.
 - Cargos que mencionan una compra inexistente en el registro interno: 8.
 
 ## Diferencias que requieren respaldo
 
 | Proveedor | Referencia | Cargo | Pago | Diferencia |
 | --- | --- | ---: | ---: | ---: |
-| FREEZIA TRADING LLC | INV-5725 | USD 4.380 | USD 7.300 | USD 2.920 |
 | PLANET CELLULAR | 0163445-IN | USD 4.590 | USD 45.490 | USD 40.900 |
 
-No se modifico ningun movimiento. Las referencias `INV-5725` y `0163445-IN`
-no aparecen en `CAB_COMPRAS` de la fuente actual ni de la historica consultada.
-Por lo tanto, el importe correcto no puede inferirse de forma segura.
+`INV-5725` de FREEZIA quedó conciliada: el Invoice y la transferencia Mercury
+de 23/03/2026 prueban USD 7.300. El cargo productivo `299420` se corrigió de
+USD 4.380 a USD 7.300 con respaldo reversible y bitácora de sincronización.
+
+La referencia `0163445-IN` no aparece en `CAB_COMPRAS` de la fuente actual ni
+de la histórica consultada. El Invoice de Planet prueba el cargo de USD 4.590,
+pero no identifica qué facturas cubre el pago de USD 45.490. Por lo tanto, ese
+pago no se modifica sin su comprobante o una relación completa de Invoices.
 
 ## Control permanente
 
