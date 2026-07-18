@@ -116,7 +116,9 @@ if [ $? -ne 0 ]; then
    exit 1
 fi
 
-run_stage "Auditoría de packing" node "$DIR/scripts/audit-packing-readiness.mjs"
+# El Packing es un documento operativo: revisar toda la cartera evita que un
+# envío anterior con contenido perdido quede fuera de un sync incremental.
+run_stage "Auditoría total de packing" env PACKING_AUDIT_SCOPE=all node "$DIR/scripts/audit-packing-readiness.mjs"
 if [ $? -ne 0 ]; then
    echo "Error: Packing readiness audit failed."
    exit 1
