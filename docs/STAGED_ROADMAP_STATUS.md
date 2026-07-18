@@ -87,10 +87,16 @@ ninguna escritura automatica sobre planillas ni base de datos.
 
 ## Etapa 4: Panel operativo
 
+### Implementado
+
+- Banda "Operación de hoy" en el Dashboard administrativo: pedidos por
+  confirmar, envíos sin arribo confirmado y excepciones activas, con acceso
+  directo a cada área de trabajo.
+
 ### Pendiente
 
-- Vista de hoy: pedidos por confirmar, envios incompletos, documentos
-  bloqueados, cobros esperados y excepciones.
+- Extender la vista de hoy con envíos incompletos, documentos bloqueados y
+  cobros esperados en listas accionables.
 - Vista financiera: caja, vencimientos, cobranzas, rentabilidad y fecha de
   ultima fuente verificada.
 - Alertas accionables conectadas a los controles de las etapas 1 y 3.

@@ -629,6 +629,44 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
         </div>
       )}
 
+      {isAdmin && (
+        <section className="space-y-3" aria-labelledby="operacion-hoy">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 id="operacion-hoy" className="text-lg font-semibold">Operación de hoy</h3>
+              <p className="text-sm text-muted-foreground">Prioridades generadas desde los datos actuales del sistema.</p>
+            </div>
+            <Button asChild variant="outline" size="sm"><Link href="/maintenance">Ver control</Link></Button>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <Link href="/orders" className="group border-l-4 border-l-orange-500 bg-card p-4 transition-colors hover:bg-muted/50">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium">Pedidos por confirmar</span>
+                <Package className="h-4 w-4 text-orange-500" />
+              </div>
+              <p className="mt-2 text-2xl font-black text-orange-600">{ordersToBuyCount}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Estados comprar o reservado</p>
+            </Link>
+            <Link href="/shipments" className="group border-l-4 border-l-blue-500 bg-card p-4 transition-colors hover:bg-muted/50">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium">Envíos en movimiento</span>
+                <Truck className="h-4 w-4 text-blue-500" />
+              </div>
+              <p className="mt-2 text-2xl font-black text-blue-600">{shipmentInTransitCount}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Sin arribo confirmado</p>
+            </Link>
+            <Link href="/maintenance" className="group border-l-4 border-l-red-500 bg-card p-4 transition-colors hover:bg-muted/50">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium">Excepciones activas</span>
+                <AlertCircle className="h-4 w-4 text-red-500" />
+              </div>
+              <p className="mt-2 text-2xl font-black text-red-600">{dataIssues.length}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{dataIssues[0] || 'Sin alertas críticas'}</p>
+            </Link>
+          </div>
+        </section>
+      )}
+
       <div className="grid gap-4 md:grid-cols-2">
         {isAdmin && <ProfitChart data={chartData} />}
         <SalesTrendChart data={chartData} />
