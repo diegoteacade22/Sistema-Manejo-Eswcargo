@@ -5,6 +5,9 @@ import PackingListTemplate from './packing-list-template';
 import { auth } from '@/lib/auth';
 import type { Metadata } from 'next';
 import { toInvNumber4 } from '@/lib/inv-filename';
+import { DocumentBlocked } from '@/components/document-blocked';
+import { hasPrintableShipmentContent } from '@/lib/shipment-items';
+import { getOrderSourceDocumentBlock, getSourceDocumentBlock, sourceBlockMessage } from '@/lib/source-document-guard';
 
 export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
     const params = await props.params;
@@ -85,6 +88,35 @@ export default async function PackingListPage(props: { params: Promise<{ id: str
         if (!client || shipment.clientId !== client.id) {
             return notFound();
         }
+    }
+
+    const shipmentSourceBlock = await getSourceDocumentBlock('SHIPMENT', shipment.shipment_number);
+    const orderSourceBlock = await getOrderSourceDocumentBlock([
+        ...shipment.orders.map((order) => order.order_number),
+        ...shipment.items.map((item) => item.order?.order_number),
+    ]);
+    const sourceBlock = shipmentSourceBlock || (orderSourceBlock ? orderSourceBlock.reason : null);
+
+    if (sourceBlock) {
+        return (
+            <DocumentBlocked
+                title="Packing List bloqueado"
+                detail={sourceBlockMessage(sourceBlock)}
+                backHref={`/shipments/${shipment.id}`}
+                backLabel="Volver al envío"
+            />
+        );
+    }
+
+    if (!hasPrintableShipmentContent(shipment)) {
+        return (
+            <DocumentBlocked
+                title="Packing List bloqueado"
+                detail="El envío no tiene artículos ni una descripción operativa confirmada."
+                backHref={`/shipments/${shipment.id}`}
+                backLabel="Volver al envío"
+            />
+        );
     }
 
     return <PackingListTemplate shipment={shipment} />;

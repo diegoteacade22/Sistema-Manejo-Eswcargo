@@ -5,6 +5,8 @@ import InvoiceTemplate from './invoice-template';
 import { auth } from '@/lib/auth';
 import type { Metadata } from 'next';
 import { toInvNumber4 } from '@/lib/inv-filename';
+import { DocumentBlocked } from '@/components/document-blocked';
+import { getSourceDocumentBlock, sourceBlockMessage } from '@/lib/source-document-guard';
 
 export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
     const params = await props.params;
@@ -66,6 +68,29 @@ export default async function InvoicePage(props: { params: Promise<{ id: string 
         if (!client || order.clientId !== client.id) {
             return notFound();
         }
+    }
+
+    const sourceBlock = await getSourceDocumentBlock('ORDER', order.order_number);
+    if (sourceBlock) {
+        return (
+            <DocumentBlocked
+                title="Invoice bloqueado"
+                detail={sourceBlockMessage(sourceBlock)}
+                backHref={`/orders/${order.id}`}
+                backLabel="Volver al pedido"
+            />
+        );
+    }
+
+    if (!order.items.length || Number(order.total_amount || 0) <= 0) {
+        return (
+            <DocumentBlocked
+                title="Invoice bloqueado"
+                detail="El pedido no tiene productos confirmados o un total válido para emitir el documento."
+                backHref={`/orders/${order.id}`}
+                backLabel="Volver al pedido"
+            />
+        );
     }
 
     return <InvoiceTemplate order={order} />;

@@ -32,10 +32,13 @@ ninguna escritura automatica sobre planillas ni base de datos.
 ### Pendiente
 
 - Revisar el unico packing operativo sin contenido confirmado, `#1048`, cuando
-  exista fuente documental; no se deben inventar articulos.
+  exista fuente documental; no se deben inventar articulos. El Packing, PDF y
+  email quedan bloqueados en servidor hasta entonces.
 - Resolver en la fuente las 13 cabeceras de envio duplicadas y la cabecera
   duplicada del pedido `#2223`, documentadas en el reporte de colisiones. No
-  se debe elegir una fila automaticamente.
+  se debe elegir una fila automaticamente. Los documentos de un pedido o
+  envío rechazado por la última sincronización quedan bloqueados hasta que la
+  fuente se corrija y una sincronización completa deje de reportar la colisión.
 
 ## Etapa 2: Bandeja de pedidos
 

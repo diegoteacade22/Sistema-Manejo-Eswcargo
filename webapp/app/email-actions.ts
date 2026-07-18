@@ -7,6 +7,7 @@ import { generatePdfFromHtml } from '@/lib/pdf-generator';
 import { requireAdminUser } from '@/lib/access';
 import { getInvPdfFileName, savePdfToDriveFolder } from '@/lib/document-storage';
 import { buildShipmentItems, getShipmentCargoDescription } from '@/lib/shipment-items';
+import { getOrderSourceDocumentBlock, getSourceDocumentBlock, sourceBlockMessage } from '@/lib/source-document-guard';
 
 type PackingListDocument = {
     shipment: any;
@@ -65,6 +66,16 @@ async function buildPackingListDocument(shipmentId: number): Promise<PackingList
 
     if (!shipment) {
         throw new Error('Envío no encontrado.');
+    }
+
+    const shipmentSourceBlock = await getSourceDocumentBlock('SHIPMENT', shipment.shipment_number);
+    const orderSourceBlock = await getOrderSourceDocumentBlock([
+        ...shipment.orders.map((order) => order.order_number),
+        ...shipment.items.map((item) => item.order?.order_number),
+    ]);
+    const sourceBlock = shipmentSourceBlock || (orderSourceBlock ? orderSourceBlock.reason : null);
+    if (sourceBlock) {
+        throw new Error(sourceBlockMessage(sourceBlock));
     }
 
     const shipmentItems = buildShipmentItems(shipment);
@@ -199,6 +210,11 @@ async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocument> {
 
     if (!order) {
         throw new Error('Pedido no encontrado.');
+    }
+
+    const sourceBlock = await getSourceDocumentBlock('ORDER', order.order_number);
+    if (sourceBlock) {
+        throw new Error(sourceBlockMessage(sourceBlock));
     }
 
     assertInvoiceIsReady(order);
