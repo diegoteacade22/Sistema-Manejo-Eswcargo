@@ -52,3 +52,11 @@ Para cualquier corrección futura se necesita adjuntar un Invoice, recibo,
 comprobante bancario o confirmación comercial verificable al caso exacto en el
 centro de evidencia. Hasta entonces, la cuenta queda preservada y visible en la
 cola de revisión.
+
+## Evidencia registrada en producción
+
+| Cuenta | Registro | Alcance |
+| --- | ---: | --- |
+| Ciro Dapero `#210` | `AccountEvidence #21` | Venta histórica #2119 y diferencia no justificada de USD 193. No cambia el saldo. |
+| Jorge Giosa `#128` | `AccountEvidence #22` | Conversación histórica con cobros y depósitos sin importe coincidente con el saldo. No cambia el saldo. |
+| Matheus Vinicius `#173` | `AccountEvidence #23` | Conversación histórica comercial sin detalle suficiente para sostener la apertura. No cambia el saldo. |
