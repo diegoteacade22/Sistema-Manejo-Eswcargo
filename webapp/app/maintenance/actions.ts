@@ -702,11 +702,15 @@ export async function getSyncControlCenter() {
     try {
         const token = process.env.GITHUB_SYNC_TOKEN;
         if (!token) {
+            const exceptions = [
+                ...await getPackingContentExceptions(),
+                ...await getLedgerIntegrityExceptions(),
+            ];
             return {
-                success: false,
-                message: 'No está configurado el acceso para consultar el historial de sincronizaciones.',
+                success: true,
+                message: 'No está configurado el historial cloud. Se muestran los controles locales disponibles.',
                 history: [],
-                exceptions: [],
+                exceptions,
                 changes: [],
                 lastSuccessAt: null,
             };
