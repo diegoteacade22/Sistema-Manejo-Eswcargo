@@ -27,13 +27,15 @@ puede inferir un pago o cargo solo a partir de esa diferencia.
 ## Candidato de cargo repetido
 
 - Luca Sta Fe Nahuel (`#214`), `INV #2352`:
+  - `LUCA CC!35`: marcador de USD 0 con saldo USD 1.920.
   - `LUCA CC!37`: USD 9.000.
   - `LUCA CC!43`: USD 1.265.
   - `CABE_VENTAS!213`: venta USD 1.265.
 
-La referencia se repite con dos cargos y solo una venta verificable. El cargo
-de USD 9.000 no se elimina ni reasigna: la planilla no identifica el documento
-real al que corresponde.
+El cargo de USD 9.000 fue cobrado íntegramente el 13/02/2026 y no es un
+duplicado exacto del cargo de USD 1.265. Es una referencia Invoice mal rotulada
+o una venta faltante en la fuente. No se elimina ni reasigna: la planilla no
+identifica el documento real al que corresponde.
 
 ## Diferencias que requieren correccion de fuente o respaldo documental
 

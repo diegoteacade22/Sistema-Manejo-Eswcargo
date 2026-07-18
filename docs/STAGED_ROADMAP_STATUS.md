@@ -20,6 +20,10 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Las cabeceras duplicadas e incompatibles se rechazan sin sobrescribir el
   registro productivo. Los proveedores se identifican por codigo, no por
   nombre repetido.
+- Envío `#1172` reconciliado en la base a partir de las cuatro líneas
+  verificadas del pedido `#2479`: 6 artículos, USD 7.230 de venta y USD 7.170
+  de costo. La cabecera deja explícitos los datos que la fuente no aporta
+  (forwarder, pesos y arribo) en vez de inventarlos.
 - Prueba autenticada de producción: aislamiento de cliente, costos sensibles,
   detalle de envío, Packing e Invoice propios/ajenos, asignación de compra,
   movimiento propio y acceso administrativo. Los datos QA se crean aislados y
@@ -29,8 +33,6 @@ ninguna escritura automatica sobre planillas ni base de datos.
 
 - Revisar el unico packing operativo sin contenido confirmado, `#1048`, cuando
   exista fuente documental; no se deben inventar articulos.
-- Completar la cabecera del envio `#1172` para el pedido `#2479`; el contraste
-  lo deja como advertencia y no inventa una cabecera faltante.
 - Resolver en la fuente las 13 cabeceras de envio duplicadas y la cabecera
   duplicada del pedido `#2223`, documentadas en el reporte de colisiones. No
   se debe elegir una fila automaticamente.
