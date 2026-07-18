@@ -49,23 +49,27 @@ async function main() {
       status: true,
       item_count: true,
       cargo_description: true,
-      items: { select: { id: true } },
-      orders: { select: { items: { select: { id: true, shipmentId: true } } } },
+      items: { select: { id: true, order: { select: { clientId: true } } } },
+      orders: { select: { clientId: true, items: { select: { id: true, shipmentId: true } } } },
     },
   });
 
-  const shipmentItemCount = (shipment) => {
-    const itemIds = new Set(shipment.items.map((item) => item.id));
+  const getEffectivePackingItems = (shipment) => {
+    const itemsById = new Map(shipment.items.map((item) => [item.id, { id: item.id, clientId: item.order?.clientId || null }]));
     for (const order of shipment.orders) {
       const hasExplicitShipmentItems = order.items.some((item) => item.shipmentId);
       for (const item of order.items) {
         if (item.shipmentId === shipment.id || (!hasExplicitShipmentItems && !item.shipmentId)) {
-          itemIds.add(item.id);
+          if (!itemsById.has(item.id)) {
+            itemsById.set(item.id, { id: item.id, clientId: order.clientId || null });
+          }
         }
       }
     }
-    return itemIds.size;
+    return [...itemsById.values()];
   };
+
+  const shipmentItemCount = (shipment) => getEffectivePackingItems(shipment).length;
 
   const isOperationalPacking = (shipment) => {
     const status = String(shipment.status || '').trim().toUpperCase();
@@ -82,6 +86,12 @@ async function main() {
   const cargoFallbacks = operationalShipments.filter((shipment) =>
     shipmentItemCount(shipment) === 0 && shipment.cargo_description?.trim()
   );
+  const unresolvedClientItems = operationalShipments
+    .map((shipment) => ({
+      shipment,
+      unresolvedCount: getEffectivePackingItems(shipment).filter((item) => !item.clientId).length,
+    }))
+    .filter((entry) => entry.unresolvedCount > 0);
 
   if (cargoFallbacks.length) {
     const sample = cargoFallbacks.slice(0, 10).map((shipment) => `#${shipment.shipment_number ?? shipment.id}`).join(', ');
@@ -104,6 +114,15 @@ async function main() {
 
   if (blockingMissingContent.length) {
     console.error(`Packing sin contenido imprimible: ${blockingMissingContent.map((shipment) => `#${shipment.shipment_number ?? shipment.id}`).join(', ')}.`);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (unresolvedClientItems.length) {
+    const detail = unresolvedClientItems
+      .map(({ shipment, unresolvedCount }) => `#${shipment.shipment_number ?? shipment.id} (${unresolvedCount} artículo(s))`)
+      .join(', ');
+    console.error(`Packing con artículos sin cliente verificable: ${detail}.`);
     process.exitCode = 1;
     return;
   }

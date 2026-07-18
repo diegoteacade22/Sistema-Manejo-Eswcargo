@@ -154,6 +154,9 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Simulación determinística fuera de producción que cubre alta, baja y
   reasignación de productos; valida que los pedidos sin cambios no se
   reescriben.
+- La auditoría de Packing que ejecuta cada sincronización valida también que
+  cada artículo efectivo tenga un cliente verificable. Si encuentra un artículo
+  sin dueño, la actualización falla antes de habilitar documentos incompletos.
 - Medición por descarga, extracción, actualización y auditorías; el resumen
   alerta cuando el total supera 120 segundos (configurable con
   `SYNC_ALERT_THRESHOLD_SECONDS`). El centro de Mantenimiento muestra la
