@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
 import { itemSyncSignature, sameItemSet } from '../lib/sync-item-comparison';
-import { normalizeSourceRows } from '../lib/sync-source-normalization';
+import { normalizeShipmentSourceRows, normalizeSourceRows } from '../lib/sync-source-normalization';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
 let activeSyncRunId: number | null = null;
@@ -23,6 +23,12 @@ function nullableEqual(left: unknown, right: unknown) {
 
 function numericEqual(left: unknown, right: unknown) {
     return Math.abs(Number(left || 0) - Number(right || 0)) < 0.000001;
+}
+
+function shipmentFreightReference(shipment: any, fallbackClientId?: number | null) {
+    const sourceNameKey = String(shipment.client_name_match || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+    const sourceClientKey = shipment.old_client_id ?? (sourceNameKey || fallbackClientId || 'UNKNOWN');
+    return `Envío #${shipment.shipment_number}-Cli${sourceClientKey}-${shipment.price_total}-${shipment.date_shipped || 'N/A'}`;
 }
 
 function resolveImportedTxOldClientId(tx: any): number | null {
@@ -58,10 +64,9 @@ async function main() {
     const shipmentReconciliationData = fs.existsSync(shipmentReconciliationPath)
         ? JSON.parse(fs.readFileSync(shipmentReconciliationPath, 'utf-8'))
         : [];
-    // The operational model has one header per shipment number. Source rows
-    // that reuse that number with different data are retained in the sheet but
-    // rejected from automatic header updates until they are resolved manually.
-    const normalizedShipments = normalizeSourceRows(rawShipmentsData as any[], 'shipment_number');
+    // One physical shipment can contain source allocations for several clients.
+    // Only operationally identical allocations are consolidated into its header.
+    const normalizedShipments = normalizeShipmentSourceRows(rawShipmentsData as any[]);
     for (const collision of normalizedShipments.rejected) {
             console.warn(`⚠️ Cabecera ambigua de envío #${collision.key}; se omite la actualización automática.`);
             trackChange({
@@ -73,6 +78,16 @@ async function main() {
             });
     }
     const shipmentsData = normalizedShipments.accepted;
+    const freightSourceRows = normalizedShipments.freightRows;
+    for (const sharedHeader of normalizedShipments.shared) {
+        trackChange({
+            entity: 'SHIPMENT',
+            entityKey: `#${sharedHeader.key}`,
+            action: 'RECONCILED',
+            reason: 'Cabecera compartida consolidada desde asignaciones por cliente con datos operativos coincidentes.',
+            after: { sourceRows: sharedHeader.rows.length, clientIds: sharedHeader.rows.map((row) => row.old_client_id ?? null) },
+        });
+    }
     const normalizedOrders = normalizeSourceRows((ordersData as any[]).filter((order) => order?.order_number), 'order_number');
     for (const collision of normalizedOrders.rejected) {
             console.warn(`⚠️ Cabecera ambigua de pedido #${collision.key}; se omite la actualización automática.`);
@@ -638,7 +653,7 @@ async function main() {
     }
 
     // B. Transacciones de Envíos (Fletes)
-    for (const s of (shipmentsData as any[])) {
+    for (const s of (freightSourceRows as any[])) {
         const dbClientId = s.old_client_id
             ? clientOldIdMap.get(s.old_client_id)?.id
             : (s.client_name_match ? clientNameMap.get(s.client_name_match.trim().toUpperCase())?.id : null);
@@ -650,7 +665,7 @@ async function main() {
                 type: 'CARGO',
                 amount: -s.price_total,
                 description: `Flete - Envío #${s.shipment_number}`,
-                reference: `Envío #${s.shipment_number}-${s.price_total}-${s.date_shipped || 'N/A'}`
+                reference: shipmentFreightReference(s, dbClientId)
             });
         }
     }
@@ -886,7 +901,7 @@ async function main() {
             if (o.payment_amount > 0) refs.push(`Order #${o.order_number} - Pago`);
             return refs;
         });
-        const currentRefPrefixesShip = shipmentsData.map((s: any) => `Envío #${s.shipment_number}-${s.price_total}-${s.date_shipped || 'N/A'}`);
+        const currentRefPrefixesShip = freightSourceRows.map((s: any) => shipmentFreightReference(s));
         const currentRefPrefixesPay = paymentsData.map((p: any) => `PagoExtra-${p.date ? new Date(p.date).getTime() : ''}-${p.amount}`);
 
         const orphanedTransactions = await prisma.transaction.deleteMany({
