@@ -294,6 +294,117 @@ type PersistedSyncChange = {
     syncRun: { id: number; status: string; finishedAt: Date | null };
 };
 
+function money(value: number) {
+    return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        maximumFractionDigits: 2,
+    }).format(value);
+}
+
+function purchaseIdFromDescription(description: string | null) {
+    const match = String(description || '').match(/\bcompra\s*#\s*(\d+)\b/i);
+    return match ? Number(match[1]) : null;
+}
+
+async function getLedgerIntegrityExceptions(): Promise<SyncException[]> {
+    const exceptions: SyncException[] = [];
+    const wrongSignTransactions = await prisma.transaction.findMany({
+        where: {
+            clientId: { not: null },
+            OR: [
+                { type: 'PAGO', amount: { lt: 0 } },
+                { type: 'CARGO', amount: { gt: 0 } },
+            ],
+            NOT: { reference: { startsWith: 'CC-Import-' } },
+        },
+        select: {
+            id: true,
+            type: true,
+            amount: true,
+            description: true,
+            client: { select: { old_id: true, name: true } },
+        },
+        take: 10,
+    });
+    if (wrongSignTransactions.length) {
+        const examples = wrongSignTransactions
+            .map((transaction) => `${transaction.client?.name || 'Cliente'} #${transaction.client?.old_id ?? '-'} (${transaction.type} ${money(transaction.amount)})`)
+            .join('; ');
+        exceptions.push({
+            level: 'warning',
+            title: `${wrongSignTransactions.length} movimiento(s) de cliente con signo a revisar`,
+            detail: `${examples}. No se modificaron porque requieren respaldo contable.`,
+            url: '/analytics/financial',
+        });
+    }
+
+    const supplierTransactions = await prisma.transaction.findMany({
+        where: { supplierId: { not: null } },
+        select: {
+            supplierId: true,
+            type: true,
+            amount: true,
+            reference: true,
+            description: true,
+            supplier: { select: { name: true } },
+        },
+    });
+    const settlementGroups = new Map<string, typeof supplierTransactions>();
+    const referencedPurchaseIds = new Set<number>();
+    for (const transaction of supplierTransactions) {
+        const reference = String(transaction.reference || '').trim().toUpperCase();
+        if (reference) {
+            const key = `${transaction.supplierId}|${reference}`;
+            settlementGroups.set(key, [...(settlementGroups.get(key) || []), transaction]);
+        }
+        const purchaseId = purchaseIdFromDescription(transaction.description);
+        if (purchaseId) referencedPurchaseIds.add(purchaseId);
+    }
+
+    const mismatches = [...settlementGroups.values()].flatMap((group) => {
+        const charged = group
+            .filter((transaction) => transaction.type === 'CARGO' && transaction.amount < 0)
+            .reduce((total, transaction) => total + Math.abs(transaction.amount), 0);
+        const paid = group
+            .filter((transaction) => transaction.type === 'PAGO' && transaction.amount > 0)
+            .reduce((total, transaction) => total + transaction.amount, 0);
+        if (!charged || !paid || Math.abs(charged - paid) <= 0.01) return [];
+        return [{ supplier: group[0].supplier?.name || 'Proveedor', reference: group[0].reference || '-', charged, paid }];
+    });
+    if (mismatches.length) {
+        const examples = mismatches
+            .slice(0, 3)
+            .map((item) => `${item.supplier} ${item.reference}: cargo ${money(item.charged)}, pago ${money(item.paid)}`)
+            .join('; ');
+        exceptions.push({
+            level: 'warning',
+            title: `${mismatches.length} diferencia(s) entre cargo y pago de proveedor`,
+            detail: `${examples}. Se mantienen sin cambios hasta contar con comprobante.`,
+            url: '/purchases',
+        });
+    }
+
+    const purchases = referencedPurchaseIds.size
+        ? await prisma.purchase.findMany({ where: { id: { in: [...referencedPurchaseIds] } }, select: { id: true } })
+        : [];
+    const existingPurchaseIds = new Set(purchases.map((purchase) => purchase.id));
+    const unlinkedPurchaseReferences = supplierTransactions.filter((transaction) => {
+        const purchaseId = purchaseIdFromDescription(transaction.description);
+        return transaction.type === 'CARGO' && transaction.amount < 0 && purchaseId && !existingPurchaseIds.has(purchaseId);
+    });
+    if (unlinkedPurchaseReferences.length) {
+        exceptions.push({
+            level: 'warning',
+            title: `${unlinkedPurchaseReferences.length} cargo(s) de proveedor sin compra interna vinculada`,
+            detail: 'Se detectaron referencias históricas sin registro de compra. La auditoría las conserva visibles y no crea compras retrospectivas.',
+            url: '/purchases',
+        });
+    }
+
+    return exceptions;
+}
+
 async function getPackingContentExceptions(): Promise<SyncException[]> {
     const shipments = await prisma.shipment.findMany({
         select: {
@@ -471,6 +582,7 @@ export async function getSyncControlCenter() {
         }
 
         exceptions.push(...await getPackingContentExceptions());
+        exceptions.push(...await getLedgerIntegrityExceptions());
 
         return {
             success: true,
