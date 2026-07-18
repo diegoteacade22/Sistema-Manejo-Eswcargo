@@ -80,11 +80,11 @@ fi
 echo "-> Updating Database (Differential Seed - Mode: $SYNC_MODE)..."
 cd "$DIR"
 if [ -x "$DIR/node_modules/.bin/tsx" ]; then
-   run_stage "Actualización de base" env SYNC_MODE=$SYNC_MODE "$DIR/node_modules/.bin/tsx" prisma/seed_fast.ts
+   run_stage "Actualización de base" env SYNC_MODE=$SYNC_MODE ALLOW_FINANCIAL_LEDGER_SYNC=0 "$DIR/node_modules/.bin/tsx" prisma/seed_fast.ts
 elif [ -x "$DIR/node_modules/.bin/ts-node" ]; then
-   run_stage "Actualización de base" env SYNC_MODE=$SYNC_MODE "$DIR/node_modules/.bin/ts-node" prisma/seed_fast.ts
+   run_stage "Actualización de base" env SYNC_MODE=$SYNC_MODE ALLOW_FINANCIAL_LEDGER_SYNC=0 "$DIR/node_modules/.bin/ts-node" prisma/seed_fast.ts
 else
-   run_stage "Actualización de base" env SYNC_MODE=$SYNC_MODE npx --yes tsx prisma/seed_fast.ts
+   run_stage "Actualización de base" env SYNC_MODE=$SYNC_MODE ALLOW_FINANCIAL_LEDGER_SYNC=0 npx --yes tsx prisma/seed_fast.ts
 fi
 if [ $? -ne 0 ]; then
    echo "Error: Database update failed."

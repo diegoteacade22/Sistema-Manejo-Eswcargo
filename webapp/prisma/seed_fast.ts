@@ -522,6 +522,14 @@ async function main() {
     }
 
     // 6.7 SINCRONIZACIÓN MAESTRA DE TRANSACCIONES (CLIENTES Y PROVEEDORES)
+    // Los movimientos financieros tienen su propia conciliación. Una sincronización
+    // operativa no puede recrearlos porque duplicaría cargos ya registrados en CC.
+    const allowFinancialLedgerSync = process.env.ALLOW_FINANCIAL_LEDGER_SYNC === '1';
+    const purchasesData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'purchases_seed.json'), 'utf-8'));
+    const paymentsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'payments_extra_seed.json'), 'utf-8'));
+    if (!allowFinancialLedgerSync) {
+        console.log('🛡️ Sincronización financiera omitida: requiere ALLOW_FINANCIAL_LEDGER_SYNC=1.');
+    } else {
     console.log("💰 Sincronizando todas las transacciones financieras...");
     const allTxs: any[] = [];
 
@@ -572,7 +580,6 @@ async function main() {
     }
 
     // C. Pagos Extras
-    const paymentsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'payments_extra_seed.json'), 'utf8'));
     for (const p of paymentsData) {
         const dbClientId = p.client_old_id ? clientOldIdMap.get(p.client_old_id)?.id : (p.client_name_match ? clientNameMap.get(p.client_name_match.trim().toUpperCase())?.id : null);
         if (dbClientId && p.amount !== 0) {
@@ -666,7 +673,6 @@ async function main() {
 
     // E. Transacciones de Proveedores (Compras y Pagos Automáticos)
     console.log("� Procesando transacciones de proveedores...");
-    const purchasesData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'purchases_seed.json'), 'utf-8'));
     for (const p of purchasesData) {
         const dbSupplierId = p.supplier_old_id
             ? supplierOldIdMap.get(p.supplier_old_id)?.id
@@ -738,6 +744,7 @@ async function main() {
         await prisma.transaction.createMany({ data: chunk });
     }
     console.log("   ✅ Transacciones sincronizadas.");
+    }
 
     // 6.8 ACTUALIZAR TABLAS DE COMPRA (ENCABEZADOS Y DETALLES)
     for (const p of purchasesData) {
