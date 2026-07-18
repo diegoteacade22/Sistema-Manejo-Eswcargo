@@ -51,8 +51,7 @@ export async function updateOrderItem(itemId: number, data: { quantity?: number;
         const orderReference = String(currentItem.order.order_number || currentItem.order.id);
         const legacyReference = `Order #${orderReference}`;
 
-        // Orders created from the app used the numeric reference historically;
-        // source-ledger charges use the legacy Order # variant.
+        // Numeric references are historical; new app charges use Order #<number>.
         const transactions = await prisma.transaction.findMany({
             where: {
                 type: 'CARGO',
