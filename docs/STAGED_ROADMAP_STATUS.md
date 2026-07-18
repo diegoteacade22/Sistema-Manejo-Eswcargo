@@ -12,11 +12,15 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Auditorias de packing, asignaciones e invoice dentro de la sincronizacion.
 - Descarga fallida de la fuente cancela la sincronizacion.
 - Limpieza destructiva de registros bloqueada salvo habilitacion explicita.
+- Historial persistente de cada sincronizacion con estado, alcance, duracion y
+  contadores operativos. La ejecucion crea el registro antes de procesar y lo
+  cierra como fallida si ocurre un error.
 
 ### Pendiente
 
-- Guardar en la base un detalle de cambios por sincronizacion: creado,
-  actualizado, removido o rechazado, con su causa.
+- Extender el historial con el detalle por registro: creado, actualizado,
+  removido o rechazado, con su causa. El historial actual conserva resumenes
+  verificables por corrida.
 - Pruebas de interfaz autenticada para packing, invoice, asignaciones y
   movimientos, ademas de las auditorias de datos actuales.
 - Revisar el unico packing operativo sin contenido confirmado, `#1048`, cuando
@@ -71,9 +75,9 @@ ninguna escritura automatica sobre planillas ni base de datos.
   actual detecta pagos con signo negativo para Franco Pepe `#84` y Claudio
   Molina x IG `#261`, ademas de saldos y baselines que requieren clasificacion
   contable manual.
-- Reducir el tiempo de sincronizacion completa: la verificacion actual finalizo
-  correctamente en 261 segundos; la consistencia tiene prioridad mientras se
-  mide y optimiza el procesamiento sin volver a filtrar por fecha.
+- Mantener la medicion de rendimiento. Las tres ultimas sincronizaciones
+  completas verificadas finalizaron en 82, 68 y 83 segundos, sin volver a
+  filtrar por fecha.
 
 ## Etapa 4: Panel operativo
 
@@ -93,8 +97,11 @@ ninguna escritura automatica sobre planillas ni base de datos.
   reemplaza cuando hay una diferencia real en producto, cantidad, precio,
   envío o estado.
 - Los contadores de artículos de envío se actualizan solamente si cambiaron.
-- La corrida completa verificada bajó de 261 a 57 segundos, manteniendo las
-  auditorías de asignaciones, packing e invoice en estado correcto.
+- Tres corridas completas verificadas finalizaron en 82, 68 y 83 segundos,
+  debajo del umbral de 120. En cada una coincidieron 1.217 lineas de envio,
+  328 Packing operativos y 529 Invoices con productos verificados.
+- Las tres corridas no crearon movimientos financieros. La segunda y tercera
+  tampoco reescribieron articulos de pedidos sin cambios.
 - Simulación determinística fuera de producción que cubre alta, baja y
   reasignación de productos; valida que los pedidos sin cambios no se
   reescriben.
@@ -105,5 +112,5 @@ ninguna escritura automatica sobre planillas ni base de datos.
 
 ### Pendiente
 
-- Ajustar el umbral operativo si tres sincronizaciones completas validadas
-  requieren más de 120 segundos por crecimiento real de la fuente.
+- Revisar trimestralmente el umbral de 120 segundos solo si el crecimiento de
+  la fuente vuelve insuficiente el margen actual.
