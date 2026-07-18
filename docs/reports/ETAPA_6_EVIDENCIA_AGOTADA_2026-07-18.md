@@ -53,6 +53,25 @@ comprobante bancario o confirmación comercial verificable al caso exacto en el
 centro de evidencia. Hasta entonces, la cuenta queda preservada y visible en la
 cola de revisión.
 
+## Excepciones operativas de fuente
+
+- Pedido `#2223`: `CABE_VENTAS` contiene dos filas del 01/12/2025, una para
+  Aylen Gentiletti `#70` y otra para Lucas Cly Store `#151`, ambas con pago y
+  saldo de USD 10.320. Producción conserva Lucas Cly Store; no se modifica sin
+  una clave documental que determine la fila correcta.
+- Envíos `#383`, `#659`, `#662` y `#972`: siguen bloqueados porque las filas
+  con el mismo número difieren en datos operativos. No se agregan ni eliminan
+  cargas a partir de esas cabeceras.
+- Envío `#1048`: tiene cabecera pero no detalle de productos verificable. El
+  Packing List permanece bloqueado para evitar un documento vacío.
+
+## Disponibilidad de controles
+
+- La sincronización cloud y las auditorías de Packing/Invoice ya ejecutan la
+  versión `f40c2c1` desde GitHub Actions. La web pública de Vercel conserva la
+  compilación anterior hasta que se libere su cuota diaria de despliegues; esto
+  no afecta la descarga, validación ni escritura operacional de datos.
+
 ## Evidencia registrada en producción
 
 | Cuenta | Registro | Alcance |
