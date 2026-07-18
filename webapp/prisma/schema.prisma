@@ -179,9 +179,27 @@ model SyncRun {
   finishedAt DateTime?
   summary   Json?
   error     String?
+  changes   SyncChange[]
 
   @@index([startedAt])
   @@index([status])
+}
+
+model SyncChange {
+  id        Int      @id @default(autoincrement())
+  syncRunId Int
+  entity    String
+  entityKey String
+  action    String
+  reason    String
+  before    Json?
+  after     Json?
+  createdAt DateTime @default(now())
+  syncRun   SyncRun  @relation(fields: [syncRunId], references: [id], onDelete: Cascade)
+
+  @@index([syncRunId])
+  @@index([entity, entityKey])
+  @@index([action])
 }
 
 model PaymentReceipt {

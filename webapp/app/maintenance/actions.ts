@@ -285,6 +285,15 @@ type SyncException = {
     url?: string;
 };
 
+type PersistedSyncChange = {
+    createdAt: Date;
+    entity: string;
+    entityKey: string;
+    action: string;
+    reason: string;
+    syncRun: { id: number; status: string; finishedAt: Date | null };
+};
+
 async function getPackingContentExceptions(): Promise<SyncException[]> {
     const shipments = await prisma.shipment.findMany({
         select: {
@@ -347,6 +356,7 @@ export async function getSyncControlCenter() {
                 message: 'No está configurado el acceso para consultar el historial de sincronizaciones.',
                 history: [],
                 exceptions: [],
+                changes: [],
                 lastSuccessAt: null,
             };
         }
@@ -372,11 +382,24 @@ export async function getSyncControlCenter() {
                 message: `No se pudo cargar el historial cloud (${response.status}).`,
                 history: [],
                 exceptions: [],
+                changes: [],
                 lastSuccessAt: null,
             };
         }
 
         const data = await response.json();
+        const changes = await prisma.syncChange.findMany({
+            orderBy: { createdAt: 'desc' },
+            take: 12,
+            select: {
+                createdAt: true,
+                entity: true,
+                entityKey: true,
+                action: true,
+                reason: true,
+                syncRun: { select: { id: true, status: true, finishedAt: true } },
+            },
+        }) as PersistedSyncChange[];
         const history: SyncHistoryItem[] = (data.workflow_runs || []).map((run: any) => ({
             id: run.id,
             scope: getSyncScope(run),
@@ -444,6 +467,14 @@ export async function getSyncControlCenter() {
             message: exceptions.length ? 'Hay excepciones para revisar.' : 'OK: no hay excepciones activas en las últimas sincronizaciones.',
             history,
             exceptions,
+            changes: changes.map((change) => ({
+                ...change,
+                createdAt: change.createdAt.toISOString(),
+                syncRun: {
+                    ...change.syncRun,
+                    finishedAt: change.syncRun.finishedAt?.toISOString() || null,
+                },
+            })),
             lastSuccessAt: latestSuccess?.updatedAt || null,
         };
     } catch (error: any) {
@@ -453,6 +484,7 @@ export async function getSyncControlCenter() {
             message: `No se pudo cargar el centro de control: ${error.message}`,
             history: [],
             exceptions: [],
+            changes: [],
             lastSuccessAt: null,
         };
     }

@@ -179,6 +179,35 @@ export function MaintenanceClient() {
                                 </tbody>
                             </table>
                         </div>
+
+                        <div className="space-y-2">
+                            <div>
+                                <h4 className="text-sm font-semibold">Cambios aplicados</h4>
+                                <p className="text-xs text-muted-foreground">Bitácora persistente de las modificaciones confirmadas por la fuente operativa.</p>
+                            </div>
+                            {syncControl.changes.length === 0 ? (
+                                <p className="text-sm text-muted-foreground">Las próximas sincronizaciones registrarán los cambios por entidad.</p>
+                            ) : (
+                                <div className="overflow-x-auto border border-slate-200 dark:border-slate-800">
+                                    <table className="w-full min-w-[680px] text-left text-sm">
+                                        <thead className="bg-slate-50 text-xs uppercase text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                                            <tr><th className="px-3 py-2">Fecha</th><th className="px-3 py-2">Registro</th><th className="px-3 py-2">Acción</th><th className="px-3 py-2">Motivo</th><th className="px-3 py-2">Corrida</th></tr>
+                                        </thead>
+                                        <tbody>
+                                            {syncControl.changes.map((change, index) => (
+                                                <tr key={`${change.syncRun.id}-${change.entity}-${change.entityKey}-${index}`} className="border-t border-slate-100 dark:border-slate-800">
+                                                    <td className="px-3 py-2 whitespace-nowrap">{formatSyncDate(change.createdAt)}</td>
+                                                    <td className="px-3 py-2 font-medium">{change.entity} {change.entityKey}</td>
+                                                    <td className="px-3 py-2">{change.action}</td>
+                                                    <td className="px-3 py-2 text-muted-foreground">{change.reason}</td>
+                                                    <td className="px-3 py-2">#{change.syncRun.id}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
             </section>

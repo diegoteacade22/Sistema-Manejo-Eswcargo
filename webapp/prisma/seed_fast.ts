@@ -2,10 +2,23 @@
 import { PrismaClient } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
-import { sameItemSet } from '../lib/sync-item-comparison';
+import { itemSyncSignature, sameItemSet } from '../lib/sync-item-comparison';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
 let activeSyncRunId: number | null = null;
+
+type SyncChangeInput = {
+    entity: string;
+    entityKey: string;
+    action: 'CREATED' | 'UPDATED' | 'REPLACED' | 'RECONCILED' | 'REMOVED' | 'REJECTED';
+    reason: string;
+    before?: object;
+    after?: object;
+};
+
+function nullableEqual(left: unknown, right: unknown) {
+    return (left ?? null) === (right ?? null);
+}
 
 function resolveImportedTxOldClientId(tx: any): number | null {
     const reference = String(tx?.reference || '').toUpperCase();
@@ -26,6 +39,8 @@ async function main() {
         data: { scope: isFullSync ? 'FULL' : 'DIFF', status: 'RUNNING' }
     });
     activeSyncRunId = syncRun.id;
+    const syncChanges: SyncChangeInput[] = [];
+    const trackChange = (change: SyncChangeInput) => syncChanges.push(change);
 
     const prismaDir = path.join(process.cwd(), 'prisma');
 
@@ -79,7 +94,7 @@ async function main() {
                 shipmentId: true,
             }
         }),
-        prisma.supplier.findMany({ select: { id: true, old_id: true, name: true } })
+        prisma.supplier.findMany({ select: { id: true, old_id: true, name: true, contact: true, email: true, phone: true, address: true, notes: true, city: true, country: true, state: true, zipCode: true } })
     ]);
 
     const clientOldIdMap = new Map<number, any>(dbClients.filter(c => c.old_id !== null).map(c => [c.old_id as number, c]));
@@ -135,12 +150,15 @@ async function main() {
         let existing = clientOldIdMap.get(c.old_id);
         if (!existing) {
             existing = await prisma.client.create({ data: c });
+            trackChange({ entity: 'CLIENT', entityKey: String(c.old_id || existing.id), action: 'CREATED', reason: 'Nuevo cliente presente en la fuente operativa.', after: { name: c.name, type: c.type } });
             if (c.old_id) clientOldIdMap.set(c.old_id, existing);
             if (c.name) clientNameMap.set(c.name.trim().toUpperCase(), existing);
         } else {
             // Solo actualizar si hay cambios en campos básicos
             if (existing.name !== c.name) {
+                const before = { name: existing.name, type: existing.type };
                 existing = await prisma.client.update({ where: { id: existing.id }, data: { name: c.name, type: c.type } });
+                trackChange({ entity: 'CLIENT', entityKey: String(c.old_id || existing.id), action: 'UPDATED', reason: 'Cambió el nombre o tipo informado por la fuente operativa.', before, after: { name: c.name, type: c.type } });
                 if (c.old_id) clientOldIdMap.set(c.old_id, existing);
                 if (c.name) clientNameMap.set(c.name.trim().toUpperCase(), existing);
             }
@@ -159,6 +177,7 @@ async function main() {
                 notes: "Cliente generado automáticamente para pedidos sin cliente identificado"
             }
         });
+        trackChange({ entity: 'CLIENT', entityKey: 'SYSTEM:UNKNOWN', action: 'CREATED', reason: 'Fallback controlado para pedidos sin cliente identificable.', after: { name: 'CLIENTE DESCONOCIDO' } });
         clientNameMap.set("CLIENTE DESCONOCIDO", unknownClient);
     }
     const unknownClientId = unknownClient.id;
@@ -173,10 +192,16 @@ async function main() {
 
         if (!existing) {
             existing = await prisma.supplier.create({ data: s });
+            trackChange({ entity: 'SUPPLIER', entityKey: String(s.old_id || existing.id), action: 'CREATED', reason: 'Nuevo proveedor presente en la fuente operativa.', after: { name: s.name } });
             if (s.old_id) supplierOldIdMap.set(s.old_id, existing);
             if (s.name) supplierNameMap.set(s.name.trim().toUpperCase(), existing);
         } else {
-            existing = await prisma.supplier.update({ where: { id: existing.id }, data: s });
+            const changed = Object.entries(s).some(([key, value]) => !nullableEqual((existing as any)[key], value));
+            if (changed) {
+                const before = Object.fromEntries(Object.keys(s).map((key) => [key, (existing as any)[key] ?? null]));
+                existing = await prisma.supplier.update({ where: { id: existing.id }, data: s });
+                trackChange({ entity: 'SUPPLIER', entityKey: String(s.old_id || existing.id), action: 'UPDATED', reason: 'Cambió información del proveedor en la fuente operativa.', before, after: s });
+            }
         }
         processedSupplierIds.add(existing.id);
     }
@@ -188,9 +213,12 @@ async function main() {
         let existing = productSkuMap.get(p.sku);
         if (!existing) {
             existing = await prisma.product.create({ data: p });
+            trackChange({ entity: 'PRODUCT', entityKey: p.sku, action: 'CREATED', reason: 'Nuevo SKU presente en la fuente operativa.', after: { name: p.name, lp1: p.lp1, stock: p.stock } });
             productSkuMap.set(p.sku, existing);
         } else if (existing.lp1 !== p.lp1 || existing.stock !== p.stock) {
+            const before = { lp1: existing.lp1, stock: existing.stock };
             existing = await prisma.product.update({ where: { id: existing.id }, data: p });
+            trackChange({ entity: 'PRODUCT', entityKey: p.sku, action: 'UPDATED', reason: 'Cambió precio LP1 o stock en la fuente operativa.', before, after: { lp1: p.lp1, stock: p.stock } });
             productSkuMap.set(p.sku, existing);
         }
         processedProductIds.add(existing.id);
@@ -222,6 +250,7 @@ async function main() {
         let dbShipment: any;
         if (!existing) {
             dbShipment = await (prisma as any).shipment.create({ data });
+            trackChange({ entity: 'SHIPMENT', entityKey: `#${s.shipment_number}`, action: 'CREATED', reason: 'Nuevo envío presente en la fuente operativa.', after: { clientId: dbClientId, status: s.status, forwarder: s.forwarder, weight_fw: s.weight_fw, price_total: s.price_total } });
             shipmentNumMap.set(s.shipment_number, dbShipment);
         } else {
             const shippedTime = data.date_shipped?.getTime() || 0;
@@ -241,7 +270,9 @@ async function main() {
                 existing.clientId !== dbClientId;
 
             if (hasChanges) {
+                const before = { clientId: existing.clientId, status: existing.status, forwarder: existing.forwarder, weight_fw: existing.weight_fw, price_total: existing.price_total, cost_total: existing.cost_total, date_shipped: existing.date_shipped?.toISOString?.() || null, date_arrived: existing.date_arrived?.toISOString?.() || null };
                 dbShipment = await (prisma as any).shipment.update({ where: { id: existing.id }, data });
+                trackChange({ entity: 'SHIPMENT', entityKey: `#${s.shipment_number}`, action: 'UPDATED', reason: 'Cambió cabecera de envío en la fuente operativa.', before, after: { clientId: dbClientId, status: s.status, forwarder: s.forwarder, weight_fw: s.weight_fw, price_total: s.price_total, cost_total: s.cost_total, date_shipped: data.date_shipped?.toISOString?.() || null, date_arrived: data.date_arrived?.toISOString?.() || null } });
             } else {
                 dbShipment = existing;
             }
@@ -297,6 +328,7 @@ async function main() {
             dbOrder = await prisma.order.create({
                 data: orderData as any
             });
+            trackChange({ entity: 'ORDER', entityKey: `#${o.order_number}`, action: 'CREATED', reason: 'Nuevo pedido presente en la fuente operativa.', after: { clientId: orderData.clientId, status: resolvedStatus, shipmentId: resolvedShipmentId, total_amount: totalAmount } });
             orderNumMap.set(o.order_number, dbOrder);
         } else {
             if (
@@ -305,10 +337,12 @@ async function main() {
                 existing.clientId !== (dbClientId || unknownClientId) ||
                 existing.shipmentId !== resolvedShipmentId
             ) {
+                const before = { clientId: existing.clientId, status: existing.status, shipmentId: existing.shipmentId, total_amount: existing.total_amount };
                 dbOrder = await prisma.order.update({
                     where: { id: existing.id },
                     data: orderData as any
                 });
+                trackChange({ entity: 'ORDER', entityKey: `#${o.order_number}`, action: 'UPDATED', reason: 'Cambió cabecera del pedido en la fuente operativa.', before, after: { clientId: orderData.clientId, status: resolvedStatus, shipmentId: resolvedShipmentId, total_amount: totalAmount } });
                 orderNumMap.set(o.order_number, dbOrder);
             } else {
                 dbOrder = existing;
@@ -335,6 +369,8 @@ async function main() {
 
         const currentItems = existingItemsByOrderId.get(dbOrder.id) || [];
         if (!sameItemSet(currentItems, orderItemsToCreate)) {
+            const before = { count: currentItems.length, signatures: currentItems.map(itemSyncSignature).sort() };
+            const after = { count: orderItemsToCreate.length, signatures: orderItemsToCreate.map(itemSyncSignature).sort() };
             await prisma.$transaction(async (tx) => {
                 await tx.orderItem.deleteMany({ where: { orderId: dbOrder.id } });
                 if (orderItemsToCreate.length > 0) {
@@ -343,6 +379,7 @@ async function main() {
             });
             existingItemsByOrderId.set(dbOrder.id, orderItemsToCreate);
             orderItemsReplaced++;
+            trackChange({ entity: 'ORDER_ITEMS', entityKey: `#${o.order_number}`, action: 'REPLACED', reason: 'El detalle de productos, cantidades, precios, envío o estado cambió en la fuente operativa.', before, after });
         }
 
         // Actualizar Transacciones (ELIMINACIÓN PRECISA para evitar borrar otros pedidos que contengan el mismo número)
@@ -455,6 +492,11 @@ async function main() {
             continue;
         }
 
+        const reconciliationBefore = {
+            shipmentId: dbOrder.shipmentId,
+            itemSignatures: currentItemSignatures,
+        };
+
         if (dbOrder.shipmentId !== resolvedShipmentId) {
             await prisma.order.update({
                 where: { id: dbOrder.id },
@@ -482,6 +524,14 @@ async function main() {
                 status: item.status
             });
         }
+        trackChange({
+            entity: 'ORDER_ASSIGNMENTS',
+            entityKey: `#${orderNumber}`,
+            action: 'RECONCILED',
+            reason: 'La asignación histórica de envío cambió en la fuente operativa.',
+            before: reconciliationBefore,
+            after: { shipmentId: resolvedShipmentId, itemSignatures: expectedItemSignatures },
+        });
     }
 
     if (reconciliationOrderIds.length > 0) {
@@ -522,6 +572,7 @@ async function main() {
                 where: { id: shipmentId },
                 data: { item_count: nextItemCount }
             });
+            trackChange({ entity: 'SHIPMENT', entityKey: `#${existingShipment?.shipment_number ?? shipmentId}`, action: 'UPDATED', reason: 'Se recalculó la cantidad por cambios confirmados en los pedidos asignados.', before: { item_count: existingShipment?.item_count ?? null }, after: { item_count: nextItemCount } });
             if (existingShipment) existingShipment.item_count = nextItemCount;
         }
     }
@@ -845,6 +896,15 @@ async function main() {
         console.log('🛡️ Limpieza de huérfanos omitida: requiere ALLOW_DESTRUCTIVE_FULL_RECONCILIATION=1.');
     }
 
+    if (syncChanges.length > 0) {
+        await prisma.syncChange.createMany({
+            data: syncChanges.map((change) => ({ ...change, syncRunId: syncRun.id })),
+        });
+    }
+    const changesByAction = syncChanges.reduce<Record<string, number>>((counts, change) => {
+        counts[change.action] = (counts[change.action] || 0) + 1;
+        return counts;
+    }, {});
     const endTime = Date.now();
     await prisma.syncRun.update({
         where: { id: syncRun.id },
@@ -858,6 +918,7 @@ async function main() {
                 orders: normalizedOrdersData.length,
                 orderItemsReplaced,
                 reconciliationOrders: reconciliationOrderIds.length,
+                changes: changesByAction,
                 durationSeconds: Number(((endTime - startTime) / 1000).toFixed(3)),
             },
         },
@@ -871,6 +932,15 @@ main()
             await prisma.syncRun.update({
                 where: { id: activeSyncRunId },
                 data: { status: 'FAILED', finishedAt: new Date(), error: String(e?.message || e).slice(0, 2000) },
+            }).catch(() => undefined);
+            await prisma.syncChange.create({
+                data: {
+                    syncRunId: activeSyncRunId,
+                    entity: 'SYNC',
+                    entityKey: String(activeSyncRunId),
+                    action: 'REJECTED',
+                    reason: String(e?.message || e).slice(0, 2000),
+                },
             }).catch(() => undefined);
         }
         console.error(e);
