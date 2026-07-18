@@ -390,7 +390,9 @@ export async function getSyncControlCenter() {
         const data = await response.json();
         const changes = await prisma.syncChange.findMany({
             orderBy: { createdAt: 'desc' },
-            take: 12,
+            // Se conserva una bitacora reciente acotada, pero debe incluir todas
+            // las excepciones de una corrida completa (hoy hay 14 de la fuente).
+            take: 50,
             select: {
                 createdAt: true,
                 entity: true,

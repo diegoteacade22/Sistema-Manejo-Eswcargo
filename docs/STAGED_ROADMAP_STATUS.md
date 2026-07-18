@@ -92,6 +92,10 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Banda "Operación de hoy" en el Dashboard administrativo: pedidos por
   confirmar, envíos sin arribo confirmado y excepciones activas, con acceso
   directo a cada área de trabajo.
+- Cola concreta de operación: hasta cinco pedidos en `COMPRAR` o `RESERVADO`
+  y cinco envíos en movimiento, con cliente, estado y acceso al registro.
+- Mantenimiento muestra hasta 50 cambios recientes para no ocultar las
+  excepciones de una corrida completa.
 
 ### Pendiente
 

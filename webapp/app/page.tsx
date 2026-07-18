@@ -44,6 +44,8 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
       cashCoverage: 0,
       shipmentInTransitCount: 0,
       ordersToBuyCount: 0,
+      ordersToConfirm: [],
+      shipmentsInTransit: [],
       pendingPurchaseQty: 0,
       dataIssues: [],
       dataIssueDetails: [],
@@ -77,6 +79,8 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
       cashCoverage: 0,
       shipmentInTransitCount: 0,
       ordersToBuyCount: 0,
+      ordersToConfirm: [],
+      shipmentsInTransit: [],
       pendingPurchaseQty: 0,
       dataIssues: [],
       dataIssueDetails: [],
@@ -189,6 +193,15 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
   }).length;
 
   const ordersToBuyCount = orders.filter((order) => ['COMPRAR', 'RESERVADO'].includes(String(order.status || '').toUpperCase())).length;
+  const ordersToConfirm = orders
+    .filter((order) => ['COMPRAR', 'RESERVADO'].includes(String(order.status || '').toUpperCase()))
+    .slice(0, 5);
+  const shipmentsInTransit = shipments
+    .filter((shipment: any) => {
+      const status = String(shipment.status || '').trim().toUpperCase();
+      return activeShipmentStatuses.has(status) && !shipment.date_arrived;
+    })
+    .slice(0, 5);
 
   let pendingPurchaseQty = 0;
   if (userRole === 'ADMIN') {
@@ -399,6 +412,8 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
     userRole,
     shipmentInTransitCount,
     ordersToBuyCount,
+    ordersToConfirm,
+    shipmentsInTransit,
     pendingPurchaseQty,
     dataIssues,
     dataIssueDetails,
@@ -453,6 +468,8 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
     userRole,
     shipmentInTransitCount,
     ordersToBuyCount,
+    ordersToConfirm,
+    shipmentsInTransit,
     pendingPurchaseQty,
     dataIssues,
     dataIssueDetails,
@@ -663,6 +680,48 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
               <p className="mt-2 text-2xl font-black text-red-600">{dataIssues.length}</p>
               <p className="mt-1 text-xs text-muted-foreground">{dataIssues[0] || 'Sin alertas críticas'}</p>
             </Link>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card className="border-l-4 border-l-orange-500">
+              <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
+                <CardTitle className="text-base">Pedidos a confirmar</CardTitle>
+                <Button asChild variant="ghost" size="sm"><Link href="/orders">Ver todos <ArrowRight className="ml-1 h-3.5 w-3.5" /></Link></Button>
+              </CardHeader>
+              <CardContent>
+                {ordersToConfirm.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No hay pedidos en comprar o reservado.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {ordersToConfirm.map((order: any) => (
+                      <Link key={order.id} href={`/orders/${order.id}`} className="flex items-center justify-between gap-3 border-b border-border py-2 last:border-0 hover:text-orange-600">
+                        <span className="font-medium">#{order.order_number} · {order.client?.name || 'Sin cliente'}</span>
+                        <Badge variant="outline">{order.status}</Badge>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            <Card className="border-l-4 border-l-blue-500">
+              <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
+                <CardTitle className="text-base">Envíos en movimiento</CardTitle>
+                <Button asChild variant="ghost" size="sm"><Link href="/shipments">Ver todos <ArrowRight className="ml-1 h-3.5 w-3.5" /></Link></Button>
+              </CardHeader>
+              <CardContent>
+                {shipmentsInTransit.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No hay envíos abiertos en movimiento.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {shipmentsInTransit.map((shipment: any) => (
+                      <Link key={shipment.id} href={`/shipments/${shipment.id}`} className="flex items-center justify-between gap-3 border-b border-border py-2 last:border-0 hover:text-blue-600">
+                        <span className="font-medium">Envío #{shipment.shipment_number} · {shipment.client?.name || 'Sin cliente'}</span>
+                        <Badge variant="outline">{shipment.status}</Badge>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </section>
       )}
