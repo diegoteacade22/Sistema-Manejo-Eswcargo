@@ -3,48 +3,21 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
-  if (process.env.ALLOW_LEGACY_LEDGER_CLEANUP !== '1') {
-    console.log('🛡️ Limpieza CC legacy omitida: requiere ALLOW_LEGACY_LEDGER_CLEANUP=1.');
-    return;
-  }
+  const baselineCount = await prisma.transaction.count({
+    where: {
+      reference: { startsWith: 'CC-ZERO-BASELINE-2026:' },
+    },
+  });
 
-  const legacyImports = await prisma.transaction.deleteMany({
+  const legacyImportCount = await prisma.transaction.count({
     where: { reference: { startsWith: 'CC-Import-' } },
   });
 
-  const baselineOnlyCandidates = await prisma.transaction.findMany({
-    where: {
-      reference: { startsWith: 'CC-ZERO-BASELINE-2026:' },
-      clientId: { not: null },
-      amount: { lt: -5000 },
-    },
-    select: {
-      id: true,
-      clientId: true,
-      amount: true,
-    },
-  });
-
-  const baselineOnlyIds = [];
-  for (const candidate of baselineOnlyCandidates) {
-    const managedCount = await prisma.transaction.count({
-      where: {
-        clientId: candidate.clientId,
-        NOT: { reference: { startsWith: 'CC-Import-' } },
-      },
-    });
-
-    if (managedCount === 1) {
-      baselineOnlyIds.push(candidate.id);
-    }
-  }
-
-  const baselineOnly = baselineOnlyIds.length
-    ? await prisma.transaction.deleteMany({ where: { id: { in: baselineOnlyIds } } })
-    : { count: 0 };
-
-  console.log(`Limpieza CC legacy: ${legacyImports.count} movimientos CC-Import-* eliminados.`);
-  console.log(`Limpieza baseline artificial: ${baselineOnly.count} ajustes únicos eliminados.`);
+  // A legacy balance is not evidence of an error. This entrypoint is kept as
+  // a review tool so a maintenance flag cannot erase financial history.
+  console.log(`Revisión CC legacy: ${legacyImportCount} movimiento(s) CC-Import-* en cuarentena.`);
+  console.log(`Revisión baseline histórico: ${baselineCount} ajuste(s) preservados; la cobertura indica cuáles requieren evidencia.`);
+  console.log('No se eliminó ningún movimiento. Una corrección requiere fuente verificable y respaldo reversible.');
 }
 
 main()

@@ -12,6 +12,9 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Auditorias de packing, asignaciones e invoice dentro de la sincronizacion.
 - Descarga fallida de la fuente cancela la sincronizacion.
 - Limpieza destructiva de registros bloqueada salvo habilitacion explicita.
+- El antiguo limpiador de cuentas corrientes quedó en modo solo lectura: no
+  elimina imports ni ajustes históricos aunque se active una variable de
+  mantenimiento. Toda corrección financiera exige fuente y respaldo reversible.
 - Historial persistente de cada sincronizacion con estado, alcance, duracion y
   contadores operativos. La ejecucion crea el registro antes de procesar y lo
   cierra como fallida si ocurre un error.
