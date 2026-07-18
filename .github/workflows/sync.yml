@@ -88,6 +88,7 @@ jobs:
           npx prisma migrate deploy --schema prisma/schema.prisma
           node scripts/cleanup-legacy-ledger-imports.mjs
           node scripts/audit-ledgers.mjs || echo "::warning::Auditoria CC previa con advertencias; se continua la sincronizacion operativa."
+          node scripts/audit-ledger-duplicates.mjs || echo "::warning::Posibles duplicados o documentos repetidos en Cuenta Corriente; revisar Mantenimiento antes de emitir cobros."
           if [ "$SYNC_DAYS" = "0" ] || [ "$SYNC_DAYS" = "FULL" ]; then
             export SYNC_MODE=FULL
           else
@@ -98,6 +99,7 @@ jobs:
           node scripts/audit-packing-readiness.mjs
           node scripts/audit-invoice-readiness.mjs
           node scripts/audit-ledgers.mjs || echo "::warning::Auditoria CC posterior con advertencias; revisar cuenta corriente sin bloquear sync."
+          node scripts/audit-ledger-duplicates.mjs || echo "::warning::Posibles duplicados o documentos repetidos en Cuenta Corriente; revisar Mantenimiento antes de emitir cobros."
           echo "- Actualización y auditorías: $(( $(date +%s) - stage_started_at ))s" >> "$GITHUB_STEP_SUMMARY"
 
       - name: ⏱️ Resumen de duración

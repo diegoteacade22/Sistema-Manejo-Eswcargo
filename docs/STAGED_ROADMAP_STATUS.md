@@ -87,6 +87,10 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Mantener la medicion de rendimiento. Las tres ultimas sincronizaciones
   completas verificadas finalizaron en 82, 68 y 83 segundos, sin volver a
   filtrar por fecha.
+- El historial raw de Cash Flow tiene mezcla de signos y referencias: la
+  corrección requiere una migración cuenta por cuenta con respaldo. El reporte
+  de drift documenta 569 filas con signo legado, 283 correctas, 156 distintas
+  y 104 aún ausentes en producción.
 
 ## Etapa 4: Panel operativo
 
