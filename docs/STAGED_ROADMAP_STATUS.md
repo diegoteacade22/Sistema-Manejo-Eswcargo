@@ -230,3 +230,28 @@ ninguna escritura automatica sobre planillas ni base de datos.
   pueden marcarse como conciliadas automáticamente, ordenadas por tipo de
   evidencia faltante y saldo. Las 11 cuentas conectadas a Cash Flow y las 5
   cuentas con saldo cero confirmado ya están conciliadas.
+
+## Etapa 6: Evidencia y cierre de conciliaciones
+
+### Implementado
+
+- Centro administrativo de evidencia por cuenta: permite registrar el tipo de
+  respaldo, referencia, observación y adjuntar Invoice, recibo o comprobante
+  bancario sin alterar Google Sheets ni movimientos existentes.
+- Los adjuntos se validan en servidor (PDF, JPG, PNG o WEBP; máximo 8 MB), se
+  vinculan a la cuenta y, si corresponde, al movimiento exacto.
+- La descarga de cada respaldo queda protegida: solo usuarios administradores
+  autenticados pueden verlo.
+- El alta de evidencia y su vínculo con la cuenta se realizan en una única
+  transacción; una prueba de reversión confirma que un error no deja archivos
+  ni registros parciales.
+
+### Pendiente
+
+- Cargar y revisar documentación para las 52 cuentas de la cola. La evidencia
+  debe permitir decidir cada corrección de forma individual; no se aplicará
+  ningún ajuste masivo de saldo.
+- Resolver primero los tres saldos operativos sin fuente financiera vigente:
+  Jose JR, Nicolas - AudioPhones y Nicolas Iphone Bsas.
+- Revaluar el posible doble pago de Marcos Roku solo cuando exista el
+  comprobante de los movimientos `1173202` y `1173203`.
