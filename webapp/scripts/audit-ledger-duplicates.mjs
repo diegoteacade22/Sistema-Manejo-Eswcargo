@@ -1,8 +1,13 @@
 import { PrismaClient } from '@prisma/client';
+import { readFileSync } from 'node:fs';
 
 const prisma = new PrismaClient();
 const LOOKBACK_DAYS = Number(process.env.LEDGER_DUPLICATE_LOOKBACK_DAYS || 0);
 const ADJUSTMENT_PATTERN = /(ajuste|baseline|opening|neutraliz|duplicate|final-adj|saldo a cero|saldada|zero)/i;
+const auditExceptions = JSON.parse(readFileSync(new URL('./ledger-audit-exceptions.json', import.meta.url), 'utf8'));
+const documentedRepeatedReferences = new Map(
+  (auditExceptions.documentedRepeatedReferences || []).map((entry) => [entry.key, entry]),
+);
 
 function ledgerSearchText(tx) {
   return `${tx.description || ''} ${tx.reference || ''} ${tx.paymentMethod || ''}`.trim();
@@ -148,8 +153,16 @@ async function main() {
   const reversalDocuments = repeatedDocumentGroups
     .filter(([, group]) => group.some(isReversal))
     .map(([key, group]) => ({ key, client: group[0].client, transactions: summarize(group) }));
+  const documentedRepeatedDocuments = repeatedDocumentGroups
+    .filter(([key, group]) => !group.some(isReversal) && documentedRepeatedReferences.has(key))
+    .map(([key, group]) => ({
+      key,
+      client: group[0].client,
+      transactions: summarize(group),
+      evidence: documentedRepeatedReferences.get(key),
+    }));
   const repeatedDocuments = repeatedDocumentGroups
-    .filter(([, group]) => !group.some(isReversal))
+    .filter(([key, group]) => !group.some(isReversal) && !documentedRepeatedReferences.has(key))
     .map(([key, group]) => ({ key, client: group[0].client, transactions: summarize(group) }));
   const repeatedPayments = [...paymentGroups.entries()]
     .filter(([, group]) => group.length > 1)
@@ -181,6 +194,7 @@ async function main() {
     exactDuplicates,
     documentDuplicates,
     reversalDocuments,
+    documentedRepeatedDocuments,
     repeatedDocuments,
     repeatedPayments,
     wrongClientOrderCharges,

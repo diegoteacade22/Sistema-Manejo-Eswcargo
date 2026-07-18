@@ -26,11 +26,11 @@ bloqueado hasta corregir la fuente.
 ## Cuenta Luca - Invoice #2352
 
 `LUCA CC` contiene dos cargos con la misma referencia: USD 9.000 el
-12/02/2026 y USD 1.265 el 25/02/2026. Las fuentes actual e histórica de ventas
-solo registran el Invoice #2352 por USD 1.265 para Luca. El cargo de USD 9.000
-no se elimina porque está en la fuente financiera y su eliminación alteraría el
-saldo conciliado; requiere identificar su Invoice correcto o un comprobante de
-cobro/venta.
+12/02/2026 y USD 1.265 el 25/02/2026. La copia histórica
+`VENTAS COMPRAS 2023 al 2025 Para Sistema en Gemini_backup.xlsx`, pestaña
+`LUCA CC`, registra ambos cargos. La referencia compartida se deja visible como
+revisión documentada, pero no se trata como duplicado comprobado ni se elimina
+ninguno.
 
 ## Cuenta Marcos Roku
 
