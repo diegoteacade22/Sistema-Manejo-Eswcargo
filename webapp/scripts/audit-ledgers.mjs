@@ -128,6 +128,24 @@ async function main() {
     }
   }
 
+  const reconciliationAdjustments = await prisma.transaction.findMany({
+    where: {
+      reference: { startsWith: 'CASHFLOW-RECONCILIATION-2026:' },
+      NOT: { reference: { startsWith: 'CC-Import-' } },
+    },
+    select: {
+      id: true,
+      clientId: true,
+      amount: true,
+      client: { select: { id: true, old_id: true, name: true } },
+    },
+  });
+  for (const adjustment of reconciliationAdjustments) {
+    const client = adjustment.client;
+    const label = `${client?.name || 'Cliente sin nombre'} (#${client?.old_id ?? client?.id ?? adjustment.clientId})`;
+    report(`Ajuste global de conciliacion requiere detalle: tx ${adjustment.id} ${label} $${money(adjustment.amount)}`);
+  }
+
   const nameGroups = new Map();
   for (const client of clients) {
     const key = String(client.name || '').trim().toLowerCase();
