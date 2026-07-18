@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 type SourceEntity = 'ORDER' | 'SHIPMENT';
 
 const OPERATIONAL_SYNC_SCOPES = ['FULL', 'DIFF'];
+const SHARED_SHIPMENT_HEADER_CONFLICT = 'La fuente contiene más de una cabecera incompatible para el mismo número de envío.';
 
 export async function getSourceDocumentBlock(entity: SourceEntity, sourceNumber: number | null | undefined) {
     if (!Number.isInteger(sourceNumber)) return null;
@@ -44,4 +45,9 @@ export async function getOrderSourceDocumentBlock(orderNumbers: Array<number | n
 
 export function sourceBlockMessage(reason: string) {
     return `Documento bloqueado por la última sincronización de fuente: ${reason}`;
+}
+
+// A segmented packing can use item-level data only for this known header conflict.
+export function canUseSegmentedPackingForShipmentBlock(reason: string | null, isSharedShipment: boolean) {
+    return Boolean(isSharedShipment && reason === SHARED_SHIPMENT_HEADER_CONFLICT);
 }

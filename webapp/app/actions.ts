@@ -8,6 +8,7 @@ import { sendInvoiceEmail, sendPackingListEmail } from '@/app/email-actions';
 import { sendWhatsAppMessage } from '@/lib/whatsapp';
 import { createClientPaymentWithReceipt } from '@/lib/payment-receipts';
 import { buildShipmentItems } from '@/lib/shipment-items';
+import { getPackingSegmentIssue, getPackingSegments } from '@/lib/packing-segments';
 
 type DeliveryChannel = 'EMAIL' | 'WHATSAPP' | 'SKIPPED' | 'FAILED';
 
@@ -104,11 +105,27 @@ async function notifyShipmentPackingListDelivery(
 ): Promise<DeliveryResult> {
     const shipment = await prisma.shipment.findUnique({
         where: { id: shipmentId },
-        include: { client: true }
+        include: {
+            client: true,
+            items: { include: { order: { include: { client: true } } } },
+            orders: { include: { client: true } }
+        }
     });
 
     if (!shipment) {
         return { success: false, channel: 'FAILED', message: 'Envío no encontrado para notificación.' };
+    }
+
+    const packingIssue = getPackingSegmentIssue(shipment);
+    if (packingIssue) {
+        return { success: false, channel: 'FAILED', message: packingIssue };
+    }
+    if (getPackingSegments(shipment).length > 1) {
+        return {
+            success: true,
+            channel: 'SKIPPED',
+            message: `Envío #${shipment.shipment_number ?? shipment.id} compartido: requiere emisión manual por cliente.`
+        };
     }
 
     if (options?.skipIfAlreadySent && shipment.email_sent_at) {

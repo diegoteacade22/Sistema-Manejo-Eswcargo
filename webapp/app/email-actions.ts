@@ -7,7 +7,8 @@ import { generatePdfFromHtml } from '@/lib/pdf-generator';
 import { requireAdminUser } from '@/lib/access';
 import { getInvPdfFileName, savePdfToDriveFolder } from '@/lib/document-storage';
 import { buildShipmentItems, getShipmentCargoDescription } from '@/lib/shipment-items';
-import { getOrderSourceDocumentBlock, getSourceDocumentBlock, sourceBlockMessage } from '@/lib/source-document-guard';
+import { canUseSegmentedPackingForShipmentBlock, getOrderSourceDocumentBlock, getSourceDocumentBlock, sourceBlockMessage } from '@/lib/source-document-guard';
+import { getPackingSegmentIssue, getPackingSegments, projectShipmentForPacking } from '@/lib/packing-segments';
 
 type PackingListDocument = {
     shipment: any;
@@ -50,14 +51,15 @@ async function trySavePdfToDriveFolder(pdfBuffer: Uint8Array, fileName: string) 
     }
 }
 
-async function buildPackingListDocument(shipmentId: number): Promise<PackingListDocument> {
+async function buildPackingListDocument(shipmentId: number, packingClientId?: number): Promise<PackingListDocument> {
     const shipment = await prisma.shipment.findUnique({
         where: { id: shipmentId },
         include: {
             client: true,
-            items: { include: { product: true, order: true } },
+            items: { include: { product: true, order: { include: { client: true } } } },
             orders: {
                 include: {
+                    client: true,
                     items: { include: { product: true } }
                 }
             }
@@ -68,18 +70,31 @@ async function buildPackingListDocument(shipmentId: number): Promise<PackingList
         throw new Error('Envío no encontrado.');
     }
 
+    const packingIssue = getPackingSegmentIssue(shipment);
+    if (packingIssue) throw new Error(packingIssue);
+
+    const segments = getPackingSegments(shipment);
+    if (segments.length > 1 && !Number.isInteger(packingClientId)) {
+        throw new Error('Este envío tiene más de un cliente. Seleccioná el cliente antes de emitir el Packing List.');
+    }
+    const segment = segments.find((item) => item.clientId === packingClientId) || (segments.length === 1 ? segments[0] : null);
+    if (!segment) throw new Error('El cliente seleccionado no tiene artículos confirmados en este envío.');
+    const documentShipment = projectShipmentForPacking(shipment, segment, segments.length);
+
     const shipmentSourceBlock = await getSourceDocumentBlock('SHIPMENT', shipment.shipment_number);
     const orderSourceBlock = await getOrderSourceDocumentBlock([
-        ...shipment.orders.map((order) => order.order_number),
-        ...shipment.items.map((item) => item.order?.order_number),
+        ...documentShipment.orders.map((order: any) => order.order_number),
+        ...documentShipment.items.map((item: any) => item.order?.order_number),
     ]);
-    const sourceBlock = shipmentSourceBlock || (orderSourceBlock ? orderSourceBlock.reason : null);
+    const sourceBlock = (!canUseSegmentedPackingForShipmentBlock(shipmentSourceBlock, documentShipment.packingSegment.isSharedShipment)
+        ? shipmentSourceBlock
+        : null) || (orderSourceBlock ? orderSourceBlock.reason : null);
     if (sourceBlock) {
         throw new Error(sourceBlockMessage(sourceBlock));
     }
 
-    const shipmentItems = buildShipmentItems(shipment);
-    const cargoDescription = getShipmentCargoDescription(shipment);
+    const shipmentItems = buildShipmentItems(documentShipment);
+    const cargoDescription = getShipmentCargoDescription(documentShipment);
 
     if (shipmentItems.length === 0 && !cargoDescription) {
         throw new Error('No se puede emitir el packing: faltan artículos o una descripción operativa confirmada.');
@@ -100,7 +115,7 @@ async function buildPackingListDocument(shipmentId: number): Promise<PackingList
     });
 
     if (shipmentItems.length === 0) {
-        totalPcs = shipment.item_count || 0;
+        totalPcs = documentShipment.item_count || 0;
         itemsHtml += `
                 <tr>
                     <td colspan="4" style="padding: 12px; border-bottom: 1px solid #eee; font-weight: 600; text-transform: uppercase;">${cargoDescription}</td>
@@ -131,11 +146,11 @@ async function buildPackingListDocument(shipmentId: number): Promise<PackingList
                         <tr>
                             <td>
                                 <h2 style="color: #0D3B4C; margin: 0; font-size: 24px; text-transform: uppercase; font-weight: 900;">PACKING LIST</h2>
-                                <p style="font-size: 18px; font-weight: bold; color: #F4AB3D; margin: 5px 0 0 0;">SHIPMENT #${shipment.shipment_number}</p>
+                                <p style="font-size: 18px; font-weight: bold; color: #F4AB3D; margin: 5px 0 0 0;">SHIPMENT #${documentShipment.shipment_number}</p>
                             </td>
                             <td style="text-align: right; vertical-align: top;">
                                 <p style="margin: 0; font-size: 13px; color: #666;"><strong>FECHA:</strong> ${new Date().toLocaleDateString()}</p>
-                                <p style="margin: 5px 0 0 0; font-size: 13px; color: #666;"><strong>CLIENTE:</strong> ${shipment.client?.name || 'N/A'}</p>
+                                <p style="margin: 5px 0 0 0; font-size: 13px; color: #666;"><strong>CLIENTE:</strong> ${documentShipment.client?.name || 'N/A'}</p>
                             </td>
                         </tr>
                     </table>
@@ -164,7 +179,7 @@ async function buildPackingListDocument(shipmentId: number): Promise<PackingList
                                 <td style="text-align: right;">
                                     <p style="margin: 0; font-size: 12px; color: #666; text-transform: uppercase; font-weight: bold;">Costo de Envío</p>
                                     <p style="margin: 5px 0 0 0; font-size: 22px; font-weight: 900; color: #0D3B4C;">
-                                        USD ${shipment.price_total ? shipment.price_total.toFixed(2) : '0.00'}
+                                    ${documentShipment.packingSegment.isSharedShipment ? 'NO ATRIBUIDO - ENVÍO COMPARTIDO' : `USD ${documentShipment.price_total ? documentShipment.price_total.toFixed(2) : '0.00'}`}
                                     </p>
                                 </td>
                             </tr>
@@ -184,10 +199,13 @@ async function buildPackingListDocument(shipmentId: number): Promise<PackingList
         `;
 
     const pdfBuffer = await generatePdfFromHtml(htmlBody);
-    const fileName = getInvPdfFileName(shipment.invoice, shipment.shipment_number || shipment.id);
+    const baseFileName = getInvPdfFileName(documentShipment.invoice, documentShipment.shipment_number || documentShipment.id);
+    const fileName = documentShipment.packingSegment.isSharedShipment
+        ? baseFileName.replace(/\.pdf$/i, `-CLIENTE-${documentShipment.client?.old_id || documentShipment.client?.id}.pdf`)
+        : baseFileName;
 
     return {
-        shipment,
+        shipment: documentShipment,
         htmlBody,
         pdfBuffer,
         fileName
@@ -356,14 +374,18 @@ async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocument> {
     };
 }
 
-export async function sendPackingListEmail(shipmentId: number, targetEmail: string) {
+export async function sendPackingListEmail(shipmentId: number, targetEmail: string, packingClientId?: number) {
     await requireAdminUser();
     if (!targetEmail) {
         return { success: false, message: 'El email de destino es obligatorio.' };
     }
 
     try {
-        const { shipment, htmlBody, pdfBuffer, fileName } = await buildPackingListDocument(shipmentId);
+        const { shipment, htmlBody, pdfBuffer, fileName } = await buildPackingListDocument(shipmentId, packingClientId);
+        const recipientEmail = shipment.client?.email?.trim();
+        if (!recipientEmail || targetEmail.trim().toLowerCase() !== recipientEmail.toLowerCase()) {
+            return { success: false, message: 'El Packing List sólo puede enviarse al email confirmado del cliente seleccionado.' };
+        }
         const saveResult = await trySavePdfToDriveFolder(pdfBuffer, fileName);
 
         const result = await sendEmail(
@@ -385,7 +407,7 @@ export async function sendPackingListEmail(shipmentId: number, targetEmail: stri
             };
         }
 
-        if (result.success) {
+        if (result.success && !shipment.packingSegment?.isSharedShipment) {
             await prisma.shipment.update({
                 where: { id: shipmentId },
                 data: { email_sent_at: new Date() }
@@ -471,11 +493,11 @@ export async function saveInvoicePdfToDrive(orderId: number) {
     }
 }
 
-export async function savePackingListPdfToDrive(shipmentId: number) {
+export async function savePackingListPdfToDrive(shipmentId: number, packingClientId?: number) {
     await requireAdminUser();
 
     try {
-        const { fileName, pdfBuffer } = await buildPackingListDocument(shipmentId);
+        const { fileName, pdfBuffer } = await buildPackingListDocument(shipmentId, packingClientId);
         const savedPath = await savePdfToDriveFolder(pdfBuffer, fileName);
         return { success: true, fileName, savedPath };
     } catch (error: any) {

@@ -5,6 +5,7 @@ import { Printer, Package, Globe, Instagram, Facebook, Mail, Loader2, Download }
 import { savePackingListPdfToDrive, sendPackingListEmail } from '../../../email-actions';
 import { useEffect, useTransition } from 'react';
 import { buildShipmentItems, getShipmentCargoDescription } from '../../../../lib/shipment-items';
+import { isSharedShipmentPacking } from '../../../../lib/packing-segments';
 import { toInvNumber4 } from '../../../../lib/inv-filename';
 
 /* eslint-disable @next/next/no-img-element */
@@ -30,12 +31,13 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
 
     const handleSendEmail = () => {
         const defaultEmail = shipment.client?.email || '';
-        const email = window.prompt('Ingrese el email de destino:', defaultEmail);
-
-        if (!email) return;
+        if (!defaultEmail) {
+            alert('El cliente seleccionado no tiene un email confirmado.');
+            return;
+        }
 
         startTransition(async () => {
-            const result = await sendPackingListEmail(shipment.id, email);
+                const result = await sendPackingListEmail(shipment.id, defaultEmail, shipment.packingSegment?.clientId);
             if (result.success) {
                 alert('Email enviado correctamente!');
             } else {
@@ -46,7 +48,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
 
     const handleSaveDrive = () => {
         startSaveTransition(async () => {
-            const result = await savePackingListPdfToDrive(shipment.id);
+            const result = await savePackingListPdfToDrive(shipment.id, shipment.packingSegment?.clientId);
             if (result.success) {
                 alert(`PDF guardado: ${result.fileName}`);
             } else {
@@ -79,6 +81,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
     const shipmentItems = buildShipmentItems(shipment);
     const cargoDescription = getShipmentCargoDescription(shipment);
     const hasConfirmedContent = shipmentItems.length > 0 || Boolean(cargoDescription);
+    const isSharedShipment = isSharedShipmentPacking(shipment);
 
     // Colors
     // Dark Blue: #0D3B4C
@@ -142,7 +145,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                         <Printer className="mr-2 h-4 w-4" /> Imprimir / Guardar PDF
                     </Button>
                 </div>
-                {shipment.email_sent_at && (
+                {shipment.email_sent_at && !isSharedShipment && (
                     <p className="text-xs text-green-600 font-medium flex items-center">
                         <span className="mr-1">✓</span>
                         Email enviado el {new Date(shipment.email_sent_at).toLocaleDateString()} a las {new Date(shipment.email_sent_at).toLocaleTimeString()}
@@ -199,6 +202,8 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                         </div>
                     </div>
                 </div>
+
+                {isSharedShipment && <p className="mb-4 border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 print:hidden">Packing segmentado por cliente. El peso y el cargo total pertenecen al envío compartido y no se atribuyen a esta cuenta.</p>}
 
                 {/* Info Grid */}
                 <div className="grid grid-cols-2 gap-8 mb-4 print:mb-2 border-t-2 border-[#0D3B4C] pt-4 print:pt-2">
@@ -345,16 +350,20 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                             SHIPPING SUMMARY
                         </div>
                         <div className="p-3 print:p-2 space-y-2 bg-white">
-                            <div className="flex justify-between items-center text-base border-b border-gray-200 pb-1">
-                                <span className="font-bold text-gray-700">TOTAL WEIGHT</span>
-                                <span className="font-bold text-[#0D3B4C]">{shipment.weight_cli ? shipment.weight_cli.toFixed(2) : '0.00'} kg</span>
-                            </div>
-                            <div className="flex justify-between items-center text-lg bg-orange-50 p-1.5 rounded border border-[#F4AB3D]/20">
-                                <span className="font-bold text-[#0D3B4C]">TOTAL DUE</span>
-                                <span className="font-bold text-[#0D3B4C]">
-                                    USD {new Intl.NumberFormat('en-US', { minimumFractionDigits: 2 }).format(shipment.price_total || 0)}
-                                </span>
-                            </div>
+                            {isSharedShipment ? (
+                                <p className="text-sm font-semibold text-[#0D3B4C]">Datos de peso y cargo no disponibles por cliente en un envío compartido.</p>
+                            ) : <>
+                                <div className="flex justify-between items-center text-base border-b border-gray-200 pb-1">
+                                    <span className="font-bold text-gray-700">TOTAL WEIGHT</span>
+                                    <span className="font-bold text-[#0D3B4C]">{shipment.weight_cli ? shipment.weight_cli.toFixed(2) : '0.00'} kg</span>
+                                </div>
+                                <div className="flex justify-between items-center text-lg bg-orange-50 p-1.5 rounded border border-[#F4AB3D]/20">
+                                    <span className="font-bold text-[#0D3B4C]">TOTAL DUE</span>
+                                    <span className="font-bold text-[#0D3B4C]">
+                                        USD {new Intl.NumberFormat('en-US', { minimumFractionDigits: 2 }).format(shipment.price_total || 0)}
+                                    </span>
+                                </div>
+                            </>}
                         </div>
                     </div>
                 </div>

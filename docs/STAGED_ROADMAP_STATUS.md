@@ -20,6 +20,12 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Las cabeceras duplicadas e incompatibles se rechazan sin sobrescribir el
   registro productivo. Los proveedores se identifican por codigo, no por
   nombre repetido.
+- Los Packing List de un envío compartido se emiten por cliente: el operador
+  debe seleccionar un segmento y el documento incluye exclusivamente sus
+  artículos. Se bloquea si algún artículo no tiene cliente verificable, si hay
+  un rechazo de pedido o si el rechazo de envío es distinto a una cabecera
+  compartida incompatible. El peso y cargo común no se atribuyen a ningún
+  cliente hasta que exista una cabecera fuente unívoca.
 - Envío `#1172` reconciliado en la base a partir de las cuatro líneas
   verificadas del pedido `#2479`: 6 artículos, USD 7.230 de venta y USD 7.170
   de costo. La cabecera deja explícitos los datos que la fuente no aporta
@@ -36,9 +42,10 @@ ninguna escritura automatica sobre planillas ni base de datos.
   email quedan bloqueados en servidor hasta entonces.
 - Resolver en la fuente las 13 cabeceras de envio duplicadas y la cabecera
   duplicada del pedido `#2223`, documentadas en el reporte de colisiones. No
-  se debe elegir una fila automaticamente. Los documentos de un pedido o
-  envío rechazado por la última sincronización quedan bloqueados hasta que la
-  fuente se corrija y una sincronización completa deje de reportar la colisión.
+  se debe elegir una fila automaticamente. La única excepción documental es
+  el Packing segmentado por cliente cuando la causa exacta es cabecera
+  compartida incompatible; los documentos de un pedido rechazado y cualquier
+  otro rechazo de envío permanecen bloqueados.
 
 ## Etapa 2: Bandeja de pedidos
 
@@ -198,6 +205,9 @@ ninguna escritura automatica sobre planillas ni base de datos.
   Detecta duplicados exactos, pagos que no cierran contra su cargo y referencias
   de compras sin registro interno. Solo alerta: nunca modifica saldos ni la
   planilla.
+- La entrega automática omite envíos compartidos. Requieren emisión manual
+  por cliente hasta implementar notificaciones independientes y auditables
+  para cada segmento.
 
 ### Pendiente
 

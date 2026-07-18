@@ -7,7 +7,9 @@ import type { Metadata } from 'next';
 import { toInvNumber4 } from '@/lib/inv-filename';
 import { DocumentBlocked } from '@/components/document-blocked';
 import { hasPrintableShipmentContent } from '@/lib/shipment-items';
-import { getOrderSourceDocumentBlock, getSourceDocumentBlock, sourceBlockMessage } from '@/lib/source-document-guard';
+import { canUseSegmentedPackingForShipmentBlock, getOrderSourceDocumentBlock, getSourceDocumentBlock, sourceBlockMessage } from '@/lib/source-document-guard';
+import { getPackingSegmentIssue, getPackingSegments, projectShipmentForPacking } from '@/lib/packing-segments';
+import { PackingClientSelection } from './packing-client-selection';
 
 export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
     const params = await props.params;
@@ -30,8 +32,9 @@ export async function generateMetadata(props: { params: Promise<{ id: string }> 
     return { title: `INV ${invNumber}` };
 }
 
-export default async function PackingListPage(props: { params: Promise<{ id: string }> }) {
+export default async function PackingListPage(props: { params: Promise<{ id: string }>; searchParams: Promise<{ clientId?: string }> }) {
     const params = await props.params;
+    const searchParams = await props.searchParams;
     const id = parseInt(params.id);
     const session = await auth();
 
@@ -52,6 +55,7 @@ export default async function PackingListPage(props: { params: Promise<{ id: str
                     product: true,
                     order: {
                         include: {
+                            client: true,
                             items: {
                                 include: {
                                     product: true
@@ -63,6 +67,7 @@ export default async function PackingListPage(props: { params: Promise<{ id: str
             },
             orders: {
                 include: {
+                    client: true,
                     items: {
                         include: {
                             product: true
@@ -77,7 +82,14 @@ export default async function PackingListPage(props: { params: Promise<{ id: str
         return notFound();
     }
 
+    const packingIssue = getPackingSegmentIssue(shipment);
+    if (packingIssue) {
+        return <DocumentBlocked title="Packing List bloqueado" detail={packingIssue} backHref={`/shipments/${shipment.id}`} backLabel="Volver al envío" />;
+    }
+
+    const segments = getPackingSegments(shipment);
     const role = (session.user as any).role;
+    let requestedClientId = Number(searchParams.clientId);
     if (role !== 'ADMIN') {
         const userId = (session.user as any).id;
         const client = await prisma.client.findFirst({
@@ -85,17 +97,28 @@ export default async function PackingListPage(props: { params: Promise<{ id: str
             select: { id: true }
         });
 
-        if (!client || shipment.clientId !== client.id) {
+        if (!client || !segments.some((segment) => segment.clientId === client.id)) {
             return notFound();
         }
+        requestedClientId = client.id;
     }
+
+    if (segments.length > 1 && !Number.isInteger(requestedClientId)) {
+        return <PackingClientSelection shipmentId={shipment.id} shipmentNumber={shipment.shipment_number} segments={segments} />;
+    }
+
+    const selectedSegment = segments.find((segment) => segment.clientId === requestedClientId) || (segments.length === 1 ? segments[0] : null);
+    if (!selectedSegment) return notFound();
+    const packingShipment = projectShipmentForPacking(shipment, selectedSegment, segments.length);
 
     const shipmentSourceBlock = await getSourceDocumentBlock('SHIPMENT', shipment.shipment_number);
     const orderSourceBlock = await getOrderSourceDocumentBlock([
-        ...shipment.orders.map((order) => order.order_number),
-        ...shipment.items.map((item) => item.order?.order_number),
+        ...packingShipment.orders.map((order: any) => order.order_number),
+        ...packingShipment.items.map((item: any) => item.order?.order_number),
     ]);
-    const sourceBlock = shipmentSourceBlock || (orderSourceBlock ? orderSourceBlock.reason : null);
+    const sourceBlock = (!canUseSegmentedPackingForShipmentBlock(shipmentSourceBlock, packingShipment.packingSegment.isSharedShipment)
+        ? shipmentSourceBlock
+        : null) || (orderSourceBlock ? orderSourceBlock.reason : null);
 
     if (sourceBlock) {
         return (
@@ -108,7 +131,7 @@ export default async function PackingListPage(props: { params: Promise<{ id: str
         );
     }
 
-    if (!hasPrintableShipmentContent(shipment)) {
+    if (!hasPrintableShipmentContent(packingShipment)) {
         return (
             <DocumentBlocked
                 title="Packing List bloqueado"
@@ -119,5 +142,5 @@ export default async function PackingListPage(props: { params: Promise<{ id: str
         );
     }
 
-    return <PackingListTemplate shipment={shipment} />;
+    return <PackingListTemplate shipment={packingShipment} />;
 }
