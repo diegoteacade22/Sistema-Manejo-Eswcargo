@@ -69,6 +69,14 @@ def extract_date_and_description(row, saldo_index):
     return date_value, description or "Movimiento Cash Flow"
 
 
+def transaction_from_balance_change(previous_balance, balance):
+    """The Cash Flow balance grows on a client payment and falls on a charge."""
+    amount = round(balance - previous_balance, 3)
+    if abs(amount) <= 0.005:
+        return None
+    return "PAGO" if amount > 0 else "CARGO", amount
+
+
 def main():
     with open(CONFIG_FILE, "r", encoding="utf-8") as handle:
         config = json.load(handle)
@@ -95,16 +103,15 @@ def main():
             if not date_value:
                 previous_balance = balance
                 continue
-            delta = round(balance - previous_balance, 3)
+            transaction = transaction_from_balance_change(previous_balance, balance)
             previous_balance = balance
-            if abs(delta) <= 0.005:
+            if transaction is None:
                 continue
-            # La suba de saldo en planilla es un cargo negativo en el sistema.
-            amount = round(-delta, 3)
+            tx_type, amount = transaction
             transactions.append({
                 "oldId": account["oldId"], "sheet": sheet, "row": row_number,
                 "date": (date_value + timedelta(minutes=row_number)).isoformat(),
-                "type": "PAGO" if amount > 0 else "CARGO", "amount": amount,
+                "type": tx_type, "amount": amount,
                 "description": description,
                 "reference": f"CASHFLOW-RAW-2026:{sheet_ref}:{row_number}",
             })

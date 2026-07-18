@@ -91,19 +91,18 @@ ninguna escritura automatica sobre planillas ni base de datos.
     `#NUM!`.
 - Definir formato normalizado, responsable y reglas de importacion para cada
   pestana de Cash Flow antes de habilitar cualquier escritura.
-- Ejecutar una reconciliacion de cuenta corriente vigente y revisar sus alertas
-  antes de modificar signos, duplicados o ajustes historicos. La auditoria
-  actual detecta pagos con signo negativo para Franco Pepe `#84` y Claudio
-  Molina x IG `#261`, ademas de saldos y baselines que requieren clasificacion
-  contable manual.
+- La reconstruccion vigente de las 11 cuentas con fuente Cash Flow ya corrigio
+  los signos, importes y referencias raw contra la fuente. Siguen requiriendo
+  evidencia externa las cuentas con baseline historico sin origen documental,
+  incluido el pago con signo negativo de Franco Pepe `#84` y Claudio Molina x
+  IG `#261`.
 - Mantener la medicion de rendimiento. Las tres ultimas sincronizaciones
   completas verificadas finalizaron en 82, 68 y 83 segundos, sin volver a
   filtrar por fecha.
-- El historial raw de Cash Flow tiene referencias históricas que no reflejan
-  exactamente cada fila de origen. No se corrigió en bloque: el control de
-  deriva confirma que los 11 saldos finales coinciden, mientras documenta 283
-  signos opuestos, 156 importes o tipos distintos, 104 faltantes y 13 filas
-  extra. Cualquier corrección futura requiere respaldo y revisión por cuenta.
+- El historial raw de Cash Flow de las 11 cuentas fuente fue reconstruido con
+  respaldo: 1.112 filas coinciden ahora exactamente por referencia, fecha,
+  tipo, importe y descripción. La sincronización operativa no reescribe la
+  cuenta corriente financiera.
 - Contraste de referencias Invoice entre Cash Flow y Ventas/Compras, también
   solo lectura. Detecta un único cargo repetido por referencia (`#2352`, Luca)
   y mantiene visibles los importes, clientes e Invoices que no se pueden
@@ -231,30 +230,24 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - La entrega automática omite envíos compartidos. Requieren emisión manual
   por cliente hasta implementar notificaciones independientes y auditables
   para cada segmento.
-- Verificación vigente contra producción y `CASH FLOW 2026`: los 11 saldos
-  finales coinciden con la fuente. Las 10 cuentas que aún dependen de ajuste
-  global fueron evaluadas individualmente y ninguna cumple el criterio de
-  reconstrucción segura sin evidencia externa. El detalle está en
-  `docs/reports/ETAPA_5_VERIFICACION_2026-07-18.md`.
+- Verificación vigente contra producción y `CASH FLOW 2026`: las 1.112 filas
+  raw y los 11 saldos finales coinciden exactamente con la fuente. Los 10
+  ajustes globales restantes son ahora la compensación explícita de documentos
+  operativos que se conservaron; cada importe coincide con esa diferencia.
+- Marcos Roku `#162`: se retiraron tres movimientos duplicados después de
+  contrastarlos con las líneas fuente de Cash Flow; no quedan duplicados
+  exactos, documentales ni pagos repetidos en la auditoría financiera.
 
 ### Pendiente
 
 - Revisar trimestralmente el umbral de 120 segundos solo si el crecimiento de
   la fuente vuelve insuficiente el margen actual.
-- Resolver solamente con respaldo y evidencia documental las diferencias raw
-  históricas de Cash Flow. Mientras tanto, el control las deja visibles sin
-  reimportar ni modificar cuentas que hoy concilian.
 - Revisar dos diferencias históricas de proveedores sin corregirlas de forma
   automática: `INV-5725` de FREEZIA (cargo USD 4.380, pago USD 7.300) y
   `0163445-IN` de PLANET CELLULAR (cargo USD 4.590, pago USD 45.490). Las
   referencias no aparecen en las fuentes de ventas/compras actuales ni
   históricas consultadas. Ocho cargos antiguos también mencionan compras que
   no tienen registro interno vinculado.
-- Revisar el posible doble pago de Marcos Roku `#162` del 2026-07-09: tx
-  `1173202` y `1173203`, ambos por USD 14.700 con referencia `Manual`. Fueron
-  creados con 40 segundos de diferencia, pero Cash Flow no aporta una fila que
-  pruebe si corresponde conservar uno o los dos. No se elimina ninguno sin
-  comprobante.
 - Las 30 cuentas con solo ajuste histórico, las 19 con ajuste mixto y las 3
   sin fuente financiera quedan visibles en cada sincronización. No se deben
   considerar conciliadas ni modificar hasta contar con evidencia externa.

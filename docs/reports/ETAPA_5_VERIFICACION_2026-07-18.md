@@ -1,48 +1,41 @@
 # Verificacion de etapa 5 - 2026-07-18
 
-Contraste ejecutado en modo solo lectura contra `CASH FLOW 2026` y la base de
-produccion. No se modificaron Google Sheets ni movimientos de cuenta corriente.
+Contraste contra `CASH FLOW 2026` en solo lectura y la base de produccion. No
+se modificaron Google Sheets.
 
-## Resultado operativo
+## Resultado final
 
-- Fuente leida: 1.228 filas de Cash Flow, distribuidas en 11 cuentas.
+- Fuente verificada: 1.112 filas, distribuidas en 11 cuentas.
+- Filas raw exactas: 1.112.
+- Signos, importes, faltantes, referencias repetidas y extras: 0.
 - Saldos finales distintos de la fuente: 0.
-- Ajustes globales pendientes: 10 cuentas. Ninguna cumple las condiciones para
-  reemplazar el ajuste por filas fuente sin afectar movimientos no demostrados.
-- Duplicados exactos de cuenta corriente: 0.
-- Duplicados documentales: 0.
-- Cargos de pedido o envio en una cuenta de cliente incorrecta: 0.
-- Caso que requiere comprobante: Marcos Roku `#162`, pagos `1173202` y
-  `1173203`, ambos por USD 14.700 el 2026-07-09.
+- Duplicados exactos, documentales y pagos repetidos: 0.
+- Los 10 ajustes `CASHFLOW-RECONCILIATION-2026` restantes igualan exactamente
+  los movimientos operativos preservados, por lo que cada saldo final coincide
+  con Cash Flow.
 
-## Diferencias historicas visibles
+## Correcciones aplicadas
 
-El control por contenido detecto 1 fila reubicada, 283 con signo opuesto, 154
-cambiadas, 99 faltantes y 14 extras. Son diferencias de detalle historico, no
-una autorizacion para reimportar ni borrar movimientos: los 11 saldos finales
-coinciden con la fuente.
+- Se corrigio el lector de Cash Flow: un aumento de saldo es un `PAGO` y una
+  baja es un `CARGO`.
+- Se reconstruyeron las 1.112 filas raw en una transaccion con respaldo: 731
+  actualizaciones, 98 altas y 13 bajas de filas fuente obsoletas.
+- Marcos Roku `#162`: se eliminaron dos pagos manuales agregados y el cargo
+  operativo duplicado del pedido `#2525`. Cash Flow conserva las cinco lineas
+  fuente que los respaldan y el saldo final se mantiene en USD 7.554.
 
-## Cuentas que siguen bloqueadas
+## Pendientes que no se modificaron
 
-Facu Fabriccini `#66`, Aylen Gentiletti `#70`, Ramiro Star Computacion `#72`,
-Nahuel Nuevo `#96`, Tomas Rodriguez `#119`, Sebastian Lunardi `#147`, Marcos
-Roku `#162`, Gonzalo Lemesoff `#174`, Luca Sta Fe Nahuel `#214` y Martin
-Duster `#275` conservan ajuste global. Todas incluyen movimientos operativos,
-cambios historicos o falta de filas raw que requieren comprobante individual.
-
-Nahuel Nuevo y Gonzalo Lemesoff tienen fuente con saldo cero, pero tambien un
-movimiento historico de arqueo. No se lo reemplazo ni elimino porque la fuente
-no demuestra su origen individual.
+- Baselines historicos sin evidencia documental: 30 cuentas con solo baseline,
+  19 mixtas y 3 operativas sin fuente financiera.
+- Dos diferencias historicas de proveedores: `INV-5725` de FREEZIA y
+  `0163445-IN` de PLANET CELLULAR.
+- Formulas de `PROXIMOS VENCIMIENTOS` indicadas en el plan de etapa 3. No se
+  modifica ninguna planilla desde este sistema.
 
 ## Pruebas aprobadas
 
-- Conciliacion por contenido de Cash Flow.
-- Alta, baja y reasignacion diferencial de articulos.
-- Rechazo de cabeceras ambiguas y deduplicacion de cabeceras identicas.
-- Validacion de tipos de la aplicacion.
-
-## Proximo paso permitido
-
-Registrar Invoice, recibo o comprobante bancario desde `Mantenimiento >
-Evidencia de cuentas`, empezando por Marcos Roku. Con esa evidencia se puede
-decidir cada movimiento sin alterar el resto de la cuenta.
+- Auditoria de deriva Cash Flow y previsualizacion de reconstruccion.
+- Auditoria de duplicados de cuenta corriente.
+- Pruebas de conciliacion, exportacion con signo contable y pedido de agente.
+- Tipos y compilacion de produccion.

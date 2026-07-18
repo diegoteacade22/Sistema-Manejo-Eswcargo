@@ -1,36 +1,29 @@
-# Cola de reconstrucción de cuentas Cash Flow
+# Resultado de reconstruccion Cash Flow
 
-Fecha de contraste: 2026-07-18. Fuente consultada en solo lectura: `CASH FLOW
-2026`. No se modificó ninguna planilla.
+Fecha: 2026-07-18. Fuente consultada en solo lectura: `CASH FLOW 2026`.
+No se modifico ninguna planilla.
 
-## Reconstrucción completada
+## Reconstruccion completada
 
-- Octavio Molina (`#273`): seis filas fuente incorporadas y ajuste global de
-  USD -280 eliminado. El saldo final quedó en USD -280, igual a la fuente.
+- 11 cuentas fuente, 1.112 filas raw.
+- 731 actualizaciones, 98 altas y 13 bajas de filas raw que no existen en la
+  fuente vigente.
+- Las 1.112 filas coinciden exactamente por referencia, fecha, tipo, importe y
+  descripcion; los 11 saldos finales cierran contra Cash Flow.
+- Los 10 ajustes globales se recalcularon como el negativo de los movimientos
+  operativos conservados. No son una diferencia sin explicar.
+- Octavio Molina `#273` queda sin ajuste global y con saldo fuente USD 280.
+- Marcos Roku `#162` queda sin pagos ni cargos documentales duplicados.
 
-## Pendiente de detalle por movimiento
+## Cola pendiente con evidencia externa
 
-Estas cuentas conservan un ajuste global porque su detalle combina filas raw,
-movimientos operativos y cambios históricos de la fuente. El ajuste coincide
-matemáticamente con la diferencia, pero no es evidencia suficiente para
-considerar el detalle conciliado.
+No se modifica automaticamente ninguna cuenta sin fuente financiera vigente:
 
-| Cliente | ID | Ajuste global (USD) | Motivo de bloqueo |
-| --- | ---: | ---: | --- |
-| Facu Fabriccini | 66 | -25,645 | 84 signos opuestos, 35 importes cambiados y movimientos operativos. |
-| Aylen Gentiletti | 70 | -80,395 | 35 signos opuestos, 30 importes cambiados y movimientos operativos. |
-| Ramiro Star Computacion | 72 | -75,134 | 11 importes cambiados, 13 filas faltantes y movimientos operativos. |
-| Nahuel Nuevo | 96 | -17,839 | Sin raw importado; existen movimientos operativos contra fuente con saldo cero. |
-| Tomas Rodriguez | 119 | -24,610 | Signos, importes y movimientos operativos sin vinculación individual. |
-| Sebastian Lunardi | 147 | -43,775 | Signos, importes y movimientos operativos sin vinculación individual. |
-| Marcos Roku | 162 | -34,002 | 137 signos opuestos, 58 importes cambiados y pagos manuales a contrastar. |
-| Gonzalo Lemesoff | 174 | -11,641 | Sin raw importado; existen movimientos operativos contra fuente con saldo cero. |
-| Luca Sta Fe Nahuel | 214 | -15,735 | Signos, importes y referencias Invoice históricas compartidas. |
-| Martin Duster | 275 | -96,835 | Signos, importes y movimientos operativos sin vinculación individual. |
+- 30 cuentas con solo baseline historico.
+- 19 cuentas con baseline mezclado con movimientos posteriores.
+- 3 cuentas operativas sin hoja Cash Flow asociada.
+- Diferencias de proveedores `INV-5725` (FREEZIA) y `0163445-IN`
+  (PLANET CELLULAR).
 
-## Regla de aplicación
-
-No se elimina un ajuste ni se borra un pago o cargo operativo hasta que una
-simulación pruebe, para esa cuenta, que cada fila fuente queda representada una
-sola vez y que el saldo final coincide. Los comprobantes externos se registran
-desde `Mantenimiento > Evidencia de cuentas`.
+La evidencia debe registrarse desde `Mantenimiento > Evidencia de cuentas` o
+revisarse en las planillas de origen; este sistema no escribe Google Sheets.
