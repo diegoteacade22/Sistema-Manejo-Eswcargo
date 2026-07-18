@@ -172,6 +172,10 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Los cargos manuales de envío son idempotentes por envío y cliente: un reintento
   actualiza el cargo existente en vez de crear otro. Los pagos de compras se
   rechazan si repiten compra, fecha, monto, método y referencia.
+- Un cargo de envío sólo puede asignarse al único cliente presente en sus
+  artículos confirmados. Los envíos compartidos quedan bloqueados para cargos
+  comunes hasta registrar una distribución documental; la auditoría recurrente
+  detecta tanto cargos `SHIP-*` ambiguos como asignados al cliente incorrecto.
 - Los pagos de clientes ahora se rechazan si repiten cliente, fecha, monto y
   referencia, incluso si el segundo intento cambia u omite el método de pago.
   La detección corre antes y después de cada actualización y se muestra en

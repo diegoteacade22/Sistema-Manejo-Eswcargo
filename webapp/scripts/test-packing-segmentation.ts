@@ -1,4 +1,4 @@
-import { getPackingSegmentIssue, getPackingSegments, projectShipmentForPacking } from '../lib/packing-segments';
+import { getPackingSegmentIssue, getPackingSegments, getShipmentChargeIssue, projectShipmentForPacking } from '../lib/packing-segments';
 import { buildShipmentItems } from '../lib/shipment-items';
 import { canUseSegmentedPackingForShipmentBlock } from '../lib/source-document-guard';
 
@@ -58,6 +58,21 @@ async function main() {
   }
   if (canUseSegmentedPackingForShipmentBlock('Error de fuente distinto', true)) {
     throw new Error('Un bloqueo de fuente distinto debe seguir bloqueando el Packing List.');
+  }
+  if (!getShipmentChargeIssue(shipment, ramiro.id)?.includes('más de un cliente')) {
+    throw new Error('Un envío compartido no puede atribuir un cargo común a un cliente.');
+  }
+
+  const oneClientShipment = {
+    ...shipment,
+    items: shipment.items.filter((item) => item.order.clientId === ramiro.id),
+    orders: shipment.orders.filter((order) => order.clientId === ramiro.id),
+  };
+  if (getShipmentChargeIssue(oneClientShipment, ramiro.id)) {
+    throw new Error('Un envío de un solo cliente debe admitir su cargo.');
+  }
+  if (!getShipmentChargeIssue(oneClientShipment, marcos.id)?.includes('no corresponde')) {
+    throw new Error('Un cargo no puede atribuirse a un cliente ajeno al envío.');
   }
 
   console.log('OK: el Packing de un envío compartido se segmenta por cliente sin mezclar cantidades.');

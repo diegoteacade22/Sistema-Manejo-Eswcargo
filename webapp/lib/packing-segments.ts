@@ -61,6 +61,22 @@ export function getPackingSegments(shipment: any): PackingSegment[] {
     return [...segments.values()].sort((left, right) => left.client.name.localeCompare(right.client.name));
 }
 
+export function getShipmentChargeIssue(shipment: any, clientId: number) {
+    const packingIssue = getPackingSegmentIssue(shipment);
+    if (packingIssue) return packingIssue;
+
+    const segments = getPackingSegments(shipment);
+    if (segments.length > 1) {
+        return 'El envío contiene artículos de más de un cliente. No se puede atribuir un cargo común hasta registrar la distribución por cliente.';
+    }
+
+    if (segments[0]?.clientId !== clientId) {
+        return 'El cliente elegido no corresponde a los artículos confirmados de este envío.';
+    }
+
+    return null;
+}
+
 export function projectShipmentForPacking(shipment: any, segment: PackingSegment, segmentCount: number) {
     const itemIds = new Set(segment.itemIds);
     return {

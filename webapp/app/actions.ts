@@ -8,7 +8,7 @@ import { sendInvoiceEmail, sendPackingListEmail } from '@/app/email-actions';
 import { sendWhatsAppMessage } from '@/lib/whatsapp';
 import { createClientPaymentWithReceipt } from '@/lib/payment-receipts';
 import { buildShipmentItems } from '@/lib/shipment-items';
-import { getPackingSegmentIssue, getPackingSegments } from '@/lib/packing-segments';
+import { getPackingSegmentIssue, getPackingSegments, getShipmentChargeIssue } from '@/lib/packing-segments';
 
 type DeliveryChannel = 'EMAIL' | 'WHATSAPP' | 'SKIPPED' | 'FAILED';
 
@@ -454,10 +454,17 @@ export async function registerShipmentCharge(shipmentId: number, clientId: numbe
     try {
         const shipment = await prisma.shipment.findUnique({
             where: { id: shipmentId },
-            select: { shipment_number: true }
+            include: {
+                client: true,
+                items: { include: { order: { include: { client: true } } } },
+                orders: { include: { client: true } },
+            }
         });
 
         if (!shipment) return { success: false, message: 'Envío no encontrado' };
+
+        const chargeIssue = getShipmentChargeIssue(shipment, clientId);
+        if (chargeIssue) return { success: false, message: chargeIssue };
 
         const reference = `SHIP-${shipment.shipment_number}`;
         const data = {

@@ -51,6 +51,12 @@ function orderNumberFromTransaction(tx) {
   return match ? Number(match[1]) : null;
 }
 
+function shipmentNumberFromTransaction(tx) {
+  const reference = String(tx.reference || '').trim();
+  const match = reference.match(/^SHIP-(\d+)$/i);
+  return match ? Number(match[1]) : null;
+}
+
 function isReversal(tx) {
   return /\b(?:DEVOL(?:UCION)?|RETORNO|REFUND|REVERS)/i.test(String(tx.description || ''));
 }
@@ -105,6 +111,7 @@ async function main() {
   const documentOccurrences = new Map();
   const paymentGroups = new Map();
   const orderCharges = [];
+  const shipmentCharges = [];
 
   for (const tx of operational) {
     const exactKey = [
@@ -127,6 +134,9 @@ async function main() {
 
       const orderNumber = orderNumberFromTransaction(tx);
       if (orderNumber) orderCharges.push({ tx, orderNumber });
+
+      const shipmentNumber = shipmentNumberFromTransaction(tx);
+      if (shipmentNumber) shipmentCharges.push({ tx, shipmentNumber });
     }
 
     if (tx.type === 'PAGO' && tx.amount > 0) {
@@ -186,6 +196,48 @@ async function main() {
       sourceTotal: order.total_amount,
     }];
   });
+  const shipmentNumbers = [...new Set(shipmentCharges.map(({ shipmentNumber }) => shipmentNumber))];
+  const shipments = shipmentNumbers.length
+    ? await prisma.shipment.findMany({
+      where: { shipment_number: { in: shipmentNumbers } },
+      select: {
+        shipment_number: true,
+        client: { select: { id: true, old_id: true, name: true } },
+        items: { select: { order: { select: { client: { select: { id: true, old_id: true, name: true } } } } } },
+        orders: { select: { client: { select: { id: true, old_id: true, name: true } } } },
+      },
+    })
+    : [];
+  const shipmentByNumber = new Map(shipments.map((shipment) => [shipment.shipment_number, shipment]));
+  const shipmentChargeChecks = shipmentCharges.map(({ tx, shipmentNumber }) => {
+    const shipment = shipmentByNumber.get(shipmentNumber);
+    const owners = new Map();
+    for (const item of shipment?.items || []) {
+      const client = item.order?.client;
+      if (client) owners.set(client.id, client);
+    }
+    for (const order of shipment?.orders || []) {
+      const client = order.client;
+      if (client) owners.set(client.id, client);
+    }
+    if (owners.size === 0 && shipment?.client) owners.set(shipment.client.id, shipment.client);
+    return { tx, shipmentNumber, owners: [...owners.values()] };
+  });
+  const wrongClientShipmentCharges = shipmentChargeChecks
+    .filter(({ tx, owners }) => owners.length === 1 && owners[0].id !== tx.clientId)
+    .map(({ tx, shipmentNumber, owners }) => ({
+      shipmentNumber,
+      transaction: summarize([tx])[0],
+      ledgerClient: tx.client,
+      sourceClient: owners[0],
+    }));
+  const ambiguousShipmentCharges = shipmentChargeChecks
+    .filter(({ owners }) => owners.length !== 1)
+    .map(({ tx, shipmentNumber, owners }) => ({
+      shipmentNumber,
+      transaction: summarize([tx])[0],
+      sourceClients: owners,
+    }));
 
   const report = {
     generatedAt: new Date().toISOString(),
@@ -198,10 +250,12 @@ async function main() {
     repeatedDocuments,
     repeatedPayments,
     wrongClientOrderCharges,
+    wrongClientShipmentCharges,
+    ambiguousShipmentCharges,
   };
 
   console.log(JSON.stringify(report, null, 2));
-  if (exactDuplicates.length || documentDuplicates.length || repeatedDocuments.length || repeatedPayments.length || wrongClientOrderCharges.length) process.exitCode = 2;
+  if (exactDuplicates.length || documentDuplicates.length || repeatedDocuments.length || repeatedPayments.length || wrongClientOrderCharges.length || wrongClientShipmentCharges.length || ambiguousShipmentCharges.length) process.exitCode = 2;
 }
 
 main()
