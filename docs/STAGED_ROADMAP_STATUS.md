@@ -94,13 +94,17 @@ ninguna escritura automatica sobre planillas ni base de datos.
   directo a cada área de trabajo.
 - Cola concreta de operación: hasta cinco pedidos en `COMPRAR` o `RESERVADO`
   y cinco envíos en movimiento, con cliente, estado y acceso al registro.
+- Lista de Packing bloqueados: detecta envíos operativos con cantidades
+  declaradas pero sin artículos vinculados ni descripción imprimible. Solo
+  informa y lleva al documento; no completa ni modifica datos.
 - Mantenimiento muestra hasta 50 cambios recientes para no ocultar las
   excepciones de una corrida completa.
 
 ### Pendiente
 
-- Extender la vista de hoy con envíos incompletos, documentos bloqueados y
-  cobros esperados en listas accionables.
+- Extender la vista de hoy con cobros esperados en una lista accionable. Las
+  cuentas por cobrar actuales ya se muestran como Top 5, pero falta separarlas
+  por vencimiento confirmado desde una fuente financiera normalizada.
 - Vista financiera: caja, vencimientos, cobranzas, rentabilidad y fecha de
   ultima fuente verificada.
 - Alertas accionables conectadas a los controles de las etapas 1 y 3.

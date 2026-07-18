@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { auth } from '@/lib/auth';
 import { DashboardPeriodSelector } from '@/components/analytics/dashboard-period-selector';
 import { isAdjustmentTransaction, isQuarantinedLedgerTransaction } from '@/lib/ledger-rules';
+import { hasPrintableShipmentContent } from '@/lib/shipment-items';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -46,6 +47,7 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
       ordersToBuyCount: 0,
       ordersToConfirm: [],
       shipmentsInTransit: [],
+      blockedDocuments: [],
       pendingPurchaseQty: 0,
       dataIssues: [],
       dataIssueDetails: [],
@@ -81,6 +83,7 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
       ordersToBuyCount: 0,
       ordersToConfirm: [],
       shipmentsInTransit: [],
+      blockedDocuments: [],
       pendingPurchaseQty: 0,
       dataIssues: [],
       dataIssueDetails: [],
@@ -204,6 +207,7 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
     .slice(0, 5);
 
   let pendingPurchaseQty = 0;
+  let blockedDocuments: any[] = [];
   if (userRole === 'ADMIN') {
     const purchases = await (prisma as any).purchase.findMany({
       include: {
@@ -221,6 +225,24 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
       }, 0);
       return sum + purchasePending;
     }, 0);
+
+    const packingCandidates = await (prisma as any).shipment.findMany({
+      where: { item_count: { gt: 0 } },
+      select: {
+        id: true,
+        shipment_number: true,
+        status: true,
+        item_count: true,
+        cargo_description: true,
+        client: { select: { name: true } },
+        items: { select: { id: true } },
+        orders: { select: { items: { select: { id: true, shipmentId: true } } } },
+      },
+    });
+    blockedDocuments = packingCandidates
+      .filter((shipment: any) => !['', 'COMPRAR', '100', '200', '#REF!'].includes(String(shipment.status || '').trim().toUpperCase()))
+      .filter((shipment: any) => !hasPrintableShipmentContent(shipment))
+      .slice(0, 5);
   }
 
   // 5. Data Processing for Charts
@@ -414,6 +436,7 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
     ordersToBuyCount,
     ordersToConfirm,
     shipmentsInTransit,
+    blockedDocuments,
     pendingPurchaseQty,
     dataIssues,
     dataIssueDetails,
@@ -470,6 +493,7 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
     ordersToBuyCount,
     ordersToConfirm,
     shipmentsInTransit,
+    blockedDocuments,
     pendingPurchaseQty,
     dataIssues,
     dataIssueDetails,
@@ -681,7 +705,7 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
               <p className="mt-1 text-xs text-muted-foreground">{dataIssues[0] || 'Sin alertas críticas'}</p>
             </Link>
           </div>
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-4 xl:grid-cols-3">
             <Card className="border-l-4 border-l-orange-500">
               <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
                 <CardTitle className="text-base">Pedidos a confirmar</CardTitle>
@@ -716,6 +740,26 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
                       <Link key={shipment.id} href={`/shipments/${shipment.id}`} className="flex items-center justify-between gap-3 border-b border-border py-2 last:border-0 hover:text-blue-600">
                         <span className="font-medium">Envío #{shipment.shipment_number} · {shipment.client?.name || 'Sin cliente'}</span>
                         <Badge variant="outline">{shipment.status}</Badge>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            <Card className="border-l-4 border-l-red-500">
+              <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
+                <CardTitle className="text-base">Documentos bloqueados</CardTitle>
+                <Button asChild variant="ghost" size="sm"><Link href="/maintenance">Control <ArrowRight className="ml-1 h-3.5 w-3.5" /></Link></Button>
+              </CardHeader>
+              <CardContent>
+                {blockedDocuments.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No hay envíos con artículos declarados y sin contenido imprimible.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {blockedDocuments.map((shipment: any) => (
+                      <Link key={shipment.id} href={`/shipments/${shipment.id}/packing-list`} className="flex items-center justify-between gap-3 border-b border-border py-2 last:border-0 hover:text-red-600">
+                        <span className="font-medium">Packing #{shipment.shipment_number} · {shipment.client?.name || 'Sin cliente'}</span>
+                        <Badge variant="outline">Revisar</Badge>
                       </Link>
                     ))}
                   </div>
