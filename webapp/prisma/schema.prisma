@@ -37,6 +37,7 @@ model Client {
   shipments    Shipment[]
   transactions Transaction[]
   allocations  PurchaseAllocation[]
+  accountEvidence AccountEvidence[]
 }
 
 model User {
@@ -179,6 +180,7 @@ model Transaction {
   supplier      Supplier? @relation(fields: [supplierId], references: [id])
   receipt       PaymentReceipt?
   paymentGuard  ClientPaymentGuard?
+  accountEvidence AccountEvidence[]
 }
 
 model ClientPaymentGuard {
@@ -237,6 +239,27 @@ model PaymentReceipt {
   transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
 
   @@index([createdAt])
+  @@index([sha256])
+}
+
+model AccountEvidence {
+  id            Int          @id @default(autoincrement())
+  clientId      Int
+  transactionId Int?
+  category      String
+  note          String?
+  source        String?
+  fileName      String?
+  mimeType      String?
+  size          Int?
+  sha256        String?
+  data          Bytes?
+  createdAt     DateTime     @default(now())
+  client        Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, createdAt])
+  @@index([transactionId])
   @@index([sha256])
 }
 

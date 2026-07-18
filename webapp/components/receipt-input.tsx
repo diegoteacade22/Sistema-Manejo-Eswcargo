@@ -2,15 +2,15 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { ClipboardEvent as ReactClipboardEvent } from 'react';
-import { Clipboard, ImageIcon, X } from 'lucide-react';
+import { Clipboard, FileText, ImageIcon, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-const ACCEPTED_IMAGE_TYPES = 'image/jpeg,image/png,image/webp';
+const ACCEPTED_RECEIPT_TYPES = 'image/jpeg,image/png,image/webp,application/pdf';
 
-function isAcceptedImage(file: File) {
-    return ['image/jpeg', 'image/png', 'image/webp'].includes(file.type);
+function isAcceptedReceipt(file: File) {
+    return ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.type);
 }
 
 export function ReceiptInput({
@@ -35,8 +35,8 @@ export function ReceiptInput({
     }, [previewUrl]);
 
     const handleFile = (nextFile: File | null) => {
-        if (nextFile && !isAcceptedImage(nextFile)) {
-            alert('El comprobante debe ser una imagen JPG, PNG o WEBP.');
+        if (nextFile && !isAcceptedReceipt(nextFile)) {
+            alert('El comprobante debe ser JPG, PNG, WEBP o PDF.');
             return;
         }
         setPasteMessage(nextFile ? 'Imagen lista para adjuntar.' : null);
@@ -108,12 +108,12 @@ export function ReceiptInput({
                     <Input
                         id={inputId}
                         type="file"
-                        accept={ACCEPTED_IMAGE_TYPES}
+                        accept={ACCEPTED_RECEIPT_TYPES}
                         onChange={(event) => handleFile(event.target.files?.[0] || null)}
                     />
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Clipboard className="h-4 w-4" />
-                        <span>Podés pegar una imagen copiada desde WhatsApp con Cmd+V.</span>
+                        <span>Podés pegar una imagen copiada desde WhatsApp con Cmd+V o adjuntar un PDF.</span>
                     </div>
                     <Button type="button" variant="outline" size="sm" onClick={handleClipboardButton} className="w-fit">
                         <Clipboard className="mr-2 h-4 w-4" />
@@ -123,7 +123,7 @@ export function ReceiptInput({
                         <div className="rounded-md bg-emerald-50 dark:bg-emerald-950/40 p-3 text-sm text-emerald-700 dark:text-emerald-300">
                             <div className="flex items-center justify-between gap-3">
                                 <span className="flex min-w-0 items-center gap-2">
-                                    <ImageIcon className="h-4 w-4 shrink-0" />
+                                    {file.type === 'application/pdf' ? <FileText className="h-4 w-4 shrink-0" /> : <ImageIcon className="h-4 w-4 shrink-0" />}
                                     <span className="truncate">{file.name}</span>
                                 </span>
                                 <Button type="button" variant="ghost" size="sm" onClick={() => handleFile(null)}>
