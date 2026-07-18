@@ -171,6 +171,19 @@ model Transaction {
   receipt       PaymentReceipt?
 }
 
+model SyncRun {
+  id        Int      @id @default(autoincrement())
+  scope     String
+  status    String
+  startedAt DateTime @default(now())
+  finishedAt DateTime?
+  summary   Json?
+  error     String?
+
+  @@index([startedAt])
+  @@index([status])
+}
+
 model PaymentReceipt {
   id            Int         @id @default(autoincrement())
   transactionId Int         @unique

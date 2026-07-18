@@ -5,6 +5,7 @@ import path from 'path';
 import { sameItemSet } from '../lib/sync-item-comparison';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
+let activeSyncRunId: number | null = null;
 
 function resolveImportedTxOldClientId(tx: any): number | null {
     const reference = String(tx?.reference || '').toUpperCase();
@@ -21,6 +22,10 @@ async function main() {
     const isFullSync = process.env.SYNC_MODE === 'FULL';
     console.log(`🚀 Iniciando Sembrado Rápido (Consolidado) - Modo: ${isFullSync ? 'COMPLETO' : 'DIFERENCIAL'}...`);
     const startTime = Date.now();
+    const syncRun = await prisma.syncRun.create({
+        data: { scope: isFullSync ? 'FULL' : 'DIFF', status: 'RUNNING' }
+    });
+    activeSyncRunId = syncRun.id;
 
     const prismaDir = path.join(process.cwd(), 'prisma');
 
@@ -841,9 +846,34 @@ async function main() {
     }
 
     const endTime = Date.now();
+    await prisma.syncRun.update({
+        where: { id: syncRun.id },
+        data: {
+            status: 'SUCCESS',
+            finishedAt: new Date(),
+            summary: {
+                clients: clientsData.length,
+                products: productsData.length,
+                shipments: shipmentsData.length,
+                orders: normalizedOrdersData.length,
+                orderItemsReplaced,
+                reconciliationOrders: reconciliationOrderIds.length,
+                durationSeconds: Number(((endTime - startTime) / 1000).toFixed(3)),
+            },
+        },
+    });
     console.log(`\n✅ Sincronización finalizada en ${(endTime - startTime) / 1000}s.`);
 }
 
 main()
-    .catch(e => { console.error(e); process.exit(1); })
+    .catch(async e => {
+        if (activeSyncRunId !== null) {
+            await prisma.syncRun.update({
+                where: { id: activeSyncRunId },
+                data: { status: 'FAILED', finishedAt: new Date(), error: String(e?.message || e).slice(0, 2000) },
+            }).catch(() => undefined);
+        }
+        console.error(e);
+        process.exit(1);
+    })
     .finally(() => prisma.$disconnect());

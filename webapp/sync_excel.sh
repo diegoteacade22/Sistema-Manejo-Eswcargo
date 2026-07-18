@@ -79,6 +79,11 @@ fi
 # 3. Seed Fast
 echo "-> Updating Database (Differential Seed - Mode: $SYNC_MODE)..."
 cd "$DIR"
+npx prisma migrate deploy --schema prisma/schema.prisma
+if [ $? -ne 0 ]; then
+   echo "Error: no se pudieron aplicar las migraciones de base requeridas para la sincronización."
+   exit 1
+fi
 if [ -x "$DIR/node_modules/.bin/tsx" ]; then
    run_stage "Actualización de base" env SYNC_MODE=$SYNC_MODE ALLOW_FINANCIAL_LEDGER_SYNC=0 "$DIR/node_modules/.bin/tsx" prisma/seed_fast.ts
 elif [ -x "$DIR/node_modules/.bin/ts-node" ]; then
