@@ -339,6 +339,48 @@ async function getLedgerIntegrityExceptions(): Promise<SyncException[]> {
         });
     }
 
+    const baselineTransactions = await prisma.transaction.findMany({
+        where: { reference: { startsWith: 'CC-ZERO-BASELINE-2026:' } },
+        select: {
+            clientId: true,
+            amount: true,
+            client: { select: { old_id: true, name: true } },
+        },
+    });
+    const baselineClientIds = [...new Set(baselineTransactions.map((transaction) => transaction.clientId).filter((id): id is number => id !== null))];
+    const baselineBalances = baselineClientIds.length
+        ? await prisma.transaction.groupBy({
+            by: ['clientId'],
+            where: {
+                clientId: { in: baselineClientIds },
+                NOT: { reference: { startsWith: 'CC-Import-' } },
+            },
+            _sum: { amount: true },
+            _count: { _all: true },
+        })
+        : [];
+    const baselineBalanceByClientId = new Map(baselineBalances.map((balance) => [balance.clientId, balance]));
+    const artificialBaselines = baselineTransactions.filter((baseline) => {
+        if (baseline.clientId === null) return false;
+        const balance = baselineBalanceByClientId.get(baseline.clientId);
+        const currentBalance = balance?._sum.amount || 0;
+        const txCount = balance?._count._all || 0;
+        return (txCount === 1 && Math.abs(baseline.amount) > 5000)
+            || (Math.abs(baseline.amount) > 100000 && Math.abs(currentBalance) > 1000);
+    });
+    if (artificialBaselines.length) {
+        const examples = artificialBaselines
+            .slice(0, 4)
+            .map((baseline) => `${baseline.client?.name || 'Cliente'} #${baseline.client?.old_id ?? '-'} (${money(baseline.amount)})`)
+            .join('; ');
+        exceptions.push({
+            level: 'warning',
+            title: `${artificialBaselines.length} ajuste(s) histórico(s) de saldo a validar`,
+            detail: `${examples}. Se mantienen sin cambios hasta contrastarlos con respaldo contable o Cash Flow.`,
+            url: '/analytics/financial',
+        });
+    }
+
     const clientPayments = await prisma.transaction.findMany({
         where: {
             clientId: { not: null },

@@ -8,6 +8,12 @@
 - Respaldo local: `webapp/backups/ledger-batch-2026-07-18T084052Z.json`.
 - Se deshabilito por defecto la recreacion de movimientos financieros y la
   limpieza de importaciones CC en las sincronizaciones operativas.
+- Se removieron seis movimientos heredados que formaban tres pares exactos de
+  cargo equivocado y ajuste compensatorio: `88905/466201`, `88906/466203` y
+  `425313/466204`. La fuente operativa confirma que los pedidos `#2398`,
+  `#2399` y `#2470` pertenecen a otros clientes y tienen totales distintos.
+  El neto removido fue USD `0.00`; respaldo local:
+  `webapp/backups/stale-neutralized-order-charges-2026-07-18.json`.
 
 ## Saldos conciliados contra fuente
 
@@ -28,6 +34,9 @@ Federico Esquivel - Canning, Facundo Madeira y Ariel Lencina - Ary-Shop.
   localizada en Cash Flow.
 - Baselines historicos de otras cuentas permanecen como advertencia. No se
   modifican sin una fuente documental que confirme su origen.
+- Posible doble pago de Marcos Roku `#162`: tx `1173202` y `1173203`, ambos
+  por USD `14.700` el 2026-07-09. No se elimina sin comprobante porque Cash
+  Flow no contiene una fila que permita distinguir uno o dos pagos reales.
 
 ## Regla operativa
 

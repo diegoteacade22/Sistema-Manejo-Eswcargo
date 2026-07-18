@@ -166,6 +166,10 @@ ninguna escritura automatica sobre planillas ni base de datos.
   referencia, incluso si el segundo intento cambia u omite el método de pago.
   La detección corre antes y después de cada actualización y se muestra en
   Mantenimiento.
+- Se eliminaron tres pares históricos de cargo equivocado y ajuste
+  compensatorio (`#2398`, `#2399`, `#2470`) después de validar que cada par
+  mantenía el saldo neto en cero y que la fuente operativa atribuye los pedidos
+  a otros clientes. El procedimiento generó respaldo reversible.
 - Auditoría de proveedores antes y después de cada sincronización local o cloud.
   Detecta duplicados exactos, pagos que no cierran contra su cargo y referencias
   de compras sin registro interno. Solo alerta: nunca modifica saldos ni la
