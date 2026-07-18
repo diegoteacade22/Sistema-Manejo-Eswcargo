@@ -96,6 +96,7 @@ run_stage "Auditoría de cuenta corriente previa" node "$DIR/scripts/audit-ledge
 run_stage "Cobertura de cuentas corrientes previa" node "$DIR/scripts/audit-client-account-coverage.mjs" --summary
 run_stage "Auditoría de duplicados CC previa" node "$DIR/scripts/audit-ledger-duplicates.mjs" || echo "⚠️ Posibles duplicados o documentos repetidos en Cuenta Corriente; revisar antes de emitir cobros."
 run_stage "Auditoría de reservas de compra previa" node "$DIR/scripts/audit-purchase-allocations.mjs"
+run_stage "Auditoría de cuentas de proveedores previa" node "$DIR/scripts/audit-supplier-ledgers.mjs" || echo "⚠️ Proveedores con movimientos a revisar; se mantiene la sincronización operativa sin alterar saldos."
 if [ -x "$DIR/node_modules/.bin/tsx" ]; then
    run_stage "Actualización de base" env SYNC_MODE=$SYNC_MODE ALLOW_FINANCIAL_LEDGER_SYNC=0 "$DIR/node_modules/.bin/tsx" prisma/seed_fast.ts
 elif [ -x "$DIR/node_modules/.bin/ts-node" ]; then
