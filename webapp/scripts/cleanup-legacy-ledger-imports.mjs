@@ -3,6 +3,11 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
+  if (process.env.ALLOW_LEGACY_LEDGER_CLEANUP !== '1') {
+    console.log('🛡️ Limpieza CC legacy omitida: requiere ALLOW_LEGACY_LEDGER_CLEANUP=1.');
+    return;
+  }
+
   const legacyImports = await prisma.transaction.deleteMany({
     where: { reference: { startsWith: 'CC-Import-' } },
   });

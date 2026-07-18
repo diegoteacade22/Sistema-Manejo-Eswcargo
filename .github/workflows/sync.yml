@@ -63,6 +63,7 @@ jobs:
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
           SYNC_DAYS: ${{ github.event.inputs.days || 'FULL' }}
           ALLOW_FINANCIAL_LEDGER_SYNC: '0'
+          ALLOW_LEGACY_LEDGER_CLEANUP: '0'
         run: |
           stage_started_at=$(date +%s)
           SYNC_RUNTIME="/tmp/eswcargo-sync-runtime"
