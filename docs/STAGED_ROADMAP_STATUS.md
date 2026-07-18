@@ -168,6 +168,9 @@ ninguna escritura automatica sobre planillas ni base de datos.
   Detecta faltantes, signos opuestos, cambios, referencias repetidas y extras,
   y verifica que el saldo final de cada cuenta siga coincidiendo con la fuente.
   No crea ni altera movimientos financieros.
+- Una cuenta con un ajuste global `CASHFLOW-RECONCILIATION-2026` no puede
+  marcarse como conciliada por saldo: la auditoría la clasifica como pendiente
+  de detalle hasta respaldar o sustituir cada diferencia individual.
 - Contraste de referencias Invoice en modo solo lectura contra ventas actuales
   e históricas antes de cada sincronización. Las diferencias quedan visibles y
   no alteran cuentas conciliadas.

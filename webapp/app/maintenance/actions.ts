@@ -454,6 +454,27 @@ async function getLedgerIntegrityExceptions(): Promise<SyncException[]> {
         });
     }
 
+    const reconciliationAdjustments = await prisma.transaction.findMany({
+        where: { reference: { startsWith: 'CASHFLOW-RECONCILIATION-2026:' } },
+        select: {
+            clientId: true,
+            amount: true,
+            client: { select: { old_id: true, name: true } },
+        },
+    });
+    if (reconciliationAdjustments.length) {
+        const examples = reconciliationAdjustments
+            .slice(0, 4)
+            .map((transaction) => `${transaction.client?.name || 'Cliente'} #${transaction.client?.old_id ?? '-'} (${money(transaction.amount)})`)
+            .join('; ');
+        exceptions.push({
+            level: 'error',
+            title: `${reconciliationAdjustments.length} cuenta(s) con ajuste global de conciliación`,
+            detail: `${examples}. El saldo final coincide con la fuente, pero no se considera conciliado hasta respaldar o sustituir cada diferencia por movimiento.`,
+            url: '/maintenance/evidence',
+        });
+    }
+
     const accountTransactions = await prisma.transaction.findMany({
         where: { clientId: { not: null } },
         select: {
