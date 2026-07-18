@@ -15,18 +15,23 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Historial persistente de cada sincronizacion con estado, alcance, duracion y
   contadores operativos. La ejecucion crea el registro antes de procesar y lo
   cierra como fallida si ocurre un error.
+- Bitacora por registro, con antes/despues y motivo para altas, cambios de
+  cabecera, items, reasignaciones y rechazos. Se visualiza en Mantenimiento.
+- Las cabeceras duplicadas e incompatibles se rechazan sin sobrescribir el
+  registro productivo. Los proveedores se identifican por codigo, no por
+  nombre repetido.
 
 ### Pendiente
 
-- Extender el historial con el detalle por registro: creado, actualizado,
-  removido o rechazado, con su causa. El historial actual conserva resumenes
-  verificables por corrida.
 - Pruebas de interfaz autenticada para packing, invoice, asignaciones y
   movimientos, ademas de las auditorias de datos actuales.
 - Revisar el unico packing operativo sin contenido confirmado, `#1048`, cuando
   exista fuente documental; no se deben inventar articulos.
 - Completar la cabecera del envio `#1172` para el pedido `#2479`; el contraste
   lo deja como advertencia y no inventa una cabecera faltante.
+- Resolver en la fuente las 13 cabeceras de envio duplicadas y la cabecera
+  duplicada del pedido `#2223`, documentadas en el reporte de colisiones. No
+  se debe elegir una fila automaticamente.
 
 ## Etapa 2: Bandeja de pedidos
 
