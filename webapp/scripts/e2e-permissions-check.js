@@ -129,6 +129,52 @@ async function run() {
       },
     });
 
+    created.orderA = await prisma.order.create({
+      data: {
+        order_number: 880000 + (now % 10000),
+        clientId: created.clientA.id,
+        shipmentId: created.shipmentA.id,
+        date: new Date(),
+        status: 'SALIENDO',
+        total_amount: 150,
+        items: {
+          create: [{
+            productName: 'QA Item A',
+            quantity: 1,
+            unit_price: 150,
+            unit_cost: 80,
+            subtotal: 150,
+            profit: 70,
+            shipmentId: created.shipmentA.id,
+            status: 'SALIENDO',
+          }],
+        },
+      },
+    });
+
+    created.orderB = await prisma.order.create({
+      data: {
+        order_number: 890000 + (now % 10000),
+        clientId: created.clientB.id,
+        shipmentId: created.shipmentB.id,
+        date: new Date(),
+        status: 'SALIENDO',
+        total_amount: 330,
+        items: {
+          create: [{
+            productName: 'QA Item B',
+            quantity: 1,
+            unit_price: 330,
+            unit_cost: 200,
+            subtotal: 330,
+            profit: 130,
+            shipmentId: created.shipmentB.id,
+            status: 'SALIENDO',
+          }],
+        },
+      },
+    });
+
     browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
     const page = await browser.newPage();
     page.setDefaultTimeout(20000);
@@ -164,6 +210,24 @@ async function run() {
     const status = foreignResponse?.status?.() ?? 0;
     assert(status === 404, `Cliente pudo abrir detalle de envío ajeno (status=${status})`);
 
+    const ownPackingResponse = await page.goto(`${BASE_URL}/shipments/${created.shipmentA.id}/packing-list`, { waitUntil: 'networkidle2' });
+    assert((ownPackingResponse?.status?.() ?? 0) === 200, 'Cliente no puede abrir su Packing');
+    await page.waitForFunction(() => document.body.innerText.toUpperCase().includes('QA ITEM A'), { timeout: 5000 }).catch(() => undefined);
+    const packingText = await page.evaluate(() => document.body.innerText);
+    assert(packingText.toUpperCase().includes('QA ITEM A'), `Packing propio no muestra el ítem confirmado: ${packingText.slice(0, 500)}`);
+
+    const foreignPackingResponse = await page.goto(`${BASE_URL}/shipments/${created.shipmentB.id}/packing-list`, { waitUntil: 'networkidle2' });
+    assert((foreignPackingResponse?.status?.() ?? 0) === 404, 'Cliente pudo abrir Packing ajeno');
+
+    const ownInvoiceResponse = await page.goto(`${BASE_URL}/orders/${created.orderA.id}/invoice`, { waitUntil: 'networkidle2' });
+    assert((ownInvoiceResponse?.status?.() ?? 0) === 200, 'Cliente no puede abrir su Invoice');
+    await page.waitForFunction(() => document.body.innerText.toUpperCase().includes('QA ITEM A'), { timeout: 5000 }).catch(() => undefined);
+    const invoiceText = await page.evaluate(() => document.body.innerText);
+    assert(invoiceText.toUpperCase().includes('QA ITEM A'), `Invoice propio no muestra el ítem confirmado: ${invoiceText.slice(0, 500)}`);
+
+    const foreignInvoiceResponse = await page.goto(`${BASE_URL}/orders/${created.orderB.id}/invoice`, { waitUntil: 'networkidle2' });
+    assert((foreignInvoiceResponse?.status?.() ?? 0) === 404, 'Cliente pudo abrir Invoice ajeno');
+
     // ===== ADMIN FLOW =====
     await page.goto(`${BASE_URL}/login`, { waitUntil: 'networkidle2' });
     await page.evaluate(() => {
@@ -188,15 +252,31 @@ async function run() {
     const adminShipmentStatus = adminShipmentResponse?.status?.() ?? 0;
     assert(adminShipmentStatus === 200, `Admin no puede abrir detalle de envío (status=${adminShipmentStatus})`);
 
+    const adminPackingResponse = await page.goto(`${BASE_URL}/shipments/${created.shipmentA.id}/packing-list`, { waitUntil: 'networkidle2' });
+    assert((adminPackingResponse?.status?.() ?? 0) === 200, 'Admin no puede abrir Packing');
+    const adminInvoiceResponse = await page.goto(`${BASE_URL}/orders/${created.orderA.id}/invoice`, { waitUntil: 'networkidle2' });
+    assert((adminInvoiceResponse?.status?.() ?? 0) === 200, 'Admin no puede abrir Invoice');
+
     console.log('E2E_RESULT ok=true');
     console.log('E2E_RESULT client_isolation=true');
     console.log('E2E_RESULT no_sensitive_costs_for_client=true');
     console.log('E2E_RESULT admin_access_ok=true');
+    console.log('E2E_RESULT packing_and_invoice_access=true');
   } finally {
     if (browser) {
       await browser.close();
     }
 
+    if (created.orderA?.id) {
+      await safeDelete({ id: created.orderA.id }, 'orderA', async () => {
+        await prisma.order.delete({ where: { id: created.orderA.id } });
+      });
+    }
+    if (created.orderB?.id) {
+      await safeDelete({ id: created.orderB.id }, 'orderB', async () => {
+        await prisma.order.delete({ where: { id: created.orderB.id } });
+      });
+    }
     if (created.shipmentA?.id) {
       await safeDelete({ id: created.shipmentA.id }, 'shipmentA', async () => {
         await prisma.shipment.delete({ where: { id: created.shipmentA.id } });
