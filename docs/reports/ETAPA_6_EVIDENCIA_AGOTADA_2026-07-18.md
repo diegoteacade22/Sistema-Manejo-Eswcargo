@@ -23,8 +23,19 @@ Drive autorizadas. No se modificó ninguna Google Sheet.
 - `CASH FLOW 2026`: fuente financiera vigente; no incluye una cuenta fuente
   para los dos casos pendientes.
 - `CASH FLOW 2025`, `VENTAS COMPRAS 2023 al 2025` y los respaldos históricos
-  localizados en Drive: sin comprobante financiero individual para los dos
-  movimientos indicados.
+  localizados en Drive: las búsquedas dirigidas no hallaron un comprobante
+  financiero individual para los dos movimientos indicados.
+
+## Hallazgos de consistencia histórica
+
+- `CTA JORGE` contiene en realidad una cuenta de Facu Fabricini: el título de
+  pestaña no identifica de forma fiable al titular.
+- `CUENTA AUGUSTO` cierra en USD 331 el 27/10/2025, mientras el ajuste de
+  inicio de Augusto en el sistema es USD 7.205,40.
+- Las cuentas históricas de Lucas Cly terminan en importes distintos de su
+  ajuste de inicio en producción. Ninguna de estas diferencias se convirtió en
+  movimiento de ESWCARGO porque no existe una correspondencia completa de
+  cliente, fecha, documento e importe.
 
 Para cualquier corrección futura se necesita adjuntar un Invoice, recibo,
 comprobante bancario o confirmación comercial verificable al caso exacto en el

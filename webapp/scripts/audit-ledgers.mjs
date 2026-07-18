@@ -7,6 +7,7 @@ const MAX_BASELINE_ONLY_BALANCE = Number(process.env.LEDGER_AUDIT_MAX_BASELINE_O
 const MAX_NAN_CLIENT_BALANCE = Number(process.env.LEDGER_AUDIT_MAX_NAN_BALANCE || 1000);
 const DUPLICATE_LOOKBACK_DAYS = Number(process.env.LEDGER_AUDIT_DUPLICATE_LOOKBACK_DAYS || 120);
 const STRICT_AUDIT = process.env.LEDGER_AUDIT_STRICT === '1';
+const JSON_OUTPUT = process.argv.includes('--json');
 
 function money(value) {
   return Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
@@ -209,18 +210,29 @@ async function main() {
     warnings.push(`Posible pago duplicado: ${first.client?.name || 'sin cliente'} (#${first.client?.old_id ?? first.client?.id ?? first.clientId}) ${first.date.toISOString().slice(0, 10)} $${money(first.amount)} refs [${group.map((tx) => tx.id).join(', ')}]`);
   }
 
-  if (warnings.length) {
-    console.warn('Advertencias de auditoria CC:');
-    for (const warning of warnings) console.warn(`- ${warning}`);
-  }
+  const status = issues.length ? 'blocked' : warnings.length ? 'review_required' : 'ok';
+  const result = {
+    generatedAt: new Date().toISOString(),
+    status,
+    reviewedAccounts: balances.length,
+    issues,
+    warnings,
+  };
 
-  if (issues.length) {
-    console.error('Auditoria CC bloqueada:');
+  if (JSON_OUTPUT) {
+    console.log(JSON.stringify(result, null, 2));
+  } else if (issues.length) {
+    console.error(`Auditoria CC bloqueada: ${issues.length} problema(s) y ${warnings.length} advertencia(s).`);
     for (const issue of issues) console.error(`- ${issue}`);
-    process.exit(1);
+    for (const warning of warnings) console.error(`- ${warning}`);
+  } else if (warnings.length) {
+    console.warn(`Auditoria CC pendiente de revision: ${warnings.length} advertencia(s) en ${balances.length} cuentas. No se aplicaron correcciones automaticas.`);
+    for (const warning of warnings) console.warn(`- ${warning}`);
+  } else {
+    console.log(`Auditoria CC OK: ${balances.length} cuentas revisadas.`);
   }
 
-  console.log(`Auditoria CC OK: ${balances.length} cuentas revisadas.`);
+  if (issues.length) process.exit(1);
 }
 
 main()

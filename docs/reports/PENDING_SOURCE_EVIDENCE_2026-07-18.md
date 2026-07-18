@@ -32,11 +32,12 @@ bloqueado hasta corregir la fuente.
 revisión documentada, pero no se trata como duplicado comprobado ni se elimina
 ninguno.
 
-## Cuenta Marcos Roku
+## Cuentas corrientes con alerta de signo
 
-El caso fue resuelto: las dos acreditaciones manuales y el cargo duplicado de
-`#2525` se sustituyeron por sus líneas fuente de `MARCOS CC`. El saldo quedó
-verificado y no hay pagos ni cargos documentales duplicados.
+Quedan dos pagos históricos con signo opuesto a su tipo: Franco Pepe
+`#84` (USD -21.001,80) y Claudio Molina x IG `#261` (USD -76.000). No tienen
+recibo, comprobante bancario ni fuente financiera vigente que permita invertir
+o eliminar el movimiento. Se conservan sin cambio hasta adjuntar evidencia.
 
 ## Cash Flow y proveedores
 
