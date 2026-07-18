@@ -29,7 +29,7 @@ La auditoría de cuentas corrientes vigente reporta 68 cuentas:
 | Conciliada por cabeceras de envío | 1 | Jose JR `#291`: seis envíos y dos pagos cierran en cero. |
 
 No se debe usar una fuente histórica para transformar automáticamente ninguna
-de las 52 cuentas que no tienen una fuente financiera vigente directa.
+de las 51 cuentas que no tienen una fuente financiera vigente directa.
 
 ## Resultado de Invoices contra fuentes activas
 
