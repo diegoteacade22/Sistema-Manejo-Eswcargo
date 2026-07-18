@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
 import { itemSyncSignature, sameItemSet } from '../lib/sync-item-comparison';
+import { normalizeSourceRows } from '../lib/sync-source-normalization';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
 let activeSyncRunId: number | null = null;
@@ -47,27 +48,39 @@ async function main() {
     // 1. CARGAR DATOS
     const clientsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'clients_seed.json'), 'utf-8'));
     const productsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'products_seed.json'), 'utf-8'));
-    const shipmentsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'shipments_seed.json'), 'utf-8'));
+    const rawShipmentsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'shipments_seed.json'), 'utf-8'));
     const ordersData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'orders_seed.json'), 'utf-8'));
     const shipmentReconciliationPath = path.join(prismaDir, 'shipment_reconciliation_seed.json');
     const shipmentReconciliationData = fs.existsSync(shipmentReconciliationPath)
         ? JSON.parse(fs.readFileSync(shipmentReconciliationPath, 'utf-8'))
         : [];
-    const orderDuplicateCounts = new Map<number, number>();
-    const uniqueOrdersByNumber = new Map<number, any>();
-    for (const order of ordersData as any[]) {
-        if (!order?.order_number) continue;
-        const orderNumber = Number(order.order_number);
-        orderDuplicateCounts.set(orderNumber, (orderDuplicateCounts.get(orderNumber) || 0) + 1);
-        uniqueOrdersByNumber.set(orderNumber, order);
+    // The operational model has one header per shipment number. Source rows
+    // that reuse that number with different data are retained in the sheet but
+    // rejected from automatic header updates until they are resolved manually.
+    const normalizedShipments = normalizeSourceRows(rawShipmentsData as any[], 'shipment_number');
+    for (const collision of normalizedShipments.rejected) {
+            console.warn(`⚠️ Cabecera ambigua de envío #${collision.key}; se omite la actualización automática.`);
+            trackChange({
+                entity: 'SHIPMENT',
+                entityKey: `#${collision.key}`,
+                action: 'REJECTED',
+                reason: 'La fuente contiene más de una cabecera incompatible para el mismo número de envío.',
+                after: { sourceRows: collision.rows.length, clientIds: collision.rows.map((row) => row.old_client_id ?? null) },
+            });
     }
-    const duplicateOrderNumbers = Array.from(orderDuplicateCounts.entries())
-        .filter(([, count]) => count > 1)
-        .map(([orderNumber, count]) => `#${orderNumber} x${count}`);
-    if (duplicateOrderNumbers.length > 0) {
-        console.warn(`⚠️ Pedidos duplicados en Excel normalizados antes de importar: ${duplicateOrderNumbers.join(', ')}`);
+    const shipmentsData = normalizedShipments.accepted;
+    const normalizedOrders = normalizeSourceRows((ordersData as any[]).filter((order) => order?.order_number), 'order_number');
+    for (const collision of normalizedOrders.rejected) {
+            console.warn(`⚠️ Cabecera ambigua de pedido #${collision.key}; se omite la actualización automática.`);
+            trackChange({
+                entity: 'ORDER',
+                entityKey: `#${collision.key}`,
+                action: 'REJECTED',
+                reason: 'La fuente contiene más de una cabecera incompatible para el mismo número de pedido.',
+                after: { sourceRows: collision.rows.length, clientIds: collision.rows.map((row) => row.client_old_id ?? null) },
+            });
     }
-    const normalizedOrdersData = Array.from(uniqueOrdersByNumber.values());
+    const normalizedOrdersData = normalizedOrders.accepted;
 
     // ID tracking for cleanup
     const processedShipmentIds = new Set<number>();
@@ -188,7 +201,7 @@ async function main() {
     const suppliersData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'suppliers_seed.json'), 'utf-8'));
     for (const s of suppliersData) {
         let existing = supplierOldIdMap.get(s.old_id);
-        if (!existing && s.name) existing = supplierNameMap.get(s.name.trim().toUpperCase());
+        if (!existing && !s.old_id && s.name) existing = supplierNameMap.get(s.name.trim().toUpperCase());
 
         if (!existing) {
             existing = await prisma.supplier.create({ data: s });
@@ -278,6 +291,7 @@ async function main() {
             }
         }
         processedShipmentIds.add(dbShipment.id);
+        shipmentNumMap.set(s.shipment_number, dbShipment);
     }
 
     // 6. PROCESAR PEDIDOS

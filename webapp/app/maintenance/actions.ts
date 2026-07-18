@@ -416,6 +416,14 @@ export async function getSyncControlCenter() {
         const latestSuccess = history.find((run) => run.status === 'completed' && run.conclusion === 'success');
         const latestSuccessMs = latestSuccess ? new Date(latestSuccess.updatedAt).getTime() : 0;
 
+        for (const change of changes.filter((change) => change.action === 'REJECTED')) {
+            exceptions.push({
+                level: 'warning',
+                title: `${change.entity} ${change.entityKey} requiere revisión manual`,
+                detail: change.reason,
+            });
+        }
+
         for (const run of history) {
             const ageMs = now - new Date(run.createdAt).getTime();
             const finishedAfterLatestSuccess = new Date(run.updatedAt).getTime() > latestSuccessMs;
