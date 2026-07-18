@@ -171,6 +171,13 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Una cuenta con un ajuste global `CASHFLOW-RECONCILIATION-2026` no puede
   marcarse como conciliada por saldo: la auditoría la clasifica como pendiente
   de detalle hasta respaldar o sustituir cada diferencia individual.
+- Antes de reemplazar un ajuste global, una simulación separa el saldo fuente,
+  los movimientos raw, los operativos y el ajuste. Solo permite una
+  reconstrucción si no quedan diferencias de signo, importe, filas faltantes o
+  movimientos operativos sin vincular.
+- Octavio Molina (`#273`) fue reconstruido con seis filas verificadas de
+  `CASH FLOW 2026 / MOLINA OCT`: se eliminó su ajuste global de USD -280, se
+  conservó el saldo fuente y se registró el respaldo y la bitácora de cambio.
 - Contraste de referencias Invoice en modo solo lectura contra ventas actuales
   e históricas antes de cada sincronización. Las diferencias quedan visibles y
   no alteran cuentas conciliadas.
