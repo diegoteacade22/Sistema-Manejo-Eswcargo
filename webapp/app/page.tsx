@@ -705,6 +705,19 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
               <p className="mt-1 text-xs text-muted-foreground">{dataIssues[0] || 'Sin alertas críticas'}</p>
             </Link>
           </div>
+          {dataIssues.length > 0 && (
+            <div className="border-l-4 border-l-red-500 bg-red-50 px-4 py-3 dark:bg-red-950/20">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-red-900 dark:text-red-200">Excepciones que requieren revisión</p>
+                  <ul className="mt-2 space-y-1 text-sm text-red-800 dark:text-red-300">
+                    {dataIssues.map((issue) => <li key={issue}>{issue}</li>)}
+                  </ul>
+                </div>
+                <Button asChild variant="outline" size="sm"><Link href="/maintenance">Resolver en Mantenimiento</Link></Button>
+              </div>
+            </div>
+          )}
           <div className="grid gap-4 xl:grid-cols-3">
             <Card className="border-l-4 border-l-orange-500">
               <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
