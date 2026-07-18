@@ -3,6 +3,7 @@
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, FileCheck2, Loader2, Paperclip, ExternalLink } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -37,6 +38,7 @@ function formatDate(value: string) {
 }
 
 export function EvidenceClient({ clients, evidence }: { clients: ClientOption[]; evidence: EvidenceItem[] }) {
+    const router = useRouter();
     const [isPending, startTransition] = useTransition();
     const [clientId, setClientId] = useState('');
     const [category, setCategory] = useState('INVOICE');
@@ -55,6 +57,7 @@ export function EvidenceClient({ clients, evidence }: { clients: ClientOption[];
                 if (!result.success) throw new Error('No se pudo registrar la evidencia.');
                 setMessage({ type: 'success', text: 'Evidencia registrada. La cuenta queda lista para revisión, sin modificar su saldo.' });
                 setFile(null);
+                router.refresh();
             } catch (error) {
                 setMessage({ type: 'error', text: error instanceof Error ? error.message : 'No se pudo registrar la evidencia.' });
             }
@@ -137,7 +140,7 @@ export function EvidenceClient({ clients, evidence }: { clients: ClientOption[];
                                         {item.note && <p className="mt-2 whitespace-pre-wrap text-muted-foreground">{item.note}</p>}
                                         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                                             {item.source && <span>Referencia: {item.source}</span>}
-                                            {item.fileName && <span>Adjunto: {item.fileName}</span>}
+                                            {item.fileName && <a className="inline-flex items-center gap-1 text-emerald-700 hover:underline dark:text-emerald-300" href={`/api/maintenance/evidence/${item.id}`} target="_blank" rel="noreferrer">Adjunto: {item.fileName} <ExternalLink className="h-3 w-3" /></a>}
                                             {item.transaction && <span>Movimiento #{item.transaction.id}: {item.transaction.type} USD {item.transaction.amount.toFixed(2)}</span>}
                                         </div>
                                     </div>
