@@ -47,3 +47,8 @@ Una sincronizacion rutinaria debe conservar:
 
 Para habilitar una escritura financiera futura se requiere un respaldo previo,
 un reporte de diferencias y una aprobacion explicita.
+## Control preventivo incorporado
+
+- La auditoría de duplicados revisa ahora cada `CARGO` que referencia un pedido y lo contrasta con el cliente actual del pedido fuente.
+- Si difieren, el proceso lo reporta como una inconsistencia de asignación y Mantenimiento lo muestra como error. No mueve el cargo ni cambia el cliente automáticamente.
+- Validación posterior a la corrección: `wrongClientOrderCharges = 0`.

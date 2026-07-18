@@ -307,8 +307,61 @@ function purchaseIdFromDescription(description: string | null) {
     return match ? Number(match[1]) : null;
 }
 
+function orderNumberFromTransaction(reference: string | null, description: string | null) {
+    const directReference = String(reference || '').trim();
+    if (/^\d+$/.test(directReference)) return Number(directReference);
+
+    const match = `${description || ''} ${reference || ''}`.match(/(?:PEDIDO|ORDER)\s*#?\s*(\d+)/i);
+    return match ? Number(match[1]) : null;
+}
+
 async function getLedgerIntegrityExceptions(): Promise<SyncException[]> {
     const exceptions: SyncException[] = [];
+    const orderChargeTransactions = await prisma.transaction.findMany({
+        where: {
+            clientId: { not: null },
+            type: 'CARGO',
+            amount: { lt: 0 },
+            NOT: { reference: { startsWith: 'CC-Import-' } },
+        },
+        select: {
+            id: true,
+            clientId: true,
+            amount: true,
+            description: true,
+            reference: true,
+            client: { select: { old_id: true, name: true } },
+        },
+    });
+    const referencedOrderNumbers = [...new Set(orderChargeTransactions
+        .map((transaction) => orderNumberFromTransaction(transaction.reference, transaction.description))
+        .filter((value): value is number => value !== null))];
+    const sourceOrders = referencedOrderNumbers.length
+        ? await prisma.order.findMany({
+            where: { order_number: { in: referencedOrderNumbers } },
+            select: { order_number: true, clientId: true, client: { select: { old_id: true, name: true } } },
+        })
+        : [];
+    const sourceOrderByNumber = new Map(sourceOrders.map((order) => [order.order_number, order]));
+    const wrongClientOrderCharges = orderChargeTransactions.flatMap((transaction) => {
+        const orderNumber = orderNumberFromTransaction(transaction.reference, transaction.description);
+        const order = orderNumber ? sourceOrderByNumber.get(orderNumber) : null;
+        if (!order || order.clientId === transaction.clientId) return [];
+        return [{ transaction, orderNumber, order }];
+    });
+    if (wrongClientOrderCharges.length) {
+        const examples = wrongClientOrderCharges
+            .slice(0, 3)
+            .map(({ transaction, orderNumber, order }) => `pedido #${orderNumber}: CC ${transaction.client?.name || '-'} #${transaction.client?.old_id ?? '-'}, fuente ${order.client?.name || '-'} #${order.client?.old_id ?? '-'}`)
+            .join('; ');
+        exceptions.push({
+            level: 'error',
+            title: `${wrongClientOrderCharges.length} cargo(s) asignado(s) a un cliente distinto del pedido`,
+            detail: `${examples}. No se modificaron automáticamente: requiere revisar el pedido y el comprobante antes de cobrar o emitir.`,
+            url: '/analytics/financial',
+        });
+    }
+
     const wrongSignTransactions = await prisma.transaction.findMany({
         where: {
             clientId: { not: null },

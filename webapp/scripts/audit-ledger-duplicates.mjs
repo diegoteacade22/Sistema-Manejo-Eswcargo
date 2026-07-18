@@ -38,6 +38,14 @@ function documentKey(tx) {
   return shipment ? `SHIPMENT:${shipment[1]}` : null;
 }
 
+function orderNumberFromTransaction(tx) {
+  const reference = String(tx.reference || '').trim();
+  if (/^\d+$/.test(reference)) return Number(reference);
+
+  const match = ledgerSearchText(tx).match(/(?:PEDIDO|ORDER)\s*#?\s*(\d+)/i);
+  return match ? Number(match[1]) : null;
+}
+
 function isReversal(tx) {
   return /\b(?:DEVOL(?:UCION)?|RETORNO|REFUND|REVERS)/i.test(String(tx.description || ''));
 }
@@ -86,6 +94,7 @@ async function main() {
   const documentGroups = new Map();
   const documentOccurrences = new Map();
   const paymentGroups = new Map();
+  const orderCharges = [];
 
   for (const tx of operational) {
     const exactKey = [
@@ -105,6 +114,9 @@ async function main() {
         add(documentGroups, [tx.clientId, document, Math.round(Math.abs(tx.amount) * 100)].join('|'), tx);
         add(documentOccurrences, [tx.clientId, document].join('|'), tx);
       }
+
+      const orderNumber = orderNumberFromTransaction(tx);
+      if (orderNumber) orderCharges.push({ tx, orderNumber });
     }
 
     if (tx.type === 'PAGO' && tx.amount > 0) {
@@ -137,6 +149,25 @@ async function main() {
   const repeatedPayments = [...paymentGroups.entries()]
     .filter(([, group]) => group.length > 1)
     .map(([key, group]) => ({ key, client: group[0].client, transactions: summarize(group) }));
+  const orderNumbers = [...new Set(orderCharges.map(({ orderNumber }) => orderNumber))];
+  const orders = orderNumbers.length
+    ? await prisma.order.findMany({
+      where: { order_number: { in: orderNumbers } },
+      select: { order_number: true, clientId: true, total_amount: true, client: { select: { old_id: true, name: true } } },
+    })
+    : [];
+  const orderByNumber = new Map(orders.map((order) => [order.order_number, order]));
+  const wrongClientOrderCharges = orderCharges.flatMap(({ tx, orderNumber }) => {
+    const order = orderByNumber.get(orderNumber);
+    if (!order || order.clientId === tx.clientId) return [];
+    return [{
+      orderNumber,
+      transaction: summarize([tx])[0],
+      ledgerClient: tx.client,
+      sourceClient: order.client,
+      sourceTotal: order.total_amount,
+    }];
+  });
 
   const report = {
     generatedAt: new Date().toISOString(),
@@ -147,10 +178,11 @@ async function main() {
     reversalDocuments,
     repeatedDocuments,
     repeatedPayments,
+    wrongClientOrderCharges,
   };
 
   console.log(JSON.stringify(report, null, 2));
-  if (exactDuplicates.length || documentDuplicates.length || repeatedDocuments.length || repeatedPayments.length) process.exitCode = 2;
+  if (exactDuplicates.length || documentDuplicates.length || repeatedDocuments.length || repeatedPayments.length || wrongClientOrderCharges.length) process.exitCode = 2;
 }
 
 main()
