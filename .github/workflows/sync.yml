@@ -71,6 +71,7 @@ jobs:
           mkdir -p "$SYNC_RUNTIME"
           cp -R webapp/prisma "$SYNC_RUNTIME/prisma"
           cp -R webapp/scripts "$SYNC_RUNTIME/scripts"
+          cp -R webapp/lib "$SYNC_RUNTIME/lib"
           cd "$SYNC_RUNTIME"
           npm init -y >/dev/null
           npm install --silent prisma@5.22.0 @prisma/client@5.22.0 tsx@latest
