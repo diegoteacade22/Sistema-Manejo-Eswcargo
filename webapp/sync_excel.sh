@@ -130,6 +130,7 @@ fi
 
 run_stage "Auditoría de cuenta corriente" node "$DIR/scripts/audit-ledgers.mjs" || echo "⚠️ Cuenta corriente con advertencias; revisar antes de emitir cobros."
 run_stage "Auditoría de duplicados CC" node "$DIR/scripts/audit-ledger-duplicates.mjs" || echo "⚠️ Posibles duplicados o documentos repetidos en Cuenta Corriente; revisar Mantenimiento antes de emitir cobros."
+run_stage "Auditoría de cuentas de proveedores" node "$DIR/scripts/audit-supplier-ledgers.mjs" || echo "⚠️ Proveedores con movimientos a revisar; no se modificaron saldos automáticamente."
 
 echo "----------------------------------------"
 echo "✅ Sync Completed! [Mode: $SYNC_MODE]"

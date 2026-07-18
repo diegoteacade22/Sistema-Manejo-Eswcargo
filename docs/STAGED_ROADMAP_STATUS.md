@@ -159,6 +159,10 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Los cargos manuales de envío son idempotentes por envío y cliente: un reintento
   actualiza el cargo existente en vez de crear otro. Los pagos de compras se
   rechazan si repiten compra, fecha, monto, método y referencia.
+- Auditoría de proveedores antes y después de cada sincronización local o cloud.
+  Detecta duplicados exactos, pagos que no cierran contra su cargo y referencias
+  de compras sin registro interno. Solo alerta: nunca modifica saldos ni la
+  planilla.
 
 ### Pendiente
 
@@ -167,3 +171,9 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Resolver solamente con respaldo y evidencia documental las diferencias raw
   históricas de Cash Flow. Mientras tanto, el control las deja visibles sin
   reimportar ni modificar cuentas que hoy concilian.
+- Revisar dos diferencias históricas de proveedores sin corregirlas de forma
+  automática: `INV-5725` de FREEZIA (cargo USD 4.380, pago USD 7.300) y
+  `0163445-IN` de PLANET CELLULAR (cargo USD 4.590, pago USD 45.490). Las
+  referencias no aparecen en las fuentes de ventas/compras actuales ni
+  históricas consultadas. Ocho cargos antiguos también mencionan compras que
+  no tienen registro interno vinculado.
