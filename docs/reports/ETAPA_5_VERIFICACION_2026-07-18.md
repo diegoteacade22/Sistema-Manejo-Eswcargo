@@ -41,3 +41,12 @@ se modificaron Google Sheets.
 - Auditoria de duplicados de cuenta corriente.
 - Pruebas de conciliacion, exportacion con signo contable y pedido de agente.
 - Tipos y compilacion de produccion.
+
+## Revalidacion cloud posterior
+
+- Ejecucion completa: [GitHub Actions #29665517776](https://github.com/diegoteacade22/Sistema-Manejo-Eswcargo/actions/runs/29665517776), finalizada correctamente sobre `main` `c63fbb3`.
+- Packing: 329 envios operativos auditados en alcance total. El envio #1048
+  sigue bloqueado por excepcion documentada, sin contenido verificable.
+- Invoice: 529 pedidos con productos verificados correctamente contra la
+  fuente recien descargada.
+- Cuenta corriente: duplicados exactos, documentales y pagos repetidos: 0.
