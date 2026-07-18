@@ -7,7 +7,7 @@ export default async function EvidencePage() {
     const [clients, evidence] = await Promise.all([
         prisma.client.findMany({
             where: { transactions: { some: {} } },
-            select: { id: true, name: true, old_id: true },
+            select: { id: true, name: true, old_id: true, document_id: true, phone: true },
             orderBy: { name: 'asc' },
         }),
         prisma.accountEvidence.findMany({

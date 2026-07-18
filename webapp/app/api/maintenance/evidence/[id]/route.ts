@@ -24,8 +24,9 @@ export async function GET(_: Request, context: { params: Promise<{ id: string }>
         headers: {
             'content-type': evidence.mimeType,
             'content-length': String(evidence.size),
-            'content-disposition': `inline; filename="${evidence.fileName.replaceAll('"', '')}"`,
+            'content-disposition': `attachment; filename="${evidence.fileName.replaceAll('"', '')}"`,
             'cache-control': 'private, max-age=300',
+            'x-content-type-options': 'nosniff',
         },
     });
 }

@@ -5,18 +5,63 @@ const prisma = new PrismaClient();
 const rollbackMarker = 'QA_ACCOUNT_EVIDENCE_ROLLBACK';
 
 async function main() {
-  const client = await prisma.client.findFirst({ select: { id: true } });
-  if (!client) throw new Error('La base requiere al menos un cliente para verificar evidencia de cuenta.');
+  const transaction = await prisma.transaction.findFirst({
+    where: { clientId: { not: null } },
+    select: { id: true, clientId: true, date: true, type: true, amount: true, reference: true },
+  });
+  if (!transaction?.clientId) throw new Error('La base requiere un movimiento de cliente para verificar evidencia de cuenta.');
+  const otherTransaction = await prisma.transaction.findFirst({
+    where: { clientId: { not: null, notIn: [transaction.clientId] } },
+    select: { id: true },
+  });
 
   let evidenceCreated = false;
+  const nonce = Date.now().toString();
+  const evidenceFile = new File([Buffer.from(`%PDF-1.4\n% evidencia QA ${nonce}\n`)], `qa-${nonce}.pdf`, { type: 'application/pdf' });
   try {
     await prisma.$transaction(async (tx) => {
-      const evidence = await createAccountEvidence(tx, {
-        clientId: client.id,
+      const result = await createAccountEvidence(tx, {
+        clientId: transaction.clientId!,
+        transactionId: transaction.id,
         category: 'QA',
         note: rollbackMarker,
+        evidenceFile,
       });
-      evidenceCreated = evidence.clientId === client.id && evidence.note === rollbackMarker;
+      if (!result.created) throw new Error('La primera evidencia QA fue tratada como duplicada.');
+      evidenceCreated = result.evidence.clientId === transaction.clientId
+        && result.evidence.note === rollbackMarker
+        && result.evidence.transactionId === transaction.id
+        && result.evidence.transactionReference === transaction.reference
+        && result.evidence.transactionType === transaction.type
+        && result.evidence.transactionAmount === transaction.amount;
+
+      const duplicate = await createAccountEvidence(tx, {
+        clientId: transaction.clientId!,
+        transactionId: transaction.id,
+        category: 'QA',
+        note: rollbackMarker,
+        evidenceFile,
+      });
+      if (duplicate.created) throw new Error('No se detectó el comprobante duplicado.');
+
+      if (otherTransaction) {
+        let crossAccountLinkBlocked = false;
+        await tx.$executeRawUnsafe('SAVEPOINT account_evidence_trigger_test');
+        try {
+          await tx.accountEvidence.create({
+            data: {
+              clientId: transaction.clientId!,
+              transactionId: otherTransaction.id,
+              category: 'QA',
+              note: rollbackMarker,
+            },
+          });
+        } catch {
+          await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT account_evidence_trigger_test');
+          crossAccountLinkBlocked = true;
+        }
+        if (!crossAccountLinkBlocked) throw new Error('La base permitió vincular evidencia a un movimiento de otra cuenta.');
+      }
       throw new Error(rollbackMarker);
     }, { isolationLevel: 'Serializable' });
   } catch (error: any) {

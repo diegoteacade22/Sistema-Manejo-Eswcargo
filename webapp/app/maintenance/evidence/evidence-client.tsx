@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, FileCheck2, Loader2, Paperclip, ExternalLink } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -11,9 +11,11 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ReceiptInput } from '@/components/receipt-input';
-import { registerAccountEvidence } from './actions';
+import { getClientEvidenceTransactions, registerAccountEvidence } from './actions';
 
-type ClientOption = { id: number; name: string; old_id: number | null };
+type ClientOption = { id: number; name: string; old_id: number | null; document_id: string | null; phone: string | null };
+type TransactionOption = { id: number; date: string; type: string; amount: number; reference: string | null; description: string | null };
+type DuplicateEvidence = { id: number; clientId: number; clientName: string; category: string; fileName: string | null };
 type EvidenceItem = {
     id: number;
     category: string;
@@ -41,22 +43,61 @@ export function EvidenceClient({ clients, evidence }: { clients: ClientOption[];
     const router = useRouter();
     const [isPending, startTransition] = useTransition();
     const [clientId, setClientId] = useState('');
+    const [clientSearch, setClientSearch] = useState('');
+    const [transactions, setTransactions] = useState<TransactionOption[]>([]);
+    const [transactionId, setTransactionId] = useState('');
     const [category, setCategory] = useState('INVOICE');
     const [file, setFile] = useState<File | null>(null);
+    const [duplicateEvidence, setDuplicateEvidence] = useState<DuplicateEvidence | null>(null);
+    const [duplicateConfirmed, setDuplicateConfirmed] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const selectedClient = clients.find((client) => String(client.id) === clientId) || null;
+    const visibleClients = useMemo(() => {
+        const query = clientSearch.trim().toLocaleLowerCase('es-AR');
+        if (!query) return clients;
+        return clients.filter((client) => [client.name, client.old_id, client.document_id, client.phone, client.id]
+            .filter((value) => value !== null && value !== undefined)
+            .some((value) => String(value).toLocaleLowerCase('es-AR').includes(query)));
+    }, [clientSearch, clients]);
+
+    useEffect(() => {
+        let active = true;
+        setTransactionId('');
+        setTransactions([]);
+        if (!clientId) return;
+
+        getClientEvidenceTransactions(Number(clientId))
+            .then((items) => {
+                if (active) setTransactions(items);
+            })
+            .catch(() => {
+                if (active) setMessage({ type: 'error', text: 'No se pudieron cargar los movimientos de esta cuenta.' });
+            });
+        return () => { active = false; };
+    }, [clientId]);
 
     const submit = (formData: FormData) => {
         setMessage(null);
         formData.set('clientId', clientId);
         formData.set('category', category);
+        formData.set('transactionId', transactionId);
+        formData.set('duplicateConfirmed', duplicateConfirmed ? 'true' : 'false');
         if (file) formData.set('evidenceFile', file);
 
         startTransition(async () => {
             try {
                 const result = await registerAccountEvidence(formData);
-                if (!result.success) throw new Error('No se pudo registrar la evidencia.');
+                if (!result.success) {
+                    setDuplicateEvidence(result.duplicate);
+                    setDuplicateConfirmed(false);
+                    setMessage({ type: 'error', text: `Este mismo archivo ya fue cargado para ${result.duplicate.clientName}. Confirmá que corresponde reutilizarlo antes de registrarlo.` });
+                    return;
+                }
                 setMessage({ type: 'success', text: 'Evidencia registrada. La cuenta queda lista para revisión, sin modificar su saldo.' });
                 setFile(null);
+                setTransactionId('');
+                setDuplicateEvidence(null);
+                setDuplicateConfirmed(false);
                 router.refresh();
             } catch (error) {
                 setMessage({ type: 'error', text: error instanceof Error ? error.message : 'No se pudo registrar la evidencia.' });
@@ -92,12 +133,25 @@ export function EvidenceClient({ clients, evidence }: { clients: ClientOption[];
                         <form action={submit} className="space-y-5">
                             <div className="space-y-2">
                                 <Label>Cuenta</Label>
+                                <Input value={clientSearch} onChange={(event) => setClientSearch(event.target.value)} placeholder="Buscar por nombre, ID, documento o teléfono" />
                                 <Select value={clientId} onValueChange={setClientId}>
                                     <SelectTrigger><SelectValue placeholder="Seleccionar cuenta" /></SelectTrigger>
                                     <SelectContent>
-                                        {clients.map((client) => <SelectItem key={client.id} value={String(client.id)}>{client.name}{client.old_id !== null ? ` (#${client.old_id})` : ''}</SelectItem>)}
+                                        {visibleClients.map((client) => <SelectItem key={client.id} value={String(client.id)}>{client.name} · ID {client.id}{client.old_id !== null ? ` · Legajo #${client.old_id}` : ''}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
+                                {selectedClient && <p className="text-xs text-muted-foreground">ID {selectedClient.id}{selectedClient.old_id !== null ? ` · Legajo #${selectedClient.old_id}` : ''}{selectedClient.document_id ? ` · Documento ${selectedClient.document_id}` : ''}{selectedClient.phone ? ` · Tel. ${selectedClient.phone}` : ''}</p>}
+                            </div>
+                            <div className="space-y-2">
+                                <Label>Movimiento respaldado {category === 'PAYMENT_RECEIPT' ? '(requerido para recibo de pago)' : '(opcional)'}</Label>
+                                <Select value={transactionId} onValueChange={setTransactionId} disabled={!clientId}>
+                                    <SelectTrigger><SelectValue placeholder={clientId ? 'Seleccionar movimiento' : 'Elegí primero una cuenta'} /></SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="none">Sin vincular a un movimiento</SelectItem>
+                                        {transactions.map((transaction) => <SelectItem key={transaction.id} value={String(transaction.id)}>{new Intl.DateTimeFormat('es-AR', { dateStyle: 'short' }).format(new Date(transaction.date))} · #{transaction.id} · {transaction.type} USD {transaction.amount.toFixed(2)}{transaction.reference ? ` · ${transaction.reference}` : ''}</SelectItem>)}
+                                    </SelectContent>
+                                </Select>
+                                {clientId && transactions.length === 0 && <p className="text-xs text-muted-foreground">No hay movimientos recientes para esta cuenta.</p>}
                             </div>
                             <div className="space-y-2">
                                 <Label>Tipo de evidencia</Label>
@@ -114,8 +168,14 @@ export function EvidenceClient({ clients, evidence }: { clients: ClientOption[];
                                 <Label htmlFor="note">Nota de conciliación</Label>
                                 <Textarea id="note" name="note" placeholder="Qué respalda y qué movimiento debe revisarse." />
                             </div>
-                            <ReceiptInput file={file} onFileChange={setFile} inputId="account-evidence-file" />
-                            <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700" disabled={isPending || !clientId}>
+                            <ReceiptInput file={file} onFileChange={(nextFile) => { setFile(nextFile); setDuplicateEvidence(null); setDuplicateConfirmed(false); }} inputId="account-evidence-file" />
+                            {duplicateEvidence && (
+                                <label className="flex gap-2 rounded-md border border-amber-400 bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                                    <input type="checkbox" checked={duplicateConfirmed} onChange={(event) => setDuplicateConfirmed(event.target.checked)} className="mt-1" />
+                                    <span>Confirmo reutilizar este archivo, ya registrado para {duplicateEvidence.clientName} ({duplicateEvidence.category}).</span>
+                                </label>
+                            )}
+                            <Button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-700" disabled={isPending || !clientId || (category === 'PAYMENT_RECEIPT' && (!transactionId || transactionId === 'none'))}>
                                 {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileCheck2 className="mr-2 h-4 w-4" />}
                                 Registrar evidencia
                             </Button>

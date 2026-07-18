@@ -246,6 +246,10 @@ model AccountEvidence {
   id            Int          @id @default(autoincrement())
   clientId      Int
   transactionId Int?
+  transactionReference String?
+  transactionDate DateTime?  @db.Date
+  transactionType String?
+  transactionAmount Float?
   category      String
   note          String?
   source        String?
@@ -256,7 +260,7 @@ model AccountEvidence {
   data          Bytes?
   createdAt     DateTime     @default(now())
   client        Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
 
   @@index([clientId, createdAt])
   @@index([transactionId])

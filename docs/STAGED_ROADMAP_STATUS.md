@@ -239,12 +239,19 @@ ninguna escritura automatica sobre planillas ni base de datos.
   respaldo, referencia, observación y adjuntar Invoice, recibo o comprobante
   bancario sin alterar Google Sheets ni movimientos existentes.
 - Los adjuntos se validan en servidor (PDF, JPG, PNG o WEBP; máximo 8 MB), se
-  vinculan a la cuenta y, si corresponde, al movimiento exacto.
+  validan por firma real, se vinculan a la cuenta y pueden asociarse al
+  movimiento exacto.
 - La descarga de cada respaldo queda protegida: solo usuarios administradores
-  autenticados pueden verlo.
+  autenticados pueden verlo y se entrega como descarga privada.
 - El alta de evidencia y su vínculo con la cuenta se realizan en una única
   transacción; una prueba de reversión confirma que un error no deja archivos
   ni registros parciales.
+- La base bloquea por sí misma la asociación de evidencia a un movimiento de
+  otra cuenta. Si el movimiento se elimina, conserva el respaldo y una copia
+  de su referencia, fecha, tipo e importe para mantener trazabilidad.
+- El sistema detecta el mismo comprobante por huella criptográfica y requiere
+  confirmación explícita antes de reutilizarlo; un recibo reutilizado entre
+  cuentas exige además una nota justificativa.
 
 ### Pendiente
 
