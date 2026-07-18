@@ -104,7 +104,7 @@ jobs:
           fi
           npx tsx prisma/seed_fast.ts
           node scripts/audit-shipment-reconciliation.mjs
-          node scripts/audit-packing-readiness.mjs
+          PACKING_AUDIT_SCOPE=all node scripts/audit-packing-readiness.mjs
           node scripts/audit-invoice-readiness.mjs
           node scripts/audit-cash-flow-raw-drift.mjs --source /tmp/cashflow-raw-source.json
           node scripts/audit-ledgers.mjs || echo "::warning::Auditoria CC posterior con advertencias; revisar cuenta corriente sin bloquear sync."
