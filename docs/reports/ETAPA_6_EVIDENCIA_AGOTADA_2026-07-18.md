@@ -28,6 +28,11 @@ Drive autorizadas. No se modificó ninguna Google Sheet.
 
 ## Hallazgos de consistencia histórica
 
+- Los 54 ajustes con referencia `CC-ZERO-BASELINE-2026:*` son aperturas de
+  migración: todos están fechados el 01/01/2026, comparten la misma
+  descripción genérica y fueron creados en dos ejecuciones posteriores de
+  mayo y junio. No son comprobantes originales ni una fuente válida para
+  reconstruir movimientos.
 - `CTA JORGE` contiene en realidad una cuenta de Facu Fabricini: el título de
   pestaña no identifica de forma fiable al titular.
 - `CUENTA AUGUSTO` cierra en USD 331 el 27/10/2025, mientras el ajuste de

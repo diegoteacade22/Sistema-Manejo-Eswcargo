@@ -31,6 +31,13 @@ La auditoría de cuentas corrientes vigente reporta 68 cuentas:
 No se debe usar una fuente histórica para transformar automáticamente ninguna
 de las 51 cuentas que no tienen una fuente financiera vigente directa.
 
+Los 54 movimientos `CC-ZERO-BASELINE-2026:*` existentes en producción se
+clasifican como aperturas de migración, no como fuente: comparten fecha
+01/01/2026 y descripción genérica, pero se crearon en ejecuciones posteriores
+de mayo y junio. Se preservan como saldo heredado hasta contar con evidencia
+individual; no se eliminan ni se usan para crear, duplicar o reemplazar cargos
+o pagos.
+
 ## Resultado de Invoices contra fuentes activas
 
 Se revisaron 274 referencias de Invoice de `CASH FLOW 2026`:
