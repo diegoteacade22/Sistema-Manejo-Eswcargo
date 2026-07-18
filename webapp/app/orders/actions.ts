@@ -48,27 +48,35 @@ export async function updateOrderItem(itemId: number, data: { quantity?: number;
 
         // 4. Update Transaction (if exists)
         // Check if there is a 'CARGO' transaction related to this order (Order #...)
-        const txRef = `Order #${currentItem.order.order_number || currentItem.order.id}`;
+        const orderReference = String(currentItem.order.order_number || currentItem.order.id);
+        const legacyReference = `Order #${orderReference}`;
 
-        // Find existing transaction (CARGO)
-        const tx = await prisma.transaction.findFirst({
+        // Orders created from the app used the numeric reference historically;
+        // source-ledger charges use the legacy Order # variant.
+        const transactions = await prisma.transaction.findMany({
             where: {
-                reference: { startsWith: txRef },
                 type: 'CARGO',
-                clientId: currentItem.order.clientId
-            }
+                clientId: currentItem.order.clientId,
+                OR: [
+                    { reference: orderReference },
+                    { reference: legacyReference },
+                ],
+            },
+            select: { id: true },
         });
 
-        if (tx) {
+        if (transactions.length > 1) {
+            throw new Error(`El pedido #${orderReference} tiene más de un cargo asociado. Revisá la cuenta antes de modificar artículos.`);
+        }
+
+        if (transactions.length === 1) {
             await prisma.transaction.update({
-                where: { id: tx.id },
+                where: { id: transactions[0].id },
                 data: { amount: -newOrderTotal } // Cargo is negative
             });
-            console.log(`Updated transaction ${tx.id} for Order #${currentItem.order.id} to new total: ${newOrderTotal}`);
+            console.log(`Updated transaction ${transactions[0].id} for Order #${currentItem.order.id} to new total: ${newOrderTotal}`);
         } else {
-            // If no transaction found by exact ref, try finding by description slightly loose?
-            // Or maybe it hasn't been synced yet. Since this is "local first", we might want to create it?
-            // For now, let's just update if found.
+            // No cargo is created here: only the canonical order creation flow can create it.
             console.log(`No transaction found for Order #${currentItem.order.id} to update.`);
         }
 

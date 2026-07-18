@@ -327,7 +327,7 @@ export async function submitOrder(data: {
                     type: 'CARGO',
                     amount: -totalAmount, // Negative = Debt
                     description: `Pedido #${newOrderNumber}`,
-                    reference: String(newOrderNumber)
+                    reference: `Order #${newOrderNumber}`
                 }
             });
 

@@ -204,6 +204,10 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - El alta de pedidos desde la pantalla, bandeja de WhatsApp y API de agente
   exige una clave de idempotencia. Un reintento devuelve el pedido original en
   lugar de crear otro pedido, cargo o documento.
+- Los cargos creados desde un pedido usan la referencia canónica
+  `Order #<número>`. Al editar artículos, el sistema busca tanto esa referencia
+  como el formato histórico numérico, actualiza solamente un cargo y bloquea la
+  operación si detecta más de uno asociado al mismo pedido.
 - Se eliminaron tres pares históricos de cargo equivocado y ajuste
   compensatorio (`#2398`, `#2399`, `#2470`) después de validar que cada par
   mantenía el saldo neto en cero y que la fuente operativa atribuye los pedidos
