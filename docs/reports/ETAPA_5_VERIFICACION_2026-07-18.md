@@ -50,3 +50,29 @@ se modificaron Google Sheets.
 - Invoice: 529 pedidos con productos verificados correctamente contra la
   fuente recien descargada.
 - Cuenta corriente: duplicados exactos, documentales y pagos repetidos: 0.
+
+## Revalidacion de cabeceras compartidas
+
+- Ejecucion completa: [GitHub Actions #29665949281](https://github.com/diegoteacade22/Sistema-Manejo-Eswcargo/actions/runs/29665949281), finalizada correctamente sobre `main` `f40c2c1`.
+- Las cabeceras con varias asignaciones de cliente se consolidan solo cuando
+  coinciden forwarder, fechas, tipo, estado y observacion. Pesos, costos,
+  cobros y rentabilidad se totalizan; los cargos de flete conservan una
+  referencia por cliente para una futura conciliacion financiera autorizada.
+- Envio `#1188`: 16 piezas verificadas por detalle, 10 de Ramiro Star y 6 de
+  Marcos Roku. Envio `#1204`: 13 piezas verificadas, 11 de Ramiro Star y 2
+  de Franco Visciarelli. Los Packing se resuelven por articulos y no por una
+  cabecera compartida.
+- Resultado de fuente: 793 cabeceras sincronizadas, 9 cabeceras compartidas
+  consolidadas y 5 conflictos reales conservados como bloqueados.
+- Packing: 329 envios operativos auditados. Invoice: 529 pedidos con
+  productos auditados. Las 1.219 asignaciones de envio coinciden con la
+  planilla; no se activó la reconstruccion financiera.
+
+## Pendientes de fuente
+
+- Pedido `#2223`: dos cabeceras incompatibles, clientes `#70` y `#151`.
+- Envios `#383`, `#659`, `#662` y `#972`: cada uno conserva dos filas con una
+  diferencia operacional real (forwarder, fechas, tipo, estado o campos de
+  carga). Se mantienen sin consolidar ni modificar.
+- Envio `#1048`: sin cabecera ni detalle verificable; permanece bloqueado
+  para emision de Packing List.
