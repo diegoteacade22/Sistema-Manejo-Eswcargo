@@ -343,14 +343,35 @@ export async function registerPurchasePayment(input: RegisterPurchasePaymentInpu
         throw new Error('Compra no encontrada.');
       }
 
+      const paymentDate = input.date || new Date();
+      const paymentMethod = input.payment_method?.trim() || null;
+      const paymentReference = input.reference?.trim() || purchase.invoice_number || String(purchase.id);
+      const startOfDay = new Date(paymentDate);
+      startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(startOfDay);
+      endOfDay.setDate(endOfDay.getDate() + 1);
+      const duplicatePayment = await tx.purchasePayment.findFirst({
+        where: {
+          purchaseId: purchase.id,
+          amount: Number(input.amount),
+          payment_method: paymentMethod,
+          reference: paymentReference,
+          date: { gte: startOfDay, lt: endOfDay },
+        },
+        select: { id: true },
+      });
+      if (duplicatePayment) {
+        throw new Error('Ya existe un pago con la misma compra, fecha, monto, método y referencia.');
+      }
+
       await tx.purchasePayment.create({
         data: {
           purchaseId: purchase.id,
           supplierId: purchase.supplierId,
           amount: Number(input.amount),
-          date: input.date || new Date(),
-          payment_method: input.payment_method?.trim() || null,
-          reference: input.reference?.trim() || null,
+          date: paymentDate,
+          payment_method: paymentMethod,
+          reference: paymentReference,
           notes: input.notes?.trim() || null,
         }
       });
@@ -358,12 +379,12 @@ export async function registerPurchasePayment(input: RegisterPurchasePaymentInpu
       await tx.transaction.create({
         data: {
           supplierId: purchase.supplierId,
-          date: input.date || new Date(),
+          date: paymentDate,
           type: 'PAGO',
           amount: Math.abs(Number(input.amount)),
           description: `Pago compra #${purchase.id}`,
-          reference: input.reference?.trim() || purchase.invoice_number || String(purchase.id),
-          paymentMethod: input.payment_method?.trim() || null,
+          reference: paymentReference,
+          paymentMethod,
         }
       });
 

@@ -416,17 +416,24 @@ export async function registerShipmentCharge(shipmentId: number, clientId: numbe
 
         if (!shipment) return { success: false, message: 'Envío no encontrado' };
 
-        // Create Debit Transaction
-        await prisma.transaction.create({
-            data: {
-                clientId,
-                type: 'CARGO', // Debit/Charge
-                amount: -Math.abs(amount), // Negative = Debt
-                date: new Date(),
-                description: `CARGA #${shipment.shipment_number} ${notes ? '- ' + notes : ''}`,
-                reference: `SHIP-${shipment.shipment_number}`
-            } as any
+        const reference = `SHIP-${shipment.shipment_number}`;
+        const data = {
+            amount: -Math.abs(amount),
+            date: new Date(),
+            description: `CARGA #${shipment.shipment_number} ${notes ? '- ' + notes : ''}`,
+        };
+        const existingCharge = await prisma.transaction.findFirst({
+            where: { clientId, type: 'CARGO', reference },
+            select: { id: true },
         });
+
+        if (existingCharge) {
+            await prisma.transaction.update({ where: { id: existingCharge.id }, data });
+        } else {
+            await prisma.transaction.create({
+                data: { clientId, type: 'CARGO', reference, ...data },
+            });
+        }
 
         revalidatePath(`/clients/${clientId}`);
         revalidatePath('/shipments');
