@@ -339,6 +339,53 @@ async function getLedgerIntegrityExceptions(): Promise<SyncException[]> {
         });
     }
 
+    const clientPayments = await prisma.transaction.findMany({
+        where: {
+            clientId: { not: null },
+            type: 'PAGO',
+            amount: { gt: 0 },
+            reference: { not: null },
+            NOT: { reference: { startsWith: 'CC-Import-' } },
+        },
+        select: {
+            id: true,
+            clientId: true,
+            date: true,
+            amount: true,
+            reference: true,
+            client: { select: { old_id: true, name: true } },
+        },
+        orderBy: [{ clientId: 'asc' }, { date: 'asc' }, { id: 'asc' }],
+    });
+    const paymentGroups = new Map<string, typeof clientPayments>();
+    for (const payment of clientPayments) {
+        const reference = String(payment.reference || '').trim().toUpperCase();
+        if (!reference) continue;
+        const key = [
+            payment.clientId,
+            payment.date.toISOString().slice(0, 10),
+            Math.round(payment.amount * 100),
+            reference,
+        ].join('|');
+        paymentGroups.set(key, [...(paymentGroups.get(key) || []), payment]);
+    }
+    const repeatedPayments = [...paymentGroups.values()].filter((group) => group.length > 1);
+    if (repeatedPayments.length) {
+        const examples = repeatedPayments
+            .slice(0, 3)
+            .map((group) => {
+                const payment = group[0];
+                return `${payment.client?.name || 'Cliente'} #${payment.client?.old_id ?? '-'} ${payment.date.toISOString().slice(0, 10)} ${money(payment.amount)} (${payment.reference}, tx ${group.map((item) => item.id).join('/')})`;
+            })
+            .join('; ');
+        exceptions.push({
+            level: 'warning',
+            title: `${repeatedPayments.length} posible(s) pago(s) duplicado(s)`,
+            detail: `${examples}. Se conserva la cuenta hasta verificar comprobantes; los nuevos pagos con esa misma referencia ya se bloquean.`,
+            url: '/collections',
+        });
+    }
+
     const supplierTransactions = await prisma.transaction.findMany({
         where: { supplierId: { not: null } },
         select: {

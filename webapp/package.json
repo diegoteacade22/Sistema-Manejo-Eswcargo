@@ -13,6 +13,7 @@
     "audit:supplier-ledgers": "node scripts/audit-supplier-ledgers.mjs",
     "audit:cashflow-raw": "node scripts/audit-cash-flow-raw-drift.mjs",
     "audit:cashflow-invoices": "python3 scripts/audit-cashflow-invoice-references.py --summary",
+    "test:payment-duplicate-guard": "tsx scripts/test-payment-duplicate-guard.ts",
     "test:sync-delta": "tsx scripts/test-sync-item-delta.ts",
     "test:sync-source": "tsx scripts/test-sync-source-normalization.ts",
     "revert:ledger-batch:20260718": "node scripts/revert-duplicate-ledger-batch-20260718.mjs",

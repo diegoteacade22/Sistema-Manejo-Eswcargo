@@ -82,7 +82,6 @@ export async function createClientPaymentWithReceipt(tx: TxClient, input: Paymen
             clientId: input.clientId,
             type: 'PAGO',
             amount,
-            paymentMethod,
             reference: referenceValue,
             date: {
                 gte: start,
@@ -93,7 +92,7 @@ export async function createClientPaymentWithReceipt(tx: TxClient, input: Paymen
     });
 
     if (duplicate) {
-        throw new Error('Ya existe un pago con el mismo cliente, fecha, monto, método y referencia.');
+        throw new Error('Ya existe un pago con el mismo cliente, fecha, monto y referencia. Usá una referencia distinta si son pagos separados.');
     }
 
     return tx.transaction.create({

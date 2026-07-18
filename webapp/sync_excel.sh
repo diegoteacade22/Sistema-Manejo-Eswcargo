@@ -92,6 +92,8 @@ if run_stage "Lectura de Cash Flow" bash -c '"$1" "$2" > "$3"' -- "$PYTHON_EXEC"
 else
    echo "⚠️ No se pudo leer Cash Flow; se mantiene la escritura financiera deshabilitada."
 fi
+run_stage "Auditoría de cuenta corriente previa" node "$DIR/scripts/audit-ledgers.mjs" || echo "⚠️ Cuenta corriente con advertencias; se mantiene la sincronización operativa sin movimientos financieros."
+run_stage "Auditoría de duplicados CC previa" node "$DIR/scripts/audit-ledger-duplicates.mjs" || echo "⚠️ Posibles duplicados o documentos repetidos en Cuenta Corriente; revisar antes de emitir cobros."
 if [ -x "$DIR/node_modules/.bin/tsx" ]; then
    run_stage "Actualización de base" env SYNC_MODE=$SYNC_MODE ALLOW_FINANCIAL_LEDGER_SYNC=0 "$DIR/node_modules/.bin/tsx" prisma/seed_fast.ts
 elif [ -x "$DIR/node_modules/.bin/ts-node" ]; then

@@ -85,6 +85,7 @@ async function main() {
   const exactGroups = new Map();
   const documentGroups = new Map();
   const documentOccurrences = new Map();
+  const paymentGroups = new Map();
 
   for (const tx of operational) {
     const exactKey = [
@@ -105,6 +106,18 @@ async function main() {
         add(documentOccurrences, [tx.clientId, document].join('|'), tx);
       }
     }
+
+    if (tx.type === 'PAGO' && tx.amount > 0) {
+      const reference = String(tx.reference || '').trim().toUpperCase();
+      if (reference) {
+        add(paymentGroups, [
+          tx.clientId,
+          dayKey(tx.date),
+          Math.round(tx.amount * 100),
+          reference,
+        ].join('|'), tx);
+      }
+    }
   }
 
   const exactDuplicates = [...exactGroups.entries()]
@@ -121,6 +134,9 @@ async function main() {
   const repeatedDocuments = repeatedDocumentGroups
     .filter(([, group]) => !group.some(isReversal))
     .map(([key, group]) => ({ key, client: group[0].client, transactions: summarize(group) }));
+  const repeatedPayments = [...paymentGroups.entries()]
+    .filter(([, group]) => group.length > 1)
+    .map(([key, group]) => ({ key, client: group[0].client, transactions: summarize(group) }));
 
   const report = {
     generatedAt: new Date().toISOString(),
@@ -130,10 +146,11 @@ async function main() {
     documentDuplicates,
     reversalDocuments,
     repeatedDocuments,
+    repeatedPayments,
   };
 
   console.log(JSON.stringify(report, null, 2));
-  if (exactDuplicates.length || documentDuplicates.length || repeatedDocuments.length) process.exitCode = 2;
+  if (exactDuplicates.length || documentDuplicates.length || repeatedDocuments.length || repeatedPayments.length) process.exitCode = 2;
 }
 
 main()

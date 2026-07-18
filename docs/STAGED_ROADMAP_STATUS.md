@@ -162,6 +162,10 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Los cargos manuales de envío son idempotentes por envío y cliente: un reintento
   actualiza el cargo existente en vez de crear otro. Los pagos de compras se
   rechazan si repiten compra, fecha, monto, método y referencia.
+- Los pagos de clientes ahora se rechazan si repiten cliente, fecha, monto y
+  referencia, incluso si el segundo intento cambia u omite el método de pago.
+  La detección corre antes y después de cada actualización y se muestra en
+  Mantenimiento.
 - Auditoría de proveedores antes y después de cada sincronización local o cloud.
   Detecta duplicados exactos, pagos que no cierran contra su cargo y referencias
   de compras sin registro interno. Solo alerta: nunca modifica saldos ni la
@@ -180,3 +184,8 @@ ninguna escritura automatica sobre planillas ni base de datos.
   referencias no aparecen en las fuentes de ventas/compras actuales ni
   históricas consultadas. Ocho cargos antiguos también mencionan compras que
   no tienen registro interno vinculado.
+- Revisar el posible doble pago de Marcos Roku `#162` del 2026-07-09: tx
+  `1173202` y `1173203`, ambos por USD 14.700 con referencia `Manual`. Fueron
+  creados con 40 segundos de diferencia, pero Cash Flow no aporta una fila que
+  pruebe si corresponde conservar uno o los dos. No se elimina ninguno sin
+  comprobante.
