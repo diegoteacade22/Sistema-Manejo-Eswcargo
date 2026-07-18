@@ -231,6 +231,11 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - La entrega automática omite envíos compartidos. Requieren emisión manual
   por cliente hasta implementar notificaciones independientes y auditables
   para cada segmento.
+- Verificación vigente contra producción y `CASH FLOW 2026`: los 11 saldos
+  finales coinciden con la fuente. Las 10 cuentas que aún dependen de ajuste
+  global fueron evaluadas individualmente y ninguna cumple el criterio de
+  reconstrucción segura sin evidencia externa. El detalle está en
+  `docs/reports/ETAPA_5_VERIFICACION_2026-07-18.md`.
 
 ### Pendiente
 
