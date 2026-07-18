@@ -163,9 +163,11 @@ ninguna escritura automatica sobre planillas ni base de datos.
   duración de cada corrida cloud y la marca como excepción si supera el umbral.
 - Control de deriva Cash Flow en modo solo lectura, ejecutado antes y después
   de cada actualización local o cloud. Contrasta cada referencia de las 11
-  cuentas, detecta faltantes, signos opuestos, cambios, referencias repetidas
-  y extras, y verifica que el saldo final de cada cuenta siga coincidiendo con
-  la fuente. No crea ni altera movimientos financieros.
+  cuentas y, cuando una fila fue movida en la hoja, la identifica por fecha,
+  tipo, importe y descripción en vez de confundirla con un cambio financiero.
+  Detecta faltantes, signos opuestos, cambios, referencias repetidas y extras,
+  y verifica que el saldo final de cada cuenta siga coincidiendo con la fuente.
+  No crea ni altera movimientos financieros.
 - Contraste de referencias Invoice en modo solo lectura contra ventas actuales
   e históricas antes de cada sincronización. Las diferencias quedan visibles y
   no alteran cuentas conciliadas.

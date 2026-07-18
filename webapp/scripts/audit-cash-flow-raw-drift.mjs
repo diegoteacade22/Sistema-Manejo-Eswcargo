@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { PrismaClient } from '@prisma/client';
+import { reconcileCashflowRows } from '../lib/cashflow-reconciliation.mjs';
 
 const prisma = new PrismaClient();
 const EPSILON = 0.005;
@@ -15,14 +16,6 @@ function round(value) {
 
 function total(rows) {
   return round(rows.reduce((sum, row) => sum + Number(row.amount || 0), 0));
-}
-
-function exact(transaction, row) {
-  return transaction.type === row.type && Math.abs(transaction.amount - row.amount) <= EPSILON;
-}
-
-function opposite(transaction, row) {
-  return transaction.type !== row.type && Math.abs(transaction.amount + row.amount) <= EPSILON;
 }
 
 async function main() {
@@ -43,13 +36,6 @@ async function main() {
     orderBy: [{ clientId: 'asc' }, { date: 'asc' }, { id: 'asc' }],
   });
   const raw = transactions.filter((transaction) => String(transaction.reference || '').startsWith('CASHFLOW-RAW-2026:'));
-  const rawByReference = new Map();
-  for (const transaction of raw) {
-    const group = rawByReference.get(transaction.reference) || [];
-    group.push(transaction);
-    rawByReference.set(transaction.reference, group);
-  }
-  const references = new Set(sourceRows.map((row) => row.reference));
   const accounts = [];
 
   for (const oldId of oldIds.sort((a, b) => a - b)) {
@@ -57,47 +43,7 @@ async function main() {
     const source = sourceRows.filter((row) => row.oldId === oldId);
     const all = client ? transactions.filter((transaction) => transaction.clientId === client.id) : [];
     const rawRows = all.filter((transaction) => String(transaction.reference || '').startsWith('CASHFLOW-RAW-2026:'));
-    const samples = { oppositeSign: [], missing: [], changed: [], duplicateReference: [], extra: [] };
-    let exactRows = 0;
-    let oppositeSignRows = 0;
-    let changedRows = 0;
-    let missingRows = 0;
-    let duplicateReferenceRows = 0;
-
-    for (const row of source) {
-      const transactionsByReference = rawByReference.get(row.reference) || [];
-      const transaction = transactionsByReference[0];
-      if (transactionsByReference.length > 1) {
-        duplicateReferenceRows += transactionsByReference.length - 1;
-        if (samples.duplicateReference.length < 5) {
-          samples.duplicateReference.push({
-            reference: row.reference,
-            transactionIds: transactionsByReference.map((item) => item.id),
-          });
-        }
-      }
-      if (!transaction) {
-        missingRows += 1;
-        if (samples.missing.length < 5) samples.missing.push(row.reference);
-      } else if (exact(transaction, row)) {
-        exactRows += 1;
-      } else if (opposite(transaction, row)) {
-        oppositeSignRows += 1;
-        if (samples.oppositeSign.length < 5) samples.oppositeSign.push(row.reference);
-      } else {
-        changedRows += 1;
-        if (samples.changed.length < 5) samples.changed.push({
-          reference: row.reference,
-          expected: { type: row.type, amount: row.amount },
-          actual: { id: transaction.id, type: transaction.type, amount: transaction.amount },
-        });
-      }
-    }
-
-    const extra = rawRows.filter((transaction) => !references.has(transaction.reference));
-    for (const transaction of extra.slice(0, 5)) {
-      samples.extra.push({ id: transaction.id, reference: transaction.reference, amount: transaction.amount });
-    }
+    const reconciliation = reconcileCashflowRows(source, rawRows);
     const sourceBalance = total(source);
     const systemBalance = total(all);
     accounts.push({
@@ -105,17 +51,18 @@ async function main() {
       client: client ? { id: client.id, name: client.name } : null,
       sourceRows: source.length,
       rawRows: rawRows.length,
-      exactRows,
-      oppositeSignRows,
-      changedRows,
-      missingRows,
-      duplicateReferenceRows,
-      extraRawRows: extra.length,
+      exactRows: reconciliation.exactRows,
+      relocatedRows: reconciliation.relocatedRows,
+      oppositeSignRows: reconciliation.oppositeSignRows,
+      changedRows: reconciliation.changedRows,
+      missingRows: reconciliation.missingRows,
+      duplicateReferenceRows: reconciliation.duplicateReferenceRows,
+      extraRawRows: reconciliation.extraRows,
       sourceBalance,
       rawBalance: total(rawRows),
       systemBalance,
       finalBalanceMatchesSource: Math.abs(systemBalance - sourceBalance) <= EPSILON,
-      samples,
+      samples: reconciliation.samples,
     });
   }
 
@@ -127,6 +74,7 @@ async function main() {
     accounts,
     totals: {
       exactRows: add('exactRows'),
+      relocatedRows: add('relocatedRows'),
       oppositeSignRows: add('oppositeSignRows'),
       changedRows: add('changedRows'),
       missingRows: add('missingRows'),
@@ -140,7 +88,7 @@ async function main() {
   const drift = report.totals.oppositeSignRows || report.totals.changedRows || report.totals.missingRows || report.totals.duplicateReferenceRows
     || report.totals.extraRawRows || report.totals.accountsWithFinalBalanceMismatch.length;
   if (drift) {
-    console.warn(`Advertencia Cash Flow: ${report.totals.oppositeSignRows} signos opuestos, ${report.totals.changedRows} cambios, ${report.totals.missingRows} faltantes, ${report.totals.duplicateReferenceRows} referencias repetidas, ${report.totals.extraRawRows} extras y ${report.totals.accountsWithFinalBalanceMismatch.length} saldos finales distintos.`);
+    console.warn(`Advertencia Cash Flow: ${report.totals.relocatedRows} filas reubicadas, ${report.totals.oppositeSignRows} signos opuestos, ${report.totals.changedRows} cambios, ${report.totals.missingRows} faltantes, ${report.totals.duplicateReferenceRows} referencias repetidas, ${report.totals.extraRawRows} extras y ${report.totals.accountsWithFinalBalanceMismatch.length} saldos finales distintos.`);
   }
   if (process.env.CASHFLOW_RAW_DRIFT_STRICT === '1' && drift) process.exitCode = 2;
 }
