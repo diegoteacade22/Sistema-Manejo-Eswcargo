@@ -16,6 +16,8 @@ Drive autorizadas. No se modificó ninguna Google Sheet.
 | --- | --- | ---: | --- |
 | Nicolas - AudioPhones `#153` | Ventas registra #2310 por USD 10.740 y #2347 por USD 10.800; #2334 está cancelada por USD 0. El sistema conserva un pago de USD 22.248. | USD 708 | No modificar. No hay recibo, Invoice ni movimiento financiero en las fuentes históricas consultadas que explique el importe. |
 | Nicolas Iphone Bsas `#197` | Venta #2421 por USD 9.370, cancelada. El sistema conserva un pago de arqueo inicial por USD 9.674. | USD 304 | No modificar. La venta cancelada no permite transformar el arqueo en un cargo ni justificar la diferencia. |
+| Franco Pepe `#84` | El movimiento `#417888` es un `PAGO` de USD -21.001,80 del 19/04/2026, sin referencia. Las ventas históricas localizadas no coinciden en fecha ni importe. | Signo y comprobante ausentes | No modificar. Requiere recibo o Invoice que identifique el caso. |
+| Claudio Molina x IG `#261` | El movimiento `#454256` es un `PAGO` de USD -76.000 del 06/05/2026, sin referencia. La conversación encontrada habla de conciliar la cuenta, pero no acredita ese importe ni su signo. | Signo y comprobante ausentes | No modificar. Requiere recibo, Invoice o planilla del cliente que vincule fecha e importe. |
 
 ## Fuentes consultadas
 
