@@ -15,6 +15,7 @@
     "audit:cashflow-raw": "node scripts/audit-cash-flow-raw-drift.mjs",
     "audit:cashflow-invoices": "python3 scripts/audit-cashflow-invoice-references.py --summary",
     "test:payment-duplicate-guard": "tsx scripts/test-payment-duplicate-guard.ts",
+    "test:financial-concurrency-guards": "tsx scripts/test-financial-concurrency-guards.ts",
     "reconcile:stale-order-charges": "node scripts/remove-stale-neutralized-order-charges-20260718.mjs",
     "test:sync-delta": "tsx scripts/test-sync-item-delta.ts",
     "test:sync-source": "tsx scripts/test-sync-source-normalization.ts",

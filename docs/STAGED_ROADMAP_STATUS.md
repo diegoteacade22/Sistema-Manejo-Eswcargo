@@ -176,6 +176,13 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Los pagos manuales quedan protegidos por una clave transaccional en base de
   datos. Dos solicitudes simultáneas con cliente, fecha, monto y referencia
   iguales no pueden crear dos cobros.
+- Los cargos manuales de envío también tienen una restricción de base de datos
+  para `SHIP-*`; dos solicitudes simultáneas no pueden crear el mismo cargo.
+- Los pagos a proveedor quedan protegidos por una clave transaccional de
+  compra, fecha, monto y referencia. El intento duplicado revierte también su
+  movimiento de proveedor, antes de que pueda afectar el saldo.
+- Pruebas transaccionales verifican los tres controles de duplicación
+  financiera y se revierten sin dejar datos de prueba.
 - Se eliminaron tres pares históricos de cargo equivocado y ajuste
   compensatorio (`#2398`, `#2399`, `#2470`) después de validar que cada par
   mantenía el saldo neto en cero y que la fuente operativa atribuye los pedidos
@@ -209,3 +216,9 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - El reporte `PENDING_SOURCE_EVIDENCE_2026-07-18.md` reúne los casos que no
   pueden cerrarse sin comprobante: Packing `#1048`, pedido `#2223`, Invoice
   `#2352`, pago de Marcos Roku y diferencias de proveedor/Cash Flow.
+- Proteger la asignación simultánea de un mismo ítem de compra. Hoy dos
+  operadores podrían calcular disponibilidad antes de que el otro confirme;
+  requiere convertir todo el circuito de asignación en una operación
+  transaccional y no se aplicará como cambio aislado.
+- Incorporar una clave de idempotencia al alta de pedidos para evitar que un
+  reintento después de perder la respuesta cree un pedido y cargo repetidos.

@@ -422,25 +422,31 @@ export async function registerShipmentCharge(shipmentId: number, clientId: numbe
             date: new Date(),
             description: `CARGA #${shipment.shipment_number} ${notes ? '- ' + notes : ''}`,
         };
-        const existingCharge = await prisma.transaction.findFirst({
-            where: { clientId, type: 'CARGO', reference },
-            select: { id: true },
-        });
+        await prisma.$transaction(async (tx) => {
+            const existingCharge = await tx.transaction.findFirst({
+                where: { clientId, type: 'CARGO', reference },
+                select: { id: true },
+            });
 
-        if (existingCharge) {
-            await prisma.transaction.update({ where: { id: existingCharge.id }, data });
-        } else {
-            await prisma.transaction.create({
+            if (existingCharge) {
+                await tx.transaction.update({ where: { id: existingCharge.id }, data });
+                return;
+            }
+
+            await tx.transaction.create({
                 data: { clientId, type: 'CARGO', reference, ...data },
             });
-        }
+        }, { isolationLevel: 'Serializable' });
 
         revalidatePath(`/clients/${clientId}`);
         revalidatePath('/shipments');
         return { success: true };
 
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error registering shipment charge:', error);
+        if (error?.code === 'P2002' || error?.code === 'P2034') {
+            return { success: false, message: 'El cargo del envío fue registrado por otra operación. Actualizá la pantalla antes de reintentar.' };
+        }
         return { success: false, message: 'Error al registrar el cargo del envío' };
     }
 }

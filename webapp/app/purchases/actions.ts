@@ -37,6 +37,15 @@ type RegisterPurchasePaymentInput = {
   date?: Date;
 };
 
+function paymentReferenceKey(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 async function getNextOrderNumber(tx: any) {
   const lastOrder = await tx.order.findFirst({ orderBy: { order_number: 'desc' } });
   return (lastOrder?.order_number || 0) + 1;
@@ -364,7 +373,7 @@ export async function registerPurchasePayment(input: RegisterPurchasePaymentInpu
         throw new Error('Ya existe un pago con la misma compra, fecha, monto, método y referencia.');
       }
 
-      await tx.purchasePayment.create({
+      const purchasePayment = await tx.purchasePayment.create({
         data: {
           purchaseId: purchase.id,
           supplierId: purchase.supplierId,
@@ -373,6 +382,16 @@ export async function registerPurchasePayment(input: RegisterPurchasePaymentInpu
           payment_method: paymentMethod,
           reference: paymentReference,
           notes: input.notes?.trim() || null,
+        }
+      });
+
+      await tx.purchasePaymentGuard.create({
+        data: {
+          purchaseId: purchase.id,
+          paymentDate: startOfDay,
+          amount: Number(input.amount),
+          referenceKey: paymentReferenceKey(paymentReference),
+          purchasePaymentId: purchasePayment.id,
         }
       });
 
@@ -396,7 +415,7 @@ export async function registerPurchasePayment(input: RegisterPurchasePaymentInpu
         supplierName: purchase.supplier.name,
         ...financial,
       };
-    });
+    }, { isolationLevel: 'Serializable' });
 
     revalidatePath('/purchases');
     revalidatePath(`/purchases/${input.purchaseId}`);
@@ -409,6 +428,9 @@ export async function registerPurchasePayment(input: RegisterPurchasePaymentInpu
     };
   } catch (error: any) {
     console.error('Error registering purchase payment', error);
+    if (error?.code === 'P2002' || error?.code === 'P2034') {
+      return { success: false, message: 'Ya existe un pago con la misma compra, fecha, monto y referencia. Actualizá la pantalla antes de reintentar.' };
+    }
     return { success: false, message: error?.message || 'No se pudo registrar el pago.' };
   }
 }
