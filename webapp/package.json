@@ -10,6 +10,7 @@
     "lint": "eslint",
     "audit:ledgers": "node scripts/audit-ledgers.mjs",
     "audit:ledger-duplicates": "node scripts/audit-ledger-duplicates.mjs",
+    "audit:cashflow-raw": "node scripts/audit-cash-flow-raw-drift.mjs",
     "test:sync-delta": "tsx scripts/test-sync-item-delta.ts",
     "test:sync-source": "tsx scripts/test-sync-source-normalization.ts",
     "revert:ledger-batch:20260718": "node scripts/revert-duplicate-ledger-batch-20260718.mjs",

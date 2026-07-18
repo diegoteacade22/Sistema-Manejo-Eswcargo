@@ -4,33 +4,34 @@
 
 - Lectura de `CASH FLOW 2026` en Google Sheets, sin modificarla.
 - 1.112 variaciones de saldo extraídas de las 11 cuentas con pestaña.
-- Producción ESWCARGO: 1.039 movimientos `CASHFLOW-RAW-2026` existentes.
+- Producción ESWCARGO: 1.021 movimientos `CASHFLOW-RAW-2026` vinculados a las 11 cuentas auditadas.
 
 ## Hallazgo
 
-El importador histórico aplica `monto = -variación_de_saldo`. La convención de
-Cuenta Corriente de ESWCARGO es la inversa: cobros positivos y cargos
-negativos. La base ya contiene una mezcla de filas importadas con ambas
-convenciones, además de ajustes de conciliación y movimientos de otros
-orígenes.
+La fuente puede convertirse a la convención actual de Cuenta Corriente con
+`monto = -variación_de_saldo`: una suba de saldo es un cargo negativo y una
+baja es un cobro positivo. El problema histórico no permite asumir que cada
+fila actual siga esa regla: hay filas con signo opuesto, faltantes, diferencias
+de importe y ajustes de conciliación que conservan el saldo final correcto.
 
 | Situación frente a la fuente actual | Filas |
 | --- | ---: |
-| Conservan el signo legado invertido | 569 |
-| Coinciden con el signo correcto | 283 |
+| Coinciden con la conversión actual de la planilla | 569 |
+| Tienen el signo opuesto a la conversión esperada | 283 |
 | Difieren por monto u otra modificación | 156 |
 | Existen en Cash Flow y faltan en producción | 104 |
 
-También hay 31 referencias raw adicionales, principalmente anulaciones y
-ajustes por fila previos.
+También hay 13 referencias raw adicionales dentro de estas cuentas, principalmente
+anulaciones y ajustes por fila previos. El auditor identifica además cualquier
+repetición de una misma referencia de origen.
 
 ## Decisión aplicada
 
 No se invirtió ni reimportó el lote completo: hacerlo alteraría saldos ya
 compensados por ajustes de conciliación y podría duplicar operaciones contra
 movimientos de otros orígenes. Las sincronizaciones operativas continúan con
-la escritura financiera deshabilitada y ejecutan auditorías de cuenta corriente
-y duplicados antes y después de cada actualización.
+la escritura financiera deshabilitada y ejecutan auditorías de cuenta corriente,
+duplicados y deriva de Cash Flow antes y después de cada actualización.
 
 ## Próximo procedimiento seguro
 

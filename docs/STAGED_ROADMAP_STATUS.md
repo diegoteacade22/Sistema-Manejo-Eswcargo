@@ -87,10 +87,11 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Mantener la medicion de rendimiento. Las tres ultimas sincronizaciones
   completas verificadas finalizaron en 82, 68 y 83 segundos, sin volver a
   filtrar por fecha.
-- El historial raw de Cash Flow tiene mezcla de signos y referencias: la
-  corrección requiere una migración cuenta por cuenta con respaldo. El reporte
-  de drift documenta 569 filas con signo legado, 283 correctas, 156 distintas
-  y 104 aún ausentes en producción.
+- El historial raw de Cash Flow tiene referencias históricas que no reflejan
+  exactamente cada fila de origen. No se corrigió en bloque: el control de
+  deriva confirma que los 11 saldos finales coinciden, mientras documenta 283
+  signos opuestos, 156 importes o tipos distintos, 104 faltantes y 13 filas
+  extra. Cualquier corrección futura requiere respaldo y revisión por cuenta.
 
 ## Etapa 4: Panel operativo
 
@@ -138,8 +139,16 @@ ninguna escritura automatica sobre planillas ni base de datos.
   alerta cuando el total supera 120 segundos (configurable con
   `SYNC_ALERT_THRESHOLD_SECONDS`). El centro de Mantenimiento muestra la
   duración de cada corrida cloud y la marca como excepción si supera el umbral.
+- Control de deriva Cash Flow en modo solo lectura, ejecutado antes y después
+  de cada actualización local o cloud. Contrasta cada referencia de las 11
+  cuentas, detecta faltantes, signos opuestos, cambios, referencias repetidas
+  y extras, y verifica que el saldo final de cada cuenta siga coincidiendo con
+  la fuente. No crea ni altera movimientos financieros.
 
 ### Pendiente
 
 - Revisar trimestralmente el umbral de 120 segundos solo si el crecimiento de
   la fuente vuelve insuficiente el margen actual.
+- Resolver solamente con respaldo y evidencia documental las diferencias raw
+  históricas de Cash Flow. Mientras tanto, el control las deja visibles sin
+  reimportar ni modificar cuentas que hoy concilian.

@@ -84,6 +84,13 @@ if [ $? -ne 0 ]; then
    echo "Error: no se pudieron aplicar las migraciones de base requeridas para la sincronización."
    exit 1
 fi
+
+CASHFLOW_RAW_EXPORT="$(mktemp /tmp/eswcargo-cashflow-raw.XXXXXX.json)"
+if run_stage "Lectura de Cash Flow" bash -c '"$1" "$2" > "$3"' -- "$PYTHON_EXEC" "$DIR/scripts/export-cash-flow-raw-transactions.py" "$CASHFLOW_RAW_EXPORT"; then
+   run_stage "Auditoría de deriva Cash Flow previa" node "$DIR/scripts/audit-cash-flow-raw-drift.mjs" --source "$CASHFLOW_RAW_EXPORT" || echo "⚠️ No se pudo contrastar Cash Flow antes de actualizar."
+else
+   echo "⚠️ No se pudo leer Cash Flow; se mantiene la escritura financiera deshabilitada."
+fi
 if [ -x "$DIR/node_modules/.bin/tsx" ]; then
    run_stage "Actualización de base" env SYNC_MODE=$SYNC_MODE ALLOW_FINANCIAL_LEDGER_SYNC=0 "$DIR/node_modules/.bin/tsx" prisma/seed_fast.ts
 elif [ -x "$DIR/node_modules/.bin/ts-node" ]; then
@@ -113,6 +120,11 @@ run_stage "Auditoría de invoice" node "$DIR/scripts/audit-invoice-readiness.mjs
 if [ $? -ne 0 ]; then
    echo "Error: Invoice readiness audit failed."
    exit 1
+fi
+
+if [ -f "$CASHFLOW_RAW_EXPORT" ]; then
+   run_stage "Auditoría de deriva Cash Flow posterior" node "$DIR/scripts/audit-cash-flow-raw-drift.mjs" --source "$CASHFLOW_RAW_EXPORT" || echo "⚠️ No se pudo contrastar Cash Flow después de actualizar."
+   rm -f "$CASHFLOW_RAW_EXPORT"
 fi
 
 run_stage "Auditoría de cuenta corriente" node "$DIR/scripts/audit-ledgers.mjs" || echo "⚠️ Cuenta corriente con advertencias; revisar antes de emitir cobros."
