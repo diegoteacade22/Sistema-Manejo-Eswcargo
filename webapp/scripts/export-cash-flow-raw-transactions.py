@@ -43,6 +43,11 @@ def parse_date(value):
     return None
 
 
+def is_numeric_cell(value):
+    text = str(value or "").replace("\xa0", " ").strip().upper()
+    return bool(re.fullmatch(r"(?:USD\s*)?[-(]?\$?\s*[0-9][0-9,]*(?:\.[0-9]+)?\)?", text))
+
+
 def find_header(values):
     for index, row in enumerate(values):
         normalized = [str(cell).strip().upper() for cell in row]
@@ -58,7 +63,7 @@ def extract_date_and_description(row, saldo_index):
     if date_index is not None:
         for cell in row[date_index + 1 : saldo_index]:
             text = str(cell or "").strip()
-            if text and parse_money(text) is None:
+            if text and not is_numeric_cell(text):
                 description = text
                 break
     return date_value, description or "Movimiento Cash Flow"

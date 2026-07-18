@@ -92,6 +92,10 @@ ninguna escritura automatica sobre planillas ni base de datos.
   deriva confirma que los 11 saldos finales coinciden, mientras documenta 283
   signos opuestos, 156 importes o tipos distintos, 104 faltantes y 13 filas
   extra. Cualquier corrección futura requiere respaldo y revisión por cuenta.
+- Contraste de referencias Invoice entre Cash Flow y Ventas/Compras, también
+  solo lectura. Detecta un único cargo repetido por referencia (`#2352`, Luca)
+  y mantiene visibles los importes, clientes e Invoices que no se pueden
+  verificar desde la fuente sin alterar la cuenta conciliada.
 
 ## Etapa 4: Panel operativo
 

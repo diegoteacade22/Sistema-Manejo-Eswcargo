@@ -90,6 +90,7 @@ jobs:
           node scripts/cleanup-legacy-ledger-imports.mjs
           python3 scripts/export-cash-flow-raw-transactions.py > /tmp/cashflow-raw-source.json
           node scripts/audit-cash-flow-raw-drift.mjs --source /tmp/cashflow-raw-source.json
+          python3 scripts/audit-cashflow-invoice-references.py --summary
           node scripts/audit-ledgers.mjs || echo "::warning::Auditoria CC previa con advertencias; se continua la sincronizacion operativa."
           node scripts/audit-ledger-duplicates.mjs || echo "::warning::Posibles duplicados o documentos repetidos en Cuenta Corriente; revisar Mantenimiento antes de emitir cobros."
           if [ "$SYNC_DAYS" = "0" ] || [ "$SYNC_DAYS" = "FULL" ]; then

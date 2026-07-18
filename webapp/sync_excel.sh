@@ -88,6 +88,7 @@ fi
 CASHFLOW_RAW_EXPORT="$(mktemp /tmp/eswcargo-cashflow-raw.XXXXXX.json)"
 if run_stage "Lectura de Cash Flow" bash -c '"$1" "$2" > "$3"' -- "$PYTHON_EXEC" "$DIR/scripts/export-cash-flow-raw-transactions.py" "$CASHFLOW_RAW_EXPORT"; then
    run_stage "Auditoría de deriva Cash Flow previa" node "$DIR/scripts/audit-cash-flow-raw-drift.mjs" --source "$CASHFLOW_RAW_EXPORT" || echo "⚠️ No se pudo contrastar Cash Flow antes de actualizar."
+   run_stage "Auditoría de referencias Invoice" "$PYTHON_EXEC" "$DIR/scripts/audit-cashflow-invoice-references.py" --summary || echo "⚠️ No se pudo contrastar referencias de Invoice."
 else
    echo "⚠️ No se pudo leer Cash Flow; se mantiene la escritura financiera deshabilitada."
 fi
