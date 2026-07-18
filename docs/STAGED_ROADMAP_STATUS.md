@@ -95,11 +95,15 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Los contadores de artículos de envío se actualizan solamente si cambiaron.
 - La corrida completa verificada bajó de 261 a 57 segundos, manteniendo las
   auditorías de asignaciones, packing e invoice en estado correcto.
+- Simulación determinística fuera de producción que cubre alta, baja y
+  reasignación de productos; valida que los pedidos sin cambios no se
+  reescriben.
+- Medición por descarga, extracción, actualización y auditorías; el resumen
+  alerta cuando el total supera 120 segundos (configurable con
+  `SYNC_ALERT_THRESHOLD_SECONDS`). El centro de Mantenimiento muestra la
+  duración de cada corrida cloud y la marca como excepción si supera el umbral.
 
 ### Pendiente
 
-- Crear una prueba controlada fuera de producción que simule agregar, quitar y
-  reasignar productos para demostrar que solo los pedidos afectados se
-  reescriben.
-- Registrar tiempos por etapa de sincronización y alertar si el total supera el
-  umbral operativo acordado.
+- Ajustar el umbral operativo si tres sincronizaciones completas validadas
+  requieren más de 120 segundos por crecimiento real de la fuente.

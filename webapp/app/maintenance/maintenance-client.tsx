@@ -23,6 +23,11 @@ function syncResultLabel(status: string, conclusion: string | null) {
     return conclusion === 'success' ? 'Validada' : conclusion || 'Sin resultado';
 }
 
+function formatDuration(seconds: number | null) {
+    if (seconds === null) return 'Sin dato';
+    return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
 export function MaintenanceClient() {
     const [isPending, startTransition] = useTransition();
     const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
@@ -159,7 +164,7 @@ export function MaintenanceClient() {
                         <div className="overflow-x-auto border border-slate-200 dark:border-slate-800">
                             <table className="w-full min-w-[560px] text-left text-sm">
                                 <thead className="bg-slate-50 text-xs uppercase text-slate-500 dark:bg-slate-900 dark:text-slate-400">
-                                    <tr><th className="px-3 py-2">Finalización</th><th className="px-3 py-2">Rango</th><th className="px-3 py-2">Resultado</th><th className="px-3 py-2"></th></tr>
+                                    <tr><th className="px-3 py-2">Finalización</th><th className="px-3 py-2">Rango</th><th className="px-3 py-2">Resultado</th><th className="px-3 py-2">Duración</th><th className="px-3 py-2"></th></tr>
                                 </thead>
                                 <tbody>
                                     {syncControl.history.slice(0, 6).map((run) => (
@@ -167,6 +172,7 @@ export function MaintenanceClient() {
                                             <td className="px-3 py-2">{formatSyncDate(run.updatedAt)}</td>
                                             <td className="px-3 py-2">{run.scope}</td>
                                             <td className={`px-3 py-2 font-medium ${run.status === 'completed' && run.conclusion === 'success' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>{syncResultLabel(run.status, run.conclusion)}</td>
+                                            <td className="px-3 py-2">{formatDuration(run.durationSeconds)}</td>
                                             <td className="px-3 py-2"><a className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-900 dark:hover:text-slate-100" href={run.url} target="_blank" rel="noreferrer">Detalle <ExternalLink className="h-3.5 w-3.5" /></a></td>
                                         </tr>
                                     ))}

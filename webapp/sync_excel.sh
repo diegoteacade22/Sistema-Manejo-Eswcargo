@@ -21,6 +21,31 @@ echo "----------------------------------------"
 echo "Sync Mode: $SYNC_MODE"
 echo "Filter: $DAYS_FILTER"
 
+SYNC_STARTED_AT="$(date +%s)"
+SYNC_ALERT_THRESHOLD_SECONDS="${SYNC_ALERT_THRESHOLD_SECONDS:-120}"
+
+run_stage() {
+    local stage_name="$1"
+    shift
+    local stage_started_at
+    stage_started_at="$(date +%s)"
+    "$@"
+    local stage_exit=$?
+    local stage_elapsed=$(( $(date +%s) - stage_started_at ))
+    echo "⏱️ $stage_name: ${stage_elapsed}s"
+    return "$stage_exit"
+}
+
+finish_sync() {
+    local total_elapsed=$(( $(date +%s) - SYNC_STARTED_AT ))
+    echo "⏱️ Sincronización total: ${total_elapsed}s"
+    if [ "$total_elapsed" -gt "$SYNC_ALERT_THRESHOLD_SECONDS" ]; then
+        echo "⚠️ Sincronización por encima del umbral operativo de ${SYNC_ALERT_THRESHOLD_SECONDS}s. Revisar el detalle por etapa."
+    fi
+}
+
+trap finish_sync EXIT
+
 # Get paths
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 APP_ROOT="$( dirname "$DIR" )"
@@ -37,7 +62,7 @@ fi
 
 # 1. Download Latest Sheet
 echo "-> Downloading latest Sheet from Google Drive..."
-"$PYTHON_EXEC" "$APP_ROOT/download_sheet.py"
+run_stage "Descarga de planilla" "$PYTHON_EXEC" "$APP_ROOT/download_sheet.py"
 if [ $? -ne 0 ]; then
    echo "Error: no se pudo descargar la planilla actual. La sincronización se detuvo para no aplicar datos anteriores."
    exit 1
@@ -45,7 +70,7 @@ fi
 
 # 2. Extract Data
 echo "-> Extracting data from Excel ($DAYS_FILTER)..."
-"$PYTHON_EXEC" "$APP_ROOT/extract_consolidated.py" "$DAYS_FILTER"
+run_stage "Extracción de datos" "$PYTHON_EXEC" "$APP_ROOT/extract_consolidated.py" "$DAYS_FILTER"
 if [ $? -ne 0 ]; then
    echo "Error: Extraction failed."
    exit 1
@@ -55,11 +80,11 @@ fi
 echo "-> Updating Database (Differential Seed - Mode: $SYNC_MODE)..."
 cd "$DIR"
 if [ -x "$DIR/node_modules/.bin/tsx" ]; then
-   SYNC_MODE=$SYNC_MODE "$DIR/node_modules/.bin/tsx" prisma/seed_fast.ts
+   run_stage "Actualización de base" env SYNC_MODE=$SYNC_MODE "$DIR/node_modules/.bin/tsx" prisma/seed_fast.ts
 elif [ -x "$DIR/node_modules/.bin/ts-node" ]; then
-   SYNC_MODE=$SYNC_MODE "$DIR/node_modules/.bin/ts-node" prisma/seed_fast.ts
+   run_stage "Actualización de base" env SYNC_MODE=$SYNC_MODE "$DIR/node_modules/.bin/ts-node" prisma/seed_fast.ts
 else
-   SYNC_MODE=$SYNC_MODE npx --yes tsx prisma/seed_fast.ts
+   run_stage "Actualización de base" env SYNC_MODE=$SYNC_MODE npx --yes tsx prisma/seed_fast.ts
 fi
 if [ $? -ne 0 ]; then
    echo "Error: Database update failed."
@@ -67,19 +92,19 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "-> Verifying shipment assignments..."
-node "$DIR/scripts/audit-shipment-reconciliation.mjs"
+run_stage "Auditoría de asignaciones" node "$DIR/scripts/audit-shipment-reconciliation.mjs"
 if [ $? -ne 0 ]; then
    echo "Error: Shipment assignment audit failed."
    exit 1
 fi
 
-node "$DIR/scripts/audit-packing-readiness.mjs"
+run_stage "Auditoría de packing" node "$DIR/scripts/audit-packing-readiness.mjs"
 if [ $? -ne 0 ]; then
    echo "Error: Packing readiness audit failed."
    exit 1
 fi
 
-node "$DIR/scripts/audit-invoice-readiness.mjs"
+run_stage "Auditoría de invoice" node "$DIR/scripts/audit-invoice-readiness.mjs"
 if [ $? -ne 0 ]; then
    echo "Error: Invoice readiness audit failed."
    exit 1

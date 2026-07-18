@@ -25,6 +25,11 @@ jobs:
       - name: 📥 Clonar repositorio
         uses: actions/checkout@v4
 
+      - name: ⏱️ Iniciar medición de sincronización
+        run: |
+          echo "SYNC_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+          echo "SYNC_ALERT_THRESHOLD_SECONDS=${{ vars.SYNC_ALERT_THRESHOLD_SECONDS || '120' }}" >> "$GITHUB_ENV"
+
       - name: 🐍 Configurar Python
         uses: actions/setup-python@v5
         with:
@@ -39,12 +44,18 @@ jobs:
           echo '${{ secrets.GOOGLE_CREDENTIALS }}' > google_credentials.json
 
       - name: 📥 Descargar Excel desde Google Drive
-        run: python3 download_sheet.py
+        run: |
+          stage_started_at=$(date +%s)
+          python3 download_sheet.py
+          echo "- Descarga de planilla: $(( $(date +%s) - stage_started_at ))s" >> "$GITHUB_STEP_SUMMARY"
 
       - name: 📊 Procesar Datos (Extract)
         env:
           SYNC_DAYS: ${{ github.event.inputs.days || 'FULL' }}
-        run: python3 extract_consolidated.py "$SYNC_DAYS"
+        run: |
+          stage_started_at=$(date +%s)
+          python3 extract_consolidated.py "$SYNC_DAYS"
+          echo "- Extracción de datos: $(( $(date +%s) - stage_started_at ))s" >> "$GITHUB_STEP_SUMMARY"
 
       - name: 🚀 Configurar Node.js y Auditar BD (Supabase)
         env:
@@ -52,6 +63,7 @@ jobs:
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
           SYNC_DAYS: ${{ github.event.inputs.days || 'FULL' }}
         run: |
+          stage_started_at=$(date +%s)
           SYNC_RUNTIME="/tmp/eswcargo-sync-runtime"
           rm -rf "$SYNC_RUNTIME"
           mkdir -p "$SYNC_RUNTIME"
@@ -83,3 +95,16 @@ jobs:
           node scripts/audit-packing-readiness.mjs
           node scripts/audit-invoice-readiness.mjs
           node scripts/audit-ledgers.mjs || echo "::warning::Auditoria CC posterior con advertencias; revisar cuenta corriente sin bloquear sync."
+          echo "- Actualización y auditorías: $(( $(date +%s) - stage_started_at ))s" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: ⏱️ Resumen de duración
+        if: always()
+        run: |
+          total_elapsed=$(( $(date +%s) - SYNC_STARTED_AT ))
+          echo "## Duración de sincronización" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Total: ${total_elapsed}s" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Umbral operativo: ${SYNC_ALERT_THRESHOLD_SECONDS}s" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$total_elapsed" -gt "$SYNC_ALERT_THRESHOLD_SECONDS" ]; then
+            echo "::warning::Sincronización demoró ${total_elapsed}s, por encima del umbral de ${SYNC_ALERT_THRESHOLD_SECONDS}s."
+            echo "- Alerta: superó el umbral operativo." >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -274,6 +274,7 @@ type SyncHistoryItem = {
     conclusion: string | null;
     createdAt: string;
     updatedAt: string;
+    durationSeconds: number | null;
     url: string;
 };
 
@@ -328,6 +329,13 @@ function getSyncScope(run: any) {
     return 'No informado';
 }
 
+function getRunDurationSeconds(run: any) {
+    const startedAt = run.run_started_at || run.created_at;
+    const endedAt = run.updated_at;
+    const durationMs = new Date(endedAt).getTime() - new Date(startedAt).getTime();
+    return Number.isFinite(durationMs) && durationMs >= 0 ? Math.round(durationMs / 1000) : null;
+}
+
 export async function getSyncControlCenter() {
     await requireAdminUser();
 
@@ -376,10 +384,12 @@ export async function getSyncControlCenter() {
             conclusion: run.conclusion || null,
             createdAt: run.created_at,
             updatedAt: run.updated_at,
+            durationSeconds: getRunDurationSeconds(run),
             url: run.html_url,
         }));
         const now = Date.now();
         const exceptions: SyncException[] = [];
+        const durationThresholdSeconds = Number(process.env.SYNC_ALERT_THRESHOLD_SECONDS || 120);
         const latestSuccess = history.find((run) => run.status === 'completed' && run.conclusion === 'success');
         const latestSuccessMs = latestSuccess ? new Date(latestSuccess.updatedAt).getTime() : 0;
 
@@ -399,6 +409,14 @@ export async function getSyncControlCenter() {
                     level: 'warning',
                     title: `Actualización ${run.scope} demorada`,
                     detail: `Sigue ${run.status === 'queued' ? 'en cola' : 'en ejecución'} hace más de 20 minutos.`,
+                    url: run.url,
+                });
+            }
+            if (run.status === 'completed' && run.conclusion === 'success' && run.durationSeconds !== null && run.durationSeconds > durationThresholdSeconds) {
+                exceptions.push({
+                    level: 'warning',
+                    title: `Actualización ${run.scope} más lenta de lo esperado`,
+                    detail: `Duró ${run.durationSeconds}s y superó el umbral operativo de ${durationThresholdSeconds}s. Revisá el detalle de la ejecución.`,
                     url: run.url,
                 });
             }

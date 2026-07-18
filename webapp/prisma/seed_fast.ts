@@ -2,6 +2,7 @@
 import { PrismaClient } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
+import { sameItemSet } from '../lib/sync-item-comparison';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
 
@@ -14,28 +15,6 @@ function resolveImportedTxOldClientId(tx: any): number | null {
 
     const parsedClientId = Number(tx?.clientId);
     return Number.isFinite(parsedClientId) ? parsedClientId : null;
-}
-
-function itemSyncSignature(item: any) {
-    const money = (value: any) => Number(value || 0).toFixed(6);
-    return [
-        item.productId || '',
-        String(item.productName || '').trim(),
-        Number(item.quantity || 0),
-        money(item.unit_price),
-        money(item.unit_cost),
-        money(item.subtotal),
-        money(item.profit),
-        item.shipmentId || '',
-        String(item.status || '').trim(),
-    ].join('|');
-}
-
-function sameItemSet(currentItems: any[], nextItems: any[]) {
-    if (currentItems.length !== nextItems.length) return false;
-    const current = currentItems.map(itemSyncSignature).sort();
-    const next = nextItems.map(itemSyncSignature).sort();
-    return current.every((signature, index) => signature === next[index]);
 }
 
 async function main() {
