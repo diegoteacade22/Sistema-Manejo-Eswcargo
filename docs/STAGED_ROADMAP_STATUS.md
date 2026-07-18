@@ -166,6 +166,13 @@ ninguna escritura automatica sobre planillas ni base de datos.
   referencia, incluso si el segundo intento cambia u omite el método de pago.
   La detección corre antes y después de cada actualización y se muestra en
   Mantenimiento.
+- Cada cargo de cuenta corriente que referencia un pedido se contrasta con el
+  cliente del pedido fuente. Una diferencia se muestra como error en
+  Mantenimiento y en las auditorías pre/post sincronización; no modifica la
+  cuenta automáticamente.
+- El flujo cloud declara de forma explícita la ubicación de las credenciales
+  de Google para las auditorías de Cash Flow, evitando que una ejecución use
+  una ruta temporal distinta.
 - Se eliminaron tres pares históricos de cargo equivocado y ajuste
   compensatorio (`#2398`, `#2399`, `#2470`) después de validar que cada par
   mantenía el saldo neto en cero y que la fuente operativa atribuye los pedidos
