@@ -203,3 +203,6 @@ ninguna escritura automatica sobre planillas ni base de datos.
 - Las 30 cuentas con solo ajuste histórico, las 19 con ajuste mixto y las 3
   sin fuente financiera quedan visibles en cada sincronización. No se deben
   considerar conciliadas ni modificar hasta contar con evidencia externa.
+- El reporte `PENDING_SOURCE_EVIDENCE_2026-07-18.md` reúne los casos que no
+  pueden cerrarse sin comprobante: Packing `#1048`, pedido `#2223`, Invoice
+  `#2352`, pago de Marcos Roku y diferencias de proveedor/Cash Flow.
