@@ -7,7 +7,8 @@ const { auth } = NextAuth(authConfig);
 export default auth((req) => {
     const { nextUrl } = req;
     const isLoggedIn = !!req.auth;
-    const isPublicRoute = nextUrl.pathname === "/login" || nextUrl.pathname === "/setup-account";
+    const isInstallAsset = ["/manifest.webmanifest", "/sw.js", "/logo_factura.jpg"].includes(nextUrl.pathname);
+    const isPublicRoute = nextUrl.pathname === "/login" || nextUrl.pathname === "/setup-account" || isInstallAsset;
 
     if (!isLoggedIn && !isPublicRoute) {
         return NextResponse.redirect(new URL("/login", nextUrl));
