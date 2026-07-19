@@ -25,7 +25,8 @@ import { ShipmentStatusDialog } from '@/components/shipment-status-dialog';
 import { ShipmentNotesEditor } from '@/components/shipment-notes-editor';
 import { ShipmentQuickTransitions } from '@/components/shipment-quick-transitions';
 import { buildShipmentItems, getShipmentItemCount } from '@/lib/shipment-items';
-import { getPackingSegments } from '@/lib/packing-segments';
+import { getPackingSegments, projectShipmentForPacking } from '@/lib/packing-segments';
+import { getClientShipmentAccess } from '@/lib/shipment-visibility';
 
 interface Props {
     params: Promise<{ id: string }>;
@@ -80,8 +81,14 @@ async function getShipment(id: string, userSession: any) {
         }
     });
 
-    if (shipment && userRole === 'CLIENT' && shipment.clientId !== clientId) {
-        return null; // Unauthorized
+    if (shipment && userRole === 'CLIENT') {
+        const access = getClientShipmentAccess(shipment, clientId || 0);
+        if (access?.segment) {
+            return projectShipmentForPacking(shipment, access.segment, access.segmentCount);
+        }
+        if (!access) {
+            return null; // Unauthorized
+        }
     }
 
     return shipment;
@@ -103,7 +110,7 @@ export default async function ShipmentPage(props: Props) {
     const realItemCount = getShipmentItemCount(shipment);
     const effectiveItemCount = realItemCount > 0 ? realItemCount : (shipment.item_count || 0);
     const packingSegments = getPackingSegments(shipment);
-    const isSharedShipment = packingSegments.length > 1;
+    const isSharedShipment = Boolean((shipment as any).packingSegment?.isSharedShipment) || packingSegments.length > 1;
 
     const productSummaryMap = new Map<string, number>();
     shipmentItems.forEach((item: any) => {
@@ -318,6 +325,11 @@ export default async function ShipmentPage(props: Props) {
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
+                        {!isAdmin && isSharedShipment ? (
+                            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-center text-sm font-semibold text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200">
+                                El valor del servicio se liquida por separado para cada cliente del envío compartido.
+                            </div>
+                        ) : (
                         <div className={`grid grid-cols-1 ${isAdmin ? 'md:grid-cols-3' : 'md:grid-cols-1'} gap-4 md:gap-0`}>
                             {isAdmin && (
                                 <div className="md:border-r border-emerald-100 dark:border-emerald-900/50 px-8 py-2">
@@ -345,6 +357,7 @@ export default async function ShipmentPage(props: Props) {
                                 </div>
                             )}
                         </div>
+                        )}
                     </CardContent>
                 </Card>
 

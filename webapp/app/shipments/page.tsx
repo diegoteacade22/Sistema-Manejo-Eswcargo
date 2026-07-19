@@ -11,6 +11,8 @@ import { SortableColumn } from '@/components/ui/sortable-column';
 import { ShipmentStatusDialog } from '@/components/shipment-status-dialog';
 import { ShipmentChargeDialog } from '@/components/shipment-charge-dialog';
 import { ShipmentsBulkStatusControls } from '@/components/shipments-bulk-status-controls';
+import { getPackingSegments, projectShipmentForPacking } from '@/lib/packing-segments';
+import { getClientShipmentAccess, getClientShipmentVisibilityWhere } from '@/lib/shipment-visibility';
 
 type SortOrder = 'asc' | 'desc';
 
@@ -22,7 +24,8 @@ async function getShipments(query: string, page: number = 1, pageSize: number = 
     const userId = (session.user as any).id;
 
     const skip = (page - 1) * pageSize;
-    const where: any = {};
+    const filters: any[] = [];
+    let viewerClientId: number | null = null;
 
     if (userRole === 'CLIENT') {
         const client = await (prisma.client as any).findFirst({
@@ -31,28 +34,48 @@ async function getShipments(query: string, page: number = 1, pageSize: number = 
         });
 
         if (!client) return { shipments: [], totalCount: 0, totalPages: 0 }; // Security: show nothing if client not linked
-        where.clientId = client.id;
+        viewerClientId = client.id;
+        filters.push(getClientShipmentVisibilityWhere(client.id));
     }
 
     if (query) {
-        where.OR = [
+        const searchFilters: any[] = [
             { forwarder: { contains: query, mode: 'insensitive' } },
         ];
         if (userRole === 'ADMIN') {
-            where.OR.push({ client: { name: { contains: query, mode: 'insensitive' } } });
+            searchFilters.push({ client: { name: { contains: query, mode: 'insensitive' } } });
         }
         // If query is a number, try exact match on shipment_number
         if (!isNaN(parseInt(query))) {
-            where.OR.push({ shipment_number: parseInt(query) });
+            searchFilters.push({ shipment_number: parseInt(query) });
         }
+        filters.push({ OR: searchFilters });
     }
+    const where: any = filters.length > 0 ? { AND: filters } : {};
+
+    const shipmentInclude = {
+        client: true,
+        items: { include: { order: { include: { client: true } } } },
+        orders: { include: { client: true, items: true } },
+    };
+
+    const projectForViewer = (shipment: any) => {
+        const segments = getPackingSegments(shipment);
+        if (!viewerClientId) {
+            return segments.length > 1
+                ? { ...shipment, packingSegment: { isSharedShipment: true, itemCount: segments.reduce((total, segment) => total + segment.itemCount, 0) } }
+                : shipment;
+        }
+        const access = getClientShipmentAccess(shipment, viewerClientId);
+        return access?.segment ? projectShipmentForPacking(shipment, access.segment, access.segmentCount) : shipment;
+    };
 
     const totalCount = await (prisma as any).shipment.count({ where });
 
     const shipments = await (prisma as any).shipment.findMany({
         where,
         orderBy: { [sortField === 'client' ? 'id' : sortField]: sortOrder },
-        include: { client: true },
+        include: shipmentInclude,
         take: pageSize,
         skip: skip
     });
@@ -65,15 +88,15 @@ async function getShipments(query: string, page: number = 1, pageSize: number = 
         const updatedShipments = await (prisma as any).shipment.findMany({
             where,
             orderBy: { [sortField === 'client' ? 'id' : sortField]: sortOrder },
-            include: { client: true },
+            include: shipmentInclude,
             take: pageSize,
             skip: skip
         });
 
-        return { shipments: updatedShipments, totalCount, totalPages: Math.ceil(totalCount / pageSize) };
+        return { shipments: updatedShipments.map(projectForViewer), totalCount, totalPages: Math.ceil(totalCount / pageSize) };
     }
 
-    return { shipments, totalCount, totalPages: Math.ceil(totalCount / pageSize) };
+    return { shipments: shipments.map(projectForViewer), totalCount, totalPages: Math.ceil(totalCount / pageSize) };
 }
 
 export default async function ShipmentsPage(props: { searchParams: Promise<{ q?: string, page?: string, sort?: string, order?: string }> }) {
@@ -148,7 +171,9 @@ export default async function ShipmentsPage(props: { searchParams: Promise<{ q?:
                                     <TableCell className="font-black text-slate-950 dark:text-white text-base tracking-tight">
                                         {shipment.forwarder === 'UNLIMITED' ? '' : (shipment.forwarder || '-')}
                                     </TableCell>
-                                    <TableCell className="text-slate-800 dark:text-slate-100 font-bold text-sm">{shipment.client?.name || 'Varios/Stock'}</TableCell>
+                                    <TableCell className="text-slate-800 dark:text-slate-100 font-bold text-sm">
+                                        {shipment.packingSegment?.isSharedShipment ? 'Envío compartido' : (shipment.client?.name || 'Varios/Stock')}
+                                    </TableCell>
                                     <TableCell className="text-right font-mono font-black text-slate-950 dark:text-white text-base">
                                         {shipment.weight_fw > 0 ? shipment.weight_fw.toFixed(2) : '-'}
                                     </TableCell>
@@ -162,7 +187,7 @@ export default async function ShipmentsPage(props: { searchParams: Promise<{ q?:
                                         )}
                                     </TableCell>
                                     <TableCell className="text-right flex items-center justify-end gap-1">
-                                        {isAdmin && (
+                                        {isAdmin && !shipment.packingSegment?.isSharedShipment && (
                                             <ShipmentChargeDialog
                                                 shipmentId={shipment.id}
                                                 shipmentNumber={shipment.shipment_number || 0}
