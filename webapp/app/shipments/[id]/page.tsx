@@ -25,6 +25,7 @@ import { ShipmentStatusDialog } from '@/components/shipment-status-dialog';
 import { ShipmentNotesEditor } from '@/components/shipment-notes-editor';
 import { ShipmentQuickTransitions } from '@/components/shipment-quick-transitions';
 import { buildShipmentItems, getShipmentItemCount } from '@/lib/shipment-items';
+import { getPackingSegments } from '@/lib/packing-segments';
 
 interface Props {
     params: Promise<{ id: string }>;
@@ -59,11 +60,16 @@ async function getShipment(id: string, userSession: any) {
             items: {
                 include: {
                     product: true,
-                    order: true,
+                    order: {
+                        include: {
+                            client: true,
+                        }
+                    },
                 }
             },
             orders: {
                 include: {
+                    client: true,
                     items: {
                         include: {
                             product: true,
@@ -96,6 +102,8 @@ export default async function ShipmentPage(props: Props) {
     const shipmentItems = buildShipmentItems(shipment);
     const realItemCount = getShipmentItemCount(shipment);
     const effectiveItemCount = realItemCount > 0 ? realItemCount : (shipment.item_count || 0);
+    const packingSegments = getPackingSegments(shipment);
+    const isSharedShipment = packingSegments.length > 1;
 
     const productSummaryMap = new Map<string, number>();
     shipmentItems.forEach((item: any) => {
@@ -129,6 +137,11 @@ export default async function ShipmentPage(props: Props) {
                             <span className="text-muted-foreground text-sm font-medium">
                                 {shipment.date_shipped ? new Date(shipment.date_shipped).toLocaleDateString() : 'Fecha Pendiente'}
                             </span>
+                            {isSharedShipment && (
+                                <Badge variant="outline" className="border-indigo-400 text-indigo-600 dark:text-indigo-300 font-bold">
+                                    Envío compartido
+                                </Badge>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -229,11 +242,32 @@ export default async function ShipmentPage(props: Props) {
                 <Card className="shadow-xl border-t-4 border-t-indigo-500 bg-white dark:bg-slate-950">
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
-                            <User className="h-5 w-5 text-indigo-500" /> Información del Cliente
+                            <User className="h-5 w-5 text-indigo-500" /> {isSharedShipment ? 'Clientes del Envío' : 'Información del Cliente'}
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        {shipment.client ? (
+                        {isSharedShipment ? (
+                            <div className="space-y-4">
+                                <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-sm font-semibold text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950/30 dark:text-indigo-200">
+                                    Este envío contiene artículos de distintos clientes. El Packing List se emite por cliente.
+                                </div>
+                                {isAdmin ? (
+                                    <div className="space-y-2">
+                                        {packingSegments.map((segment) => (
+                                            <div key={segment.clientId} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
+                                                <div className="min-w-0">
+                                                    <div className="truncate font-bold text-slate-900 dark:text-slate-100">{segment.client.name}</div>
+                                                    <div className="text-xs text-muted-foreground">ID: {segment.client.old_id || segment.client.id}</div>
+                                                </div>
+                                                <Badge variant="secondary" className="shrink-0 font-bold">{segment.itemCount} pcs</Badge>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="text-sm text-muted-foreground">Consultá el Packing List para ver el detalle asignado.</div>
+                                )}
+                            </div>
+                        ) : shipment.client ? (
                             <div className="space-y-5">
                                 <div>
                                     <div className="text-2xl font-black text-indigo-700 dark:text-indigo-400 leading-tight">
