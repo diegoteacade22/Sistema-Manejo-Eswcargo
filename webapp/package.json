@@ -12,6 +12,8 @@
     "audit:ledgers:json": "node scripts/audit-ledgers.mjs --json",
     "audit:ledger-duplicates": "node scripts/audit-ledger-duplicates.mjs",
     "audit:client-account-coverage": "node scripts/audit-client-account-coverage.mjs",
+    "preview:cc-cutover-zero": "node scripts/zero-non-cashflow-client-ledgers.mjs",
+    "apply:cc-cutover-zero": "node scripts/zero-non-cashflow-client-ledgers.mjs --apply",
     "audit:purchase-allocations": "node scripts/audit-purchase-allocations.mjs",
     "audit:supplier-ledgers": "node scripts/audit-supplier-ledgers.mjs",
     "audit:cashflow-raw": "node scripts/audit-cash-flow-raw-drift.mjs",
