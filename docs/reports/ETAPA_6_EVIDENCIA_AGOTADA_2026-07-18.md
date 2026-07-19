@@ -71,6 +71,10 @@ cola de revisión.
   versión `f40c2c1` desde GitHub Actions. La web pública de Vercel conserva la
   compilación anterior hasta que se libere su cuota diaria de despliegues; esto
   no afecta la descarga, validación ni escritura operacional de datos.
+- La interfaz corregida en `c47c343` obtiene clientes de los artículos del
+  envío. Ramiro Star puede ver los segmentos `#1188` y `#1204` que le
+  corresponden; la cabecera heredada de Diegote ya no le concede acceso. Los
+  importes globales de un envío compartido no se muestran a un cliente.
 
 ## Evidencia registrada en producción
 
