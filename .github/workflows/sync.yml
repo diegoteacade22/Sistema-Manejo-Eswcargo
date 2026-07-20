@@ -1,9 +1,12 @@
 name: 🔄 Sincronización Automática (Cloud)
-run-name: "Sync ESWCARGO ${{ github.event.inputs.days || 'FULL' }} días"
+run-name: "Sync ESWCARGO ${{ github.event.inputs.days || '7' }} días"
 
 on:
   schedule:
-    - cron: '0 8 * * *' # Todas las noches: 08:00 UTC
+    # Cambios operativos recientes: máximo 30 minutos de demora.
+    - cron: '*/30 * * * *'
+    # Revisión total diaria de cambios históricos, separada del ciclo rápido.
+    - cron: '5 8 * * *'
   workflow_dispatch: # Permite ejecutarlo manualmente desde GitHub o desde el panel
     inputs:
       days:
@@ -51,7 +54,7 @@ jobs:
 
       - name: 📊 Procesar Datos (Extract)
         env:
-          SYNC_DAYS: ${{ github.event.inputs.days || 'FULL' }}
+          SYNC_DAYS: ${{ github.event.schedule == '5 8 * * *' && 'FULL' || github.event.inputs.days || '7' }}
         run: |
           stage_started_at=$(date +%s)
           python3 extract_consolidated.py "$SYNC_DAYS"
@@ -61,7 +64,7 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
-          SYNC_DAYS: ${{ github.event.inputs.days || 'FULL' }}
+          SYNC_DAYS: ${{ github.event.schedule == '5 8 * * *' && 'FULL' || github.event.inputs.days || '7' }}
           ALLOW_FINANCIAL_LEDGER_SYNC: '0'
           ALLOW_LEGACY_LEDGER_CLEANUP: '0'
         run: |
