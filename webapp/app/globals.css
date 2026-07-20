@@ -1,8 +1,13 @@
 @import "tailwindcss";
 
+/* Keep Tailwind's dark utilities tied to the app theme, not the computer theme. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* @theme block removed for compatibility */
 
 :root {
+  color-scheme: dark;
+
   /* Slate 50 equivalent for better contrast with white cards */
   --background: oklch(0.985 0.002 247);
   --foreground: oklch(0.12 0.02 270);

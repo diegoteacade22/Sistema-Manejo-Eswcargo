@@ -12,7 +12,6 @@ import {
     Truck,
     Plane,
     Moon,
-    Sun,
     DollarSign,
     Wrench,
     PlusCircle,
@@ -25,9 +24,8 @@ import {
     Globe,
     Terminal
 } from 'lucide-react';
-import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useSession, signOut } from "next-auth/react";
 
 interface Route {
@@ -168,13 +166,7 @@ function NavGroup({ group, pathname }: { group: RouteGroup, pathname: string }) 
 
 export function Sidebar() {
     const pathname = usePathname();
-    const { setTheme, resolvedTheme } = useTheme();
-    const [mounted, setMounted] = useState(false);
     const { data: session } = useSession();
-
-    useEffect(() => {
-        setMounted(true);
-    }, []);
 
     const userRole = (session?.user as any)?.role || 'CLIENT';
     const filteredStandalone = standaloneRoutes.filter(route => route.roles.includes(userRole));
@@ -264,19 +256,9 @@ export function Sidebar() {
             </div>
 
             <div className="px-3 py-2 space-y-4">
-                {mounted && (
-                    <Button
-                        variant="ghost"
-                        className="w-full justify-start text-zinc-500 hover:text-white hover:bg-white/10 h-10 rounded-xl"
-                        onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-                    >
-                        {resolvedTheme === "dark" ? (
-                            <><Sun className="h-4 w-4 mr-3 text-yellow-500" /> Modo Claro</>
-                        ) : (
-                            <><Moon className="h-4 w-4 mr-3 text-indigo-400" /> Modo Oscuro</>
-                        )}
-                    </Button>
-                )}
+                <div className="flex h-10 w-full items-center px-4 text-zinc-500">
+                    <Moon className="h-4 w-4 mr-3 text-indigo-400" /> Modo Oscuro fijo
+                </div>
 
                 <div className="bg-white/5 rounded-2xl p-4 border border-white/5">
                     <div className="flex items-center gap-x-3 mb-4">

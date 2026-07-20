@@ -27,13 +27,14 @@ export default async function RootLayout({
   const isPublicRoute = !session; // Middleware handles redirection, but layout needs to know for UI
 
   return (
-    <html lang="es" suppressHydrationWarning>
+    <html lang="es" className="dark" style={{ colorScheme: "dark" }} suppressHydrationWarning>
       <body className="font-sans" suppressHydrationWarning>
         <AuthProvider>
           <ThemeProvider
             attribute="class"
-            defaultTheme="system"
-            enableSystem
+            defaultTheme="dark"
+            forcedTheme="dark"
+            enableSystem={false}
             disableTransitionOnChange
           >
             <div className="h-full relative">
