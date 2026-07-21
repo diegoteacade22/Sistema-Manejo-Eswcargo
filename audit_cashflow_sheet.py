@@ -42,6 +42,8 @@ CC_TABS = {
     "NAHUEL CC",
 }
 FORMULA_ERRORS = {"#REF!", "#VALUE!", "#DIV/0!", "#N/A", "#NAME?", "#NUM!"}
+EXIT_FORMULA_ERRORS = 10
+EXIT_MISSING_TABS = 20
 
 
 def get_service():
@@ -122,8 +124,8 @@ def main():
         print("Sin errores de formula visibles en el alcance auditado.")
 
     if missing_tabs:
-        return 2
-    return 1 if formula_errors else 0
+        return EXIT_MISSING_TABS
+    return EXIT_FORMULA_ERRORS if formula_errors else 0
 
 
 if __name__ == "__main__":

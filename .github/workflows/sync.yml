@@ -36,7 +36,7 @@ jobs:
       - name: 🐍 Configurar Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: 📦 Instalar dependencias Python
         run: |
@@ -77,6 +77,18 @@ jobs:
           cp -R webapp/lib "$SYNC_RUNTIME/lib"
           cp google_credentials.json "$SYNC_RUNTIME/google_credentials.json"
           export GOOGLE_CREDENTIALS_FILE="$SYNC_RUNTIME/google_credentials.json"
+          required_files=(
+            "$GOOGLE_CREDENTIALS_FILE"
+            "$SYNC_RUNTIME/lib/sync-item-comparison.ts"
+            "$SYNC_RUNTIME/prisma/schema.prisma"
+            "$SYNC_RUNTIME/prisma/seed_fast.ts"
+          )
+          for required_file in "${required_files[@]}"; do
+            if [ ! -s "$required_file" ]; then
+              echo "::error::Falta archivo requerido en el runtime de sincronización: $required_file"
+              exit 1
+            fi
+          done
           cd "$SYNC_RUNTIME"
           npm init -y >/dev/null
           npm install --silent prisma@5.22.0 @prisma/client@5.22.0 tsx@latest

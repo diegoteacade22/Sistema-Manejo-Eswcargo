@@ -18,17 +18,32 @@ jobs:
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
       - name: Instalar dependencias
         run: pip install google-api-python-client google-auth-httplib2 google-auth-oauthlib
 
       - name: Configurar credenciales de solo lectura
-        run: echo '${{ secrets.GOOGLE_CREDENTIALS }}' > google_credentials.json
+        run: |
+          echo '${{ secrets.GOOGLE_CREDENTIALS }}' > google_credentials.json
+          test -s google_credentials.json || {
+            echo "::error::GOOGLE_CREDENTIALS no generó un archivo válido."
+            exit 1
+          }
 
       - name: Auditar Cash Flow sin modificar datos
         run: |
-          python3 audit_cashflow_sheet.py || echo "::warning::Cash Flow tiene alertas de fórmulas o datos. Se conserva el reporte; no se modifica Google Sheets."
+          set +e
+          python3 audit_cashflow_sheet.py
+          audit_status=$?
+          set -e
+
+          if [ "$audit_status" -eq 10 ]; then
+            echo "::warning::Cash Flow tiene alertas de fórmulas. Se conserva el reporte; no se modifica Google Sheets."
+          elif [ "$audit_status" -ne 0 ]; then
+            echo "::error::La auditoría de Cash Flow no pudo completarse correctamente (código $audit_status)."
+            exit "$audit_status"
+          fi
 
       - name: Conservar reporte de auditoria
         if: always()
