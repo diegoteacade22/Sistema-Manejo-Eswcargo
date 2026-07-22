@@ -25,6 +25,23 @@ function numericEqual(left: unknown, right: unknown) {
     return Math.abs(Number(left || 0) - Number(right || 0)) < 0.000001;
 }
 
+function purchaseItemSignature(item: any) {
+    return [
+        item.sku || '',
+        String(item.productName || '').trim(),
+        Number(item.quantity || 0),
+        Number(item.unit_cost || 0).toFixed(6),
+        Number(item.subtotal || 0).toFixed(6),
+    ].join('|');
+}
+
+function samePurchaseItemSet(currentItems: any[], nextItems: any[]) {
+    if (currentItems.length !== nextItems.length) return false;
+    const current = currentItems.map(purchaseItemSignature).sort();
+    const next = nextItems.map(purchaseItemSignature).sort();
+    return current.every((signature, index) => signature === next[index]);
+}
+
 function shipmentFreightReference(shipment: any, fallbackClientId?: number | null) {
     const sourceNameKey = String(shipment.client_name_match || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_');
     const sourceClientKey = shipment.old_client_id ?? (sourceNameKey || fallbackClientId || 'UNKNOWN');
@@ -838,12 +855,55 @@ async function main() {
     }
 
     // 6.8 ACTUALIZAR TABLAS DE COMPRA (ENCABEZADOS Y DETALLES)
-    for (const p of purchasesData) {
+    // Evita reconstruir compras sin cambios: cada delete/create viaja por
+    // PgBouncer y convertía una sincronización diferencial en decenas de consultas.
+    const sourcePurchases = purchasesData.map((p: any) => {
         const dbSupplierId = p.supplier_old_id
             ? supplierOldIdMap.get(p.supplier_old_id)?.id
             : (p.supplier_name ? supplierNameMap.get(p.supplier_name.trim().toUpperCase())?.id : null);
 
-        if (!dbSupplierId) continue;
+        return { source: p, supplierId: dbSupplierId || null };
+    }).filter((purchase: any) => purchase.supplierId !== null && purchase.source.invoice_number);
+
+    const invoiceNumbers = sourcePurchases.map((purchase: any) => purchase.source.invoice_number);
+    const existingPurchases = invoiceNumbers.length > 0
+        ? await (prisma as any).purchase.findMany({
+            where: { invoice_number: { in: invoiceNumbers } },
+            select: {
+                id: true,
+                invoice_number: true,
+                date: true,
+                supplierId: true,
+                total_amount: true,
+                payment_method: true,
+            }
+        })
+        : [];
+    const existingPurchaseByInvoice = new Map<string, any>(
+        existingPurchases
+            .filter((purchase: any) => purchase.invoice_number)
+            .map((purchase: any) => [purchase.invoice_number as string, purchase])
+    );
+    const existingPurchaseItems = existingPurchases.length > 0
+        ? await (prisma as any).purchaseItem.findMany({
+            where: { purchaseId: { in: existingPurchases.map((purchase: any) => purchase.id) } },
+            select: { purchaseId: true, sku: true, productName: true, quantity: true, unit_cost: true, subtotal: true }
+        })
+        : [];
+    const existingItemsByPurchaseId = new Map<number, any[]>();
+    for (const item of existingPurchaseItems) {
+        const items = existingItemsByPurchaseId.get(item.purchaseId) || [];
+        items.push(item);
+        existingItemsByPurchaseId.set(item.purchaseId, items);
+    }
+
+    const purchaseIdsToRebuildItems: number[] = [];
+    const purchaseItemsToCreate: any[] = [];
+    let purchaseItemsReplaced = 0;
+
+    for (const purchase of sourcePurchases) {
+        const p = purchase.source;
+        const dbSupplierId = purchase.supplierId as number;
 
         const purchaseData = {
             invoice_number: p.invoice_number,
@@ -853,17 +913,23 @@ async function main() {
             payment_method: p.payment_method
         };
 
-        let dbPurchase = await (prisma as any).purchase.findUnique({ where: { invoice_number: p.invoice_number } });
+        let dbPurchase = existingPurchaseByInvoice.get(p.invoice_number);
         if (!dbPurchase) {
             dbPurchase = await (prisma as any).purchase.create({ data: purchaseData });
         } else {
-            dbPurchase = await (prisma as any).purchase.update({ where: { id: dbPurchase.id }, data: purchaseData });
+            const changed =
+                dbPurchase.supplierId !== dbSupplierId ||
+                !numericEqual(dbPurchase.total_amount, p.total_amount) ||
+                !nullableEqual(dbPurchase.payment_method, p.payment_method) ||
+                dbPurchase.date.getTime() !== purchaseData.date.getTime();
+
+            if (changed) {
+                dbPurchase = await (prisma as any).purchase.update({ where: { id: dbPurchase.id }, data: purchaseData });
+            }
         }
         processedPurchaseIds.add(dbPurchase.id);
 
-        // Actualizar Items de Compra (createMany para velocidad)
-        await (prisma as any).purchaseItem.deleteMany({ where: { purchaseId: dbPurchase.id } });
-        const purchaseItemsToCreate = p.items.map((item: any) => ({
+        const nextItems = p.items.map((item: any) => ({
             purchaseId: dbPurchase.id,
             sku: (item.sku && productSkuMap.has(item.sku)) ? item.sku : null,
             productName: item.product_name || item.sku || "Producto Compra",
@@ -872,10 +938,22 @@ async function main() {
             subtotal: item.subtotal
         }));
 
-        if (purchaseItemsToCreate.length > 0) {
-            await (prisma as any).purchaseItem.createMany({ data: purchaseItemsToCreate });
+        if (!samePurchaseItemSet(existingItemsByPurchaseId.get(dbPurchase.id) || [], nextItems)) {
+            purchaseIdsToRebuildItems.push(dbPurchase.id);
+            purchaseItemsToCreate.push(...nextItems);
+            purchaseItemsReplaced++;
         }
     }
+
+    if (purchaseIdsToRebuildItems.length > 0) {
+        await prisma.$transaction(async (tx) => {
+            await (tx as any).purchaseItem.deleteMany({ where: { purchaseId: { in: purchaseIdsToRebuildItems } } });
+            if (purchaseItemsToCreate.length > 0) {
+                await (tx as any).purchaseItem.createMany({ data: purchaseItemsToCreate });
+            }
+        });
+    }
+    console.log(`   ↻ Ítems de compras reemplazados por cambios reales: ${purchaseItemsReplaced}/${sourcePurchases.length}`);
 
     // 7. LIMPIEZA DE HUERFANOS (solo bajo una operación explícita y controlada).
     // Una descarga o extracción parcial nunca debe borrar registros productivos.
