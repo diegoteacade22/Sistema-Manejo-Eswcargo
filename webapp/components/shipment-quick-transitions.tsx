@@ -75,14 +75,11 @@ export function ShipmentQuickTransitions({ shipment }: ShipmentQuickTransitionsP
         LLEGANDO → BsAs
       </Button>
 
-      <Button
-        className="bg-emerald-600 hover:bg-emerald-700 text-white"
-        disabled={isPending || !canGoEntregado}
-        onClick={() => goTo('ENTREGADO')}
-      >
-        {isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-        BsAs → ENTREGADO
-      </Button>
+      {canGoEntregado && (
+        <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+          Para marcar ENTREGADO, abrí el estado arriba y confirmá si quedó cobrado o pendiente.
+        </p>
+      )}
     </div>
   );
 }

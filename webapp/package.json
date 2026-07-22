@@ -24,6 +24,7 @@
     "restore:jose-jr-shipment-charges": "node scripts/restore-jose-jr-shipment-charges-20260718.mjs",
     "audit:cashflow-invoices": "python3 scripts/audit-cashflow-invoice-references.py --summary",
     "test:payment-duplicate-guard": "tsx scripts/test-payment-duplicate-guard.ts",
+    "test:payment-target-guard": "tsx scripts/test-payment-target-guard.ts",
     "test:financial-concurrency-guards": "tsx scripts/test-financial-concurrency-guards.ts",
     "test:account-evidence": "tsx scripts/test-account-evidence.ts",
     "test:packing-segmentation": "tsx scripts/test-packing-segmentation.ts",

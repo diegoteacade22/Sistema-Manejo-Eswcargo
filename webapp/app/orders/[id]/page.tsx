@@ -10,6 +10,8 @@ import Link from 'next/link';
 import { getProductColorClass } from '@/lib/utils';
 import { OrderStatusDialog } from '@/components/order-status-dialog';
 import { OrderItemsEditor } from '@/components/order-items-editor';
+import { PaymentDialog } from '@/components/payment-dialog';
+import { paymentTargetPrefix } from '@/lib/payment-targets';
 
 interface Props {
     params: Promise<{ id: string }>;
@@ -64,6 +66,18 @@ export default async function OrderPage(props: Props) {
     }
 
     const isAdmin = (session.user as any).role === 'ADMIN';
+    const paymentTotal = await prisma.transaction.aggregate({
+        where: {
+            clientId: order.clientId,
+            type: 'PAGO',
+            amount: { gt: 0 },
+            reference: { startsWith: `${paymentTargetPrefix({ kind: 'ORDER', id: order.id })}:` },
+        },
+        _sum: { amount: true },
+    });
+    const paidAmount = paymentTotal._sum.amount || 0;
+    const pendingAmount = Math.max(0, order.total_amount - paidAmount);
+    const isPaid = pendingAmount <= 0.005;
 
     // Determine effective shipment (Order level or Item level fallback)
     // We assume if items have different shipments, we show the first one or logic to indicate split?
@@ -186,6 +200,30 @@ export default async function OrderPage(props: Props) {
                                     <span>{order.client.name}</span>
                                 )}
                             </p>
+                        </div>
+                        <div className={`rounded-xl border p-3 ${isPaid ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-amber-500/40 bg-amber-500/10'}`}>
+                            <span className="text-sm font-medium text-muted-foreground">Estado de cobro</span>
+                            <div className="mt-1 flex items-center justify-between gap-3">
+                                <div>
+                                    <p className={`font-black ${isPaid ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                                        {isPaid ? 'COBRADO' : `PENDIENTE ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(pendingAmount)}`}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                        Cobrado: {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(paidAmount)} de {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(order.total_amount)}
+                                    </p>
+                                </div>
+                                {isAdmin && !isPaid && (
+                                    <PaymentDialog
+                                        clientId={order.clientId}
+                                        clientName={order.client.name}
+                                        buttonLabel="Cobrar"
+                                        buttonSize="sm"
+                                        buttonClassName="bg-emerald-600 hover:bg-emerald-700 text-white"
+                                        target={{ kind: 'ORDER', id: order.id, label: `Pedido #${order.order_number || order.id}`, pendingAmount }}
+                                        defaultAmount={pendingAmount}
+                                    />
+                                )}
+                            </div>
                         </div>
                     </CardContent>
                 </Card>

@@ -8,6 +8,7 @@ import { sendInvoiceEmail, sendPackingListEmail } from '@/app/email-actions';
 import { sendWhatsAppMessage } from '@/lib/whatsapp';
 import { createClientPaymentWithReceipt } from '@/lib/payment-receipts';
 import { buildShipmentItems } from '@/lib/shipment-items';
+import type { PaymentTarget } from '@/lib/payment-targets';
 import { getPackingSegmentIssue, getPackingSegments, getShipmentChargeIssue } from '@/lib/packing-segments';
 
 type DeliveryChannel = 'EMAIL' | 'WHATSAPP' | 'SKIPPED' | 'FAILED';
@@ -288,6 +289,7 @@ export async function submitOrder(data: {
                     date: data.date,
                     status: 'COMPRAR',
                     total_amount: totalAmount,
+                    source: 'APP',
                     type: data.type,
                     notes: data.notes,
                     paymentMethod: data.paymentMethod,
@@ -424,6 +426,11 @@ export async function registerPaymentFromForm(formData: FormData) {
     const paymentMethod = String(formData.get('paymentMethod') || '');
     const receiptValue = formData.get('proof');
     const receiptFile = receiptValue instanceof File ? receiptValue : null;
+    const targetKind = String(formData.get('targetKind') || '').trim().toUpperCase();
+    const targetId = Number(formData.get('targetId'));
+    const target: PaymentTarget | null = (targetKind === 'ORDER' || targetKind === 'SHIPMENT') && Number.isInteger(targetId) && targetId > 0
+        ? { kind: targetKind as PaymentTarget['kind'], id: targetId }
+        : null;
 
     try {
         const transaction = await createClientPaymentWithReceipt(prisma, {
@@ -431,9 +438,10 @@ export async function registerPaymentFromForm(formData: FormData) {
             amount,
             date: new Date(),
             paymentMethod,
-            description: description || 'Pago a cuenta',
+            description: description || (target ? '' : 'Pago a cuenta'),
             reference,
             receiptFile,
+            target,
         });
 
         revalidatePath(`/clients/${clientId}`);
@@ -872,10 +880,7 @@ export async function syncShipmentStatus(shipmentId: number) {
         const arrivedAt = new Date(shipment.date_arrived);
         newStatus = 'EN 🇦🇷';
 
-        // 2. Rule: 3 days after arrival -> ENTREGADO
-        if (now.getTime() - arrivedAt.getTime() >= 3 * MS_PER_DAY) {
-            newStatus = 'ENTREGADO';
-        }
+        // ENTREGADO is deliberately manual: it requires a payment review by an operator.
     }
     // 3. Rule: Date Shipped exists -> SALIENDO
     else if (shipment.date_shipped) {
@@ -931,9 +936,19 @@ export async function updateShipment(data: {
     date_shipped?: Date | null;
     date_arrived?: Date | null;
     notes?: string;
+    deliveryPaymentReviewed?: boolean;
 }) {
     await requireAdminUser();
     try {
+        const currentShipment = await (prisma as any).shipment.findUnique({
+            where: { id: data.id },
+            select: { status: true },
+        });
+        const isBeingDelivered = String(data.status || '').toUpperCase() === 'ENTREGADO'
+            && String(currentShipment?.status || '').toUpperCase() !== 'ENTREGADO';
+        if (isBeingDelivered && !data.deliveryPaymentReviewed) {
+            return { success: false, error: 'Antes de marcar ENTREGADO confirmá si se cobró o quedó pendiente.' };
+        }
         const shipment = await (prisma as any).shipment.update({
             where: { id: data.id },
             data: {
@@ -1019,6 +1034,9 @@ export async function transitionShipmentsByDate(input: {
         })();
 
         const to = normalize(rawTo);
+        if (to === 'ENTREGADO') {
+            return { success: false, message: 'Los envíos ENTREGADOS deben confirmarse uno por uno para revisar la cobranza.' };
+        }
         const targetOrderStatus = to;
 
         const shipments = await (prisma as any).shipment.findMany({

@@ -27,6 +27,8 @@ import { ShipmentQuickTransitions } from '@/components/shipment-quick-transition
 import { buildShipmentItems, getShipmentItemCount } from '@/lib/shipment-items';
 import { getPackingSegments, projectShipmentForPacking } from '@/lib/packing-segments';
 import { getClientShipmentAccess } from '@/lib/shipment-visibility';
+import { PaymentDialog } from '@/components/payment-dialog';
+import { paymentTargetPrefix } from '@/lib/payment-targets';
 
 interface Props {
     params: Promise<{ id: string }>;
@@ -111,6 +113,29 @@ export default async function ShipmentPage(props: Props) {
     const effectiveItemCount = realItemCount > 0 ? realItemCount : (shipment.item_count || 0);
     const packingSegments = getPackingSegments(shipment);
     const isSharedShipment = Boolean((shipment as any).packingSegment?.isSharedShipment) || packingSegments.length > 1;
+    const shipmentOwners = new Map<number, { id: number; name: string }>();
+    if (shipment.client) shipmentOwners.set(shipment.client.id, shipment.client);
+    shipment.items.forEach((item: any) => {
+        if (item.order?.client) shipmentOwners.set(item.order.client.id, item.order.client);
+    });
+    shipment.orders.forEach((order: any) => {
+        if (order.client) shipmentOwners.set(order.client.id, order.client);
+    });
+    const paymentClient = shipmentOwners.size === 1 ? [...shipmentOwners.values()][0] : null;
+    const shipmentTotal = Math.abs(shipment.price_total || 0);
+    const shipmentPaymentTotal = paymentClient && shipmentTotal > 0
+        ? await prisma.transaction.aggregate({
+            where: {
+                clientId: paymentClient.id,
+                type: 'PAGO',
+                amount: { gt: 0 },
+                reference: { startsWith: `${paymentTargetPrefix({ kind: 'SHIPMENT', id: shipment.id })}:` },
+            },
+            _sum: { amount: true },
+        })
+        : null;
+    const shipmentPaidAmount = shipmentPaymentTotal?._sum.amount || 0;
+    const shipmentPendingAmount = Math.max(0, shipmentTotal - shipmentPaidAmount);
 
     const productSummaryMap = new Map<string, number>();
     shipmentItems.forEach((item: any) => {
@@ -135,7 +160,14 @@ export default async function ShipmentPage(props: Props) {
                         </h1>
                         <div className="flex items-center gap-2 mt-1">
                             {isAdmin ? (
-                                <ShipmentStatusDialog shipment={shipment as any} />
+                                <ShipmentStatusDialog
+                                    shipment={shipment as any}
+                                    paymentTarget={paymentClient && shipmentTotal > 0 ? {
+                                        clientId: paymentClient.id,
+                                        clientName: paymentClient.name,
+                                        pendingAmount: shipmentPendingAmount,
+                                    } : null}
+                                />
                             ) : (
                                 <Badge className="font-black text-xs uppercase px-4 py-1.5 bg-fuchsia-600 text-white border-none shadow-fuchsia-500/20 shadow-lg">
                                     {shipment.status}
@@ -305,6 +337,27 @@ export default async function ShipmentPage(props: Props) {
                                             <span className="font-bold text-slate-600 dark:text-slate-400 text-sm">
                                                 {shipment.client.city}{shipment.client.state ? `, ${shipment.client.state}` : ''}
                                             </span>
+                                        </div>
+                                    )}
+                                    {shipmentTotal > 0 && paymentClient && (
+                                        <div className={`rounded-xl border p-3 ${shipmentPendingAmount <= 0.005 ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-amber-500/40 bg-amber-500/10'}`}>
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Cobranza del envío</span>
+                                            <p className={`mt-1 font-black ${shipmentPendingAmount <= 0.005 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                                                {shipmentPendingAmount <= 0.005 ? 'COBRADO' : `PENDIENTE ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(shipmentPendingAmount)}`}
+                                            </p>
+                                            {isAdmin && shipmentPendingAmount > 0.005 && (
+                                                <div className="mt-2">
+                                                    <PaymentDialog
+                                                        clientId={paymentClient.id}
+                                                        clientName={paymentClient.name}
+                                                        buttonLabel="Registrar cobro"
+                                                        buttonSize="sm"
+                                                        buttonClassName="bg-emerald-600 hover:bg-emerald-700 text-white"
+                                                        target={{ kind: 'SHIPMENT', id: shipment.id, label: `Envío #${shipment.shipment_number || shipment.id}`, pendingAmount: shipmentPendingAmount }}
+                                                        defaultAmount={shipmentPendingAmount}
+                                                    />
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>

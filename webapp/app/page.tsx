@@ -13,6 +13,8 @@ import { auth } from '@/lib/auth';
 import { DashboardPeriodSelector } from '@/components/analytics/dashboard-period-selector';
 import { isAdjustmentTransaction, isQuarantinedLedgerTransaction } from '@/lib/ledger-rules';
 import { hasPrintableShipmentContent } from '@/lib/shipment-items';
+import { PaymentDialog } from '@/components/payment-dialog';
+import { paymentTargetPrefix } from '@/lib/payment-targets';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -51,6 +53,7 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
       pendingPurchaseQty: 0,
       dataIssues: [],
       dataIssueDetails: [],
+      pendingOrderPayments: [],
       clientId: userRole === 'CLIENT' ? null : undefined,
     };
   }
@@ -87,6 +90,7 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
       pendingPurchaseQty: 0,
       dataIssues: [],
       dataIssueDetails: [],
+      pendingOrderPayments: [],
     };
 
     clientId = client.id;
@@ -159,6 +163,31 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
   });
 
   const recentOrders = orders.slice(0, 5);
+  const paymentTrackedOrders = orders
+    .filter((order: any) => order.total_amount > 0 && String(order.status || '').toUpperCase() !== 'CANCELADO')
+    .slice(0, 40);
+  const targetedPayments = paymentTrackedOrders.length > 0
+    ? await prisma.transaction.findMany({
+      where: {
+        type: 'PAGO',
+        amount: { gt: 0 },
+        OR: paymentTrackedOrders.map((order: any) => ({
+          reference: { startsWith: `${paymentTargetPrefix({ kind: 'ORDER', id: order.id })}:` },
+        })),
+      },
+      select: { clientId: true, amount: true, reference: true },
+    })
+    : [];
+  const pendingOrderPayments = paymentTrackedOrders
+    .map((order: any) => {
+      const prefix = `${paymentTargetPrefix({ kind: 'ORDER', id: order.id })}:`;
+      const paidAmount = targetedPayments
+        .filter((payment) => payment.clientId === order.clientId && payment.reference?.startsWith(prefix))
+        .reduce((sum, payment) => sum + payment.amount, 0);
+      return { ...order, paidAmount, pendingAmount: Math.max(0, order.total_amount - paidAmount) };
+    })
+    .filter((order: any) => order.pendingAmount > 0.005)
+    .slice(0, 5);
 
   const periodTransactions = await prisma.transaction.findMany({
     where: {
@@ -440,6 +469,7 @@ async function getDashboardData(monthsToAnalyze: number = 6) {
     pendingPurchaseQty,
     dataIssues,
     dataIssueDetails,
+    pendingOrderPayments,
     clientHistory,
     clientShipments: shipments.slice(0, 5),
     recentShipments: shipments.slice(0, 6),
@@ -497,6 +527,7 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
     pendingPurchaseQty,
     dataIssues,
     dataIssueDetails,
+    pendingOrderPayments,
     clientHistory,
     clientShipments,
     recentShipments,
@@ -723,7 +754,7 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
               </div>
             </div>
           )}
-          <div className="grid gap-4 xl:grid-cols-3">
+          <div className="grid gap-4 xl:grid-cols-4">
             <Card className="border-l-4 border-l-orange-500">
               <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
                 <CardTitle className="text-base">Pedidos a confirmar</CardTitle>
@@ -779,6 +810,37 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
                         <span className="font-medium">Packing #{shipment.shipment_number} · {shipment.client?.name || 'Sin cliente'}</span>
                         <Badge variant="outline">Revisar</Badge>
                       </Link>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            <Card className="border-l-4 border-l-amber-500">
+              <CardHeader className="flex flex-row items-center justify-between gap-3 pb-3">
+                <CardTitle className="text-base">Cobros pendientes</CardTitle>
+                <Button asChild variant="ghost" size="sm"><Link href="/collections">Cobranzas <ArrowRight className="ml-1 h-3.5 w-3.5" /></Link></Button>
+              </CardHeader>
+              <CardContent>
+                {pendingOrderPayments.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No hay pedidos recientes con cobro pendiente.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {pendingOrderPayments.map((order: any) => (
+                      <div key={order.id} className="flex items-center justify-between gap-3 border-b border-border py-2 last:border-0">
+                        <Link href={`/orders/${order.id}`} className="min-w-0 font-medium hover:text-amber-600">
+                          <span className="block truncate">#{order.order_number} · {order.client?.name || 'Sin cliente'}</span>
+                          <span className="text-xs font-mono text-amber-600">{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(order.pendingAmount)}</span>
+                        </Link>
+                        <PaymentDialog
+                          clientId={order.clientId}
+                          clientName={order.client?.name || 'Cliente'}
+                          buttonLabel="Cobrar"
+                          buttonSize="sm"
+                          buttonClassName="bg-emerald-600 hover:bg-emerald-700 text-white"
+                          target={{ kind: 'ORDER', id: order.id, label: `Pedido #${order.order_number || order.id}`, pendingAmount: order.pendingAmount }}
+                          defaultAmount={order.pendingAmount}
+                        />
+                      </div>
                     ))}
                   </div>
                 )}

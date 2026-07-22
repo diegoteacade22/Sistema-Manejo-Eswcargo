@@ -12,6 +12,7 @@ import {
     TableRow,
 } from "@/components/ui/table"
 import { Badge } from '@/components/ui/badge'
+import { paymentTargetLabel } from '@/lib/payment-targets'
 
 export default async function CollectionsPage() {
     // Fetch recent 'PAGO' transactions
@@ -53,6 +54,7 @@ export default async function CollectionsPage() {
                             <TableHead>Cliente</TableHead>
                             <TableHead>Método</TableHead>
                             <TableHead>Detalle</TableHead>
+                            <TableHead>Aplicado a</TableHead>
                             <TableHead>Comprobante</TableHead>
                             <TableHead className="text-right">Importe</TableHead>
                             <TableHead className="w-[50px]"></TableHead>
@@ -61,7 +63,7 @@ export default async function CollectionsPage() {
                     <TableBody>
                         {collections.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={7} className="h-24 text-center">
+                                <TableCell colSpan={8} className="h-24 text-center">
                                     No hay cobranzas registradas recientemente.
                                 </TableCell>
                             </TableRow>
@@ -83,6 +85,13 @@ export default async function CollectionsPage() {
                                     </TableCell>
                                     <TableCell className="text-muted-foreground text-sm max-w-[200px] truncate">
                                         {tx.description}
+                                    </TableCell>
+                                    <TableCell>
+                                        {paymentTargetLabel(tx.reference) ? (
+                                            <Badge variant="secondary">{paymentTargetLabel(tx.reference)}</Badge>
+                                        ) : (
+                                            <span className="text-muted-foreground text-xs">A cuenta</span>
+                                        )}
                                     </TableCell>
                                     <TableCell>
                                         {tx.receipt ? (

@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
+import { paymentTargetPrefix, paymentTargetReference, type PaymentTarget } from '@/lib/payment-targets';
 
 type TxClient = PrismaClient | Prisma.TransactionClient;
 
@@ -19,6 +20,7 @@ type PaymentInput = {
     description?: string | null;
     reference?: string | null;
     receiptFile?: File | null;
+    target?: PaymentTarget | null;
 };
 
 function cleanText(value?: string | null) {
@@ -80,12 +82,35 @@ async function persistClientPayment(tx: TxClient, input: PaymentInput) {
     const amount = Math.abs(input.amount);
     const date = input.date || new Date();
     const paymentMethod = cleanText(input.paymentMethod);
-    const reference = cleanText(input.reference);
-    const referenceValue = reference || 'Manual';
+    const externalReference = cleanText(input.reference);
+    const target = await resolvePaymentTarget(tx, input.clientId, input.target || null);
+    const referenceValue = target
+        ? paymentTargetReference(input.target!, externalReference)
+        : externalReference || 'Manual';
     const referenceKey = paymentReferenceKey(referenceValue);
-    const description = cleanText(input.description) || `Cobranza - ${paymentMethod || 'Pago'}`;
+    const baseDescription = cleanText(input.description)
+        || (target ? `Cobranza ${target.label}` : `Cobranza - ${paymentMethod || 'Pago'}`);
+    const description = externalReference && !baseDescription.includes(externalReference)
+        ? `${baseDescription} · Ref: ${externalReference}`
+        : baseDescription;
     const receipt = await readReceiptFile(input.receiptFile);
     const { start, end } = normalizeDateRange(date);
+
+    if (target) {
+        const paid = await tx.transaction.aggregate({
+            where: {
+                clientId: input.clientId,
+                type: 'PAGO',
+                amount: { gt: 0 },
+                reference: { startsWith: `${paymentTargetPrefix(input.target!)}:` },
+            },
+            _sum: { amount: true },
+        });
+        const pending = Math.max(0, target.total - (paid._sum.amount || 0));
+        if (amount > pending + 0.005) {
+            throw new Error(`El importe supera el saldo pendiente de ${target.label} ($${pending.toFixed(2)}).`);
+        }
+    }
 
     const candidates = await tx.transaction.findMany({
         where: {
@@ -127,6 +152,54 @@ async function persistClientPayment(tx: TxClient, input: PaymentInput) {
         },
     });
     return transaction;
+}
+
+async function resolvePaymentTarget(tx: TxClient, clientId: number, target: PaymentTarget | null) {
+    if (!target) return null;
+    if (!Number.isInteger(target.id) || target.id <= 0) {
+        throw new Error('El registro a cobrar no es válido.');
+    }
+
+    if (target.kind === 'ORDER') {
+        const order = await tx.order.findUnique({
+            where: { id: target.id },
+            select: { id: true, clientId: true, order_number: true, total_amount: true },
+        });
+        if (!order || order.clientId !== clientId) {
+            throw new Error('El pedido no corresponde al cliente del pago.');
+        }
+        return {
+            label: `Pedido #${order.order_number || order.id}`,
+            total: Math.abs(order.total_amount || 0),
+        };
+    }
+
+    const shipment = await tx.shipment.findUnique({
+        where: { id: target.id },
+        select: {
+            id: true,
+            clientId: true,
+            shipment_number: true,
+            price_total: true,
+            orders: { select: { clientId: true } },
+            items: { select: { order: { select: { clientId: true } } } },
+        },
+    });
+    if (!shipment) throw new Error('El envío no existe.');
+
+    const owners = new Set<number>();
+    if (shipment.clientId) owners.add(shipment.clientId);
+    shipment.orders.forEach((order) => owners.add(order.clientId));
+    shipment.items.forEach((item) => owners.add(item.order.clientId));
+    if (owners.size !== 1 || !owners.has(clientId)) {
+        throw new Error('El envío tiene más de un cliente. Registrá el cobro desde cada pedido para no imputarlo mal.');
+    }
+    const total = Math.abs(shipment.price_total || 0);
+    if (total <= 0) throw new Error('El envío no tiene un importe cobrable todavía.');
+    return {
+        label: `Envío #${shipment.shipment_number || shipment.id}`,
+        total,
+    };
 }
 
 export async function createClientPaymentWithReceipt(tx: TxClient, input: PaymentInput) {

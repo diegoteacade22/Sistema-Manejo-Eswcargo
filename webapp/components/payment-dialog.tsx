@@ -33,6 +33,8 @@ export function PaymentDialog({
     buttonVariant = 'outline',
     buttonSize,
     buttonClassName,
+    target,
+    defaultAmount,
 }: {
     clientId: number;
     clientName: string;
@@ -40,9 +42,11 @@ export function PaymentDialog({
     buttonVariant?: React.ComponentProps<typeof Button>['variant'];
     buttonSize?: React.ComponentProps<typeof Button>['size'];
     buttonClassName?: string;
+    target?: { kind: 'ORDER' | 'SHIPMENT'; id: number; label: string; pendingAmount: number };
+    defaultAmount?: number;
 }) {
     const [open, setOpen] = useState(false);
-    const [amount, setAmount] = useState('');
+    const [amount, setAmount] = useState(defaultAmount ? defaultAmount.toFixed(2) : '');
     const [reference, setReference] = useState('');
     const [description, setDescription] = useState('');
     const [method, setMethod] = useState('');
@@ -59,6 +63,10 @@ export function PaymentDialog({
         formData.set('description', description);
         formData.set('reference', reference);
         formData.set('paymentMethod', method);
+        if (target) {
+            formData.set('targetKind', target.kind);
+            formData.set('targetId', String(target.id));
+        }
         if (proof) formData.set('proof', proof);
 
         const res = await registerPaymentFromForm(formData);
@@ -92,7 +100,9 @@ export function PaymentDialog({
                 <DialogHeader>
                     <DialogTitle>Registrar Pago</DialogTitle>
                     <DialogDescription>
-                        Ingresa los detalles del pago recibido de {clientName}.
+                        {target
+                            ? `${target.label}: pendiente ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(target.pendingAmount)}.`
+                            : `Ingresa los detalles del pago recibido de ${clientName}.`}
                     </DialogDescription>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="grid gap-4 py-4">
@@ -108,6 +118,7 @@ export function PaymentDialog({
                             onChange={(e) => setAmount(e.target.value)}
                             className="col-span-3"
                             placeholder="0.00"
+                            max={target?.pendingAmount}
                             required
                         />
                     </div>
