@@ -29,7 +29,7 @@ export default async function RootLayout({
   return (
     <html lang="es" className="dark" style={{ colorScheme: "dark" }} suppressHydrationWarning>
       <body className="font-sans" suppressHydrationWarning>
-        <AuthProvider>
+        <AuthProvider session={session}>
           <ThemeProvider
             attribute="class"
             defaultTheme="dark"

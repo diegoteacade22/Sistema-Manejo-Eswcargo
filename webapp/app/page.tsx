@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Users, Package, CreditCard, ArrowRight, DollarSign, AlertCircle, Lock, Banknote, Truck, ReceiptText, ClipboardList, BarChart3 } from 'lucide-react';
+import { Users, Package, CreditCard, ArrowRight, DollarSign, AlertCircle, Lock, Banknote, Truck, ReceiptText, ClipboardList, BarChart3, CalendarDays } from 'lucide-react';
 import { SalesTrendChart } from '@/components/charts/sales-trend-chart';
 import { ProfitChart } from '@/components/charts/profit-chart'; // New Component
 import Link from 'next/link';
@@ -534,6 +534,11 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
         {isAdmin && (
           <div className="flex gap-2 items-center">
             <DashboardPeriodSelector initialValue={months} />
+            <Button asChild variant="outline">
+              <Link href="/analytics/daily">
+                <CalendarDays className="mr-2 h-4 w-4" /> Rendimiento Diario
+              </Link>
+            </Button>
             <Button asChild variant="outline">
               <Link href="/analytics/weekly">
                 <BarChart3 className="mr-2 h-4 w-4" /> Rendimiento Semanal
