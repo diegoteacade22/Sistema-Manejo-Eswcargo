@@ -40,8 +40,18 @@ jobs:
           cache: 'pip'
           cache-dependency-path: requirements-sync.txt
 
+      - name: Cachear entorno Python de sincronización
+        id: python-runtime
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: eswcargo-sync-python-3.11-${{ hashFiles('requirements-sync.txt') }}
+
       - name: 📦 Instalar dependencias Python
-        run: pip install --disable-pip-version-check -r requirements-sync.txt
+        if: steps.python-runtime.outputs.cache-hit != 'true'
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --disable-pip-version-check -r requirements-sync.txt
 
       - name: 🟢 Configurar Node.js
         uses: actions/setup-node@v4
@@ -50,6 +60,18 @@ jobs:
           cache: 'npm'
           cache-dependency-path: webapp/package-lock.json
 
+      - name: Cachear entorno Node de sincronización
+        id: node-runtime
+        uses: actions/cache@v4
+        with:
+          path: webapp/node_modules
+          key: eswcargo-sync-node-24-${{ hashFiles('webapp/package-lock.json') }}
+
+      - name: 📦 Instalar dependencias Node
+        if: steps.node-runtime.outputs.cache-hit != 'true'
+        working-directory: ./webapp
+        run: npm ci --ignore-scripts --silent
+
       - name: 🔑 Configurar Credenciales Google
         run: |
           echo '${{ secrets.GOOGLE_CREDENTIALS }}' > google_credentials.json
@@ -57,7 +79,7 @@ jobs:
       - name: 📥 Descargar Excel desde Google Drive
         run: |
           stage_started_at=$(date +%s)
-          python3 download_sheet.py
+          .venv/bin/python download_sheet.py
           echo "- Descarga de planilla: $(( $(date +%s) - stage_started_at ))s" >> "$GITHUB_STEP_SUMMARY"
 
       - name: 📊 Procesar Datos (Extract)
@@ -65,7 +87,7 @@ jobs:
           SYNC_DAYS: ${{ github.event.schedule == '5 8 * * *' && 'FULL' || github.event.inputs.days || '7' }}
         run: |
           stage_started_at=$(date +%s)
-          python3 extract_consolidated.py "$SYNC_DAYS"
+          .venv/bin/python extract_consolidated.py "$SYNC_DAYS"
           echo "- Extracción de datos: $(( $(date +%s) - stage_started_at ))s" >> "$GITHUB_STEP_SUMMARY"
 
       - name: 🚀 Actualizar BD y validar sincronización
@@ -91,7 +113,6 @@ jobs:
               exit 1
             fi
           done
-          npm ci --ignore-scripts --silent
           npx prisma generate --schema prisma/schema.prisma
           if [[ ! "$DATABASE_URL" =~ ^postgres(ql)?:// ]]; then
             if [[ "$DIRECT_URL" =~ ^postgres(ql)?:// ]]; then
@@ -112,9 +133,9 @@ jobs:
             export FULL_AUDIT=0
           fi
           if [ "$FULL_AUDIT" = "1" ]; then
-            python3 scripts/export-cash-flow-raw-transactions.py > /tmp/cashflow-raw-source.json
+            "$GITHUB_WORKSPACE/.venv/bin/python" scripts/export-cash-flow-raw-transactions.py > /tmp/cashflow-raw-source.json
             node scripts/audit-cash-flow-raw-drift.mjs --source /tmp/cashflow-raw-source.json
-            python3 scripts/audit-cashflow-invoice-references.py --summary
+            "$GITHUB_WORKSPACE/.venv/bin/python" scripts/audit-cashflow-invoice-references.py --summary
             node scripts/audit-ledgers.mjs || echo "::warning::Auditoria CC previa con advertencias; se continua la sincronizacion operativa."
             node scripts/audit-client-account-coverage.mjs --summary
             node scripts/audit-ledger-duplicates.mjs || echo "::warning::Posibles duplicados o documentos repetidos en Cuenta Corriente; revisar Mantenimiento antes de emitir cobros."
