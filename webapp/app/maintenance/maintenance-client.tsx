@@ -57,12 +57,13 @@ export function MaintenanceClient() {
         });
     };
 
-    const handleSync = () => {
-        setMessage({ text: 'Actualizando todos los datos de la planilla...', type: 'success' });
+    const handleSync = (days: 0 | 7 | 30) => {
+        const syncScope = days === 0 ? 'completa' : `ultimos ${days} dias`;
+        setMessage({ text: `Actualizacion ${syncScope} en curso...`, type: 'success' });
         startTransition(async () => {
-            const res = await syncExcel(0);
+            const res = await syncExcel(days);
             if (res.success) {
-                setMessage({ text: res.message || 'Sincronización completa finalizada.', type: 'success' });
+                setMessage({ text: res.message || `Actualizacion ${syncScope} finalizada.`, type: 'success' });
             } else {
                 setMessage({ text: res.message, type: 'error' });
             }
@@ -267,17 +268,35 @@ export function MaintenanceClient() {
                             <h4 className="text-sm font-semibold flex items-center gap-2">
                                 <RefreshCw className="h-4 w-4 text-emerald-500" /> Sincronizar con Excel (Drive)
                             </h4>
-                            <p className="text-xs text-muted-foreground">Procesa toda la fuente operativa para incluir cambios en pedidos antiguos.</p>
+                            <p className="text-xs text-muted-foreground">Usa 7 o 30 dias para cambios recientes. Elegi completa solo para correcciones historicas.</p>
 
                             <div className="grid grid-cols-1 gap-2">
                                 <Button
                                     variant="outline"
                                     className="justify-start text-emerald-600 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-50"
-                                    onClick={handleSync}
+                                    onClick={() => handleSync(7)}
                                     disabled={isPending}
                                 >
                                     <Cloud className={`mr-2 h-4 w-4 ${isPending ? 'animate-bounce' : ''}`} />
-                                    ACTUALIZAR AHORA (Fuente completa)
+                                    ACTUALIZAR ULTIMOS 7 DIAS
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    className="justify-start text-blue-600 border-blue-200 dark:border-blue-800 hover:bg-blue-50"
+                                    onClick={() => handleSync(30)}
+                                    disabled={isPending}
+                                >
+                                    <Cloud className={`mr-2 h-4 w-4 ${isPending ? 'animate-bounce' : ''}`} />
+                                    ACTUALIZAR ULTIMOS 30 DIAS
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    className="justify-start text-slate-600 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                    onClick={() => handleSync(0)}
+                                    disabled={isPending}
+                                >
+                                    <Cloud className={`mr-2 h-4 w-4 ${isPending ? 'animate-bounce' : ''}`} />
+                                    ACTUALIZACION COMPLETA (Historico)
                                 </Button>
                                 <Button
                                     variant="ghost"

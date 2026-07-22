@@ -142,11 +142,14 @@ export async function resetDatabase() {
     };
 }
 
-export async function syncExcel(_requestedDays: number = 0) {
+function getRequestedSyncScope(days: number) {
+    return days === 0 ? 'completa' : `ultimos ${days} dias`;
+}
+
+export async function syncExcel(requestedDays: number = 7) {
     await requireAdminUser();
-    // Un cambio de asignación puede pertenecer a un pedido antiguo. La fuente
-    // operativa se procesa completa para que no dependa de la fecha de venta.
-    const days = 0;
+    const days = [0, 7, 30].includes(requestedDays) ? requestedDays : 7;
+    const syncScope = getRequestedSyncScope(days);
     try {
         const scriptPath = await findSyncScriptPath();
         const hookUrl = process.env.SYNC_HOOK_URL;
@@ -161,7 +164,7 @@ export async function syncExcel(_requestedDays: number = 0) {
 
             revalidatePath('/', 'layout');
             revalidateDataViews();
-            return { success: true, message: `OK: actualización completa finalizada. Ya podés ver los cambios en el sistema.` };
+            return { success: true, message: `OK: actualizacion ${syncScope} finalizada. Ya podes ver los cambios en el sistema.` };
         }
 
         if (hookUrl && hookUrl.trim().length > 0) {
@@ -188,7 +191,7 @@ export async function syncExcel(_requestedDays: number = 0) {
             revalidateDataViews();
             return {
                 success: true,
-                message: `OK: actualización completa finalizada en ${elapsedSeconds}s. Ya podés ver los cambios en el sistema.`,
+                message: `OK: actualizacion ${syncScope} finalizada en ${elapsedSeconds}s. Ya podes ver los cambios en el sistema.`,
                 log: responseText || undefined
             };
         }
@@ -204,7 +207,7 @@ export async function syncExcel(_requestedDays: number = 0) {
 
             return {
                 success: true,
-                message: `Actualización cloud completa en curso. Todavía no finalizó. Confirmá el resultado en "Actualizar estado" antes de emitir documentos: ${githubWorkflow.actionsUrl}`
+                message: `Actualizacion cloud ${syncScope} en curso. Todavia no finalizo. Confirma el resultado en "Actualizar estado" antes de emitir documentos: ${githubWorkflow.actionsUrl}`
             };
         }
 
@@ -856,11 +859,12 @@ export async function getSyncControlCenter() {
     }
 }
 
-export async function syncExcelInGitHub() {
+export async function syncExcelInGitHub(days: number = 7) {
     await requireAdminUser();
 
     try {
-        const githubWorkflow = await triggerGitHubSyncWorkflow(0);
+        const requestedDays = [0, 7, 30].includes(days) ? days : 7;
+        const githubWorkflow = await triggerGitHubSyncWorkflow(requestedDays);
         if (!githubWorkflow) {
             return {
                 success: false,
