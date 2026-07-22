@@ -37,10 +37,18 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: requirements-sync.txt
 
       - name: 📦 Instalar dependencias Python
-        run: |
-          pip install pandas openpyxl google-api-python-client google-auth-httplib2 google-auth-oauthlib
+        run: pip install --disable-pip-version-check -r requirements-sync.txt
+
+      - name: 🟢 Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: webapp/package-lock.json
 
       - name: 🔑 Configurar Credenciales Google
         run: |
@@ -60,7 +68,8 @@ jobs:
           python3 extract_consolidated.py "$SYNC_DAYS"
           echo "- Extracción de datos: $(( $(date +%s) - stage_started_at ))s" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: 🚀 Configurar Node.js y Auditar BD (Supabase)
+      - name: 🚀 Actualizar BD y validar sincronización
+        working-directory: ./webapp
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
@@ -69,19 +78,12 @@ jobs:
           ALLOW_LEGACY_LEDGER_CLEANUP: '0'
         run: |
           stage_started_at=$(date +%s)
-          SYNC_RUNTIME="/tmp/eswcargo-sync-runtime"
-          rm -rf "$SYNC_RUNTIME"
-          mkdir -p "$SYNC_RUNTIME"
-          cp -R webapp/prisma "$SYNC_RUNTIME/prisma"
-          cp -R webapp/scripts "$SYNC_RUNTIME/scripts"
-          cp -R webapp/lib "$SYNC_RUNTIME/lib"
-          cp google_credentials.json "$SYNC_RUNTIME/google_credentials.json"
-          export GOOGLE_CREDENTIALS_FILE="$SYNC_RUNTIME/google_credentials.json"
+          export GOOGLE_CREDENTIALS_FILE="$GITHUB_WORKSPACE/google_credentials.json"
           required_files=(
             "$GOOGLE_CREDENTIALS_FILE"
-            "$SYNC_RUNTIME/lib/sync-item-comparison.ts"
-            "$SYNC_RUNTIME/prisma/schema.prisma"
-            "$SYNC_RUNTIME/prisma/seed_fast.ts"
+            "lib/sync-item-comparison.ts"
+            "prisma/schema.prisma"
+            "prisma/seed_fast.ts"
           )
           for required_file in "${required_files[@]}"; do
             if [ ! -s "$required_file" ]; then
@@ -89,9 +91,7 @@ jobs:
               exit 1
             fi
           done
-          cd "$SYNC_RUNTIME"
-          npm init -y >/dev/null
-          npm install --silent prisma@5.22.0 @prisma/client@5.22.0 tsx@latest
+          npm ci --ignore-scripts --silent
           npx prisma generate --schema prisma/schema.prisma
           if [[ ! "$DATABASE_URL" =~ ^postgres(ql)?:// ]]; then
             if [[ "$DIRECT_URL" =~ ^postgres(ql)?:// ]]; then
@@ -104,29 +104,35 @@ jobs:
           fi
           npx prisma migrate deploy --schema prisma/schema.prisma
           node scripts/cleanup-legacy-ledger-imports.mjs
-          python3 scripts/export-cash-flow-raw-transactions.py > /tmp/cashflow-raw-source.json
-          node scripts/audit-cash-flow-raw-drift.mjs --source /tmp/cashflow-raw-source.json
-          python3 scripts/audit-cashflow-invoice-references.py --summary
-          node scripts/audit-ledgers.mjs || echo "::warning::Auditoria CC previa con advertencias; se continua la sincronizacion operativa."
-          node scripts/audit-client-account-coverage.mjs --summary
-          node scripts/audit-ledger-duplicates.mjs || echo "::warning::Posibles duplicados o documentos repetidos en Cuenta Corriente; revisar Mantenimiento antes de emitir cobros."
-          node scripts/audit-purchase-allocations.mjs
-          node scripts/audit-supplier-ledgers.mjs || echo "::warning::Proveedores con movimientos a revisar; no se modificaron saldos automaticamente."
           if [ "$SYNC_DAYS" = "0" ] || [ "$SYNC_DAYS" = "FULL" ]; then
             export SYNC_MODE=FULL
+            export FULL_AUDIT=1
           else
             export SYNC_MODE=DIFF
+            export FULL_AUDIT=0
+          fi
+          if [ "$FULL_AUDIT" = "1" ]; then
+            python3 scripts/export-cash-flow-raw-transactions.py > /tmp/cashflow-raw-source.json
+            node scripts/audit-cash-flow-raw-drift.mjs --source /tmp/cashflow-raw-source.json
+            python3 scripts/audit-cashflow-invoice-references.py --summary
+            node scripts/audit-ledgers.mjs || echo "::warning::Auditoria CC previa con advertencias; se continua la sincronizacion operativa."
+            node scripts/audit-client-account-coverage.mjs --summary
+            node scripts/audit-ledger-duplicates.mjs || echo "::warning::Posibles duplicados o documentos repetidos en Cuenta Corriente; revisar Mantenimiento antes de emitir cobros."
+            node scripts/audit-purchase-allocations.mjs
+            node scripts/audit-supplier-ledgers.mjs || echo "::warning::Proveedores con movimientos a revisar; no se modificaron saldos automaticamente."
           fi
           npx tsx prisma/seed_fast.ts
           node scripts/audit-shipment-reconciliation.mjs
           PACKING_AUDIT_SCOPE=all node scripts/audit-packing-readiness.mjs
           node scripts/audit-invoice-readiness.mjs
-          node scripts/audit-cash-flow-raw-drift.mjs --source /tmp/cashflow-raw-source.json
-          node scripts/audit-ledgers.mjs || echo "::warning::Auditoria CC posterior con advertencias; revisar cuenta corriente sin bloquear sync."
-          node scripts/audit-client-account-coverage.mjs --summary
-          node scripts/audit-ledger-duplicates.mjs || echo "::warning::Posibles duplicados o documentos repetidos en Cuenta Corriente; revisar Mantenimiento antes de emitir cobros."
-          node scripts/audit-purchase-allocations.mjs
-          node scripts/audit-supplier-ledgers.mjs || echo "::warning::Proveedores con movimientos a revisar; no se modificaron saldos automaticamente."
+          if [ "$FULL_AUDIT" = "1" ]; then
+            node scripts/audit-cash-flow-raw-drift.mjs --source /tmp/cashflow-raw-source.json
+            node scripts/audit-ledgers.mjs || echo "::warning::Auditoria CC posterior con advertencias; revisar cuenta corriente sin bloquear sync."
+            node scripts/audit-client-account-coverage.mjs --summary
+            node scripts/audit-ledger-duplicates.mjs || echo "::warning::Posibles duplicados o documentos repetidos en Cuenta Corriente; revisar Mantenimiento antes de emitir cobros."
+            node scripts/audit-purchase-allocations.mjs
+            node scripts/audit-supplier-ledgers.mjs || echo "::warning::Proveedores con movimientos a revisar; no se modificaron saldos automaticamente."
+          fi
           echo "- Actualización y auditorías: $(( $(date +%s) - stage_started_at ))s" >> "$GITHUB_STEP_SUMMARY"
 
       - name: ⏱️ Resumen de duración
