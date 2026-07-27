@@ -5,7 +5,7 @@ import { Printer, Package, Globe, Instagram, Facebook, Mail, Loader2, Download }
 import { savePackingListPdfToDrive, sendPackingListEmail } from '../../../email-actions';
 import { useEffect, useTransition } from 'react';
 import { buildShipmentItems, getShipmentCargoDescription } from '../../../../lib/shipment-items';
-import { isSharedShipmentPacking } from '../../../../lib/packing-segments';
+import { getPackingDocumentNumber, isSharedShipmentPacking } from '../../../../lib/packing-segments';
 import { toInvNumber4 } from '../../../../lib/inv-filename';
 
 /* eslint-disable @next/next/no-img-element */
@@ -18,8 +18,10 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
     const [isSending, startTransition] = useTransition();
     const [isSaving, startSaveTransition] = useTransition();
     const invNumber = toInvNumber4(shipment?.invoice, shipment?.shipment_number || shipment?.id);
-    const invBaseName = `INV ${invNumber}`;
-    const invFileName = `INV ${invNumber}.pdf`;
+    const isSharedShipment = isSharedShipmentPacking(shipment);
+    const packingDocumentNumber = getPackingDocumentNumber(shipment);
+    const invBaseName = isSharedShipment ? `PL ${packingDocumentNumber}` : `INV ${invNumber}`;
+    const invFileName = `${invBaseName}.pdf`;
 
     useEffect(() => {
         const previousTitle = document.title;
@@ -81,8 +83,6 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
     const shipmentItems = buildShipmentItems(shipment);
     const cargoDescription = getShipmentCargoDescription(shipment);
     const hasConfirmedContent = shipmentItems.length > 0 || Boolean(cargoDescription);
-    const isSharedShipment = isSharedShipmentPacking(shipment);
-
     // Colors
     // Dark Blue: #0D3B4C
     // Teal: #72C4B7
@@ -198,7 +198,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                     <div className="text-right">
                         <h2 className="text-[#0D3B4C] text-2xl print:text-xl font-bold uppercase tracking-wide mb-1">PACKING LIST</h2>
                         <div className="inline-block bg-[#F4AB3D] text-[#0D3B4C] px-3 py-1 rounded-sm shadow-sm">
-                            <p className="font-bold text-lg print:text-base tracking-wider">ENVÍO #{shipment.shipment_number}</p>
+                            <p className="font-bold text-lg print:text-base tracking-wider">ENVÍO #{packingDocumentNumber}</p>
                         </div>
                     </div>
                 </div>

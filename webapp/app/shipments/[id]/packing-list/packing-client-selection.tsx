@@ -18,10 +18,13 @@ export function PackingClientSelection({ shipmentId, shipmentNumber, segments }:
                         {segments.map((segment) => (
                             <div key={segment.clientId} className="flex items-center justify-between gap-4 border p-4">
                                 <div className="min-w-0">
-                                    <p className="flex items-center gap-2 font-semibold"><UserRound className="h-4 w-4 text-indigo-500" /> {segment.client.name}</p>
+                                    <p className="flex items-center gap-2 font-semibold">
+                                        <UserRound className="h-4 w-4 text-indigo-500" />
+                                        #{segment.documentNumber} · {segment.client.name}
+                                    </p>
                                     <p className="mt-1 text-sm text-muted-foreground">{segment.itemCount} unidad(es) confirmada(s)</p>
                                 </div>
-                                <Button asChild className="shrink-0"><Link href={`/shipments/${shipmentId}/packing-list?clientId=${segment.clientId}`}><FileText className="mr-2 h-4 w-4" /> Abrir Packing</Link></Button>
+                                <Button asChild className="shrink-0"><Link href={`/shipments/${shipmentId}/packing-list?clientId=${segment.clientId}`}><FileText className="mr-2 h-4 w-4" /> Abrir #{segment.documentNumber}</Link></Button>
                             </div>
                         ))}
                     </CardContent>

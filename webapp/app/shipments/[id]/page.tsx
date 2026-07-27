@@ -296,7 +296,7 @@ export default async function ShipmentPage(props: Props) {
                                             <div key={segment.clientId} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
                                                 <div className="min-w-0">
                                                     <div className="truncate font-bold text-slate-900 dark:text-slate-100">{segment.client.name}</div>
-                                                    <div className="text-xs text-muted-foreground">ID: {segment.client.old_id || segment.client.id}</div>
+                                                    <div className="text-xs text-muted-foreground">PL #{segment.documentNumber} · ID: {segment.client.old_id || segment.client.id}</div>
                                                 </div>
                                                 <Badge variant="secondary" className="shrink-0 font-bold">{segment.itemCount} pcs</Badge>
                                             </div>

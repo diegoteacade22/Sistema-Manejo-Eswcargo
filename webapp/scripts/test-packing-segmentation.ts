@@ -4,6 +4,7 @@ import { canUseSegmentedPackingForShipmentBlock } from '../lib/source-document-g
 
 const ramiro = { id: 72, old_id: 72, name: 'Ramiro Star Computacion' };
 const marcos = { id: 162, old_id: 162, name: 'Marcos Roku' };
+const aylen = { id: 70, old_id: 70, name: 'Aylen Gentiletti' };
 
 const shipment = {
   id: 1188,
@@ -32,6 +33,9 @@ async function main() {
   const marcosSegment = segments.find((segment) => segment.clientId === 162);
   if (!ramiroSegment || !marcosSegment || segments.length !== 2) {
     throw new Error('No se detectaron correctamente los dos clientes del envío compartido.');
+  }
+  if (marcosSegment.documentNumber !== '1188A' || ramiroSegment.documentNumber !== '1188B') {
+    throw new Error('Los Packing Lists compartidos no recibieron numeración A/B estable.');
   }
 
   const ramiroPacking = projectShipmentForPacking(shipment, ramiroSegment, segments.length);
@@ -73,6 +77,34 @@ async function main() {
   }
   if (!getShipmentChargeIssue(oneClientShipment, marcos.id)?.includes('no corresponde')) {
     throw new Error('Un cargo no puede atribuirse a un cliente ajeno al envío.');
+  }
+
+  const shipment1232 = {
+    id: 7002,
+    shipment_number: 1232,
+    client: aylen,
+    cargo_description: '2 x S26 ULTRA',
+    item_count: 10,
+    items: [
+      { id: 20, quantity: 10, productName: 'iPhone 16 128GB', order: { id: 2566, clientId: 501, client: { id: 501, old_id: 265, name: 'Federico Esquivel - Canning' } } },
+    ],
+    orders: [
+      { id: 2566, clientId: 501, client: { id: 501, old_id: 265, name: 'Federico Esquivel - Canning' }, items: [] },
+    ],
+  };
+  const segments1232 = getPackingSegments(shipment1232);
+  const aylen1232 = segments1232.find((segment) => segment.clientId === 70);
+  const fede1232 = segments1232.find((segment) => segment.clientId === 501);
+  if (segments1232.length !== 2 || aylen1232?.documentNumber !== '1232A' || fede1232?.documentNumber !== '1232B') {
+    throw new Error('El envío #1232 no se separó correctamente entre Aylen y Federico.');
+  }
+  const aylenPacking1232 = projectShipmentForPacking(shipment1232, aylen1232!, segments1232.length);
+  const fedePacking1232 = projectShipmentForPacking(shipment1232, fede1232!, segments1232.length);
+  if (aylenPacking1232.cargo_description !== '2 x S26 ULTRA' || aylenPacking1232.item_count !== 2 || buildShipmentItems(aylenPacking1232).length !== 0) {
+    throw new Error('El PL #1232A no conserva exclusivamente la carga directa de Aylen.');
+  }
+  if (total(buildShipmentItems(fedePacking1232)) !== 10 || fedePacking1232.cargo_description) {
+    throw new Error('El PL #1232B no conserva exclusivamente los artículos de Federico.');
   }
 
   console.log('OK: el Packing de un envío compartido se segmenta por cliente sin mezclar cantidades.');

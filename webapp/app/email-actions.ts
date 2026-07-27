@@ -8,7 +8,7 @@ import { requireAdminUser } from '@/lib/access';
 import { getInvPdfFileName, savePdfToDriveFolder } from '@/lib/document-storage';
 import { buildShipmentItems, getShipmentCargoDescription } from '@/lib/shipment-items';
 import { canUseSegmentedPackingForShipmentBlock, getOrderSourceDocumentBlock, getSourceDocumentBlock, sourceBlockMessage } from '@/lib/source-document-guard';
-import { getPackingSegmentIssue, getPackingSegments, projectShipmentForPacking } from '@/lib/packing-segments';
+import { getPackingDocumentNumber, getPackingSegmentIssue, getPackingSegments, projectShipmentForPacking } from '@/lib/packing-segments';
 
 type PackingListDocument = {
     shipment: any;
@@ -80,6 +80,7 @@ async function buildPackingListDocument(shipmentId: number, packingClientId?: nu
     const segment = segments.find((item) => item.clientId === packingClientId) || (segments.length === 1 ? segments[0] : null);
     if (!segment) throw new Error('El cliente seleccionado no tiene artículos confirmados en este envío.');
     const documentShipment = projectShipmentForPacking(shipment, segment, segments.length);
+    const packingDocumentNumber = getPackingDocumentNumber(documentShipment);
 
     const shipmentSourceBlock = await getSourceDocumentBlock('SHIPMENT', shipment.shipment_number);
     const orderSourceBlock = await getOrderSourceDocumentBlock([
@@ -146,7 +147,7 @@ async function buildPackingListDocument(shipmentId: number, packingClientId?: nu
                         <tr>
                             <td>
                                 <h2 style="color: #0D3B4C; margin: 0; font-size: 24px; text-transform: uppercase; font-weight: 900;">PACKING LIST</h2>
-                                <p style="font-size: 18px; font-weight: bold; color: #F4AB3D; margin: 5px 0 0 0;">SHIPMENT #${documentShipment.shipment_number}</p>
+                                <p style="font-size: 18px; font-weight: bold; color: #F4AB3D; margin: 5px 0 0 0;">SHIPMENT #${packingDocumentNumber}</p>
                             </td>
                             <td style="text-align: right; vertical-align: top;">
                                 <p style="margin: 0; font-size: 13px; color: #666;"><strong>FECHA:</strong> ${new Date().toLocaleDateString()}</p>
@@ -201,7 +202,7 @@ async function buildPackingListDocument(shipmentId: number, packingClientId?: nu
     const pdfBuffer = await generatePdfFromHtml(htmlBody);
     const baseFileName = getInvPdfFileName(documentShipment.invoice, documentShipment.shipment_number || documentShipment.id);
     const fileName = documentShipment.packingSegment.isSharedShipment
-        ? baseFileName.replace(/\.pdf$/i, `-CLIENTE-${documentShipment.client?.old_id || documentShipment.client?.id}.pdf`)
+        ? baseFileName.replace(/\.pdf$/i, `${documentShipment.packingSegment.documentSuffix}-CLIENTE-${documentShipment.client?.old_id || documentShipment.client?.id}.pdf`)
         : baseFileName;
 
     return {
@@ -390,7 +391,7 @@ export async function sendPackingListEmail(shipmentId: number, targetEmail: stri
 
         const result = await sendEmail(
             targetEmail,
-            `PACKING LIST #${shipment.shipment_number} - ESWCARGO`,
+            `PACKING LIST #${getPackingDocumentNumber(shipment)} - ESWCARGO`,
             htmlBody,
             [
                 {
