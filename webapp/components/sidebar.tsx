@@ -23,7 +23,8 @@ import {
     ShieldCheck,
     Globe,
     Terminal,
-    CalendarDays
+    CalendarDays,
+    BadgeDollarSign
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -54,6 +55,7 @@ const groups: RouteGroup[] = [
             { label: 'Artículos', icon: Package, href: '/products', color: 'text-cyan-500', roles: ['ADMIN'] },
             { label: 'Proveedores', icon: Truck, href: '/suppliers', color: 'text-orange-600', roles: ['ADMIN'] },
             { label: 'Compras', icon: ShoppingCart, href: '/purchases', color: 'text-amber-500', roles: ['ADMIN'] },
+            { label: 'Listas y Ofertas', icon: BadgeDollarSign, href: '/analytics/price-opportunities', color: 'text-cyan-400', roles: ['ADMIN'] },
             { label: 'BI: Compras', icon: ShoppingCart, href: '/analytics/purchases', color: 'text-emerald-500', roles: ['ADMIN'] },
             { label: 'BI: Logística', icon: Truck, href: '/analytics/logistics', color: 'text-orange-400', roles: ['ADMIN'] },
         ]

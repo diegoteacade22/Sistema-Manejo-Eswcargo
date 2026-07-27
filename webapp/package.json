@@ -45,6 +45,7 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@e965/xlsx": "^0.20.3",
     "@google/generative-ai": "^0.24.1",
     "@prisma/client": "5.22.0",
     "@radix-ui/react-avatar": "^1.1.11",
