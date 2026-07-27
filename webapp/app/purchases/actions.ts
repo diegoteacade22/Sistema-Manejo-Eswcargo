@@ -3,6 +3,7 @@
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 import { requireAdminUser } from '@/lib/access';
+import { upsertOperationLedger } from '@/lib/client-account-policy';
 
 type CreatePurchaseItemInput = {
   productId: number;
@@ -66,38 +67,16 @@ async function findOpenOrderForClient(tx: any, clientId: number) {
   });
 }
 
-async function upsertOrderChargeTransaction(tx: any, order: { id: number; order_number: number | null; clientId: number; total_amount: number }) {
+async function upsertOrderChargeTransaction(tx: any, order: { id: number; order_number: number | null; clientId: number; total_amount: number; date: Date }) {
   if (!order.order_number) return;
-
-  const txRef = String(order.order_number);
-  const existingCharge = await tx.transaction.findFirst({
-    where: {
-      clientId: order.clientId,
-      type: 'CARGO',
-      reference: txRef,
-    }
-  });
-
-  if (existingCharge) {
-    await tx.transaction.update({
-      where: { id: existingCharge.id },
-      data: {
-        amount: -Math.abs(order.total_amount),
-        description: `Pedido #${order.order_number}`,
-      }
-    });
-    return;
-  }
-
-  await tx.transaction.create({
-    data: {
-      clientId: order.clientId,
-      date: new Date(),
-      type: 'CARGO',
-      amount: -Math.abs(order.total_amount),
-      description: `Pedido #${order.order_number}`,
-      reference: txRef
-    }
+  await upsertOperationLedger(tx, {
+    clientId: order.clientId,
+    date: order.date,
+    amount: order.total_amount,
+    chargeDescription: `Pedido #${order.order_number}`,
+    chargeReference: `Order #${order.order_number}`,
+    operationKind: 'ORDER',
+    operationKey: String(order.order_number),
   });
 }
 

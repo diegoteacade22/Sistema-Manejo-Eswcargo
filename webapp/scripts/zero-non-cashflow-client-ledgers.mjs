@@ -88,6 +88,9 @@ async function buildPlan() {
       const client = group[0].client;
       const balance = total(group);
       const existingCutover = group.filter((transaction) => String(transaction.reference || '').startsWith(REFERENCE_PREFIX));
+      if (existingCutover.length > 1) {
+        throw new Error(`${client.name}: hay más de un ajuste de punto cero. Requiere revisión manual.`);
+      }
       return {
         client,
         transactions: group,
@@ -99,27 +102,22 @@ async function buildPlan() {
     .filter((account) => !account.isCashFlowAccount && Math.abs(account.balance) > EPSILON)
     .sort((left, right) => left.client.name.localeCompare(right.client.name));
 
-  for (const account of candidates) {
-    if (account.existingCutover.length > 0) {
-      throw new Error(`${account.client.name}: ya existe un ajuste de punto cero. Revisalo manualmente antes de reintentar.`);
-    }
-  }
-
   return { transactions, candidates };
 }
 
 function report(plan) {
   return {
-    policy: 'Todos los clientes fuera de CASH FLOW 2026 quedan saldados; las 11 cuentas definidas en client-balance-controls.json conservan su saldo fuente.',
+    policy: `Todos los clientes fuera de CASH FLOW 2026 quedan saldados; las ${cashFlowClientIds.size} cuentas definidas en client-balance-controls.json conservan su saldo fuente.`,
     cashFlowAccountOldIds: [...cashFlowClientIds].sort((left, right) => left - right),
     candidates: plan.candidates.map((account) => ({
       clientId: account.client.id,
       oldId: account.client.old_id,
       client: account.client.name,
       balanceBefore: account.balance,
-      adjustmentAmount: round(-account.balance),
-      adjustmentType: account.balance > 0 ? 'CARGO' : 'PAGO',
+      adjustmentAmount: round((account.existingCutover[0]?.amount || 0) - account.balance),
+      adjustmentType: ((account.existingCutover[0]?.amount || 0) - account.balance) > 0 ? 'PAGO' : 'CARGO',
       reference: `${REFERENCE_PREFIX}${account.client.id}`,
+      action: account.existingCutover.length > 0 ? 'UPDATE' : 'CREATE',
     })),
     totals: {
       accountsToZero: plan.candidates.length,
@@ -144,26 +142,34 @@ async function applyPlan(plan) {
     if (change) throw new Error(`Los movimientos cambiaron durante la revisión (${change}). Se revirtió toda la operación.`);
 
     for (const account of plan.candidates) {
-      const adjustmentAmount = round(-account.balance);
-      const transaction = await tx.transaction.create({
-        data: {
-          clientId: account.client.id,
-          date: new Date(),
-          type: adjustmentAmount > 0 ? 'PAGO' : 'CARGO',
-          amount: adjustmentAmount,
-          description: `Saldado a la fecha ${CUTOVER_DATE}: cuenta fuera de CASH FLOW 2026.`,
-          reference: `${REFERENCE_PREFIX}${account.client.id}`,
-        },
+      const adjustmentAmount = round((account.existingCutover[0]?.amount || 0) - account.balance);
+      const data = {
+        clientId: account.client.id,
+        date: new Date(),
+        type: adjustmentAmount > 0 ? 'PAGO' : 'CARGO',
+        amount: adjustmentAmount,
+        description: `Saldado a la fecha ${CUTOVER_DATE}: cuenta fuera de CASH FLOW 2026.`,
+        reference: `${REFERENCE_PREFIX}${account.client.id}`,
+      };
+      const transaction = account.existingCutover[0]
+        ? await tx.transaction.update({ where: { id: account.existingCutover[0].id }, data })
+        : await tx.transaction.create({ data });
+
+      const existingEvidence = await tx.accountEvidence.findFirst({
+        where: { transactionId: transaction.id, category: 'CC_CUTOVER_ZERO_BY_OWNER' },
+        select: { id: true },
       });
-      await tx.accountEvidence.create({
-        data: {
-          clientId: account.client.id,
-          transactionId: transaction.id,
-          category: 'CC_CUTOVER_ZERO_BY_OWNER',
-          source: `Decisión operativa del titular, ${CUTOVER_DATE}`,
-          note: 'Cuenta fuera de CASH FLOW 2026; se conserva el historial y se agrega el saldo de cierre para el corte de sistema.',
-        },
-      });
+      if (!existingEvidence) {
+        await tx.accountEvidence.create({
+          data: {
+            clientId: account.client.id,
+            transactionId: transaction.id,
+            category: 'CC_CUTOVER_ZERO_BY_OWNER',
+            source: `Decisión operativa del titular, ${CUTOVER_DATE}`,
+            note: 'Cuenta fuera de CASH FLOW 2026; se conserva el historial y se agrega el saldo de cierre para el corte de sistema.',
+          },
+        });
+      }
     }
 
     for (const account of plan.candidates) {

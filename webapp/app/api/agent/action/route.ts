@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { assertAgentProvidedTotal, canonicalizeAgentOrderItems } from "@/lib/agent-order";
+import { upsertOperationLedger } from "@/lib/client-account-policy";
 
 function getExpectedApiKey() {
     return (process.env.AGENT_API_KEY || process.env.AUTH_SECRET || "").trim();
@@ -207,15 +208,14 @@ export async function POST(req: Request) {
                     });
 
                     if (normalizedOrder.totalAmount > 0) {
-                        await tx.transaction.create({
-                            data: {
-                                clientId: payload.clientId,
-                                date: payload.date,
-                                type: 'CARGO',
-                                amount: -normalizedOrder.totalAmount,
-                                description: `Pedido #${orderNumber}`,
-                                reference: `Order #${orderNumber}`,
-                            },
+                        await upsertOperationLedger(tx, {
+                            clientId: payload.clientId,
+                            date: payload.date,
+                            amount: normalizedOrder.totalAmount,
+                            chargeDescription: `Pedido #${orderNumber}`,
+                            chargeReference: `Order #${orderNumber}`,
+                            operationKind: 'ORDER',
+                            operationKey: String(orderNumber),
                         });
                     }
 

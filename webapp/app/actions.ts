@@ -10,6 +10,7 @@ import { createClientPaymentWithReceipt } from '@/lib/payment-receipts';
 import { buildShipmentItems } from '@/lib/shipment-items';
 import type { PaymentTarget } from '@/lib/payment-targets';
 import { getPackingSegmentIssue, getPackingSegments, getShipmentChargeIssue } from '@/lib/packing-segments';
+import { upsertOperationLedger } from '@/lib/client-account-policy';
 
 type DeliveryChannel = 'EMAIL' | 'WHATSAPP' | 'SKIPPED' | 'FAILED';
 
@@ -321,16 +322,14 @@ export async function submitOrder(data: {
                 data: { submissionKey, orderId: order.id },
             });
 
-            // 2. Create Debt Transaction (Cargo)
-            await tx.transaction.create({
-                data: {
-                    clientId: data.clientId,
-                    date: data.date,
-                    type: 'CARGO',
-                    amount: -totalAmount, // Negative = Debt
-                    description: `Pedido #${newOrderNumber}`,
-                    reference: `Order #${newOrderNumber}`
-                }
+            await upsertOperationLedger(tx, {
+                clientId: data.clientId,
+                date: data.date,
+                amount: totalAmount,
+                chargeDescription: `Pedido #${newOrderNumber}`,
+                chargeReference: `Order #${newOrderNumber}`,
+                operationKind: 'ORDER',
+                operationKey: String(newOrderNumber),
             });
 
             return order;
@@ -474,25 +473,20 @@ export async function registerShipmentCharge(shipmentId: number, clientId: numbe
         const chargeIssue = getShipmentChargeIssue(shipment, clientId);
         if (chargeIssue) return { success: false, message: chargeIssue };
 
-        const reference = `SHIP-${shipment.shipment_number}`;
-        const data = {
-            amount: -Math.abs(amount),
-            date: new Date(),
-            description: `CARGA #${shipment.shipment_number} ${notes ? '- ' + notes : ''}`,
-        };
+        const legacyReference = `SHIP-${shipment.shipment_number}`;
+        const reference = `${legacyReference}:CLIENT:${clientId}`;
+        const chargeDate = new Date();
+        const chargeDescription = `CARGA #${shipment.shipment_number} ${notes ? '- ' + notes : ''}`;
         await prisma.$transaction(async (tx) => {
-            const existingCharge = await tx.transaction.findFirst({
-                where: { clientId, type: 'CARGO', reference },
-                select: { id: true },
-            });
-
-            if (existingCharge) {
-                await tx.transaction.update({ where: { id: existingCharge.id }, data });
-                return;
-            }
-
-            await tx.transaction.create({
-                data: { clientId, type: 'CARGO', reference, ...data },
+            await upsertOperationLedger(tx, {
+                clientId,
+                date: chargeDate,
+                amount,
+                chargeDescription,
+                chargeReference: reference,
+                chargeReferenceAliases: [legacyReference],
+                operationKind: 'SHIPMENT',
+                operationKey: `${shipment.shipment_number}:CLIENT:${clientId}`,
             });
         }, { isolationLevel: 'Serializable' });
 

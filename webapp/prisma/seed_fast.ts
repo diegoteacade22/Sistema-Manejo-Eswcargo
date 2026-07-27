@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { itemSyncSignature, sameItemSet } from '../lib/sync-item-comparison';
 import { normalizeShipmentSourceRows, normalizeSourceRows } from '../lib/sync-source-normalization';
+import { upsertOperationLedger } from '../lib/client-account-policy';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
 let activeSyncRunId: number | null = null;
@@ -629,10 +630,72 @@ async function main() {
         }
     }
 
-    // 6.7 SINCRONIZACIÓN MAESTRA DE TRANSACCIONES (CLIENTES Y PROVEEDORES)
+    // 6.7 CUENTA CORRIENTE OPERATIVA DESDE EL CORTE DE POLÍTICA
+    // Sólo procesa operaciones posteriores al corte. Repetir la sincronización
+    // actualiza el mismo par cargo/cancelación y no reconstruye el histórico.
+    const ledgerPolicyEffectiveDate = new Date(
+        process.env.CLIENT_LEDGER_POLICY_EFFECTIVE_DATE || '2026-07-27T00:00:00Z'
+    );
+    let reconciledOperationalLedgers = 0;
+
+    for (const order of normalizedOrdersData as any[]) {
+        const orderDate = parseSafeDate(order.date);
+        if (!orderDate || orderDate < ledgerPolicyEffectiveDate || Number(order.total_amount || 0) <= 0) continue;
+        const dbClientId = order.client_old_id
+            ? clientOldIdMap.get(order.client_old_id)?.id
+            : (order.client_name_match ? clientNameMap.get(order.client_name_match.trim().toUpperCase())?.id : null);
+        if (!dbClientId) continue;
+
+        await prisma.$transaction(async (tx: any) => {
+            await upsertOperationLedger(tx, {
+                clientId: dbClientId,
+                date: orderDate,
+                amount: Number(order.total_amount),
+                chargeDescription: `Compra - Pedido #${order.order_number}`,
+                chargeReference: `Order #${order.order_number}`,
+                operationKind: 'ORDER',
+                operationKey: String(order.order_number),
+            });
+        }, { isolationLevel: 'Serializable' });
+        reconciledOperationalLedgers++;
+    }
+
+    for (const freight of freightSourceRows as any[]) {
+        const freightDate = parseSafeDate(freight.date_shipped);
+        if (!freightDate || freightDate < ledgerPolicyEffectiveDate || Number(freight.price_total || 0) <= 0) continue;
+        const dbClientId = freight.old_client_id
+            ? clientOldIdMap.get(freight.old_client_id)?.id
+            : (freight.client_name_match ? clientNameMap.get(freight.client_name_match.trim().toUpperCase())?.id : null);
+        if (!dbClientId) continue;
+
+        const stableReference = `SHIP-${freight.shipment_number}:CLIENT:${dbClientId}`;
+        await prisma.$transaction(async (tx: any) => {
+            await upsertOperationLedger(tx, {
+                clientId: dbClientId,
+                date: freightDate,
+                amount: Number(freight.price_total),
+                chargeDescription: `Flete - Envío #${freight.shipment_number}`,
+                chargeReference: stableReference,
+                chargeReferenceAliases: [
+                    `SHIP-${freight.shipment_number}`,
+                    shipmentFreightReference(freight, dbClientId),
+                ],
+                operationKind: 'SHIPMENT',
+                operationKey: `${freight.shipment_number}:CLIENT:${dbClientId}`,
+            });
+        }, { isolationLevel: 'Serializable' });
+        reconciledOperationalLedgers++;
+    }
+    console.log(`   ✅ Cuentas operativas conciliadas desde ${ledgerPolicyEffectiveDate.toISOString()}: ${reconciledOperationalLedgers}`);
+
+    // 6.8 SINCRONIZACIÓN MAESTRA LEGACY DE TRANSACCIONES
     // Los movimientos financieros tienen su propia conciliación. Una sincronización
     // operativa no puede recrearlos porque duplicaría cargos ya registrados en CC.
-    const allowFinancialLedgerSync = process.env.ALLOW_FINANCIAL_LEDGER_SYNC === '1';
+    const legacyFinancialSyncRequested = process.env.ALLOW_FINANCIAL_LEDGER_SYNC === '1';
+    if (legacyFinancialSyncRequested && process.env.ALLOW_LEGACY_FINANCIAL_REBUILD !== '1') {
+        throw new Error('Reconstrucción financiera legacy bloqueada: requiere ALLOW_LEGACY_FINANCIAL_REBUILD=1 además de ALLOW_FINANCIAL_LEDGER_SYNC=1.');
+    }
+    const allowFinancialLedgerSync = legacyFinancialSyncRequested && process.env.ALLOW_LEGACY_FINANCIAL_REBUILD === '1';
     const purchasesData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'purchases_seed.json'), 'utf-8'));
     const paymentsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'payments_extra_seed.json'), 'utf-8'));
     if (!allowFinancialLedgerSync) {
@@ -854,7 +917,7 @@ async function main() {
     console.log("   ✅ Transacciones sincronizadas.");
     }
 
-    // 6.8 ACTUALIZAR TABLAS DE COMPRA (ENCABEZADOS Y DETALLES)
+    // 6.9 ACTUALIZAR TABLAS DE COMPRA (ENCABEZADOS Y DETALLES)
     // Evita reconstruir compras sin cambios: cada delete/create viaja por
     // PgBouncer y convertía una sincronización diferencial en decenas de consultas.
     const sourcePurchases = purchasesData.map((p: any) => {
