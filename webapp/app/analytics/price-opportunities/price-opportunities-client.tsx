@@ -73,6 +73,23 @@ export function PriceOpportunitiesClient() {
 
   return (
     <div className="space-y-6">
+      <Card className="border-slate-700 bg-slate-900/60">
+        <CardHeader>
+          <CardTitle className="text-base">Cómo usarlo</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ol className="list-decimal space-y-2 pl-5 text-sm text-slate-300">
+            <li>Sube la lista recibida por WhatsApp o pega el texto del mensaje.</li>
+            <li>Presiona <strong>Analizar contra IMPORTSYS</strong>.</li>
+            <li>Prioriza <strong>Oferta probable</strong> y revisa precio, última compra, última venta y margen.</li>
+            <li>Confirma manualmente los resultados <strong>Ambiguo</strong> o <strong>No encontrado</strong> antes de comprar.</li>
+          </ol>
+          <p className="mt-3 text-xs text-slate-500">
+            El análisis es informativo: no crea ni modifica compras, ventas o inventario.
+          </p>
+        </CardContent>
+      </Card>
+
       <Card className="border-cyan-500/20 bg-slate-950/40">
         <CardHeader>
           <CardTitle>Cargar lista o pegar mensaje</CardTitle>
@@ -156,4 +173,3 @@ export function PriceOpportunitiesClient() {
     </div>
   );
 }
-
