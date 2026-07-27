@@ -1,5 +1,21 @@
 import { getPackingSegments, type PackingSegment } from '@/lib/packing-segments';
 
+export function getAdminShipmentSearchWhere(query: string) {
+    const searchFilters: any[] = [
+        { forwarder: { contains: query, mode: 'insensitive' } },
+        { client: { name: { contains: query, mode: 'insensitive' } } },
+        { orders: { some: { client: { name: { contains: query, mode: 'insensitive' } } } } },
+        { items: { some: { order: { client: { name: { contains: query, mode: 'insensitive' } } } } } },
+    ];
+
+    const shipmentNumber = Number.parseInt(query, 10);
+    if (Number.isInteger(shipmentNumber)) {
+        searchFilters.push({ shipment_number: shipmentNumber });
+    }
+
+    return { OR: searchFilters };
+}
+
 export function getClientShipmentVisibilityWhere(clientId: number) {
     return {
         OR: [

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { getClientShipmentAccess, getClientShipmentVisibilityWhere } from '../lib/shipment-visibility';
+import { getAdminShipmentSearchWhere, getClientShipmentAccess, getClientShipmentVisibilityWhere } from '../lib/shipment-visibility';
 
 const ramiro = { id: 72, old_id: 72, name: 'Ramiro Star Computacion' };
 const diegote = { id: 18, old_id: 18, name: 'Diegote' };
@@ -29,6 +29,15 @@ assert.deepEqual(getClientShipmentVisibilityWhere(ramiro.id), {
         { items: { some: { order: { clientId: ramiro.id } } } },
         { orders: { some: { clientId: ramiro.id } } },
         { AND: [{ clientId: ramiro.id }, { items: { none: {} } }, { orders: { none: {} } }] },
+    ],
+});
+
+assert.deepEqual(getAdminShipmentSearchWhere('Federico'), {
+    OR: [
+        { forwarder: { contains: 'Federico', mode: 'insensitive' } },
+        { client: { name: { contains: 'Federico', mode: 'insensitive' } } },
+        { orders: { some: { client: { name: { contains: 'Federico', mode: 'insensitive' } } } } },
+        { items: { some: { order: { client: { name: { contains: 'Federico', mode: 'insensitive' } } } } } },
     ],
 });
 

@@ -12,7 +12,7 @@ import { ShipmentStatusDialog } from '@/components/shipment-status-dialog';
 import { ShipmentChargeDialog } from '@/components/shipment-charge-dialog';
 import { ShipmentsBulkStatusControls } from '@/components/shipments-bulk-status-controls';
 import { getPackingSegments, projectShipmentForPacking } from '@/lib/packing-segments';
-import { getClientShipmentAccess, getClientShipmentVisibilityWhere } from '@/lib/shipment-visibility';
+import { getAdminShipmentSearchWhere, getClientShipmentAccess, getClientShipmentVisibilityWhere } from '@/lib/shipment-visibility';
 
 type SortOrder = 'asc' | 'desc';
 
@@ -39,17 +39,13 @@ async function getShipments(query: string, page: number = 1, pageSize: number = 
     }
 
     if (query) {
-        const searchFilters: any[] = [
-            { forwarder: { contains: query, mode: 'insensitive' } },
-        ];
         if (userRole === 'ADMIN') {
-            searchFilters.push({ client: { name: { contains: query, mode: 'insensitive' } } });
+            filters.push(getAdminShipmentSearchWhere(query));
+        } else if (Number.isInteger(Number.parseInt(query, 10))) {
+            filters.push({ shipment_number: Number.parseInt(query, 10) });
+        } else {
+            filters.push({ forwarder: { contains: query, mode: 'insensitive' } });
         }
-        // If query is a number, try exact match on shipment_number
-        if (!isNaN(parseInt(query))) {
-            searchFilters.push({ shipment_number: parseInt(query) });
-        }
-        filters.push({ OR: searchFilters });
     }
     const where: any = filters.length > 0 ? { AND: filters } : {};
 
@@ -63,11 +59,21 @@ async function getShipments(query: string, page: number = 1, pageSize: number = 
         const segments = getPackingSegments(shipment);
         if (!viewerClientId) {
             return segments.length > 1
-                ? { ...shipment, packingSegment: { isSharedShipment: true, itemCount: segments.reduce((total, segment) => total + segment.itemCount, 0) } }
+                ? {
+                    ...shipment,
+                    packingSegment: {
+                        isSharedShipment: true,
+                        itemCount: segments.reduce((total, segment) => total + segment.itemCount, 0),
+                        clientNames: segments.map((segment) => segment.client.name),
+                    },
+                }
                 : shipment;
         }
         const access = getClientShipmentAccess(shipment, viewerClientId);
-        return access?.segment ? projectShipmentForPacking(shipment, access.segment, access.segmentCount) : shipment;
+        if (!access) return null;
+        return access.segment
+            ? projectShipmentForPacking(shipment, access.segment, access.segmentCount)
+            : shipment;
     };
 
     const totalCount = await (prisma as any).shipment.count({ where });
@@ -93,10 +99,18 @@ async function getShipments(query: string, page: number = 1, pageSize: number = 
             skip: skip
         });
 
-        return { shipments: updatedShipments.map(projectForViewer), totalCount, totalPages: Math.ceil(totalCount / pageSize) };
+        return {
+            shipments: updatedShipments.map(projectForViewer).filter(Boolean),
+            totalCount,
+            totalPages: Math.ceil(totalCount / pageSize),
+        };
     }
 
-    return { shipments: shipments.map(projectForViewer), totalCount, totalPages: Math.ceil(totalCount / pageSize) };
+    return {
+        shipments: shipments.map(projectForViewer).filter(Boolean),
+        totalCount,
+        totalPages: Math.ceil(totalCount / pageSize),
+    };
 }
 
 export default async function ShipmentsPage(props: { searchParams: Promise<{ q?: string, page?: string, sort?: string, order?: string }> }) {
@@ -172,7 +186,9 @@ export default async function ShipmentsPage(props: { searchParams: Promise<{ q?:
                                         {shipment.forwarder === 'UNLIMITED' ? '' : (shipment.forwarder || '-')}
                                     </TableCell>
                                     <TableCell className="text-slate-800 dark:text-slate-100 font-bold text-sm">
-                                        {shipment.packingSegment?.isSharedShipment ? 'Envío compartido' : (shipment.client?.name || 'Varios/Stock')}
+                                        {shipment.packingSegment?.isSharedShipment
+                                            ? shipment.packingSegment.clientNames.join(' / ')
+                                            : (shipment.client?.name || 'Varios/Stock')}
                                     </TableCell>
                                     <TableCell className="text-right font-mono font-black text-slate-950 dark:text-white text-base">
                                         {shipment.weight_fw > 0 ? shipment.weight_fw.toFixed(2) : '-'}
