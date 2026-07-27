@@ -204,7 +204,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                     </div>
                 </div>
 
-                {isSharedShipment && <p className="mb-4 border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 print:hidden">Packing segmentado por cliente. El peso y el cargo total pertenecen al envío compartido y no se atribuyen a esta cuenta.</p>}
+                {isSharedShipment && <p className="mb-4 border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 print:hidden">Packing segmentado por cliente. El subtotal mostrado corresponde exclusivamente a este cliente.</p>}
 
                 {/* Info Grid */}
                 <div className="grid grid-cols-2 gap-8 mb-4 print:mb-2 border-t-2 border-[#0D3B4C] pt-4 print:pt-2">
