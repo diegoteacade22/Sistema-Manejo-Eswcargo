@@ -58,15 +58,18 @@ async function getShipments(query: string, page: number = 1, pageSize: number = 
     const projectForViewer = (shipment: any) => {
         const segments = getPackingSegments(shipment);
         if (!viewerClientId) {
-            return segments.length > 1
-                ? {
+            if (segments.length > 1) {
+                return {
                     ...shipment,
                     packingSegment: {
                         isSharedShipment: true,
                         itemCount: segments.reduce((total, segment) => total + segment.itemCount, 0),
                         clientNames: segments.map((segment) => segment.client.name),
                     },
-                }
+                };
+            }
+            return segments.length === 1
+                ? projectShipmentForPacking(shipment, segments[0], 1)
                 : shipment;
         }
         const access = getClientShipmentAccess(shipment, viewerClientId);
