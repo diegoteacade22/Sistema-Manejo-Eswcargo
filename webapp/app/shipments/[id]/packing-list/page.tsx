@@ -9,6 +9,7 @@ import { DocumentBlocked } from '@/components/document-blocked';
 import { hasPrintableShipmentContent } from '@/lib/shipment-items';
 import { canUseSegmentedPackingForShipmentBlock, getOrderSourceDocumentBlock, getSourceDocumentBlock, sourceBlockMessage } from '@/lib/source-document-guard';
 import { getPackingSegmentIssue, getPackingSegments, projectShipmentForPacking } from '@/lib/packing-segments';
+import { getShipmentClientCharge } from '@/lib/shipment-client-charge';
 import { PackingClientSelection } from './packing-client-selection';
 
 export async function generateMetadata(props: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -109,7 +110,30 @@ export default async function PackingListPage(props: { params: Promise<{ id: str
 
     const selectedSegment = segments.find((segment) => segment.clientId === requestedClientId) || (segments.length === 1 ? segments[0] : null);
     if (!selectedSegment) return notFound();
-    const packingShipment = projectShipmentForPacking(shipment, selectedSegment, segments.length);
+    const projectedShipment = projectShipmentForPacking(shipment, selectedSegment, segments.length);
+    const shipmentNumber = shipment.shipment_number || shipment.id;
+    const clientCharge = projectedShipment.packingSegment.isSharedShipment
+        ? await getShipmentClientCharge(shipmentNumber, selectedSegment.clientId)
+        : null;
+    const packingShipment = {
+        ...projectedShipment,
+        packingSegment: {
+            ...projectedShipment.packingSegment,
+            clientChargeSubtotal: clientCharge?.amount ?? null,
+            clientChargeReference: clientCharge?.reference ?? null,
+        },
+    };
+
+    if (packingShipment.packingSegment.isSharedShipment && !clientCharge) {
+        return (
+            <DocumentBlocked
+                title="Packing List bloqueado"
+                detail={`Falta confirmar el subtotal del envío #${shipmentNumber} para ${selectedSegment.client.name}.`}
+                backHref={`/shipments/${shipment.id}`}
+                backLabel="Volver al envío"
+            />
+        );
+    }
 
     const shipmentSourceBlock = await getSourceDocumentBlock('SHIPMENT', shipment.shipment_number);
     const orderSourceBlock = await getOrderSourceDocumentBlock([

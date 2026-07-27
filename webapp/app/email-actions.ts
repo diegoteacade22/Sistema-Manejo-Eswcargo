@@ -8,7 +8,8 @@ import { requireAdminUser } from '@/lib/access';
 import { getInvPdfFileName, savePdfToDriveFolder } from '@/lib/document-storage';
 import { buildShipmentItems, getShipmentCargoDescription } from '@/lib/shipment-items';
 import { canUseSegmentedPackingForShipmentBlock, getOrderSourceDocumentBlock, getSourceDocumentBlock, sourceBlockMessage } from '@/lib/source-document-guard';
-import { getPackingDocumentNumber, getPackingSegmentIssue, getPackingSegments, projectShipmentForPacking } from '@/lib/packing-segments';
+import { getPackingDocumentNumber, getPackingSegmentIssue, getPackingSegments, getPackingSubtotal, projectShipmentForPacking } from '@/lib/packing-segments';
+import { getShipmentClientCharge } from '@/lib/shipment-client-charge';
 
 type PackingListDocument = {
     shipment: any;
@@ -79,7 +80,23 @@ async function buildPackingListDocument(shipmentId: number, packingClientId?: nu
     }
     const segment = segments.find((item) => item.clientId === packingClientId) || (segments.length === 1 ? segments[0] : null);
     if (!segment) throw new Error('El cliente seleccionado no tiene artículos confirmados en este envío.');
-    const documentShipment = projectShipmentForPacking(shipment, segment, segments.length);
+    const projectedShipment = projectShipmentForPacking(shipment, segment, segments.length);
+    const shipmentNumber = shipment.shipment_number || shipment.id;
+    const clientCharge = projectedShipment.packingSegment.isSharedShipment
+        ? await getShipmentClientCharge(shipmentNumber, segment.clientId)
+        : null;
+    const documentShipment = {
+        ...projectedShipment,
+        packingSegment: {
+            ...projectedShipment.packingSegment,
+            clientChargeSubtotal: clientCharge?.amount ?? null,
+            clientChargeReference: clientCharge?.reference ?? null,
+        },
+    };
+    if (documentShipment.packingSegment.isSharedShipment && !clientCharge) {
+        throw new Error(`Falta confirmar el subtotal del envío #${shipmentNumber} para ${segment.client.name}.`);
+    }
+    const packingSubtotal = getPackingSubtotal(documentShipment);
     const packingDocumentNumber = getPackingDocumentNumber(documentShipment);
 
     const shipmentSourceBlock = await getSourceDocumentBlock('SHIPMENT', shipment.shipment_number);
@@ -178,9 +195,9 @@ async function buildPackingListDocument(shipmentId: number, packingClientId?: nu
                                     <p style="margin: 5px 0 0 0; font-size: 14px; font-weight: bold; color: #0D3B4C;">MIAMI > BUENOS AIRES</p>
                                 </td>
                                 <td style="text-align: right;">
-                                    <p style="margin: 0; font-size: 12px; color: #666; text-transform: uppercase; font-weight: bold;">Costo de Envío</p>
+                                    <p style="margin: 0; font-size: 12px; color: #666; text-transform: uppercase; font-weight: bold;">${documentShipment.packingSegment.isSharedShipment ? 'Subtotal a pagar' : 'Costo de Envío'}</p>
                                     <p style="margin: 5px 0 0 0; font-size: 22px; font-weight: 900; color: #0D3B4C;">
-                                    ${documentShipment.packingSegment.isSharedShipment ? 'NO ATRIBUIDO - ENVÍO COMPARTIDO' : `USD ${documentShipment.price_total ? documentShipment.price_total.toFixed(2) : '0.00'}`}
+                                    USD ${packingSubtotal?.toFixed(2) || '0.00'}
                                     </p>
                                 </td>
                             </tr>

@@ -154,6 +154,16 @@ export function projectShipmentForPacking(shipment: any, segment: PackingSegment
     };
 }
 
+export function getPackingSubtotal(shipment: any): number | null {
+    if (shipment?.packingSegment?.isSharedShipment) {
+        const subtotal = Number(shipment?.packingSegment?.clientChargeSubtotal);
+        return Number.isFinite(subtotal) && subtotal > 0 ? subtotal : null;
+    }
+
+    const total = Number(shipment?.price_total);
+    return Number.isFinite(total) && total >= 0 ? total : null;
+}
+
 export function isSharedShipmentPacking(shipment: any) {
     return Boolean(shipment?.packingSegment?.isSharedShipment);
 }

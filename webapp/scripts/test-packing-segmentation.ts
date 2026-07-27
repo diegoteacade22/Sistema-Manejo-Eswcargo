@@ -1,4 +1,4 @@
-import { getPackingSegmentIssue, getPackingSegments, getShipmentChargeIssue, projectShipmentForPacking } from '../lib/packing-segments';
+import { getPackingSegmentIssue, getPackingSegments, getPackingSubtotal, getShipmentChargeIssue, projectShipmentForPacking } from '../lib/packing-segments';
 import { buildShipmentItems } from '../lib/shipment-items';
 import { canUseSegmentedPackingForShipmentBlock } from '../lib/source-document-guard';
 
@@ -105,6 +105,20 @@ async function main() {
   }
   if (total(buildShipmentItems(fedePacking1232)) !== 10 || fedePacking1232.cargo_description) {
     throw new Error('El PL #1232B no conserva exclusivamente los artículos de Federico.');
+  }
+  const aylenPackingWithSubtotal = {
+    ...aylenPacking1232,
+    packingSegment: { ...aylenPacking1232.packingSegment, clientChargeSubtotal: 72 },
+  };
+  const fedePackingWithSubtotal = {
+    ...fedePacking1232,
+    packingSegment: { ...fedePacking1232.packingSegment, clientChargeSubtotal: 288 },
+  };
+  if (getPackingSubtotal(aylenPackingWithSubtotal) !== 72 || getPackingSubtotal(fedePackingWithSubtotal) !== 288) {
+    throw new Error('Los subtotales del envío #1232 no se conservan por cliente.');
+  }
+  if (getPackingSubtotal({ ...fedePacking1232, price_total: 360 }) !== null) {
+    throw new Error('Un PL compartido sin subtotal individual no puede usar el total global del envío.');
   }
 
   console.log('OK: el Packing de un envío compartido se segmenta por cliente sin mezclar cantidades.');

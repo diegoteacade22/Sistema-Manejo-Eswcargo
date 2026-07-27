@@ -5,7 +5,7 @@ import { Printer, Package, Globe, Instagram, Facebook, Mail, Loader2, Download }
 import { savePackingListPdfToDrive, sendPackingListEmail } from '../../../email-actions';
 import { useEffect, useTransition } from 'react';
 import { buildShipmentItems, getShipmentCargoDescription } from '../../../../lib/shipment-items';
-import { getPackingDocumentNumber, isSharedShipmentPacking } from '../../../../lib/packing-segments';
+import { getPackingDocumentNumber, getPackingSubtotal, isSharedShipmentPacking } from '../../../../lib/packing-segments';
 import { toInvNumber4 } from '../../../../lib/inv-filename';
 
 /* eslint-disable @next/next/no-img-element */
@@ -19,6 +19,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
     const [isSaving, startSaveTransition] = useTransition();
     const invNumber = toInvNumber4(shipment?.invoice, shipment?.shipment_number || shipment?.id);
     const isSharedShipment = isSharedShipmentPacking(shipment);
+    const packingSubtotal = getPackingSubtotal(shipment);
     const packingDocumentNumber = getPackingDocumentNumber(shipment);
     const invBaseName = isSharedShipment ? `PL ${packingDocumentNumber}` : `INV ${invNumber}`;
     const invFileName = `${invBaseName}.pdf`;
@@ -350,20 +351,18 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                             SHIPPING SUMMARY
                         </div>
                         <div className="p-3 print:p-2 space-y-2 bg-white">
-                            {isSharedShipment ? (
-                                <p className="text-sm font-semibold text-[#0D3B4C]">Datos de peso y cargo no disponibles por cliente en un envío compartido.</p>
-                            ) : <>
+                            {!isSharedShipment && (
                                 <div className="flex justify-between items-center text-base border-b border-gray-200 pb-1">
                                     <span className="font-bold text-gray-700">TOTAL WEIGHT</span>
                                     <span className="font-bold text-[#0D3B4C]">{shipment.weight_cli ? shipment.weight_cli.toFixed(2) : '0.00'} kg</span>
                                 </div>
-                                <div className="flex justify-between items-center text-lg bg-orange-50 p-1.5 rounded border border-[#F4AB3D]/20">
-                                    <span className="font-bold text-[#0D3B4C]">TOTAL DUE</span>
-                                    <span className="font-bold text-[#0D3B4C]">
-                                        USD {new Intl.NumberFormat('en-US', { minimumFractionDigits: 2 }).format(shipment.price_total || 0)}
-                                    </span>
-                                </div>
-                            </>}
+                            )}
+                            <div className="flex justify-between items-center text-lg bg-orange-50 p-1.5 rounded border border-[#F4AB3D]/20">
+                                <span className="font-bold text-[#0D3B4C]">{isSharedShipment ? 'SUBTOTAL A PAGAR' : 'TOTAL DUE'}</span>
+                                <span className="font-bold text-[#0D3B4C]">
+                                    USD {new Intl.NumberFormat('en-US', { minimumFractionDigits: 2 }).format(packingSubtotal || 0)}
+                                </span>
+                            </div>
                         </div>
                     </div>
                 </div>
