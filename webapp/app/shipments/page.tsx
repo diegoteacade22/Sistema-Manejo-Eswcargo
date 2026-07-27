@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { Plus, Plane, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Plane, ChevronLeft, ChevronRight, House, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { Suspense } from 'react';
 import { SearchInput } from '@/components/search-input';
@@ -131,20 +131,27 @@ export default async function ShipmentsPage(props: { searchParams: Promise<{ q?:
 
     return (
         <div className="p-8 space-y-8">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-4">
                 <div>
                     <h2 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-fuchsia-500 to-pink-600 bg-clip-text text-transparent">
                         {isAdmin ? 'Gestión de Envíos' : 'Mis Envíos'}
                     </h2>
                     <p className="text-muted-foreground mt-1">Gestión de logística y seguimiento de cargas</p>
                 </div>
-                {isAdmin && (
-                    <Button asChild className="bg-fuchsia-600 hover:bg-fuchsia-700 text-white shadow-lg shadow-fuchsia-200">
-                        <Link href="/shipments/new">
-                            <Plus className="mr-2 h-4 w-4" /> Nuevo Envío
+                <div className="flex items-center gap-2">
+                    <Button asChild variant="outline">
+                        <Link href="/">
+                            <House className="mr-2 h-4 w-4" /> Inicio
                         </Link>
                     </Button>
-                )}
+                    {isAdmin && (
+                        <Button asChild className="bg-fuchsia-600 hover:bg-fuchsia-700 text-white shadow-lg shadow-fuchsia-200">
+                            <Link href="/shipments/new">
+                                <Plus className="mr-2 h-4 w-4" /> Nuevo Envío
+                            </Link>
+                        </Button>
+                    )}
+                </div>
             </div>
 
             {isAdmin && <ShipmentsBulkStatusControls />}
@@ -178,7 +185,16 @@ export default async function ShipmentsPage(props: { searchParams: Promise<{ q?:
                             {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                             {shipments.map((shipment: any) => (
                                 <TableRow key={shipment.id} className="hover:bg-muted/50 dark:border-slate-800 h-16 transition-colors">
-                                    <TableCell className="font-bold text-violet-600 dark:text-violet-400 text-sm">#{shipment.shipment_number}</TableCell>
+                                    <TableCell className="font-bold text-sm">
+                                        <Link
+                                            href={`/shipments/${shipment.id}`}
+                                            className="inline-flex items-center gap-1 text-violet-600 underline decoration-violet-500/40 underline-offset-4 transition-colors hover:text-fuchsia-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-500 dark:text-violet-400"
+                                            aria-label={`Ver envío ${shipment.shipment_number}`}
+                                        >
+                                            #{shipment.shipment_number}
+                                            <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                                        </Link>
+                                    </TableCell>
                                     <TableCell className="text-slate-900 dark:text-white font-black text-sm">
                                         {shipment.date_shipped ? new Date(shipment.date_shipped).toLocaleDateString() : '-'}
                                     </TableCell>
@@ -188,7 +204,7 @@ export default async function ShipmentsPage(props: { searchParams: Promise<{ q?:
                                     <TableCell className="font-black text-slate-950 dark:text-white text-base tracking-tight">
                                         {shipment.forwarder === 'UNLIMITED' ? '' : (shipment.forwarder || '-')}
                                     </TableCell>
-                                    <TableCell className="text-slate-800 dark:text-slate-100 font-bold text-sm">
+                                    <TableCell className="max-w-[28rem] whitespace-normal break-words text-slate-800 dark:text-slate-100 font-bold text-sm">
                                         {shipment.packingSegment?.isSharedShipment
                                             ? shipment.packingSegment.clientNames.join(' / ')
                                             : (shipment.client?.name || 'Varios/Stock')}
@@ -215,9 +231,10 @@ export default async function ShipmentsPage(props: { searchParams: Promise<{ q?:
                                                 currentCost={shipment.price_total || undefined}
                                             />
                                         )}
-                                        <Button variant="ghost" size="icon" className="h-9 w-9 hover:bg-fuchsia-100 dark:hover:bg-fuchsia-900/40" asChild>
+                                        <Button variant="ghost" size="icon" className="h-9 w-9 hover:bg-fuchsia-100 dark:hover:bg-fuchsia-900/40" asChild title="Ver detalle del envío">
                                             <Link href={`/shipments/${shipment.id}`}>
                                                 <Plane className="h-5 w-5 text-slate-400 hover:text-fuchsia-600 dark:text-slate-500" />
+                                                <span className="sr-only">Ver detalle del envío #{shipment.shipment_number}</span>
                                             </Link>
                                         </Button>
                                     </TableCell>

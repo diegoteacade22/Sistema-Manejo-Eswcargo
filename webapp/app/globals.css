@@ -86,3 +86,33 @@
     color: var(--foreground);
   }
 }
+
+.app-desktop-sidebar {
+  display: none;
+}
+
+.app-authenticated-main {
+  padding-bottom: 5rem;
+}
+
+@media (min-width: 768px) {
+  .app-desktop-sidebar {
+    display: flex;
+  }
+
+  .app-authenticated-main {
+    padding-left: 18rem;
+    padding-bottom: 0;
+  }
+}
+
+@media print {
+  .app-desktop-sidebar {
+    display: none;
+  }
+
+  .app-authenticated-main {
+    padding-left: 0;
+    padding-bottom: 0;
+  }
+}

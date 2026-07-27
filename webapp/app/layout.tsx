@@ -44,11 +44,11 @@ export default async function RootLayout({
                 }}
               />
               {!isPublicRoute && (
-                <div className="hidden h-full md:flex md:w-72 md:flex-col md:fixed md:inset-y-0 z-[80] bg-gray-900 print:hidden">
+                <aside className="app-desktop-sidebar h-full w-72 flex-col fixed inset-y-0 z-[80] bg-gray-900 print:hidden" aria-label="Menú principal">
                   <Sidebar />
-                </div>
+                </aside>
               )}
-              <main className={!isPublicRoute ? "min-h-screen pb-20 md:pl-72 md:pb-0 print:pl-0 print:pb-0" : "min-h-screen"}>
+              <main className={!isPublicRoute ? "app-authenticated-main min-h-screen pb-20 print:pl-0 print:pb-0" : "min-h-screen"}>
                 {children}
               </main>
               {!isPublicRoute && <AiChatButton />}
