@@ -14,6 +14,8 @@
     "audit:client-account-coverage": "node scripts/audit-client-account-coverage.mjs",
     "preview:cc-cutover-zero": "node scripts/zero-non-cashflow-client-ledgers.mjs",
     "apply:cc-cutover-zero": "node scripts/zero-non-cashflow-client-ledgers.mjs --apply",
+    "preview:cashflow-balances:20260727": "node scripts/reconcile-cashflow-balances-20260727.mjs",
+    "apply:cashflow-balances:20260727": "node scripts/reconcile-cashflow-balances-20260727.mjs --apply",
     "audit:purchase-allocations": "node scripts/audit-purchase-allocations.mjs",
     "audit:supplier-ledgers": "node scripts/audit-supplier-ledgers.mjs",
     "audit:cashflow-raw": "node scripts/audit-cash-flow-raw-drift.mjs",
