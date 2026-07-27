@@ -61,7 +61,10 @@ function differs(current, expected) {
 
 async function buildPlan() {
   const transactions = await prisma.transaction.findMany({
-    where: { clientId: { not: null } },
+    where: {
+      clientId: { not: null },
+      NOT: { reference: { startsWith: 'CC-Import-' } },
+    },
     select: {
       id: true,
       clientId: true,
@@ -134,7 +137,10 @@ async function applyPlan(plan) {
 
   await prisma.$transaction(async (tx) => {
     const current = await tx.transaction.findMany({
-      where: { clientId: { not: null } },
+      where: {
+        clientId: { not: null },
+        NOT: { reference: { startsWith: 'CC-Import-' } },
+      },
       select: { id: true, clientId: true, date: true, type: true, amount: true, description: true, reference: true, paymentMethod: true },
       orderBy: [{ clientId: 'asc' }, { date: 'asc' }, { id: 'asc' }],
     });
@@ -173,7 +179,13 @@ async function applyPlan(plan) {
     }
 
     for (const account of plan.candidates) {
-      const final = await tx.transaction.aggregate({ where: { clientId: account.client.id }, _sum: { amount: true } });
+      const final = await tx.transaction.aggregate({
+        where: {
+          clientId: account.client.id,
+          NOT: { reference: { startsWith: 'CC-Import-' } },
+        },
+        _sum: { amount: true },
+      });
       if (!sameAmount(final._sum.amount || 0, 0)) {
         throw new Error(`${account.client.name}: el saldo final no quedó en cero. Se revirtió toda la operación.`);
       }

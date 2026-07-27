@@ -44,7 +44,10 @@ async function buildPlan() {
 
   const clientIds = clients.map((client) => client.id);
   const transactions = await prisma.transaction.findMany({
-    where: { clientId: { in: clientIds } },
+    where: {
+      clientId: { in: clientIds },
+      NOT: { reference: { startsWith: 'CC-Import-' } },
+    },
     select: {
       id: true, clientId: true, date: true, type: true, amount: true,
       description: true, reference: true, paymentMethod: true,
@@ -141,7 +144,10 @@ async function applyPlan(plan) {
 
     for (const account of plan.accounts) {
       const total = await tx.transaction.aggregate({
-        where: { clientId: account.client.id },
+        where: {
+          clientId: account.client.id,
+          NOT: { reference: { startsWith: 'CC-Import-' } },
+        },
         _sum: { amount: true },
       });
       if (!sameAmount(total._sum.amount || 0, account.target)) {
