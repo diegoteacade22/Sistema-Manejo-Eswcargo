@@ -123,7 +123,34 @@ jobs:
               exit 1
             fi
           fi
-          npx prisma migrate deploy --schema prisma/schema.prisma
+          migrate_with_transient_retry() {
+            local attempt=1
+            local max_attempts=3
+            local retry_delay_seconds=10
+            local migrate_output
+            local migrate_status
+
+            while true; do
+              set +e
+              migrate_output="$(npx prisma migrate deploy --schema prisma/schema.prisma 2>&1)"
+              migrate_status=$?
+              set -e
+              printf '%s\n' "$migrate_output"
+
+              if [ "$migrate_status" -eq 0 ]; then
+                return 0
+              fi
+
+              if ! grep -q 'P1001' <<< "$migrate_output" || [ "$attempt" -ge "$max_attempts" ]; then
+                return "$migrate_status"
+              fi
+
+              echo "::warning::Supabase no respondió (Prisma P1001). Reintento $(( attempt + 1 ))/$max_attempts en ${retry_delay_seconds}s."
+              sleep "$retry_delay_seconds"
+              attempt=$(( attempt + 1 ))
+            done
+          }
+          migrate_with_transient_retry
           node scripts/cleanup-legacy-ledger-imports.mjs
           if [ "$SYNC_DAYS" = "0" ] || [ "$SYNC_DAYS" = "FULL" ]; then
             export SYNC_MODE=FULL
