@@ -83,10 +83,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
                 const user = await (prisma as any).user.findUnique({
                     where: { username },
+                    include: { client: true },
                 });
 
                 if (!user || !user.password) {
                     console.log("User not found or no password");
+                    return null;
+                }
+
+                if (
+                    user.role === 'CLIENT' &&
+                    (!user.client || !user.client.active || !user.client.canAccess)
+                ) {
+                    console.warn("[AUTH] Acceso de cliente deshabilitado");
                     return null;
                 }
 

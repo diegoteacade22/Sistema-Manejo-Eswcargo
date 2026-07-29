@@ -2,6 +2,7 @@
 
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
+import { randomBytes } from 'crypto';
 import { revalidatePath } from 'next/cache';
 import { requireAdminUser } from '@/lib/access';
 
@@ -92,10 +93,8 @@ export async function generateClientCredentials(clientId: number) {
         // Generate Username (Email)
         const username = client.email;
 
-        // Generate Password (Simple for now: Name123!)
-        // Clean name to be first word only, capitalized
-        const cleanName = client.name.split(' ')[0].replace(/[^a-zA-Z]/g, '');
-        const passwordRaw = `${cleanName}123!`;
+        // Credencial unica y no predecible. Se muestra una sola vez al admin.
+        const passwordRaw = randomBytes(18).toString('base64url');
         const hashedPassword = await bcrypt.hash(passwordRaw, 10);
 
         // Create User

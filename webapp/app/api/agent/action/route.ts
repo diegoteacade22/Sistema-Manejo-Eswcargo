@@ -4,7 +4,7 @@ import { assertAgentProvidedTotal, canonicalizeAgentOrderItems } from "@/lib/age
 import { upsertOperationLedger } from "@/lib/client-account-policy";
 
 function getExpectedApiKey() {
-    return (process.env.AGENT_API_KEY || process.env.AUTH_SECRET || "").trim();
+    return (process.env.AGENT_API_KEY || "").trim();
 }
 
 function getProvidedApiKey(req: Request) {

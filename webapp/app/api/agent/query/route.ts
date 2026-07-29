@@ -2,7 +2,7 @@ import { processAiQuery } from "@/lib/ai-assistant";
 import { NextResponse } from "next/server";
 
 function getExpectedApiKey() {
-    return (process.env.AGENT_API_KEY || process.env.AUTH_SECRET || "").trim();
+    return (process.env.AGENT_API_KEY || "").trim();
 }
 
 function getProvidedApiKey(req: Request) {
