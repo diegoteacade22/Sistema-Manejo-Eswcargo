@@ -3,7 +3,11 @@ import { PrismaClient } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
 import { itemSyncSignature, sameItemSet } from '../lib/sync-item-comparison';
-import { normalizeShipmentSourceRows, normalizeSourceRows } from '../lib/sync-source-normalization';
+import {
+    CanonicalSourceRules,
+    normalizeShipmentSourceRows,
+    normalizeSourceRows,
+} from '../lib/sync-source-normalization';
 import { upsertOperationLedger } from '../lib/client-account-policy';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
@@ -78,13 +82,22 @@ async function main() {
     const productsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'products_seed.json'), 'utf-8'));
     const rawShipmentsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'shipments_seed.json'), 'utf-8'));
     const ordersData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'orders_seed.json'), 'utf-8'));
+    const canonicalSourcesPath = path.join(process.cwd(), 'config', 'canonical-source-overrides.json');
+    const canonicalSources = fs.existsSync(canonicalSourcesPath)
+        ? JSON.parse(fs.readFileSync(canonicalSourcesPath, 'utf-8'))
+        : { shipments: {}, orders: {} };
+    const canonicalShipmentRules = (canonicalSources.shipments || {}) as CanonicalSourceRules;
+    const canonicalOrderRules = (canonicalSources.orders || {}) as CanonicalSourceRules;
     const shipmentReconciliationPath = path.join(prismaDir, 'shipment_reconciliation_seed.json');
     const shipmentReconciliationData = fs.existsSync(shipmentReconciliationPath)
         ? JSON.parse(fs.readFileSync(shipmentReconciliationPath, 'utf-8'))
         : [];
     // One physical shipment can contain source allocations for several clients.
     // Only operationally identical allocations are consolidated into its header.
-    const normalizedShipments = normalizeShipmentSourceRows(rawShipmentsData as any[]);
+    const normalizedShipments = normalizeShipmentSourceRows(
+        rawShipmentsData as any[],
+        canonicalShipmentRules,
+    );
     for (const collision of normalizedShipments.rejected) {
             console.warn(`⚠️ Cabecera ambigua de envío #${collision.key}; se omite la actualización automática.`);
             trackChange({
@@ -97,6 +110,19 @@ async function main() {
     }
     const shipmentsData = normalizedShipments.accepted;
     const freightSourceRows = normalizedShipments.freightRows;
+    for (const resolution of normalizedShipments.resolved) {
+        trackChange({
+            entity: 'SHIPMENT',
+            entityKey: `#${resolution.key}`,
+            action: 'RECONCILED',
+            reason: resolution.rule.reason || 'Se aplicó la fuente canónica documentada para una cabecera incompatible.',
+            after: {
+                source: resolution.rule.source || null,
+                selectedClientId: resolution.selected.old_client_id ?? null,
+                sourceRows: resolution.rows.length,
+            },
+        });
+    }
     for (const sharedHeader of normalizedShipments.shared) {
         trackChange({
             entity: 'SHIPMENT',
@@ -106,7 +132,11 @@ async function main() {
             after: { sourceRows: sharedHeader.rows.length, clientIds: sharedHeader.rows.map((row) => row.old_client_id ?? null) },
         });
     }
-    const normalizedOrders = normalizeSourceRows((ordersData as any[]).filter((order) => order?.order_number), 'order_number');
+    const normalizedOrders = normalizeSourceRows(
+        (ordersData as any[]).filter((order) => order?.order_number),
+        'order_number',
+        canonicalOrderRules,
+    );
     for (const collision of normalizedOrders.rejected) {
             console.warn(`⚠️ Cabecera ambigua de pedido #${collision.key}; se omite la actualización automática.`);
             trackChange({
@@ -116,6 +146,19 @@ async function main() {
                 reason: 'La fuente contiene más de una cabecera incompatible para el mismo número de pedido.',
                 after: { sourceRows: collision.rows.length, clientIds: collision.rows.map((row) => row.client_old_id ?? null) },
             });
+    }
+    for (const resolution of normalizedOrders.resolved) {
+        trackChange({
+            entity: 'ORDER',
+            entityKey: `#${resolution.key}`,
+            action: 'RECONCILED',
+            reason: resolution.rule.reason || 'Se aplicó la fuente canónica documentada para una cabecera incompatible.',
+            after: {
+                source: resolution.rule.source || null,
+                selectedClientId: resolution.selected.client_old_id ?? null,
+                sourceRows: resolution.rows.length,
+            },
+        });
     }
     const normalizedOrdersData = normalizedOrders.accepted;
 

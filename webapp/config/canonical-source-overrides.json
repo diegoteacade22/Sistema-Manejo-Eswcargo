@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "orders": {
+    "2223": {
+      "mode": "select",
+      "match": {
+        "client_old_id": 70
+      },
+      "source": "CABE_VENTAS fila 334 + DETA_VENTAS filas 1100:1103",
+      "reason": "El detalle completo y los movimientos de cuenta corriente pertenecen a Aylen Gentiletti (cliente 70)."
+    }
+  },
+  "shipments": {
+    "383": {
+      "mode": "shared",
+      "source": "CABE_ENVIOS filas 800:801",
+      "reason": "Mismo forwarder y mismas fechas; son asignaciones de Mauricio y Joseba dentro del mismo envío físico."
+    },
+    "659": {
+      "mode": "select",
+      "match": {
+        "old_client_id": 119,
+        "forwarder": "UNLIMITED",
+        "date_shipped": "2025-09-17T00:00:00"
+      },
+      "source": "CABE_ENVIOS filas 527:528 + conversación operativa de Tomas del 29/09/2025",
+      "reason": "La cabecera productiva conserva el movimiento de Tomas Rodriguez; la fila de Matheus se preserva como asignación de flete separada y no se descarta."
+    },
+    "662": {
+      "mode": "shared",
+      "source": "CABE_ENVIOS filas 523:524 + DETA_VENTAS fila 1261",
+      "reason": "Mismo forwarder y mismas fechas; Marcos Roku y Barbieri Family comparten el envío físico."
+    },
+    "972": {
+      "mode": "shared",
+      "source": "CABE_ENVIOS filas 238:239 + DETA_VENTAS filas 606, 616 y 619",
+      "reason": "Mismo forwarder y mismas fechas; el detalle confirma asignaciones de Adrian Edroza, Marcos Roku y Diegote."
+    },
+    "1048": {
+      "mode": "single",
+      "source": "CABE_ENVIOS fila 166",
+      "reason": "La fuente existe como valor numérico formateado 1,048 y corresponde a Martin Duster (cliente 275)."
+    }
+  }
+}
