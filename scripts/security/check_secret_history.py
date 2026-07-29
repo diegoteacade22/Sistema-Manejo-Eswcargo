@@ -47,6 +47,8 @@ GOOGLE_KEY = re.compile(r"\bAIza[0-9A-Za-z_-]{30,45}\b")
 SECRET_ASSIGNMENT = re.compile(
     rf"(?im)^\s*(?:{'|'.join(SECRET_NAMES)})\s*=\s*([^\r\n#]*)"
 )
+PRIVATE_KEY_HEADER = "-----BEGIN " + "PRIVATE KEY-----"
+SCANNER_PATH = "scripts/security/check_secret_history.py"
 
 
 def git(*args: str, text: bool = True) -> subprocess.CompletedProcess:
@@ -92,7 +94,12 @@ def main() -> int:
             text = body.decode("utf-8", "ignore")
             if GOOGLE_KEY.search(text):
                 violations.add(f"{commit[:12]} contains a Google API key in {path}")
-            if "-----BEGIN PRIVATE KEY-----" in text:
+            private_key_text = text
+            if path == SCANNER_PATH:
+                private_key_text = private_key_text.replace(
+                    '"-----BEGIN PRIVATE KEY-----"', ""
+                )
+            if PRIVATE_KEY_HEADER in private_key_text:
                 violations.add(f"{commit[:12]} contains a private key in {path}")
             for match in POSTGRES_URI.finditer(text):
                 if not is_placeholder(match.group(1)):
