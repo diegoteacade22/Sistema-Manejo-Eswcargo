@@ -26,6 +26,13 @@
 
 ## Pendiente fuera del repositorio
 
-- Rotar las credenciales SMTP expuestas.
-- Revocar y reemplazar las claves de Gemini expuestas.
+- Rotar la credencial SMTP de `info@eswcargo.com`; el acceso publicado seguia
+  autenticando correctamente al cierre de esta revision.
 - Purgar los secretos del historial Git despues de confirmar todas las rotaciones.
+
+## Verificaciones externas
+
+- Las dos claves de Gemini detectadas por GitHub fueron rechazadas por Google
+  como invalidas y las alertas 1 y 2 se cerraron con resolucion `revoked`.
+- La credencial antigua de PostgreSQL fue rechazada despues de la rotacion.
+- El `main` publico ya no entrega los archivos sensibles retirados.
