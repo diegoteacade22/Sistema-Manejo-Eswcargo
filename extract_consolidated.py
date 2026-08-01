@@ -67,16 +67,6 @@ def normalize_status(s):
     if 'CANCELADO' in s_up: return 'CANCELADO'
     return s
 
-def infer_shipment_status(raw_status, date_shipped, date_arrived):
-    cleaned_status = clean_text(raw_status)
-    if cleaned_status:
-        return normalize_status(cleaned_status)
-    if pd.notna(date_arrived):
-        return 'EN 🇦🇷'
-    if pd.notna(date_shipped):
-        return 'SALIENDO'
-    return 'MIAMI'
-
 def extract_all():
     start_time = time.time()
     
@@ -227,11 +217,8 @@ def extract_all():
         except:
             old_client_id = None
 
-        shipment_status = infer_shipment_status(
-            row.get('LLEGO?'),
-            row.get('FECHA SAL'),
-            row.get('FECHA LLEG')
-        )
+        raw_shipment_status = clean_text(row.get('LLEGO?'))
+        shipment_status = normalize_status(raw_shipment_status) if raw_shipment_status else None
 
         shipments.append({
             'shipment_number': s_num,

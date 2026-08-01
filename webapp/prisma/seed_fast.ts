@@ -331,6 +331,7 @@ async function main() {
             ? clientOldIdMap.get(s.old_client_id)?.id
             : (s.client_name_match ? clientNameMap.get(s.client_name_match.trim().toUpperCase())?.id : null);
         const resolvedShipmentClientId = dbClientId ?? existing?.clientId ?? null;
+        const sourceStatus = typeof s.status === 'string' && s.status.trim() ? s.status.trim() : null;
 
         const data = {
             ...s,
@@ -340,6 +341,7 @@ async function main() {
         };
         delete (data as any).old_client_id;
         delete (data as any).client_name_match;
+        if (!sourceStatus) delete (data as any).status;
 
         let dbShipment: any;
         if (!existing) {
@@ -353,7 +355,7 @@ async function main() {
             const existingArrived = existing.date_arrived?.getTime() || 0;
 
             const hasChanges =
-                existing.status !== s.status ||
+                (sourceStatus !== null && existing.status !== sourceStatus) ||
                 existing.notes !== s.notes ||
                 existing.forwarder !== s.forwarder ||
                 !numericEqual(existing.weight_fw, s.weight_fw) ||
