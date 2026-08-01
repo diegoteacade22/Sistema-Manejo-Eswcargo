@@ -1009,6 +1009,7 @@ export async function transitionShipmentsByDate(input: {
                     id: true,
                     shipment_number: true,
                     orders: { select: { date: true } },
+                    items: { select: { order: { select: { date: true } } } },
                 },
             });
 
@@ -1037,9 +1038,10 @@ export async function transitionShipmentsByDate(input: {
             const candidates = shipments.map((shipment) => ({
                 shipmentId: shipment.id,
                 shipmentNumber: shipment.shipment_number as number,
-                orderDates: Array.from(new Set(
-                    shipment.orders.map((order) => new Date(order.date).toISOString().slice(0, 10))
-                )),
+                orderDates: Array.from(new Set([
+                    ...shipment.orders.map((order) => new Date(order.date).toISOString().slice(0, 10)),
+                    ...shipment.items.map((item) => new Date(item.order.date).toISOString().slice(0, 10)),
+                ])),
             }));
 
             try {

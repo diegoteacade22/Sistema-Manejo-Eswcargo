@@ -57,20 +57,22 @@ test('detiene el lote si CABE_ENVIOS tiene un estado incompatible', () => {
   );
 });
 
-test('detiene el lote si un envio no tiene filas asociadas en DETA_VENTAS', () => {
-  assert.throws(
-    () => buildShipmentSheetPlan(
+test('permite envios sin DETA y preserva estados no elegibles como ENTREGADO', () => {
+  const plan = buildShipmentSheetPlan(
       {
         cabeNumbers: [1244],
-        cabeStatuses: ['LLEGANDO'],
-        detailDates: ['7/29/2026'],
-        detailShipmentNumbers: [1244],
-        detailStatuses: ['LLEGANDO'],
+        cabeStatuses: [''],
+        detailDates: ['7/28/2026', '7/28/2026'],
+        detailShipmentNumbers: [1244, 1244],
+        detailStatuses: ['LLEGANDO', 'ENTREGADO'],
       },
       [{ shipmentId: 10, shipmentNumber: 1244, orderDates: ['2026-07-28'] }],
       'LLEGANDO',
       'EN BSAS'
-    ),
-    /no tiene coincidencias en DETA_VENTAS/
   );
+
+  assert.deepEqual(plan.updates.map((update) => update.range), [
+    'CABE_ENVIOS!X2',
+    'DETA_VENTAS!M2',
+  ]);
 });

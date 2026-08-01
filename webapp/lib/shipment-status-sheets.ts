@@ -181,7 +181,7 @@ export function buildShipmentSheetPlan(
     const row = index + 2;
     const range = `DETA_VENTAS!M${row}`;
     const previousValue = source.detailStatuses[index];
-    assertCompatibleStatus(previousValue, fromStatus, canonicalStatus, range, false);
+    if (!valuesEqual(previousValue, fromStatus) && !valuesEqual(previousValue, canonicalStatus)) continue;
     detailRangesByShipment[shipmentNumber] ??= [];
     detailRangesByShipment[shipmentNumber].push(range);
     if (!valuesEqual(previousValue, canonicalStatus)) {
@@ -193,15 +193,6 @@ export function buildShipmentSheetPlan(
         sheet: 'DETA_VENTAS',
         row,
       });
-    }
-  }
-
-  for (const candidate of candidates) {
-    const detailRanges = detailRangesByShipment[candidate.shipmentNumber] ?? [];
-    if (!detailRanges.length) {
-      throw new Error(
-        `El envio #${candidate.shipmentNumber} no tiene coincidencias en DETA_VENTAS para sus fechas asociadas.`
-      );
     }
   }
 
