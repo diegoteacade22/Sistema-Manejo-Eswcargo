@@ -7,11 +7,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { transitionShipmentsByDate } from '@/app/actions';
 import { useRouter } from 'next/navigation';
+import { format } from 'date-fns';
 
 export function ShipmentsBulkStatusControls() {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
 
   const runTransition = (fromStatus: string, toStatus: string) => {
     if (!date) {
@@ -20,10 +21,15 @@ export function ShipmentsBulkStatusControls() {
     }
 
     startTransition(async () => {
-      const result = await transitionShipmentsByDate({ date, fromStatus, toStatus });
-      alert(result.message);
-      if (result.success) {
-        router.refresh();
+      try {
+        const result = await transitionShipmentsByDate({ date, fromStatus, toStatus });
+        alert(result.message);
+        if (result.success) {
+          router.refresh();
+        }
+      } catch (error) {
+        console.error('Error running shipment transition:', error);
+        alert('No se pudo ejecutar la transición. Revisá la conexión e intentá nuevamente.');
       }
     });
   };

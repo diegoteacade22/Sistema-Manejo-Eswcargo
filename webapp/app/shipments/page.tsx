@@ -89,26 +89,6 @@ async function getShipments(query: string, page: number = 1, pageSize: number = 
         skip: skip
     });
 
-    if (userRole === 'ADMIN') {
-        // Automatically sync statuses based on dates/rules (admin only)
-        const { syncShipmentStatus } = await import('@/app/actions');
-        await Promise.all(shipments.map((s: any) => syncShipmentStatus(s.id)));
-
-        const updatedShipments = await (prisma as any).shipment.findMany({
-            where,
-            orderBy: { [sortField === 'client' ? 'id' : sortField]: sortOrder },
-            include: shipmentInclude,
-            take: pageSize,
-            skip: skip
-        });
-
-        return {
-            shipments: updatedShipments.map(projectForViewer).filter(Boolean),
-            totalCount,
-            totalPages: Math.ceil(totalCount / pageSize),
-        };
-    }
-
     return {
         shipments: shipments.map(projectForViewer).filter(Boolean),
         totalCount,

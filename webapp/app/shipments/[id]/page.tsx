@@ -41,12 +41,6 @@ async function getShipment(id: string, userSession: any) {
     const userRole = userSession.user.role;
     const userId = userSession.user.id;
 
-    if (userRole === 'ADMIN') {
-        // Automatically sync status before fetching full details (admin only)
-        const { syncShipmentStatus } = await import('@/app/actions');
-        await syncShipmentStatus(shipmentId);
-    }
-
     let clientId: number | null = null;
     if (userRole === 'CLIENT') {
         const client = await (prisma.client as any).findFirst({

@@ -11,6 +11,19 @@ import { buildShipmentItems } from '@/lib/shipment-items';
 import type { PaymentTarget } from '@/lib/payment-targets';
 import { getPackingSegmentIssue, getPackingSegments, getShipmentChargeIssue } from '@/lib/packing-segments';
 import { upsertOperationLedger } from '@/lib/client-account-policy';
+import { randomUUID } from 'node:crypto';
+import {
+    appendShipmentStatusAudit,
+    type ShipmentStatusAuditEntry,
+    type ShipmentStatusAuditEvent,
+} from '@/lib/shipment-status-audit';
+import {
+    applyShipmentSheetPlan,
+    canonicalizeShipmentStatus,
+    prepareShipmentSheetPlan,
+    rollbackShipmentSheetPlan,
+    type ShipmentSheetPlan,
+} from '@/lib/shipment-status-sheets';
 
 type DeliveryChannel = 'EMAIL' | 'WHATSAPP' | 'SKIPPED' | 'FAILED';
 
@@ -854,75 +867,6 @@ export async function updateProduct(id: number, data: {
 
 // --- SHIPMENTS ---
 
-const MS_PER_HOUR = 60 * 60 * 1000;
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-export async function syncShipmentStatus(shipmentId: number) {
-    await requireAdminUser();
-    const shipment = await (prisma as any).shipment.findUnique({
-        where: { id: shipmentId },
-        include: { orders: true }
-    });
-
-    if (!shipment) return null;
-
-    let newStatus = shipment.status;
-    const now = new Date();
-
-    // 1. Rule: Date Arrived exists -> EN 🇦🇷
-    if (shipment.date_arrived) {
-        const arrivedAt = new Date(shipment.date_arrived);
-        newStatus = 'EN 🇦🇷';
-
-        // ENTREGADO is deliberately manual: it requires a payment review by an operator.
-    }
-    // 3. Rule: Date Shipped exists -> SALIENDO
-    else if (shipment.date_shipped) {
-        const shippedAt = new Date(shipment.date_shipped);
-        newStatus = 'SALIENDO';
-
-        // 4. Rule: 48 hours after shipping -> LLEGANDO
-        if (now.getTime() - shippedAt.getTime() >= 48 * MS_PER_HOUR) {
-            newStatus = 'LLEGANDO';
-        }
-    }
-
-    // If status changed, update DB directly without calling updateShipment
-    if (newStatus !== shipment.status) {
-        // Update shipment status
-        await (prisma as any).shipment.update({
-            where: { id: shipmentId },
-            data: { status: newStatus }
-        });
-
-        // Sync Orders Status
-        let targetOrderStatus = '';
-        const s = newStatus.toUpperCase();
-
-        if (s === 'SALIENDO') targetOrderStatus = 'SALIENDO';
-        else if (s === 'LLEGANDO') targetOrderStatus = 'LLEGANDO';
-        else if (s === 'EN BSAS' || s === 'ARRIBADO' || s === 'EN 🇦🇷') targetOrderStatus = 'EN 🇦🇷';
-        else if (s === 'ENTREGADO' || s === 'FINALIZADO') targetOrderStatus = 'ENTREGADO';
-        else if (s === 'MIAMI') targetOrderStatus = 'MIAMI';
-
-        if (targetOrderStatus) {
-            await prisma.order.updateMany({
-                where: { shipmentId: shipmentId },
-                data: { status: targetOrderStatus }
-            });
-
-            await prisma.orderItem.updateMany({
-                where: { shipmentId: shipmentId },
-                data: { status: targetOrderStatus }
-            });
-        }
-
-        return newStatus;
-    }
-
-    return shipment.status;
-}
-
 export async function updateShipment(data: {
     id: number;
     status: string;
@@ -996,74 +940,169 @@ export async function transitionShipmentsByDate(input: {
     fromStatus: string;
     toStatus: string;
 }) {
-    await requireAdminUser();
+    const session = await requireAdminUser();
+    const adminUser = session.user!;
+    const actorUserId = String((adminUser as { id?: string }).id || '') || null;
+    const actorName = String(adminUser.name || adminUser.email || 'Administrador');
+    const operationId = randomUUID();
+    const errorMessage = (error: unknown) =>
+        error instanceof Error ? error.message : 'Error desconocido';
+
+    let auditBase: Array<Omit<ShipmentStatusAuditEntry, 'eventType' | 'details' | 'error'>> = [];
+    let activeSheetPlan: ShipmentSheetPlan | null = null;
+    let sheetWriteAttempted = false;
+
+    const auditEntries = (
+        eventType: ShipmentStatusAuditEvent,
+        details: Record<string, unknown>,
+        error?: string,
+    ): ShipmentStatusAuditEntry[] => auditBase.map((base) => ({
+        ...base,
+        eventType,
+        details: {
+            ...details,
+            cabeRange: activeSheetPlan?.cabeRangesByShipment[base.shipmentNumber],
+            detaRanges: activeSheetPlan?.detailRangesByShipment[base.shipmentNumber] ?? [],
+        },
+        error,
+    }));
+
     try {
         if (!input.date || !input.fromStatus || !input.toStatus) {
             return { success: false, message: 'Faltan datos para transición masiva.' };
         }
 
-        const date = new Date(`${input.date}T00:00:00`);
+        const date = new Date(`${input.date}T00:00:00.000Z`);
         if (Number.isNaN(date.getTime())) {
             return { success: false, message: 'Fecha inválida.' };
         }
-
         const nextDate = new Date(date);
-        nextDate.setDate(nextDate.getDate() + 1);
+        nextDate.setUTCDate(nextDate.getUTCDate() + 1);
 
         const rawFrom = input.fromStatus.toUpperCase();
         const rawTo = input.toStatus.toUpperCase();
-
-        const normalize = (status: string) => {
-            const value = status.toUpperCase();
-            if (value === 'EN BSAS' || value === 'EN 🇦🇷' || value === 'RECIBIDO BSAS') return 'EN 🇦🇷';
-            if (value === 'ENTREGADO' || value === 'FINALIZADO') return 'ENTREGADO';
-            return value;
-        };
-
+        const normalizedFrom = canonicalizeShipmentStatus(rawFrom);
+        const to = canonicalizeShipmentStatus(rawTo);
         const fromAliases = (() => {
-            const normalized = normalize(rawFrom);
-            if (normalized === 'EN 🇦🇷') return ['EN BSAS', 'EN 🇦🇷', 'RECIBIDO BSAS'];
-            if (normalized === 'ENTREGADO') return ['ENTREGADO', 'FINALIZADO'];
+            if (normalizedFrom === 'EN 🇦🇷') return ['EN BSAS', 'EN 🇦🇷', 'RECIBIDO BSAS', 'ARRIBADO'];
+            if (normalizedFrom === 'ENTREGADO') return ['ENTREGADO', 'FINALIZADO'];
             return [rawFrom];
         })();
 
-        const to = normalize(rawTo);
         if (to === 'ENTREGADO') {
             return { success: false, message: 'Los envíos ENTREGADOS deben confirmarse uno por uno para revisar la cobranza.' };
         }
-        const targetOrderStatus = to;
 
-        const shipments = await (prisma as any).shipment.findMany({
-            where: {
-                status: { in: fromAliases },
-                date_shipped: {
-                    gte: date,
-                    lt: nextDate,
-                }
-            },
-            select: { id: true }
-        });
+        const outcome = await prisma.$transaction(async (tx) => {
+            const lockKey = `shipment-status-transition:${input.date}`;
+            await tx.$queryRaw`
+                select 1::int as locked
+                from (select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))) acquired
+            `;
 
-        if (!shipments.length) {
+            const shipments = await tx.shipment.findMany({
+                where: {
+                    status: { in: fromAliases },
+                    date_shipped: { gte: date, lt: nextDate },
+                },
+                select: {
+                    id: true,
+                    shipment_number: true,
+                    orders: { select: { date: true } },
+                },
+            });
+
+            if (!shipments.length) return { kind: 'empty' as const };
+
+            const invalidShipment = shipments.find((shipment) => shipment.shipment_number === null);
+            if (invalidShipment) {
+                return {
+                    kind: 'failure' as const,
+                    message: `El envío interno ${invalidShipment.id} no tiene número y no puede sincronizarse.`,
+                };
+            }
+
+            auditBase = shipments.map((shipment) => ({
+                operationId,
+                shipmentId: shipment.id,
+                shipmentNumber: shipment.shipment_number as number,
+                actorUserId,
+                actorName,
+                selectedDate: input.date,
+                fromStatus: normalizedFrom,
+                toStatus: to,
+            }));
+
+            const shipmentIds = shipments.map((shipment) => shipment.id);
+            const candidates = shipments.map((shipment) => ({
+                shipmentId: shipment.id,
+                shipmentNumber: shipment.shipment_number as number,
+                orderDates: Array.from(new Set(
+                    shipment.orders.map((order) => new Date(order.date).toISOString().slice(0, 10))
+                )),
+            }));
+
+            try {
+                activeSheetPlan = await prepareShipmentSheetPlan(candidates, normalizedFrom, to);
+            } catch (preparationError) {
+                const message = errorMessage(preparationError);
+                await appendShipmentStatusAudit(tx, auditEntries('FAILED', {
+                    phase: 'PREPARE_SHEETS',
+                    shipmentCount: shipments.length,
+                }, message));
+                return { kind: 'failure' as const, message };
+            }
+
+            await appendShipmentStatusAudit(tx, auditEntries('STARTED', {
+                shipmentCount: shipments.length,
+                sheetCellCount: activeSheetPlan.updates.length,
+            }));
+
+            sheetWriteAttempted = true;
+            await applyShipmentSheetPlan(activeSheetPlan);
+            await appendShipmentStatusAudit(tx, auditEntries('SHEETS_UPDATED', {
+                sheetCellCount: activeSheetPlan.updates.length,
+            }));
+
+            const shipmentUpdate = await tx.shipment.updateMany({
+                where: { id: { in: shipmentIds }, status: { in: fromAliases } },
+                data: { status: to },
+            });
+            if (shipmentUpdate.count !== shipmentIds.length) {
+                throw new Error('Los envíos cambiaron durante la operación; se canceló la actualización.');
+            }
+
+            await tx.order.updateMany({
+                where: { shipmentId: { in: shipmentIds } },
+                data: { status: to },
+            });
+            await tx.orderItem.updateMany({
+                where: {
+                    OR: [
+                        { shipmentId: { in: shipmentIds } },
+                        { order: { shipmentId: { in: shipmentIds } } },
+                    ],
+                },
+                data: { status: to },
+            });
+
+            await appendShipmentStatusAudit(tx, auditEntries('SYSTEM_UPDATED', {
+                shipmentCount: shipmentIds.length,
+            }));
+            await appendShipmentStatusAudit(tx, auditEntries('COMPLETED', {
+                shipmentCount: shipmentIds.length,
+                sheetCellCount: activeSheetPlan.updates.length,
+            }));
+
+            return { kind: 'success' as const, count: shipmentIds.length };
+        }, { maxWait: 10_000, timeout: 60_000 });
+
+        if (outcome.kind === 'empty') {
             return { success: true, count: 0, message: 'No hay envíos para actualizar en esa fecha.' };
         }
-
-        const shipmentIds = shipments.map((shipment: any) => shipment.id);
-
-        await (prisma as any).shipment.updateMany({
-            where: { id: { in: shipmentIds } },
-            data: { status: to }
-        });
-
-        await prisma.order.updateMany({
-            where: { shipmentId: { in: shipmentIds } },
-            data: { status: targetOrderStatus }
-        });
-
-        await prisma.orderItem.updateMany({
-            where: { shipmentId: { in: shipmentIds } },
-            data: { status: targetOrderStatus }
-        });
+        if (outcome.kind === 'failure') {
+            return { success: false, message: `No se completó la transición: ${outcome.message}` };
+        }
 
         revalidatePath('/shipments');
         revalidatePath('/orders');
@@ -1071,12 +1110,47 @@ export async function transitionShipmentsByDate(input: {
 
         return {
             success: true,
-            count: shipmentIds.length,
-            message: `Se actualizaron ${shipmentIds.length} envíos de ${rawFrom} a ${to}.`
+            count: outcome.count,
+            message: `Se actualizaron ${outcome.count} envíos de ${rawFrom} a ${to}; Google Sheets quedó sincronizado.`,
         };
     } catch (error) {
         console.error('Error transitioning shipments by date:', error);
-        return { success: false, message: 'No se pudo ejecutar la transición masiva.' };
+        const message = errorMessage(error);
+
+        if (auditBase.length) {
+            if (sheetWriteAttempted && activeSheetPlan) {
+                try {
+                    const rollback = await rollbackShipmentSheetPlan(activeSheetPlan);
+                    if (rollback.skipped.length) {
+                        await appendShipmentStatusAudit(prisma, auditEntries('ROLLBACK_FAILED', {
+                            restoredCells: rollback.restored,
+                            skippedRanges: rollback.skipped,
+                        }, `${message}; rollback omitió celdas modificadas por otra operación.`));
+                    } else {
+                        await appendShipmentStatusAudit(prisma, auditEntries('ROLLED_BACK', {
+                            restoredCells: rollback.restored,
+                        }, message));
+                    }
+                } catch (rollbackError) {
+                    try {
+                        await appendShipmentStatusAudit(prisma, auditEntries('ROLLBACK_FAILED', {},
+                            `${message}; rollback: ${errorMessage(rollbackError)}`));
+                    } catch (auditError) {
+                        console.error('Error writing shipment rollback failure audit:', auditError);
+                    }
+                }
+            } else {
+                try {
+                    await appendShipmentStatusAudit(prisma, auditEntries('FAILED', {
+                        phase: 'BEFORE_SHEETS_WRITE',
+                    }, message));
+                } catch (auditError) {
+                    console.error('Error writing shipment transition failure audit:', auditError);
+                }
+            }
+        }
+
+        return { success: false, message: `No se pudo ejecutar la transición masiva: ${message}` };
     }
 }
 
