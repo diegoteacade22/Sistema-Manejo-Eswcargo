@@ -8,7 +8,7 @@ import {
     normalizeShipmentSourceRows,
     normalizeSourceRows,
 } from '../lib/sync-source-normalization';
-import { upsertOperationLedger } from '../lib/client-account-policy';
+import { type OperationLedgerInput, upsertOperationLedger } from '../lib/client-account-policy';
 import { sourceShipmentStatus, sourceShipmentStatusChanged } from '../lib/shipment-sync-status';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
@@ -682,7 +682,7 @@ async function main() {
     const ledgerPolicyEffectiveDate = new Date(
         process.env.CLIENT_LEDGER_POLICY_EFFECTIVE_DATE || '2026-07-27T00:00:00Z'
     );
-    let reconciledOperationalLedgers = 0;
+    const operationalLedgerInputs: OperationLedgerInput[] = [];
 
     for (const order of normalizedOrdersData as any[]) {
         const orderDate = parseSafeDate(order.date);
@@ -692,18 +692,15 @@ async function main() {
             : (order.client_name_match ? clientNameMap.get(order.client_name_match.trim().toUpperCase())?.id : null);
         if (!dbClientId) continue;
 
-        await prisma.$transaction(async (tx: any) => {
-            await upsertOperationLedger(tx, {
-                clientId: dbClientId,
-                date: orderDate,
-                amount: Number(order.total_amount),
-                chargeDescription: `Compra - Pedido #${order.order_number}`,
-                chargeReference: `Order #${order.order_number}`,
-                operationKind: 'ORDER',
-                operationKey: String(order.order_number),
-            });
-        }, { isolationLevel: 'Serializable' });
-        reconciledOperationalLedgers++;
+        operationalLedgerInputs.push({
+            clientId: dbClientId,
+            date: orderDate,
+            amount: Number(order.total_amount),
+            chargeDescription: `Compra - Pedido #${order.order_number}`,
+            chargeReference: `Order #${order.order_number}`,
+            operationKind: 'ORDER',
+            operationKey: String(order.order_number),
+        });
     }
 
     for (const freight of freightSourceRows as any[]) {
@@ -715,24 +712,28 @@ async function main() {
         if (!dbClientId) continue;
 
         const stableReference = `SHIP-${freight.shipment_number}:CLIENT:${dbClientId}`;
-        await prisma.$transaction(async (tx: any) => {
-            await upsertOperationLedger(tx, {
-                clientId: dbClientId,
-                date: freightDate,
-                amount: Number(freight.price_total),
-                chargeDescription: `Flete - Envío #${freight.shipment_number}`,
-                chargeReference: stableReference,
-                chargeReferenceAliases: [
-                    `SHIP-${freight.shipment_number}`,
-                    shipmentFreightReference(freight, dbClientId),
-                ],
-                operationKind: 'SHIPMENT',
-                operationKey: `${freight.shipment_number}:CLIENT:${dbClientId}`,
-            });
-        }, { isolationLevel: 'Serializable' });
-        reconciledOperationalLedgers++;
+        operationalLedgerInputs.push({
+            clientId: dbClientId,
+            date: freightDate,
+            amount: Number(freight.price_total),
+            chargeDescription: `Flete - Envío #${freight.shipment_number}`,
+            chargeReference: stableReference,
+            chargeReferenceAliases: [
+                `SHIP-${freight.shipment_number}`,
+                shipmentFreightReference(freight, dbClientId),
+            ],
+            operationKind: 'SHIPMENT',
+            operationKey: `${freight.shipment_number}:CLIENT:${dbClientId}`,
+        });
     }
-    console.log(`   ✅ Cuentas operativas conciliadas desde ${ledgerPolicyEffectiveDate.toISOString()}: ${reconciledOperationalLedgers}`);
+    if (operationalLedgerInputs.length > 0) {
+        await prisma.$transaction(async (tx: any) => {
+            for (const input of operationalLedgerInputs) {
+                await upsertOperationLedger(tx, input);
+            }
+        }, { isolationLevel: 'Serializable', maxWait: 10_000, timeout: 60_000 });
+    }
+    console.log(`   ✅ Cuentas operativas conciliadas desde ${ledgerPolicyEffectiveDate.toISOString()}: ${operationalLedgerInputs.length}`);
 
     // 6.8 SINCRONIZACIÓN MAESTRA LEGACY DE TRANSACCIONES
     // Los movimientos financieros tienen su propia conciliación. Una sincronización
