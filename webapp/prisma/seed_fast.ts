@@ -9,6 +9,7 @@ import {
     normalizeSourceRows,
 } from '../lib/sync-source-normalization';
 import { upsertOperationLedger } from '../lib/client-account-policy';
+import { sourceShipmentStatus, sourceShipmentStatusChanged } from '../lib/shipment-sync-status';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
 let activeSyncRunId: number | null = null;
@@ -331,6 +332,7 @@ async function main() {
             ? clientOldIdMap.get(s.old_client_id)?.id
             : (s.client_name_match ? clientNameMap.get(s.client_name_match.trim().toUpperCase())?.id : null);
         const resolvedShipmentClientId = dbClientId ?? existing?.clientId ?? null;
+        const sourceStatus = sourceShipmentStatus(s.status);
 
         const data = {
             ...s,
@@ -340,6 +342,7 @@ async function main() {
         };
         delete (data as any).old_client_id;
         delete (data as any).client_name_match;
+        if (!sourceStatus) delete (data as any).status;
 
         let dbShipment: any;
         if (!existing) {
@@ -353,7 +356,7 @@ async function main() {
             const existingArrived = existing.date_arrived?.getTime() || 0;
 
             const hasChanges =
-                existing.status !== s.status ||
+                sourceShipmentStatusChanged(existing.status, sourceStatus) ||
                 existing.notes !== s.notes ||
                 existing.forwarder !== s.forwarder ||
                 !numericEqual(existing.weight_fw, s.weight_fw) ||

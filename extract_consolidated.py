@@ -67,6 +67,10 @@ def normalize_status(s):
     if 'CANCELADO' in s_up: return 'CANCELADO'
     return s
 
+def normalize_shipment_status(value):
+    raw_status = clean_text(value)
+    return normalize_status(raw_status) if raw_status else None
+
 def extract_all():
     start_time = time.time()
     
@@ -217,6 +221,8 @@ def extract_all():
         except:
             old_client_id = None
 
+        shipment_status = normalize_shipment_status(row.get('LLEGO?'))
+
         shipments.append({
             'shipment_number': s_num,
             'old_client_id': old_client_id,
@@ -227,7 +233,7 @@ def extract_all():
             'weight_fw': clean_num(row.get('PESO')),
             'weight_cli': clean_num(row.get('PESO.1')),
             'type_load': clean_text(row.get('TIPO CARGA')) or clean_text(row.get('TIPO')),
-            'status': normalize_status(clean_text(row.get('LLEGO?'))),
+            'status': shipment_status,
             'notes': clean_text(row.get('OBSERVACION')),
             'price_total': clean_num(row.get('ENVIO COB')),
             'cost_total': clean_num(row.get('COSTO TOT')),

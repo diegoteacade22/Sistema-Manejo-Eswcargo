@@ -9,6 +9,7 @@ import { prisma } from '@/lib/prisma';
 import path from 'path';
 import { access } from 'fs/promises';
 import clientBalanceControls from '@/scripts/client-balance-controls.json';
+import { randomUUID } from 'node:crypto';
 
 const execAsync = promisify(exec);
 
@@ -76,8 +77,8 @@ async function triggerGitHubSyncWorkflow(days: number) {
     const workflow = process.env.GITHUB_SYNC_WORKFLOW || 'sync.yml';
     const ref = process.env.GITHUB_SYNC_REF || 'main';
     const daysInput = days === 0 ? 'FULL' : String(days);
+    const requestId = randomUUID();
     const actionsUrl = `https://github.com/${repo}/actions/workflows/${workflow}`;
-    const startedAt = new Date().toISOString();
 
     const response = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/${workflow}/dispatches`, {
         method: 'POST',
@@ -89,7 +90,7 @@ async function triggerGitHubSyncWorkflow(days: number) {
         },
         body: JSON.stringify({
             ref,
-            inputs: { days: daysInput },
+            inputs: { days: daysInput, request_id: requestId },
         }),
     });
 
@@ -100,30 +101,32 @@ async function triggerGitHubSyncWorkflow(days: number) {
 
     let runId: number | null = null;
     let runUrl = actionsUrl;
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    for (let attempt = 0; attempt < 8 && !runId; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 750));
+        const runsResponse = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/${workflow}/runs?branch=${encodeURIComponent(ref)}&event=workflow_dispatch&per_page=20`, {
+            headers: {
+                accept: 'application/vnd.github+json',
+                authorization: `Bearer ${token}`,
+                'x-github-api-version': '2022-11-28',
+            },
+            cache: 'no-store',
+        });
 
-    const runsResponse = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/${workflow}/runs?branch=${encodeURIComponent(ref)}&event=workflow_dispatch&per_page=5`, {
-        headers: {
-            accept: 'application/vnd.github+json',
-            authorization: `Bearer ${token}`,
-            'x-github-api-version': '2022-11-28',
-        },
-    });
-
-    if (runsResponse.ok) {
+        if (!runsResponse.ok) continue;
         const runsData = await runsResponse.json();
-        const matchingRun = runsData.workflow_runs?.find((run: any) => run.created_at >= startedAt);
-        const run = matchingRun || runsData.workflow_runs?.[0];
-        runId = run?.id || null;
-        runUrl = run?.html_url || actionsUrl;
+        const matchingRun = runsData.workflow_runs?.find((run: any) =>
+            String(run.display_title || run.name || '').includes(requestId)
+        );
+        runId = matchingRun?.id || null;
+        runUrl = matchingRun?.html_url || actionsUrl;
     }
 
     return {
         repo,
         runId,
+        requestId,
         actionsUrl: runUrl,
         daysInput,
-        token,
     };
 }
 
@@ -207,7 +210,11 @@ export async function syncExcel(requestedDays: number = 7) {
 
             return {
                 success: true,
-                message: `Actualizacion cloud ${syncScope} en curso. Todavia no finalizo. Confirma el resultado en "Actualizar estado" antes de emitir documentos: ${githubWorkflow.actionsUrl}`
+                completed: false,
+                runId: githubWorkflow.runId,
+                requestId: githubWorkflow.requestId,
+                url: githubWorkflow.actionsUrl,
+                message: `Actualizacion cloud ${syncScope} en cola. El panel seguira esta corrida hasta que finalice.`
             };
         }
 
@@ -221,7 +228,7 @@ export async function syncExcel(requestedDays: number = 7) {
     }
 }
 
-export async function getGitHubSyncStatus() {
+export async function getGitHubSyncStatus(runId?: number | null, requestId?: string | null) {
     await requireAdminUser();
     try {
         const token = process.env.GITHUB_SYNC_TOKEN;
@@ -232,8 +239,11 @@ export async function getGitHubSyncStatus() {
         const repo = process.env.GITHUB_SYNC_REPO || 'diegoteacade22/Sistema-Manejo-Eswcargo';
         const workflow = process.env.GITHUB_SYNC_WORKFLOW || 'sync.yml';
         const ref = process.env.GITHUB_SYNC_REF || 'main';
+        const endpoint = runId
+            ? `https://api.github.com/repos/${repo}/actions/runs/${runId}`
+            : `https://api.github.com/repos/${repo}/actions/workflows/${workflow}/runs?branch=${encodeURIComponent(ref)}&event=workflow_dispatch&per_page=${requestId ? 20 : 1}`;
         const response = await fetch(
-            `https://api.github.com/repos/${repo}/actions/workflows/${workflow}/runs?branch=${encodeURIComponent(ref)}&per_page=1`,
+            endpoint,
             {
                 headers: {
                     accept: 'application/vnd.github+json',
@@ -249,22 +259,55 @@ export async function getGitHubSyncStatus() {
         }
 
         const data = await response.json();
-        const run = data.workflow_runs?.[0];
+        const run = runId
+            ? data
+            : requestId
+                ? data.workflow_runs?.find((candidate: any) =>
+                    String(candidate.display_title || candidate.name || '').includes(requestId)
+                )
+                : data.workflow_runs?.[0];
         if (!run) {
-            return { success: false, message: 'No hay actualizaciones cloud registradas todavía.' };
+            return {
+                success: true,
+                completed: false,
+                runId: runId || null,
+                requestId: requestId || null,
+                message: 'La actualización fue solicitada y todavía está ingresando en la cola de GitHub.'
+            };
         }
 
         if (run.status !== 'completed') {
-            return { success: true, message: `La actualización cloud todavía no finalizó; sigue ${run.status === 'queued' ? 'en cola' : 'en ejecución'}.` };
+            return {
+                success: true,
+                completed: false,
+                runId: run.id,
+                requestId: requestId || null,
+                url: run.html_url,
+                message: `La actualización cloud sigue ${run.status === 'queued' ? 'en cola' : 'en ejecución'}.`
+            };
         }
 
         if (run.conclusion !== 'success') {
-            return { success: false, message: `La última actualización cloud terminó con estado ${run.conclusion || 'desconocido'}: ${run.html_url}` };
+            return {
+                success: false,
+                completed: true,
+                runId: run.id,
+                requestId: requestId || null,
+                url: run.html_url,
+                message: `La actualización cloud terminó con estado ${run.conclusion || 'desconocido'}: ${run.html_url}`
+            };
         }
 
         revalidatePath('/', 'layout');
         revalidateDataViews();
-        return { success: true, message: 'OK: la última actualización cloud finalizó correctamente. Los datos ya están disponibles.' };
+        return {
+            success: true,
+            completed: true,
+            runId: run.id,
+            requestId: requestId || null,
+            url: run.html_url,
+            message: 'OK: la actualización cloud finalizó correctamente. Los datos ya están disponibles.'
+        };
     } catch (error: any) {
         console.error('GitHub sync status error:', error);
         return { success: false, message: `No se pudo verificar la actualización cloud: ${error.message}` };

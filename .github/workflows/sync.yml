@@ -1,5 +1,5 @@
 name: 🔄 Sincronización Automática (Cloud)
-run-name: "Sync ESWCARGO ${{ github.event.inputs.days || '7' }} días"
+run-name: "Sync ESWCARGO ${{ github.event.inputs.days || '7' }} días · ${{ github.event.inputs.request_id || 'programada' }}"
 
 on:
   schedule:
@@ -13,6 +13,10 @@ on:
         description: 'Sincronización completa recomendada: FULL'
         required: false
         default: 'FULL'
+      request_id:
+        description: 'Identificador de seguimiento del panel'
+        required: false
+        default: ''
 
 concurrency:
   group: eswcargo-cloud-sync
@@ -113,6 +117,13 @@ jobs:
               exit 1
             fi
           done
+          if [ "$SYNC_DAYS" = "0" ] || [ "$SYNC_DAYS" = "FULL" ]; then
+            export SYNC_MODE=FULL
+            export FULL_AUDIT=1
+          else
+            export SYNC_MODE=DIFF
+            export FULL_AUDIT=0
+          fi
           npx prisma generate --schema prisma/schema.prisma
           if [[ ! "$DATABASE_URL" =~ ^postgres(ql)?:// ]]; then
             if [[ "$DIRECT_URL" =~ ^postgres(ql)?:// ]]; then
@@ -150,14 +161,11 @@ jobs:
               attempt=$(( attempt + 1 ))
             done
           }
-          migrate_with_transient_retry
-          node scripts/cleanup-legacy-ledger-imports.mjs
-          if [ "$SYNC_DAYS" = "0" ] || [ "$SYNC_DAYS" = "FULL" ]; then
-            export SYNC_MODE=FULL
-            export FULL_AUDIT=1
+          if [ "$FULL_AUDIT" = "1" ]; then
+            migrate_with_transient_retry
+            node scripts/cleanup-legacy-ledger-imports.mjs
           else
-            export SYNC_MODE=DIFF
-            export FULL_AUDIT=0
+            echo "Modo diferencial: migraciones y limpieza histórica se reservan para la corrida FULL."
           fi
           if [ "$FULL_AUDIT" = "1" ]; then
             "$GITHUB_WORKSPACE/.venv/bin/python" scripts/export-cash-flow-raw-transactions.py > /tmp/cashflow-raw-source.json
@@ -171,7 +179,7 @@ jobs:
           fi
           npx tsx prisma/seed_fast.ts
           node scripts/audit-shipment-reconciliation.mjs
-          PACKING_AUDIT_SCOPE=all node scripts/audit-packing-readiness.mjs
+          node scripts/audit-packing-readiness.mjs
           node scripts/audit-invoice-readiness.mjs
           if [ "$FULL_AUDIT" = "1" ]; then
             node scripts/audit-cash-flow-raw-drift.mjs --source /tmp/cashflow-raw-source.json

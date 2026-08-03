@@ -60,13 +60,15 @@ async function main() {
   }
 
   const actualItems = await prisma.orderItem.findMany({
-    where: { shipmentId: { not: null } },
+    where: {
+      shipmentId: { not: null },
+      order: { order_number: { in: [...sourceOrderNumbers] } },
+    },
     include: { order: true, shipment: true, product: true }
   });
   const actual = new Map();
   for (const item of actualItems) {
     if (!item.order?.order_number || !item.shipment?.shipment_number) continue;
-    if (!sourceOrderNumbers.has(item.order.order_number)) continue;
     addItem(actual, itemKey(item.order.order_number, item.shipment.shipment_number, item.productName, item.quantity));
   }
 
