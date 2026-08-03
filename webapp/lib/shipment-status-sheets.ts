@@ -41,7 +41,7 @@ export type ShipmentSheetPlan = {
   spreadsheetId: string;
   canonicalStatus: string;
   updates: ShipmentSheetCellUpdate[];
-  cabeRangesByShipment: Record<number, string>;
+  cabeRangesByShipment: Record<number, string[]>;
   detailRangesByShipment: Record<number, string[]>;
 };
 
@@ -136,30 +136,32 @@ export function buildShipmentSheetPlan(
   });
 
   const updates: ShipmentSheetCellUpdate[] = [];
-  const cabeRangesByShipment: Record<number, string> = {};
+  const cabeRangesByShipment: Record<number, string[]> = {};
   const detailRangesByShipment: Record<number, string[]> = {};
 
   for (const candidate of candidates) {
     const rows = cabeRows.get(candidate.shipmentNumber) ?? [];
-    if (rows.length !== 1) {
+    if (rows.length === 0) {
       throw new Error(
-        `El envio #${candidate.shipmentNumber} tiene ${rows.length} coincidencias en CABE_ENVIOS; se esperaba exactamente una.`
+        `El envio #${candidate.shipmentNumber} no existe en CABE_ENVIOS.`
       );
     }
-    const row = rows[0];
-    const range = `CABE_ENVIOS!X${row}`;
-    const previousValue = source.cabeStatuses[row - 2];
-    assertCompatibleStatus(previousValue, fromStatus, canonicalStatus, range, true);
-    cabeRangesByShipment[candidate.shipmentNumber] = range;
-    if (!valuesEqual(previousValue, canonicalStatus)) {
-      updates.push({
-        range,
-        previousValue,
-        nextValue: canonicalStatus,
-        shipmentNumber: candidate.shipmentNumber,
-        sheet: 'CABE_ENVIOS',
-        row,
-      });
+    cabeRangesByShipment[candidate.shipmentNumber] = [];
+    for (const row of rows) {
+      const range = `CABE_ENVIOS!X${row}`;
+      const previousValue = source.cabeStatuses[row - 2];
+      assertCompatibleStatus(previousValue, fromStatus, canonicalStatus, range, true);
+      cabeRangesByShipment[candidate.shipmentNumber].push(range);
+      if (!valuesEqual(previousValue, canonicalStatus)) {
+        updates.push({
+          range,
+          previousValue,
+          nextValue: canonicalStatus,
+          shipmentNumber: candidate.shipmentNumber,
+          sheet: 'CABE_ENVIOS',
+          row,
+        });
+      }
     }
   }
 

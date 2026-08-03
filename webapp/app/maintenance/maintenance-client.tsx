@@ -33,6 +33,7 @@ export function MaintenanceClient() {
     const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
     const [syncControl, setSyncControl] = useState<SyncControlCenter | null>(null);
     const [isLoadingSyncControl, setIsLoadingSyncControl] = useState(true);
+    const [isSyncing, setIsSyncing] = useState(false);
 
     const loadSyncControl = async () => {
         setIsLoadingSyncControl(true);
@@ -57,17 +58,41 @@ export function MaintenanceClient() {
         });
     };
 
-    const handleSync = (days: 0 | 7 | 30) => {
+    const handleSync = async (days: 0 | 7 | 30) => {
+        if (isSyncing) return;
         const syncScope = days === 0 ? 'completa' : `ultimos ${days} dias`;
+        setIsSyncing(true);
         setMessage({ text: `Actualizacion ${syncScope} en curso...`, type: 'success' });
-        startTransition(async () => {
+        try {
             const res = await syncExcel(days);
-            if (res.success) {
-                setMessage({ text: res.message || `Actualizacion ${syncScope} finalizada.`, type: 'success' });
-            } else {
+            if (!res.success) {
                 setMessage({ text: res.message, type: 'error' });
+                return;
             }
-        });
+
+            const runId = 'runId' in res ? res.runId : null;
+            const requestId = 'requestId' in res ? res.requestId : null;
+            if (!runId && !requestId) {
+                setMessage({ text: res.message || `Actualizacion ${syncScope} finalizada.`, type: 'success' });
+                return;
+            }
+
+            setMessage({ text: res.message, type: 'success' });
+            let trackedRunId = runId;
+            for (let attempt = 0; attempt < 240; attempt += 1) {
+                await new Promise((resolve) => setTimeout(resolve, 2500));
+                const status = await getGitHubSyncStatus(trackedRunId, requestId);
+                if ('runId' in status && status.runId) trackedRunId = status.runId;
+                setMessage({ text: status.message, type: status.success ? 'success' : 'error' });
+                if ('completed' in status && status.completed) {
+                    await loadSyncControl();
+                    return;
+                }
+            }
+            setMessage({ text: 'La corrida sigue activa, pero el seguimiento automático superó 10 minutos. Usá Actualizar estado.', type: 'error' });
+        } finally {
+            setIsSyncing(false);
+        }
     };
 
     const handleCheckCloudSync = () => {
@@ -275,34 +300,34 @@ export function MaintenanceClient() {
                                     variant="outline"
                                     className="justify-start text-emerald-600 border-emerald-200 dark:border-emerald-800 hover:bg-emerald-50"
                                     onClick={() => handleSync(7)}
-                                    disabled={isPending}
+                                    disabled={isPending || isSyncing}
                                 >
-                                    <Cloud className={`mr-2 h-4 w-4 ${isPending ? 'animate-bounce' : ''}`} />
-                                    ACTUALIZAR ULTIMOS 7 DIAS
+                                    <Cloud className={`mr-2 h-4 w-4 ${isSyncing ? 'animate-bounce' : ''}`} />
+                                    {isSyncing ? 'SINCRONIZANDO...' : 'ACTUALIZAR ULTIMOS 7 DIAS'}
                                 </Button>
                                 <Button
                                     variant="outline"
                                     className="justify-start text-blue-600 border-blue-200 dark:border-blue-800 hover:bg-blue-50"
                                     onClick={() => handleSync(30)}
-                                    disabled={isPending}
+                                    disabled={isPending || isSyncing}
                                 >
-                                    <Cloud className={`mr-2 h-4 w-4 ${isPending ? 'animate-bounce' : ''}`} />
+                                    <Cloud className={`mr-2 h-4 w-4 ${isSyncing ? 'animate-bounce' : ''}`} />
                                     ACTUALIZAR ULTIMOS 30 DIAS
                                 </Button>
                                 <Button
                                     variant="outline"
                                     className="justify-start text-slate-600 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
                                     onClick={() => handleSync(0)}
-                                    disabled={isPending}
+                                    disabled={isPending || isSyncing}
                                 >
-                                    <Cloud className={`mr-2 h-4 w-4 ${isPending ? 'animate-bounce' : ''}`} />
+                                    <Cloud className={`mr-2 h-4 w-4 ${isSyncing ? 'animate-bounce' : ''}`} />
                                     ACTUALIZACION COMPLETA (Historico)
                                 </Button>
                                 <Button
                                     variant="ghost"
                                     className="justify-start"
                                     onClick={handleCheckCloudSync}
-                                    disabled={isPending}
+                                    disabled={isPending || isSyncing}
                                 >
                                     <CheckCircle2 className={`mr-2 h-4 w-4 ${isPending ? 'animate-spin' : ''}`} />
                                     Verificar última actualización cloud
