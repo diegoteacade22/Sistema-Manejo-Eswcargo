@@ -19,7 +19,7 @@ mkdir -p "$LOG_DIR" "$HOME/Library/LaunchAgents"
 /usr/libexec/PlistBuddy -c 'Add :EnvironmentVariables dict' "$PLIST"
 /usr/libexec/PlistBuddy -c 'Add :EnvironmentVariables:ESW_PRISMA_QUERY_LOG string 0' "$PLIST"
 /usr/libexec/PlistBuddy -c 'Add :RunAtLoad bool true' "$PLIST"
-/usr/libexec/PlistBuddy -c 'Add :StartInterval integer 60' "$PLIST"
+/usr/libexec/PlistBuddy -c 'Add :StartInterval integer 1800' "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :StandardOutPath string $LOG_DIR/launchd.out.log" "$PLIST"
 /usr/libexec/PlistBuddy -c "Add :StandardErrorPath string $LOG_DIR/launchd.err.log" "$PLIST"
 
