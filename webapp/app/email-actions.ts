@@ -5,11 +5,13 @@ import { sendEmail } from '@/lib/email';
 import { prisma } from '@/lib/prisma';
 import { generatePdfFromHtml } from '@/lib/pdf-generator';
 import { requireAdminUser } from '@/lib/access';
-import { getInvPdfFileName, savePdfToDriveFolder } from '@/lib/document-storage';
+import { savePdfToDriveFolder } from '@/lib/document-storage';
+import { getInvoicePdfFileName, getPackingPdfFileName } from '@/lib/document-filenames';
 import { buildShipmentItems, getShipmentCargoDescription } from '@/lib/shipment-items';
 import { canUseSegmentedPackingForShipmentBlock, getOrderSourceDocumentBlock, getSourceDocumentBlock, sourceBlockMessage } from '@/lib/source-document-guard';
 import { getPackingDocumentNumber, getPackingSegmentIssue, getPackingSegments, getPackingSubtotal, projectShipmentForPacking } from '@/lib/packing-segments';
 import { getShipmentClientCharge } from '@/lib/shipment-client-charge';
+import { isCancelledOrderItem } from '@/lib/order-totals';
 
 type PackingListDocument = {
     shipment: any;
@@ -24,6 +26,10 @@ type InvoiceDocument = {
     pdfBuffer: Uint8Array;
     fileName: string;
 };
+
+function formatBusinessDate(value: Date | string) {
+    return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC' }).format(new Date(value));
+}
 
 function assertInvoiceIsReady(order: { items: Array<{ quantity: number; unit_price: number }>; total_amount: number | null }) {
     if (!order.items.length) {
@@ -52,7 +58,7 @@ async function trySavePdfToDriveFolder(pdfBuffer: Uint8Array, fileName: string) 
     }
 }
 
-async function buildPackingListDocument(shipmentId: number, packingClientId?: number): Promise<PackingListDocument> {
+export async function buildPackingListDocument(shipmentId: number, packingClientId?: number): Promise<PackingListDocument> {
     const shipment = await prisma.shipment.findUnique({
         where: { id: shipmentId },
         include: {
@@ -217,10 +223,12 @@ async function buildPackingListDocument(shipmentId: number, packingClientId?: nu
         `;
 
     const pdfBuffer = await generatePdfFromHtml(htmlBody);
-    const baseFileName = getInvPdfFileName(documentShipment.invoice, documentShipment.shipment_number || documentShipment.id);
-    const fileName = documentShipment.packingSegment.isSharedShipment
-        ? baseFileName.replace(/\.pdf$/i, `${documentShipment.packingSegment.documentSuffix}-CLIENTE-${documentShipment.client?.old_id || documentShipment.client?.id}.pdf`)
-        : baseFileName;
+    const fileName = getPackingPdfFileName(
+        shipment.shipment_number,
+        shipment.id,
+        documentShipment.client?.old_id,
+        documentShipment.client?.id,
+    );
 
     return {
         shipment: documentShipment,
@@ -230,7 +238,7 @@ async function buildPackingListDocument(shipmentId: number, packingClientId?: nu
     };
 }
 
-async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocument> {
+export async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocument> {
     const order = await prisma.order.findUnique({
         where: { id: orderId },
         include: {
@@ -257,15 +265,15 @@ async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocument> {
 
     let itemsHtml = '';
     let totalPcs = 0;
-    order.items.forEach(item => {
+    order.items.filter(item => !isCancelledOrderItem(item.status)).forEach(item => {
         totalPcs += item.quantity;
         itemsHtml += `
                 <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center;">${item.quantity}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.productName}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; color: #666; font-size: 11px;">${(item as any).product?.color_grade || '-'}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right;">USD ${item.unit_price.toFixed(0)}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;">USD ${(item.unit_price * item.quantity).toFixed(0)}</td>
+                    <td style="padding: 5px 10px; border-bottom: 1px solid #eee; text-align: center;">${item.quantity}</td>
+                    <td style="padding: 5px 10px; border-bottom: 1px solid #eee;">${item.productName}</td>
+                    <td style="padding: 5px 10px; border-bottom: 1px solid #eee; text-align: center; color: #666; font-size: 11px;">${(item as any).product?.color_grade || '-'}</td>
+                    <td style="padding: 5px 10px; border-bottom: 1px solid #eee; text-align: right;">USD ${item.unit_price.toFixed(0)}</td>
+                    <td style="padding: 5px 10px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;">USD ${(item.unit_price * item.quantity).toFixed(0)}</td>
                 </tr>
              `;
     });
@@ -281,7 +289,7 @@ async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocument> {
     const htmlBody = `
             <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 700px; margin: 0 auto; color: #333; background-color: #fff; border: 1px solid #eee;">
                 <!-- Header -->
-                <div style="background-color: #fff; padding: 30px; border-bottom: 5px solid #103a89;">
+                    <div style="background-color: #fff; padding: 12px 30px; border-bottom: 5px solid #103a89;">
                     <table style="width: 100%;">
                         <tr>
                             <td>
@@ -298,8 +306,8 @@ async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocument> {
                 </div>
                 
                 <!-- Info Section -->
-                <div style="padding: 30px;">
-                    <table style="width: 100%; margin-bottom: 30px;">
+                <div style="padding: 14px 30px;">
+                    <table style="width: 100%; margin-bottom: 12px;">
                         <tr>
                             <td style="width: 50%; vertical-align: top;">
                                 <div style="background-color: #103a89; color: #fff; padding: 5px 10px; font-weight: bold; font-size: 12px; margin-bottom: 10px;">CUSTOMER</div>
@@ -311,7 +319,7 @@ async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocument> {
                                 <table style="margin-left: auto; border-collapse: collapse;">
                                     <tr>
                                         <td style="padding: 5px; font-size: 13px; font-weight: bold; color: #103a89;">DATE:</td>
-                                        <td style="padding: 5px; font-size: 13px;">${new Date(order.date).toLocaleDateString()}</td>
+                                        <td style="padding: 5px; font-size: 13px;">${formatBusinessDate(order.date)}</td>
                                     </tr>
                                     <tr>
                                         <td style="padding: 5px; font-size: 13px; font-weight: bold; color: #103a89;">CUSTOMER ID:</td>
@@ -330,11 +338,11 @@ async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocument> {
                     <table style="width: 100%; border-collapse: collapse;">
                         <thead>
                             <tr style="background-color: #103a89; color: #fff; text-transform: uppercase;">
-                                <th style="padding: 12px; font-size: 11px;">QTY</th>
-                                <th style="padding: 12px; font-size: 11px; text-align: left;">DESCRIPTION</th>
-                                <th style="padding: 12px; font-size: 11px; text-align: center;">COLOR</th>
-                                <th style="padding: 12px; font-size: 11px; text-align: right;">UNIT VALUE</th>
-                                <th style="padding: 12px; font-size: 11px; text-align: right;">TOTAL VALUE</th>
+                                <th style="padding: 8px 12px; font-size: 11px;">QTY</th>
+                                <th style="padding: 8px 12px; font-size: 11px; text-align: left;">DESCRIPTION</th>
+                                <th style="padding: 8px 12px; font-size: 11px; text-align: center;">COLOR</th>
+                                <th style="padding: 8px 12px; font-size: 11px; text-align: right;">UNIT VALUE</th>
+                                <th style="padding: 8px 12px; font-size: 11px; text-align: right;">TOTAL VALUE</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -352,28 +360,28 @@ async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocument> {
                     </table>
                     
                     <!-- Banking Section -->
-                    <div style="margin-top: 40px; padding: 20px; border: 1px solid #eee; background-color: #fcfcfc;">
-                        <h3 style="color: #103a89; margin: 0 0 15px 0; font-size: 14px; text-transform: uppercase; border-bottom: 1px solid #103a89; padding-bottom: 5px;">Payment Instructions</h3>
-                        <div style="font-size: 12px; line-height: 1.6;">
-                            <p style="margin: 0 0 10px 0;"><strong>Beneficiary:</strong> Electro-Surweb Inc<br><strong>Address:</strong> 21180 Mainsail Circle, B19, Aventura, FL 33180</p>
+                    <div style="margin-top: 12px; padding: 8px 20px; border: 1px solid #eee; background-color: #fcfcfc; page-break-inside: avoid;">
+                        <h3 style="color: #103a89; margin: 0 0 8px 0; font-size: 13px; text-transform: uppercase; border-bottom: 1px solid #103a89; padding-bottom: 4px;">Payment Instructions</h3>
+                        <div style="font-size: 11px; line-height: 1.2;">
+                            <p style="margin: 0 0 6px 0;"><strong>Beneficiary:</strong> Electro-Surweb Inc<br><strong>Address:</strong> 21180 Mainsail Circle, B19, Aventura, FL 33180</p>
                             
-                            <p style="margin: 0 0 10px 0;"><strong>Bank:</strong> MERCURY (Choice Financial Group)<br>
+                            <p style="margin: 0 0 6px 0;"><strong>Bank:</strong> MERCURY (Choice Financial Group)<br>
                                <strong>Account Number:</strong> 202557771823<br>
                                <strong>ABA / Routing:</strong> 09131122<br>
                                <strong>Bank Address:</strong> 4501 23rd Avenue S, Fargo, ND 58104</p>
                             
-                            <div style="margin-top: 15px; padding-top: 10px; border-top: 1px dashed #ccc;">
+                            <div style="margin-top: 8px; padding-top: 6px; border-top: 1px dashed #ccc;">
                                 <p style="margin: 0; font-weight: bold; color: #103a89;">ACEPTAMOS USDT - CONSULTAR WALLET</p>
                             </div>
                         </div>
                     </div>
 
                     <!-- Footer -->
-                    <div style="margin-top: 50px; text-align: center; border-top: 1px solid #eee; padding-top: 30px;">
-                        <p style="font-size: 16px; font-weight: bold; color: #103a89; margin-bottom: 10px;">Thank you for doing business with us!</p>
-                        <p style="font-size: 12px; color: #666; margin-bottom: 20px;">For questions, contact Diego Rodriguez: (786) 281-4922 | diego@electrosurweb.com</p>
+                    <div style="margin-top: 8px; text-align: center; border-top: 1px solid #eee; padding-top: 6px; page-break-inside: avoid;">
+                        <p style="font-size: 12px; font-weight: bold; color: #103a89; margin: 0 0 3px 0;">Thank you for doing business with us!</p>
+                        <p style="font-size: 9px; color: #666; margin: 0 0 5px 0;">For questions, contact Diego Rodriguez: (786) 281-4922 | diego@electrosurweb.com</p>
                         
-                        <div style="font-size: 11px; color: #103a89; font-weight: bold;">
+                        <div style="font-size: 9px; color: #103a89; font-weight: bold;">
                             electrosurweb.com | eswtech.net | WhatsApp | @eswtech1
                         </div>
                     </div>
@@ -382,7 +390,7 @@ async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocument> {
         `;
 
     const pdfBuffer = await generatePdfFromHtml(htmlBody);
-    const fileName = getInvPdfFileName(order.order_number, order.id);
+    const fileName = getInvoicePdfFileName(order.order_number, order.id, order.client.old_id, order.client.id);
 
     return {
         order,

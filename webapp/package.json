@@ -32,6 +32,8 @@
     "test:packing-segmentation": "tsx scripts/test-packing-segmentation.ts",
     "test:shipment-visibility": "tsx scripts/test-shipment-visibility.ts",
     "test:shipment-status": "tsx --test tests/shipment-status-sheets.test.ts",
+    "test:document-filenames": "tsx --test tests/document-filenames.test.ts",
+    "documents:export": "tsx scripts/export-operational-documents.ts",
     "test:client-account-policy": "tsx scripts/test-client-account-policy.ts",
     "test:order-allocation-guards": "tsx scripts/test-order-allocation-guards.ts",
     "reconcile:stale-order-charges": "node scripts/remove-stale-neutralized-order-charges-20260718.mjs",
