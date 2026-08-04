@@ -27,6 +27,7 @@ import {
 } from '@/lib/shipment-status-sheets';
 import {
     shipmentOrderItemStatusWhere,
+    shipmentOrderStatusWhere,
     validateManualShipmentStatus,
 } from '@/lib/shipment-sync-status';
 
@@ -678,7 +679,7 @@ export async function createShipment(data: {
                 forwarder: data.forwarder,
                 clientId: data.clientId || null,
                 date_shipped: data.date_shipped,
-                status: 'EN_TRANSITO', // Default status
+                status: 'SALIENDO',
                 notes: data.notes
             }
         });
@@ -898,8 +899,20 @@ export async function updateShipment(data: {
     try {
         const currentShipment = await (prisma as any).shipment.findUnique({
             where: { id: data.id },
-            select: { status: true },
+            select: { status: true, date_arrived: true },
         });
+        try {
+            shipmentStatus = validateManualShipmentStatus(shipmentStatus, {
+                dateArrived: data.date_arrived === undefined
+                    ? currentShipment?.date_arrived
+                    : data.date_arrived,
+            });
+        } catch (error) {
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : 'Estado de envío inválido.',
+            };
+        }
         const isBeingDelivered = shipmentStatus.toUpperCase() === 'ENTREGADO'
             && String(currentShipment?.status || '').toUpperCase() !== 'ENTREGADO';
         if (isBeingDelivered && !data.deliveryPaymentReviewed) {
@@ -928,15 +941,17 @@ export async function updateShipment(data: {
         else if (s === 'MIAMI') targetOrderStatus = 'MIAMI';
 
         // Update all Orders and OrderItems with the same status
-        await prisma.order.updateMany({
-            where: { shipmentId: data.id },
-            data: { status: targetOrderStatus }
-        });
+        if (targetOrderStatus) {
+            await prisma.order.updateMany({
+                where: shipmentOrderStatusWhere([data.id]),
+                data: { status: targetOrderStatus }
+            });
 
-        await prisma.orderItem.updateMany({
-            where: { shipmentId: data.id },
-            data: { status: targetOrderStatus }
-        });
+            await prisma.orderItem.updateMany({
+                where: shipmentOrderItemStatusWhere([data.id]),
+                data: { status: targetOrderStatus }
+            });
+        }
 
         // Force recalculate stats to ensure consistency
         await recalculateShipmentStats(data.id);
@@ -1026,12 +1041,28 @@ export async function transitionShipmentsByDate(input: {
                 select: {
                     id: true,
                     shipment_number: true,
+                    date_arrived: true,
                     orders: { select: { date: true } },
                     items: { select: { order: { select: { date: true } } } },
                 },
             });
 
             if (!shipments.length) return { kind: 'empty' as const };
+
+            const invalidTemporalStatus = shipments.find((shipment) => {
+                try {
+                    validateManualShipmentStatus(to, { dateArrived: shipment.date_arrived });
+                    return false;
+                } catch {
+                    return true;
+                }
+            });
+            if (invalidTemporalStatus) {
+                return {
+                    kind: 'failure' as const,
+                    message: `El envío #${invalidTemporalStatus.shipment_number ?? invalidTemporalStatus.id} tiene una fecha real de llegada incompatible con ${to}.`,
+                };
+            }
 
             const invalidShipment = shipments.find((shipment) => shipment.shipment_number === null);
             if (invalidShipment) {
@@ -1093,7 +1124,7 @@ export async function transitionShipmentsByDate(input: {
             }
 
             await tx.order.updateMany({
-                where: { shipmentId: { in: shipmentIds } },
+                where: shipmentOrderStatusWhere(shipmentIds),
                 data: { status: to },
             });
             await tx.orderItem.updateMany({

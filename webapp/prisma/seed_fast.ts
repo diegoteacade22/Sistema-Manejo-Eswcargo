@@ -11,9 +11,8 @@ import {
 import { type OperationLedgerInput, upsertOperationLedger } from '../lib/client-account-policy';
 import { calculateActiveOrderTotal } from '../lib/order-totals';
 import {
-    shipmentStatusPatch,
+    resolveShipmentStatus,
     sourceShipmentStatus,
-    sourceShipmentStatusChanged,
 } from '../lib/shipment-sync-status';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
@@ -352,13 +351,18 @@ async function main() {
         };
         delete (data as any).old_client_id;
         delete (data as any).client_name_match;
-        delete (data as any).status;
-        Object.assign(data, shipmentStatusPatch(s.status));
+        const resolvedStatus = resolveShipmentStatus({
+            sourceStatus,
+            existingStatus: existing?.status,
+            dateShipped: data.date_shipped,
+            dateArrived: data.date_arrived,
+        });
+        (data as any).status = resolvedStatus;
 
         let dbShipment: any;
         if (!existing) {
             dbShipment = await (prisma as any).shipment.create({ data });
-            trackChange({ entity: 'SHIPMENT', entityKey: `#${s.shipment_number}`, action: 'CREATED', reason: 'Nuevo envío presente en la fuente operativa.', after: { clientId: dbClientId, status: sourceStatus, forwarder: s.forwarder, weight_fw: s.weight_fw, price_total: s.price_total } });
+            trackChange({ entity: 'SHIPMENT', entityKey: `#${s.shipment_number}`, action: 'CREATED', reason: 'Nuevo envío presente en la fuente operativa.', after: { clientId: dbClientId, status: resolvedStatus, forwarder: s.forwarder, weight_fw: s.weight_fw, price_total: s.price_total } });
             shipmentNumMap.set(s.shipment_number, dbShipment);
         } else {
             const shippedTime = data.date_shipped?.getTime() || 0;
@@ -367,7 +371,7 @@ async function main() {
             const existingArrived = existing.date_arrived?.getTime() || 0;
 
             const hasChanges =
-                sourceShipmentStatusChanged(existing.status, sourceStatus) ||
+                existing.status !== resolvedStatus ||
                 existing.notes !== s.notes ||
                 existing.forwarder !== s.forwarder ||
                 !numericEqual(existing.weight_fw, s.weight_fw) ||
@@ -380,7 +384,7 @@ async function main() {
             if (hasChanges) {
                 const before = { clientId: existing.clientId, status: existing.status, forwarder: existing.forwarder, weight_fw: existing.weight_fw, price_total: existing.price_total, cost_total: existing.cost_total, date_shipped: existing.date_shipped?.toISOString?.() || null, date_arrived: existing.date_arrived?.toISOString?.() || null };
                 dbShipment = await (prisma as any).shipment.update({ where: { id: existing.id }, data });
-                trackChange({ entity: 'SHIPMENT', entityKey: `#${s.shipment_number}`, action: 'UPDATED', reason: 'Cambió cabecera de envío en la fuente operativa.', before, after: { clientId: resolvedShipmentClientId, status: sourceStatus ?? existing.status, forwarder: s.forwarder, weight_fw: s.weight_fw, price_total: s.price_total, cost_total: s.cost_total, date_shipped: data.date_shipped?.toISOString?.() || null, date_arrived: data.date_arrived?.toISOString?.() || null } });
+                trackChange({ entity: 'SHIPMENT', entityKey: `#${s.shipment_number}`, action: 'UPDATED', reason: 'Cambió cabecera de envío en la fuente operativa.', before, after: { clientId: resolvedShipmentClientId, status: resolvedStatus, forwarder: s.forwarder, weight_fw: s.weight_fw, price_total: s.price_total, cost_total: s.cost_total, date_shipped: data.date_shipped?.toISOString?.() || null, date_arrived: data.date_arrived?.toISOString?.() || null } });
             } else {
                 dbShipment = existing;
             }

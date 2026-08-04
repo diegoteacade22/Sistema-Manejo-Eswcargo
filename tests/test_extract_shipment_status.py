@@ -16,8 +16,9 @@ class ShipmentStatusExtractionTest(unittest.TestCase):
         self.assertEqual(normalize_shipment_status('LLEGANDO'), 'LLEGANDO')
 
     def test_comprar_is_never_a_shipment_status(self):
-        self.assertIsNone(normalize_shipment_status('COMPRAR'))
-        self.assertIsNone(normalize_shipment_status(' comprar '))
+        for invalid_status in ('COMPRAR', ' comprar ', 'SI', '100', '200', '#REF!'):
+            with self.subTest(invalid_status=invalid_status):
+                self.assertIsNone(normalize_shipment_status(invalid_status))
 
 
 if __name__ == '__main__':

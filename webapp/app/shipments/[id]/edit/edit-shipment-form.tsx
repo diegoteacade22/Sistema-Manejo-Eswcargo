@@ -13,11 +13,19 @@ import { updateShipment } from '@/app/actions';
 import { Loader2 } from 'lucide-react';
 import { Shipment } from '@prisma/client';
 
+type ShipmentFormData = {
+    status: string;
+    forwarder: string;
+    date_shipped: string;
+    date_arrived: string;
+    notes: string;
+};
+
 export default function EditShipmentForm({ shipment }: { shipment: Shipment }) {
     const router = useRouter();
     const [isPending, startTransition] = useTransition();
 
-    const [formData, setFormData] = useState({
+    const [formData, setFormData] = useState<ShipmentFormData>({
         status: shipment.status || 'SALIENDO',
         forwarder: shipment.forwarder || '',
         date_shipped: shipment.date_shipped ? new Date(shipment.date_shipped).toISOString().split('T')[0] : '',
@@ -25,9 +33,9 @@ export default function EditShipmentForm({ shipment }: { shipment: Shipment }) {
         notes: shipment.notes || ''
     });
 
-    const handleChange = (field: string, value: string) => {
+    const handleChange = (field: keyof ShipmentFormData, value: string) => {
         setFormData(prev => {
-            const updates: any = { [field]: value };
+            const updates: Partial<ShipmentFormData> = { [field]: value };
 
             // Auto-calculate dates based on Status Logic if status changes
             if (field === 'status') {
@@ -38,23 +46,7 @@ export default function EditShipmentForm({ shipment }: { shipment: Shipment }) {
                     updates.date_shipped = today.toISOString().split('T')[0];
                 }
 
-                // LLEGANDO: 2 days after shipped date (if shipped date exists)
-                if (value === 'LLEGANDO' && prev.date_shipped) {
-                    const shipped = new Date(prev.date_shipped);
-                    shipped.setDate(shipped.getDate() + 2);
-                    updates.date_arrived = shipped.toISOString().split('T')[0]; // Estimated arrival
-                }
-
-                // EN BSAS / ARRIBA: if Arrival Date matches Today? 
-                // Logic requested: "en BsAs: si la fecha de llegada coincide con la fecha del dia"
-                // That's a display logic or auto-status update logic usually.
-                // Here we are editing manually. 
-
-                // ENTREGADO: 2 days after arrival
-                if (value === 'ENTREGADO' && prev.date_arrived) {
-                    // Actually Entregado means delivered TO client? Or to warehouse?
-                    // "Entregado: 2 dias despues de llegada"
-                }
+                // La fecha de llegada es real: nunca se completa con una estimación.
             }
 
             // If changing dates, maybe suggest status?
@@ -113,7 +105,7 @@ export default function EditShipmentForm({ shipment }: { shipment: Shipment }) {
                         />
                     </div>
                     <div className="space-y-2">
-                        <Label>Fecha Llegada (Estimada/Real)</Label>
+                        <Label>Fecha Llegada Real</Label>
                         <Input
                             type="date"
                             value={formData.date_arrived}

@@ -60,6 +60,7 @@ def normalize_status(s):
     s_up = s.upper()
     if 'ENCARGADO' in s_up: return 'ENCARGADO'
     if 'SALIENDO' in s_up: return 'SALIENDO'
+    if 'LLEGANDO' in s_up: return 'LLEGANDO'
     if 'MIAMI' in s_up: return 'MIAMI'
     if 'BSAS' in s_up or 'LLEGÓ' in s_up or 'LLEGO' in s_up or 'RECIBIDO' in s_up: return 'EN BSAS'
     if 'TRANSITO' in s_up: return 'EN TRANSITO'
@@ -69,9 +70,20 @@ def normalize_status(s):
 
 def normalize_shipment_status(value):
     raw_status = clean_text(value)
-    if not raw_status or raw_status.upper() == 'COMPRAR':
+    if not raw_status:
         return None
-    return normalize_status(raw_status)
+    normalized_status = normalize_status(raw_status)
+    if normalized_status not in {
+        'MIAMI',
+        'SALIENDO',
+        'LLEGANDO',
+        'EN BSAS',
+        'EN TRANSITO',
+        'ENTREGADO',
+        'CANCELADO',
+    }:
+        return None
+    return normalized_status
 
 def calculate_active_order_total(items):
     return sum(
@@ -218,10 +230,15 @@ def extract_all():
         
         # Filtro de fecha
         if days_filter:
-            date_val = row.get('FECHA SAL')
-            if pd.notna(date_val) and isinstance(date_val, (datetime, pd.Timestamp)):
-                if (now - date_val.to_pydatetime() if hasattr(date_val, 'to_pydatetime') else now - date_val).days > days_filter:
-                    continue
+            source_dates = []
+            for column_name in ('FECHA SAL', 'FECHA LLEG'):
+                date_val = row.get(column_name)
+                if pd.notna(date_val) and isinstance(date_val, (datetime, pd.Timestamp)):
+                    source_dates.append(
+                        date_val.to_pydatetime() if hasattr(date_val, 'to_pydatetime') else date_val
+                    )
+            if source_dates and all((now - date_val).days > days_filter for date_val in source_dates):
+                continue
 
         try:
             raw_cli = row.get('COD CLI')
