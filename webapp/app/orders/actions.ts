@@ -4,6 +4,7 @@
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/lib/auth';
+import { calculateActiveOrderTotal } from '@/lib/order-totals';
 
 export async function updateOrderItem(itemId: number, data: { quantity?: number; unit_price?: number }) {
     const session = await auth();
@@ -39,7 +40,7 @@ export async function updateOrderItem(itemId: number, data: { quantity?: number;
             where: { orderId: currentItem.orderId }
         });
 
-        const newOrderTotal = allItems.reduce((sum, item) => sum + item.subtotal, 0);
+        const newOrderTotal = calculateActiveOrderTotal(allItems);
 
         await prisma.order.update({
             where: { id: currentItem.orderId },

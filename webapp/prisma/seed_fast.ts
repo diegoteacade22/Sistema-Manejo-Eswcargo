@@ -9,6 +9,7 @@ import {
     normalizeSourceRows,
 } from '../lib/sync-source-normalization';
 import { type OperationLedgerInput, upsertOperationLedger } from '../lib/client-account-policy';
+import { calculateActiveOrderTotal } from '../lib/order-totals';
 import { sourceShipmentStatus, sourceShipmentStatusChanged } from '../lib/shipment-sync-status';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
@@ -161,7 +162,12 @@ async function main() {
             },
         });
     }
-    const normalizedOrdersData = normalizedOrders.accepted;
+    const normalizedOrdersData = normalizedOrders.accepted.map((order: any) => ({
+        ...order,
+        total_amount: (order.items || []).length > 0
+            ? calculateActiveOrderTotal(order.items)
+            : Number(order.total_amount || 0),
+    }));
 
     // ID tracking for cleanup
     const processedShipmentIds = new Set<number>();
@@ -391,11 +397,7 @@ async function main() {
 
         const orderDate = parseSafeDate(o.date) || new Date();
         const items = o.items || [];
-        let totalAmount = o.total_amount || 0;
-
-        if (totalAmount === 0 && items.length > 0) {
-            totalAmount = items.reduce((sum: number, i: any) => sum + (i.unit_price * i.quantity), 0);
-        }
+        const totalAmount = Number(o.total_amount || 0);
 
         const itemStatuses = [...new Set(
             items

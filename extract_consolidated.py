@@ -71,6 +71,13 @@ def normalize_shipment_status(value):
     raw_status = clean_text(value)
     return normalize_status(raw_status) if raw_status else None
 
+def calculate_active_order_total(items):
+    return sum(
+        item['unit_price'] * item['quantity']
+        for item in items
+        if normalize_status(item.get('status')) != 'CANCELADO'
+    )
+
 def extract_all():
     start_time = time.time()
     
@@ -394,8 +401,8 @@ def extract_all():
         # case A: It's an Order (Cargo)
         if onum is not None:
             items = det_map.get(onum, [])
-            if total_val == 0 and items:
-                total_val = sum(i['unit_price'] * i['quantity'] for i in items)
+            if items:
+                total_val = calculate_active_order_total(items)
             
             if not client_id_val and not client_name_val:
                 fallback = det_client_map.get(onum)

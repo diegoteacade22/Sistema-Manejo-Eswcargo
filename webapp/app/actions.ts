@@ -11,6 +11,7 @@ import { buildShipmentItems } from '@/lib/shipment-items';
 import type { PaymentTarget } from '@/lib/payment-targets';
 import { getPackingSegmentIssue, getPackingSegments, getShipmentChargeIssue } from '@/lib/packing-segments';
 import { upsertOperationLedger } from '@/lib/client-account-policy';
+import { calculateActiveOrderTotal } from '@/lib/order-totals';
 import { randomUUID } from 'node:crypto';
 import {
     appendShipmentStatusAudit,
@@ -270,7 +271,11 @@ export async function submitOrder(data: {
     }
 
     try {
-        const totalAmount = data.items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+        const totalAmount = calculateActiveOrderTotal(data.items.map(item => ({
+            status: item.status,
+            quantity: item.quantity,
+            unit_price: item.price,
+        })));
 
         // Pre-fetch shipments for resolution
         const shipmentNumbers = [...new Set(data.items
