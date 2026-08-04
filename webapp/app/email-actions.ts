@@ -31,6 +31,15 @@ function formatBusinessDate(value: Date | string) {
     return new Intl.DateTimeFormat('en-US', { timeZone: 'UTC' }).format(new Date(value));
 }
 
+function escapeHtml(value: unknown) {
+    return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+}
+
 function assertInvoiceIsReady(order: { items: Array<{ quantity: number; unit_price: number }>; total_amount: number | null }) {
     if (!order.items.length) {
         throw new Error('No se puede emitir el invoice: el pedido no tiene productos confirmados.');
@@ -261,133 +270,140 @@ export async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocu
         throw new Error(sourceBlockMessage(sourceBlock));
     }
 
-    assertInvoiceIsReady(order);
+    const invoiceItems = order.items.filter(item => !isCancelledOrderItem(item.status));
+    assertInvoiceIsReady({ ...order, items: invoiceItems });
 
-    let itemsHtml = '';
-    let totalPcs = 0;
-    order.items.filter(item => !isCancelledOrderItem(item.status)).forEach(item => {
-        totalPcs += item.quantity;
-        itemsHtml += `
-                <tr>
-                    <td style="padding: 5px 10px; border-bottom: 1px solid #eee; text-align: center;">${item.quantity}</td>
-                    <td style="padding: 5px 10px; border-bottom: 1px solid #eee;">${item.productName}</td>
-                    <td style="padding: 5px 10px; border-bottom: 1px solid #eee; text-align: center; color: #666; font-size: 11px;">${(item as any).product?.color_grade || '-'}</td>
-                    <td style="padding: 5px 10px; border-bottom: 1px solid #eee; text-align: right;">USD ${item.unit_price.toFixed(0)}</td>
-                    <td style="padding: 5px 10px; border-bottom: 1px solid #eee; text-align: right; font-weight: bold;">USD ${(item.unit_price * item.quantity).toFixed(0)}</td>
-                </tr>
-             `;
-    });
+    const totalPcs = invoiceItems.reduce((sum, item) => sum + item.quantity, 0);
+    const itemsHtml = invoiceItems.map((item, index) => `
+        <tr class="${index % 2 ? 'alternate' : ''}">
+            <td class="qty">${item.quantity}</td>
+            <td class="description">${escapeHtml(item.productName)}</td>
+            <td class="color">${escapeHtml((item as any).product?.color_grade || '-')}</td>
+            <td class="money">USD ${new Intl.NumberFormat('en-US').format(item.unit_price)}</td>
+            <td class="money strong">USD ${new Intl.NumberFormat('en-US').format(item.unit_price * item.quantity)}</td>
+        </tr>
+    `).join('');
 
-    itemsHtml += `
-            <tr style="background-color: #f9f9f9; border-top: 2px solid #103a89;">
-                <td style="padding: 12px; text-align: center; font-size: 16px; font-weight: 900; color: #103a89;">${totalPcs}</td>
-                <td colspan="2" style="padding: 12px; text-align: right; font-size: 11px; font-weight: 900; color: #103a89; text-transform: uppercase;">Total Units (PCs)</td>
-                <td colspan="2"></td>
-            </tr>
-        `;
+    const clientCode = order.client.old_id || order.client.id;
+    const shipmentWeight = Number(order.shipment?.weight_cli || 0);
+    const weightLabel = shipmentWeight > 0
+        ? `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(shipmentWeight)} KG`
+        : '- KG';
 
-    const htmlBody = `
-            <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 700px; margin: 0 auto; color: #333; background-color: #fff; border: 1px solid #eee;">
-                <!-- Header -->
-                    <div style="background-color: #fff; padding: 12px 30px; border-bottom: 5px solid #103a89;">
-                    <table style="width: 100%;">
-                        <tr>
-                            <td>
-                                <h1 style="color: #103a89; margin: 0; font-size: 28px; text-transform: uppercase;">ELECTRO-SURWEB INC</h1>
-                                <p style="font-size: 13px; color: #666; margin: 5px 0 0 0;">21180 MAINSAIL CIR B19, MIAMI, FL 33180</p>
-                                <p style="font-size: 13px; color: #666; margin: 2px 0 0 0;">(786) 281-4922 | INFO@ELECTROSURWEB.COM</p>
-                            </td>
-                            <td style="text-align: right; vertical-align: top;">
-                                <h2 style="color: #ffffff; background-color: #103a89; display: inline-block; padding: 5px 15px; border-radius: 5px; margin: 0; font-size: 20px; text-transform: uppercase; letter-spacing: 1px;">INVOICE - FACTURA</h2>
-                                <p style="font-size: 32px; font-weight: 900; margin: 5px 0 0 0; color: #103a89;">#${order.order_number}</p>
-                            </td>
-                        </tr>
-                    </table>
-                </div>
-                
-                <!-- Info Section -->
-                <div style="padding: 14px 30px;">
-                    <table style="width: 100%; margin-bottom: 12px;">
-                        <tr>
-                            <td style="width: 50%; vertical-align: top;">
-                                <div style="background-color: #103a89; color: #fff; padding: 5px 10px; font-weight: bold; font-size: 12px; margin-bottom: 10px;">CUSTOMER</div>
-                                <p style="margin: 0; font-size: 15px; font-weight: bold; text-transform: uppercase;">${order.client.name}</p>
-                                <p style="margin: 5px 0 0 0; font-size: 13px; color: #555;">${order.client.address || 'NO ADDRESS'}</p>
-                                <p style="margin: 2px 0 0 0; font-size: 13px; color: #555;">${order.client.city || 'MIAMI'}, ${order.client.country || 'USA'}</p>
-                            </td>
-                            <td style="width: 50%; vertical-align: top; text-align: right;">
-                                <table style="margin-left: auto; border-collapse: collapse;">
-                                    <tr>
-                                        <td style="padding: 5px; font-size: 13px; font-weight: bold; color: #103a89;">DATE:</td>
-                                        <td style="padding: 5px; font-size: 13px;">${formatBusinessDate(order.date)}</td>
-                                    </tr>
-                                    <tr>
-                                        <td style="padding: 5px; font-size: 13px; font-weight: bold; color: #103a89;">CUSTOMER ID:</td>
-                                        <td style="padding: 5px; font-size: 13px;">${order.client.old_id || order.client.id}</td>
-                                    </tr>
-                                    <tr>
-                                        <td style="padding: 5px; font-size: 13px; font-weight: bold; color: #103a89;">TERMS:</td>
-                                        <td style="padding: 5px; font-size: 13px; font-weight: bold;">USDT (USD)</td>
-                                    </tr>
-                                </table>
-                            </td>
-                        </tr>
-                    </table>
-                
-                    <!-- Items Table -->
-                    <table style="width: 100%; border-collapse: collapse;">
-                        <thead>
-                            <tr style="background-color: #103a89; color: #fff; text-transform: uppercase;">
-                                <th style="padding: 8px 12px; font-size: 11px;">QTY</th>
-                                <th style="padding: 8px 12px; font-size: 11px; text-align: left;">DESCRIPTION</th>
-                                <th style="padding: 8px 12px; font-size: 11px; text-align: center;">COLOR</th>
-                                <th style="padding: 8px 12px; font-size: 11px; text-align: right;">UNIT VALUE</th>
-                                <th style="padding: 8px 12px; font-size: 11px; text-align: right;">TOTAL VALUE</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${itemsHtml}
-                        </tbody>
-                        <tfoot>
-                            <tr>
-                                <td colspan="2"></td>
-                                <td style="padding: 15px 10px; font-weight: 900; text-align: right; background-color: #103a89; color: #fff;">TOTAL INVOICE:</td>
-                                <td style="padding: 15px 10px; font-weight: 900; text-align: right; font-size: 24px; background-color: #f9f9f9; color: #103a89; border-bottom: 3px solid #103a89;">
-                                    USD ${new Intl.NumberFormat('en-US').format(order.total_amount)}
-                                </td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                    
-                    <!-- Banking Section -->
-                    <div style="margin-top: 12px; padding: 8px 20px; border: 1px solid #eee; background-color: #fcfcfc; page-break-inside: avoid;">
-                        <h3 style="color: #103a89; margin: 0 0 8px 0; font-size: 13px; text-transform: uppercase; border-bottom: 1px solid #103a89; padding-bottom: 4px;">Payment Instructions</h3>
-                        <div style="font-size: 11px; line-height: 1.2;">
-                            <p style="margin: 0 0 6px 0;"><strong>Beneficiary:</strong> Electro-Surweb Inc<br><strong>Address:</strong> 21180 Mainsail Circle, B19, Aventura, FL 33180</p>
-                            
-                            <p style="margin: 0 0 6px 0;"><strong>Bank:</strong> MERCURY (Choice Financial Group)<br>
-                               <strong>Account Number:</strong> 202557771823<br>
-                               <strong>ABA / Routing:</strong> 09131122<br>
-                               <strong>Bank Address:</strong> 4501 23rd Avenue S, Fargo, ND 58104</p>
-                            
-                            <div style="margin-top: 8px; padding-top: 6px; border-top: 1px dashed #ccc;">
-                                <p style="margin: 0; font-weight: bold; color: #103a89;">ACEPTAMOS USDT - CONSULTAR WALLET</p>
+    const htmlBody = `<!doctype html>
+        <html>
+            <head>
+                <meta charset="utf-8">
+                <style>
+                    @page { size: Letter; margin: 0; }
+                    * { box-sizing: border-box; }
+                    html, body { width: 8.5in; min-height: 11in; margin: 0; padding: 0; background: #fff; }
+                    body { font-family: Arial, Helvetica, sans-serif; color: #263853; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                    .page { width: 8.5in; min-height: 11in; padding: 0.38in 0.48in 0.32in; background: #fff; }
+                    .header { min-height: 1.12in; padding: 0.19in 0.26in; background: #103a89; color: #fff; display: flex; justify-content: space-between; align-items: flex-start; }
+                    .brand { margin: 0; font-size: 23px; line-height: 1; letter-spacing: -0.5px; font-weight: 900; }
+                    .brand-meta { margin-top: 7px; font-size: 7.5px; line-height: 1.5; letter-spacing: 0.35px; font-weight: 700; }
+                    .invoice-title { min-width: 2.32in; padding: 7px 12px; border: 1px solid rgba(255,255,255,.3); border-radius: 5px; text-align: center; font-size: 13px; font-weight: 900; letter-spacing: 1.3px; }
+                    .invoice-number { margin-top: 8px; text-align: right; font-size: 25px; line-height: 1; font-weight: 900; letter-spacing: 1px; }
+                    .main { padding: 0.22in 0.21in 0; }
+                    .meta-grid { display: grid; grid-template-columns: 1fr 2.25in; gap: 0.45in; margin-bottom: 0.18in; }
+                    .section-label { width: 1.05in; padding-bottom: 5px; border-bottom: 1px solid #b8c5db; color: #103a89; font-size: 8px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; }
+                    .customer-name { margin-top: 9px; color: #273953; font-size: 12px; font-weight: 900; text-transform: uppercase; }
+                    .customer-line { margin-top: 5px; color: #53657e; font-size: 8px; font-weight: 600; text-transform: uppercase; }
+                    .invoice-meta .section-label { width: 100%; text-align: right; }
+                    .meta-row { display: grid; grid-template-columns: 0.8in 1fr; margin-top: 8px; font-size: 8px; text-align: right; }
+                    .meta-key { color: #64748b; font-weight: 800; }
+                    .meta-value { color: #103a89; font-weight: 900; }
+                    table.items { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid #dbe3ef; border-radius: 5px; overflow: hidden; }
+                    .items thead { background: #103a89; color: #fff; }
+                    .items th { height: 0.39in; padding: 7px 9px; border-right: 1px solid rgba(255,255,255,.18); font-size: 7.2px; letter-spacing: 0.8px; text-transform: uppercase; }
+                    .items th:nth-child(1) { width: 7%; }
+                    .items th:nth-child(2) { width: 50%; text-align: left; }
+                    .items th:nth-child(3) { width: 13%; }
+                    .items th:nth-child(4) { width: 14%; text-align: right; }
+                    .items th:nth-child(5) { width: 16%; text-align: right; }
+                    .items td { min-height: 0.27in; padding: 7px 9px; border-right: 1px solid #dbe3ef; border-bottom: 1px solid #dbe3ef; font-size: 8.4px; }
+                    .items tr.alternate td { background: #f6f8fb; }
+                    .items .qty { color: #103a89; text-align: center; font-weight: 900; }
+                    .items .description { font-weight: 600; }
+                    .items .color { color: #64748b; text-align: center; font-size: 7.2px; font-weight: 700; text-transform: uppercase; }
+                    .items .money { text-align: right; white-space: nowrap; }
+                    .items .strong { color: #263853; font-weight: 900; }
+                    .items tfoot td { height: 0.36in; border-bottom: 0; background: #f6f8fb; }
+                    .items tfoot .total-pcs { color: #103a89; font-size: 11px; font-weight: 900; text-align: center; }
+                    .items tfoot .total-label { color: #103a89; font-size: 7px; font-weight: 900; text-align: right; text-transform: uppercase; letter-spacing: .8px; }
+                    .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.28in; margin-top: 0.22in; page-break-inside: avoid; }
+                    .bank { min-height: 1.48in; padding: 0.16in; border: 1px solid #e3e9f1; border-radius: 5px; background: #f8fafc; }
+                    .bank h3 { margin: 0 0 8px; color: #103a89; font-size: 7.3px; letter-spacing: 1px; text-transform: uppercase; }
+                    .bank p { margin: 0; font-size: 6.6px; line-height: 1.45; }
+                    .bank .crypto { margin-top: 8px; padding-top: 7px; border-top: 1px solid #cbd5e1; color: #103a89; font-weight: 900; }
+                    .summary-row { display: flex; justify-content: space-between; padding: 0.12in 0.13in; border-radius: 4px; background: #f6f8fb; color: #64748b; font-size: 8px; font-weight: 900; text-transform: uppercase; }
+                    .summary-row + .summary-row { margin-top: 6px; }
+                    .summary-row .value { color: #263853; }
+                    .grand-total { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 6px; padding: 0.12in 0.08in 0.09in; border-top: 2px solid #103a89; color: #103a89; font-size: 11px; font-weight: 900; text-transform: uppercase; }
+                    .grand-total .amount { text-align: right; font-size: 24px; line-height: .9; }
+                    .grand-total .currency { display: block; margin-bottom: 4px; color: #64748b; font-size: 7px; }
+                    .legal { margin-top: 0.11in; color: #94a3b8; font-size: 5.8px; line-height: 1.35; font-style: italic; }
+                    .footer { margin-top: 0.16in; padding-top: 0.11in; border-top: 1px solid #e3e9f1; text-align: center; page-break-inside: avoid; }
+                    .social { color: #54709f; font-size: 6.4px; font-weight: 800; letter-spacing: .6px; word-spacing: 10px; }
+                    .thanks { margin-top: 0.15in; color: #263853; font-size: 7.5px; font-weight: 900; font-style: italic; text-transform: uppercase; }
+                </style>
+            </head>
+            <body>
+                <main class="page">
+                    <header class="header">
+                        <div>
+                            <h1 class="brand">ELECTRO-SURWEB INC</h1>
+                            <div class="brand-meta">9600 NW 38TH ST, OFFICE 208, DORAL, FL 33172<br>PH: (786) 281-4922 | INFO@ELECTROSURWEB.COM</div>
+                        </div>
+                        <div>
+                            <div class="invoice-title">INVOICE - FACTURA</div>
+                            <div class="invoice-number">#${escapeHtml(order.order_number)}</div>
+                        </div>
+                    </header>
+                    <section class="main">
+                        <div class="meta-grid">
+                            <div>
+                                <div class="section-label">Customer</div>
+                                <div class="customer-name">${escapeHtml(order.client.name)}</div>
+                                <div class="customer-line">${escapeHtml(order.client.address || 'NO ADDRESS')}</div>
+                                <div class="customer-line">${escapeHtml(order.client.city || 'MIAMI')}, ${escapeHtml(order.client.country || 'USA')}</div>
+                                <div class="customer-line">CLIENT ID: ${escapeHtml(clientCode)}</div>
+                            </div>
+                            <div class="invoice-meta">
+                                <div class="section-label">Invoice Meta</div>
+                                <div class="meta-row"><span class="meta-key">DATE:</span><span class="meta-value">${formatBusinessDate(order.date)}</span></div>
+                                <div class="meta-row"><span class="meta-key">TERMS:</span><span class="meta-value">USDT (USD)</span></div>
                             </div>
                         </div>
-                    </div>
-
-                    <!-- Footer -->
-                    <div style="margin-top: 8px; text-align: center; border-top: 1px solid #eee; padding-top: 6px; page-break-inside: avoid;">
-                        <p style="font-size: 12px; font-weight: bold; color: #103a89; margin: 0 0 3px 0;">Thank you for doing business with us!</p>
-                        <p style="font-size: 9px; color: #666; margin: 0 0 5px 0;">For questions, contact Diego Rodriguez: (786) 281-4922 | diego@electrosurweb.com</p>
-                        
-                        <div style="font-size: 9px; color: #103a89; font-weight: bold;">
-                            electrosurweb.com | eswtech.net | WhatsApp | @eswtech1
+                        <table class="items">
+                            <thead><tr><th>Qty</th><th>Full Description of Goods</th><th>Color</th><th>Unit Value</th><th>Total Value</th></tr></thead>
+                            <tbody>${itemsHtml}</tbody>
+                            <tfoot><tr><td class="total-pcs">${totalPcs}</td><td colspan="2" class="total-label">Total PCS</td><td colspan="2"></td></tr></tfoot>
+                        </table>
+                        <div class="summary-grid">
+                            <div>
+                                <div class="bank">
+                                    <h3>Banking Instructions</h3>
+                                    <p><strong>BENEFICIARY:</strong> ELECTRO-SURWEB INC<br><strong>BANK:</strong> TD BANK<br><strong>ACCOUNT:</strong> 4444754611<br><strong>ROUTING:</strong> 067014822<br><strong>ABA:</strong> 031101266<br><strong>SWIFT:</strong> NRTHUS33XXX</p>
+                                    <p class="crypto">USDT / CRYPTO ACCEPTED</p>
+                                </div>
+                                <p class="legal">These commodities, technology or software, were exported from the United States in accordance with the Export Administration regulations. Diversion contrary to U.S. Law Prohibited.</p>
+                            </div>
+                            <div>
+                                <div class="summary-row"><span>Weight Total</span><span class="value">${weightLabel}</span></div>
+                                <div class="summary-row"><span>Items Count</span><span class="value">${invoiceItems.length} PCS</span></div>
+                                <div class="grand-total"><span>Total Invoice</span><span class="amount"><span class="currency">USD</span>${new Intl.NumberFormat('en-US').format(order.total_amount)}</span></div>
+                            </div>
                         </div>
-                    </div>
-                </div>
-            </div>
-        `;
+                        <footer class="footer">
+                            <div class="social">◉ ELECTROSURWEB.COM　◎ @ESWTECH1　□ WHATSAPP　☆ @ESWTECH1</div>
+                            <div class="thanks">Thank you for doing business with us!</div>
+                        </footer>
+                    </section>
+                </main>
+            </body>
+        </html>`;
 
     const pdfBuffer = await generatePdfFromHtml(htmlBody);
     const fileName = getInvoicePdfFileName(order.order_number, order.id, order.client.old_id, order.client.id);

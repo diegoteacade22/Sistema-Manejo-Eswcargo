@@ -163,7 +163,7 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
                         <div className="space-y-1">
                             <h1 className="text-4xl font-black tracking-tighter leading-none">ELECTRO-SURWEB INC</h1>
                             <div className="text-xs opacity-90 font-medium uppercase tracking-wider">
-                                <p>21180 MAINSAIL CIR B19, MIAMI, FL 33180</p>
+                                <p>9600 NW 38TH ST, OFFICE 208, DORAL, FL 33172</p>
                                 <p>PH: (786) 281-4922 | INFO@ELECTROSURWEB.COM</p>
                             </div>
                         </div>
@@ -247,9 +247,11 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
                                     <h4 className="text-[10px] font-black text-[#103a89] uppercase tracking-widest mb-2">Banking Instructions</h4>
                                     <div className="text-[10px] font-bold text-slate-700 space-y-1 uppercase leading-tight">
                                         <p><span className="text-[#103a89]">Beneficiary:</span> Electro-Surweb Inc</p>
-                                        <p><span className="text-[#103a89]">Bank:</span> MERCURY (Choice Financial Group)</p>
-                                        <p><span className="text-[#103a89]">Account:</span> 202557771823</p>
-                                        <p><span className="text-[#103a89]">ABA/Routing:</span> 09131122</p>
+                                        <p><span className="text-[#103a89]">Bank:</span> TD BANK</p>
+                                        <p><span className="text-[#103a89]">Account:</span> 4444754611</p>
+                                        <p><span className="text-[#103a89]">Routing:</span> 067014822</p>
+                                        <p><span className="text-[#103a89]">ABA:</span> 031101266</p>
+                                        <p><span className="text-[#103a89]">SWIFT:</span> NRTHUS33XXX</p>
                                         <p className="pt-2 text-[#103a89] border-t border-slate-200 mt-2">USDT / CRYPTO ACCEPTED</p>
                                     </div>
                                 </div>
