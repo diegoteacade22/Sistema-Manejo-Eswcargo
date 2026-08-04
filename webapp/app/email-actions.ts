@@ -164,8 +164,24 @@ export async function buildPackingListDocument(shipmentId: number, packingClient
             </tr>
         `;
 
-    const htmlBody = `
-            <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 700px; margin: 0 auto; color: #333; background-color: #fff; border: 1px solid #eee;">
+    const htmlBody = `<!doctype html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <style>
+                @page { size: Letter; margin: 0; }
+                * { box-sizing: border-box; }
+                html, body { width: 8.5in; min-height: 11in; margin: 0; padding: 0; background: #fff; }
+                body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                .packing-page { width: 8.5in; height: 11in; padding: 0.38in 0.48in 0.32in; display: flex; flex-direction: column; background: #fff; }
+                .packing-shell { width: 100%; max-width: 700px; flex: 1; min-height: 0; margin: 0 auto; display: flex; flex-direction: column; background: #fff; border: 1px solid #eee; }
+                .packing-main { padding: 20px; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+                .packing-bottom { margin-top: auto; page-break-inside: avoid; }
+            </style>
+        </head>
+        <body>
+        <main class="packing-page">
+            <div class="packing-shell">
                 <!-- Header ESWCARGO -->
                 <div style="background-color: #0D3B4C; padding: 20px; text-align: center; border-bottom: 5px solid #F4AB3D;">
                     <h1 style="color: #fff; margin: 0; font-size: 28px; letter-spacing: 2px; font-style: italic;">
@@ -174,7 +190,7 @@ export async function buildPackingListDocument(shipmentId: number, packingClient
                     <p style="color: #72C4B7; margin: 5px 0 0 0; font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 3px;">International Logistics & Forwarding</p>
                 </div>
                 
-                <div style="padding: 20px;">
+                <div class="packing-main">
                     <table style="width: 100%; margin-bottom: 25px;">
                         <tr>
                             <td>
@@ -202,7 +218,8 @@ export async function buildPackingListDocument(shipmentId: number, packingClient
                         </tbody>
                     </table>
                     
-                    <div style="margin-top: 30px; padding: 20px; background-color: #f9f9f9; border-radius: 8px; border-left: 5px solid #0D3B4C;">
+                    <div class="packing-bottom">
+                    <div style="padding: 20px; background-color: #f9f9f9; border-radius: 8px; border-left: 5px solid #0D3B4C;">
                         <table style="width: 100%;">
                             <tr>
                                 <td>
@@ -227,8 +244,12 @@ export async function buildPackingListDocument(shipmentId: number, packingClient
                         </p>
                         <p style="margin-top: 20px; font-style: italic; color: #aaa;">This is an automated shipping document. Please retain for your records.</p>
                     </div>
+                    </div>
                 </div>
             </div>
+        </main>
+        </body>
+        </html>
         `;
 
     const pdfBuffer = await generatePdfFromHtml(htmlBody);

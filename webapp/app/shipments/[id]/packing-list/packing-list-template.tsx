@@ -95,21 +95,25 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                 @media print {
                     @page {
                         margin: 0.2cm;
-                        size: auto;
+                        size: Letter;
                     }
                     html, body {
-                        height: 100%;
+                        width: 8.5in;
+                        min-height: 11in;
                         margin: 0 !important;
                         padding: 0 !important;
-                        overflow: hidden;
                     }
                     .print-container {
                         width: 100%;
-                        height: 100%;
-                        transform: scale(0.92);
-                        transform-origin: top center;
+                        height: 10.84in;
+                        display: flex;
+                        flex-direction: column;
                         padding: 0;
                         margin: 0 auto;
+                    }
+                    .packing-bottom {
+                        margin-top: auto;
+                        page-break-inside: avoid;
                     }
                     /* Forzar colores de fondo y bordes */
                     * {
@@ -344,6 +348,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                     </table>
                 </div>
 
+                <div className="packing-bottom">
                 {/* Footer / Totals Section */}
                 <div className="mt-4 print:mt-2 flex justify-end">
                     <div className="w-1/2 rounded border border-[#0D3B4C] overflow-hidden shadow-sm">
@@ -397,6 +402,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                         <span>instagram.com/eswcargo</span>
                         <span>facebook.com/ESWCargo</span>
                     </div>
+                </div>
                 </div>
             </div>
         </div>
