@@ -31,7 +31,7 @@
     "test:account-evidence": "tsx scripts/test-account-evidence.ts",
     "test:packing-segmentation": "tsx scripts/test-packing-segmentation.ts",
     "test:shipment-visibility": "tsx scripts/test-shipment-visibility.ts",
-    "test:shipment-status": "tsx --test tests/shipment-status-sheets.test.ts",
+    "test:shipment-status": "tsx --test tests/shipment-status-sheets.test.ts tests/shipment-sync-status.test.ts",
     "test:document-filenames": "tsx --test tests/document-filenames.test.ts",
     "documents:export": "tsx scripts/export-operational-documents.ts",
     "test:client-account-policy": "tsx scripts/test-client-account-policy.ts",

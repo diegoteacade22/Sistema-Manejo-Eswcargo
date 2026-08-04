@@ -788,7 +788,7 @@ export default async function DashboardPage(props: { searchParams: Promise<{ mon
                     {shipmentsInTransit.map((shipment: any) => (
                       <Link key={shipment.id} href={`/shipments/${shipment.id}`} className="flex items-center justify-between gap-3 border-b border-border py-2 last:border-0 hover:text-blue-600">
                         <span className="font-medium">Envío #{shipment.shipment_number} · {shipment.client?.name || 'Sin cliente'}</span>
-                        <Badge variant="outline">{shipment.status}</Badge>
+                        <Badge variant="outline">{shipment.status || 'SIN ESTADO'}</Badge>
                       </Link>
                     ))}
                   </div>

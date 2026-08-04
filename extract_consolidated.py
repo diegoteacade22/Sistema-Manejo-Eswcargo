@@ -69,7 +69,9 @@ def normalize_status(s):
 
 def normalize_shipment_status(value):
     raw_status = clean_text(value)
-    return normalize_status(raw_status) if raw_status else None
+    if not raw_status or raw_status.upper() == 'COMPRAR':
+        return None
+    return normalize_status(raw_status)
 
 def calculate_active_order_total(items):
     return sum(

@@ -164,7 +164,7 @@ export default async function ShipmentPage(props: Props) {
                                 />
                             ) : (
                                 <Badge className="font-black text-xs uppercase px-4 py-1.5 bg-fuchsia-600 text-white border-none shadow-fuchsia-500/20 shadow-lg">
-                                    {shipment.status}
+                                    {shipment.status || 'SIN ESTADO'}
                                 </Badge>
                             )}
                             <span className="text-muted-foreground text-sm font-medium">

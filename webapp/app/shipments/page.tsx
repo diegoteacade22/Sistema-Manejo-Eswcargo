@@ -197,7 +197,7 @@ export default async function ShipmentsPage(props: { searchParams: Promise<{ q?:
                                             <ShipmentStatusDialog shipment={shipment} />
                                         ) : (
                                             <span className="inline-flex items-center rounded-full bg-fuchsia-600 px-3 py-1 text-xs font-black uppercase tracking-wide text-white">
-                                                {shipment.status}
+                                                {shipment.status || 'SIN ESTADO'}
                                             </span>
                                         )}
                                     </TableCell>

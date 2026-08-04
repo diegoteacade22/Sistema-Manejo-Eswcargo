@@ -100,10 +100,19 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
                         print-color-adjust: exact;
                         background: white !important;
                     }
-                    .print-compact {
-                        transform: scale(0.92);
-                        transform-origin: top center;
+                    .print-compact { transform: none; }
+                    #invoice-content {
+                        height: 10.65in;
+                        display: flex;
+                        flex-direction: column;
                     }
+                    .invoice-body {
+                        flex: 1;
+                        min-height: 0;
+                        display: flex;
+                        flex-direction: column;
+                    }
+                    .invoice-bottom { margin-top: auto; }
                     .no-print { display: none !important; }
                 }
             `}} />
@@ -163,7 +172,7 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
                         <div className="space-y-1">
                             <h1 className="text-4xl font-black tracking-tighter leading-none">ELECTRO-SURWEB INC</h1>
                             <div className="text-xs opacity-90 font-medium uppercase tracking-wider">
-                                <p>9600 NW 38TH ST, OFFICE 208, DORAL, FL 33172</p>
+                                <p>9600 NW 38TH ST - OFICINA 208 - DORAL, FL 33178</p>
                                 <p>PH: (786) 281-4922 | INFO@ELECTROSURWEB.COM</p>
                             </div>
                         </div>
@@ -175,7 +184,7 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
                         </div>
                     </div>
 
-                    <div className="p-8 print:p-6 space-y-6 print:space-y-4">
+                    <div className="invoice-body p-8 print:p-6 space-y-6 print:space-y-4">
                         {/* Info Blocks */}
                         <div className="grid grid-cols-2 gap-8 print:gap-4 border-b border-slate-100 pb-6 print:pb-4">
                             <div className="space-y-3 print:space-y-2">
@@ -240,6 +249,7 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
                             </table>
                         </div>
 
+                        <div className="invoice-bottom">
                         {/* Bottom Section */}
                         <div className="grid grid-cols-2 gap-8 pt-4">
                             <div className="space-y-4">
@@ -248,7 +258,7 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
                                     <div className="text-[10px] font-bold text-slate-700 space-y-1 uppercase leading-tight">
                                         <p><span className="text-[#103a89]">Beneficiary:</span> Electro-Surweb Inc</p>
                                         <p><span className="text-[#103a89]">Bank:</span> TD BANK</p>
-                                        <p><span className="text-[#103a89]">Account:</span> 4444754611</p>
+                                        <p><span className="text-[#103a89]">Account:</span> 4447209530</p>
                                         <p><span className="text-[#103a89]">Routing:</span> 067014822</p>
                                         <p><span className="text-[#103a89]">ABA:</span> 031101266</p>
                                         <p><span className="text-[#103a89]">SWIFT:</span> NRTHUS33XXX</p>
@@ -292,6 +302,7 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
                             <p className="text-center mt-4 text-[11px] font-black text-slate-800 uppercase italic">
                                 Thank you for doing business with us!
                             </p>
+                        </div>
                         </div>
                     </div>
                 </div>

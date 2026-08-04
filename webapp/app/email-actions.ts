@@ -299,13 +299,13 @@ export async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocu
                     * { box-sizing: border-box; }
                     html, body { width: 8.5in; min-height: 11in; margin: 0; padding: 0; background: #fff; }
                     body { font-family: Arial, Helvetica, sans-serif; color: #263853; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                    .page { width: 8.5in; min-height: 11in; padding: 0.38in 0.48in 0.32in; background: #fff; }
+                    .page { width: 8.5in; height: 11in; padding: 0.38in 0.48in 0.32in; background: #fff; display: flex; flex-direction: column; }
                     .header { min-height: 1.12in; padding: 0.19in 0.26in; background: #103a89; color: #fff; display: flex; justify-content: space-between; align-items: flex-start; }
                     .brand { margin: 0; font-size: 23px; line-height: 1; letter-spacing: -0.5px; font-weight: 900; }
                     .brand-meta { margin-top: 7px; font-size: 7.5px; line-height: 1.5; letter-spacing: 0.35px; font-weight: 700; }
                     .invoice-title { min-width: 2.32in; padding: 7px 12px; border: 1px solid rgba(255,255,255,.3); border-radius: 5px; text-align: center; font-size: 13px; font-weight: 900; letter-spacing: 1.3px; }
                     .invoice-number { margin-top: 8px; text-align: right; font-size: 25px; line-height: 1; font-weight: 900; letter-spacing: 1px; }
-                    .main { padding: 0.22in 0.21in 0; }
+                    .main { flex: 1; min-height: 0; padding: 0.22in 0.21in 0; display: flex; flex-direction: column; }
                     .meta-grid { display: grid; grid-template-columns: 1fr 2.25in; gap: 0.45in; margin-bottom: 0.18in; }
                     .section-label { width: 1.05in; padding-bottom: 5px; border-bottom: 1px solid #b8c5db; color: #103a89; font-size: 8px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; }
                     .customer-name { margin-top: 9px; color: #273953; font-size: 12px; font-weight: 900; text-transform: uppercase; }
@@ -332,7 +332,8 @@ export async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocu
                     .items tfoot td { height: 0.36in; border-bottom: 0; background: #f6f8fb; }
                     .items tfoot .total-pcs { color: #103a89; font-size: 11px; font-weight: 900; text-align: center; }
                     .items tfoot .total-label { color: #103a89; font-size: 7px; font-weight: 900; text-align: right; text-transform: uppercase; letter-spacing: .8px; }
-                    .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.28in; margin-top: 0.22in; page-break-inside: avoid; }
+                    .document-bottom { margin-top: auto; page-break-inside: avoid; }
+                    .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.28in; page-break-inside: avoid; }
                     .bank { min-height: 1.48in; padding: 0.16in; border: 1px solid #e3e9f1; border-radius: 5px; background: #f8fafc; }
                     .bank h3 { margin: 0 0 8px; color: #103a89; font-size: 7.3px; letter-spacing: 1px; text-transform: uppercase; }
                     .bank p { margin: 0; font-size: 6.6px; line-height: 1.45; }
@@ -354,7 +355,7 @@ export async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocu
                     <header class="header">
                         <div>
                             <h1 class="brand">ELECTRO-SURWEB INC</h1>
-                            <div class="brand-meta">9600 NW 38TH ST, OFFICE 208, DORAL, FL 33172<br>PH: (786) 281-4922 | INFO@ELECTROSURWEB.COM</div>
+                            <div class="brand-meta">9600 NW 38TH ST - OFICINA 208 - DORAL, FL 33178<br>PH: (786) 281-4922 | INFO@ELECTROSURWEB.COM</div>
                         </div>
                         <div>
                             <div class="invoice-title">INVOICE - FACTURA</div>
@@ -381,25 +382,27 @@ export async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocu
                             <tbody>${itemsHtml}</tbody>
                             <tfoot><tr><td class="total-pcs">${totalPcs}</td><td colspan="2" class="total-label">Total PCS</td><td colspan="2"></td></tr></tfoot>
                         </table>
-                        <div class="summary-grid">
-                            <div>
-                                <div class="bank">
-                                    <h3>Banking Instructions</h3>
-                                    <p><strong>BENEFICIARY:</strong> ELECTRO-SURWEB INC<br><strong>BANK:</strong> TD BANK<br><strong>ACCOUNT:</strong> 4444754611<br><strong>ROUTING:</strong> 067014822<br><strong>ABA:</strong> 031101266<br><strong>SWIFT:</strong> NRTHUS33XXX</p>
-                                    <p class="crypto">USDT / CRYPTO ACCEPTED</p>
+                        <div class="document-bottom">
+                            <div class="summary-grid">
+                                <div>
+                                    <div class="bank">
+                                        <h3>Banking Instructions</h3>
+                                        <p><strong>BENEFICIARY:</strong> ELECTRO-SURWEB INC<br><strong>BANK:</strong> TD BANK<br><strong>ACCOUNT:</strong> 4447209530<br><strong>ROUTING:</strong> 067014822<br><strong>ABA:</strong> 031101266<br><strong>SWIFT:</strong> NRTHUS33XXX</p>
+                                        <p class="crypto">USDT / CRYPTO ACCEPTED</p>
+                                    </div>
+                                    <p class="legal">These commodities, technology or software, were exported from the United States in accordance with the Export Administration regulations. Diversion contrary to U.S. Law Prohibited.</p>
                                 </div>
-                                <p class="legal">These commodities, technology or software, were exported from the United States in accordance with the Export Administration regulations. Diversion contrary to U.S. Law Prohibited.</p>
+                                <div>
+                                    <div class="summary-row"><span>Weight Total</span><span class="value">${weightLabel}</span></div>
+                                    <div class="summary-row"><span>Items Count</span><span class="value">${invoiceItems.length} PCS</span></div>
+                                    <div class="grand-total"><span>Total Invoice</span><span class="amount"><span class="currency">USD</span>${new Intl.NumberFormat('en-US').format(order.total_amount)}</span></div>
+                                </div>
                             </div>
-                            <div>
-                                <div class="summary-row"><span>Weight Total</span><span class="value">${weightLabel}</span></div>
-                                <div class="summary-row"><span>Items Count</span><span class="value">${invoiceItems.length} PCS</span></div>
-                                <div class="grand-total"><span>Total Invoice</span><span class="amount"><span class="currency">USD</span>${new Intl.NumberFormat('en-US').format(order.total_amount)}</span></div>
-                            </div>
+                            <footer class="footer">
+                                <div class="social">◉ ELECTROSURWEB.COM　◎ @ESWTECH1　□ WHATSAPP　☆ @ESWTECH1</div>
+                                <div class="thanks">Thank you for doing business with us!</div>
+                            </footer>
                         </div>
-                        <footer class="footer">
-                            <div class="social">◉ ELECTROSURWEB.COM　◎ @ESWTECH1　□ WHATSAPP　☆ @ESWTECH1</div>
-                            <div class="thanks">Thank you for doing business with us!</div>
-                        </footer>
                     </section>
                 </main>
             </body>

@@ -25,6 +25,10 @@ import {
     rollbackShipmentSheetPlan,
     type ShipmentSheetPlan,
 } from '@/lib/shipment-status-sheets';
+import {
+    shipmentOrderItemStatusWhere,
+    validateManualShipmentStatus,
+} from '@/lib/shipment-sync-status';
 
 type DeliveryChannel = 'EMAIL' | 'WHATSAPP' | 'SKIPPED' | 'FAILED';
 
@@ -882,12 +886,21 @@ export async function updateShipment(data: {
     deliveryPaymentReviewed?: boolean;
 }) {
     await requireAdminUser();
+    let shipmentStatus: string;
+    try {
+        shipmentStatus = validateManualShipmentStatus(data.status);
+    } catch (error) {
+        return {
+            success: false,
+            error: error instanceof Error ? error.message : 'Estado de envío inválido.',
+        };
+    }
     try {
         const currentShipment = await (prisma as any).shipment.findUnique({
             where: { id: data.id },
             select: { status: true },
         });
-        const isBeingDelivered = String(data.status || '').toUpperCase() === 'ENTREGADO'
+        const isBeingDelivered = shipmentStatus.toUpperCase() === 'ENTREGADO'
             && String(currentShipment?.status || '').toUpperCase() !== 'ENTREGADO';
         if (isBeingDelivered && !data.deliveryPaymentReviewed) {
             return { success: false, error: 'Antes de marcar ENTREGADO confirmá si se cobró o quedó pendiente.' };
@@ -895,7 +908,7 @@ export async function updateShipment(data: {
         const shipment = await (prisma as any).shipment.update({
             where: { id: data.id },
             data: {
-                status: data.status,
+                status: shipmentStatus,
                 forwarder: data.forwarder,
                 date_shipped: data.date_shipped,
                 date_arrived: data.date_arrived,
@@ -906,7 +919,7 @@ export async function updateShipment(data: {
         // Sync Orders Status if Shipment Status changes
         // Mapping Shipment Status -> Order Status
         let targetOrderStatus = '';
-        const s = data.status.toUpperCase();
+        const s = shipmentStatus.toUpperCase();
 
         if (s === 'SALIENDO') targetOrderStatus = 'SALIENDO';
         else if (s === 'LLEGANDO') targetOrderStatus = 'LLEGANDO';
@@ -987,7 +1000,7 @@ export async function transitionShipmentsByDate(input: {
         const rawFrom = input.fromStatus.toUpperCase();
         const rawTo = input.toStatus.toUpperCase();
         const normalizedFrom = canonicalizeShipmentStatus(rawFrom);
-        const to = canonicalizeShipmentStatus(rawTo);
+        const to = validateManualShipmentStatus(canonicalizeShipmentStatus(rawTo));
         const fromAliases = (() => {
             if (normalizedFrom === 'EN 🇦🇷') return ['EN BSAS', 'EN 🇦🇷', 'RECIBIDO BSAS', 'ARRIBADO'];
             if (normalizedFrom === 'ENTREGADO') return ['ENTREGADO', 'FINALIZADO'];
@@ -1084,12 +1097,7 @@ export async function transitionShipmentsByDate(input: {
                 data: { status: to },
             });
             await tx.orderItem.updateMany({
-                where: {
-                    OR: [
-                        { shipmentId: { in: shipmentIds } },
-                        { order: { shipmentId: { in: shipmentIds } } },
-                    ],
-                },
+                where: shipmentOrderItemStatusWhere(shipmentIds),
                 data: { status: to },
             });
 
