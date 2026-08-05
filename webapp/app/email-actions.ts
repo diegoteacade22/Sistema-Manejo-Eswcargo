@@ -12,6 +12,8 @@ import { canUseSegmentedPackingForShipmentBlock, getOrderSourceDocumentBlock, ge
 import { getPackingDocumentNumber, getPackingSegmentIssue, getPackingSegments, getPackingSubtotal, projectShipmentForPacking } from '@/lib/packing-segments';
 import { getShipmentClientCharge } from '@/lib/shipment-client-charge';
 import { isCancelledOrderItem } from '@/lib/order-totals';
+import { INVOICE_TYPOGRAPHY } from '@/lib/invoice-typography';
+import { PACKING_LIST_TYPOGRAPHY } from '@/lib/packing-list-typography';
 
 type PackingListDocument = {
     shipment: any;
@@ -139,10 +141,10 @@ export async function buildPackingListDocument(shipmentId: number, packingClient
         totalPcs += item.quantity;
         itemsHtml += `
                 <tr>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold; color: #0D3B4C;">${item.quantity}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee; font-weight: 500;">${item.productName}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; color: #666; font-size: 11px; text-transform: uppercase;">${item.product?.color_grade || '-'}</td>
-                    <td style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold; color: #F4AB3D;">#${item.order?.order_number || '-'}</td>
+                    <td class="packing-item-detail" style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold; color: #0D3B4C;">${item.quantity}</td>
+                    <td class="packing-item-detail" style="padding: 10px; border-bottom: 1px solid #eee; font-weight: 500;">${item.productName}</td>
+                    <td class="packing-item-color" style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; color: #666; text-transform: uppercase;">${item.product?.color_grade || '-'}</td>
+                    <td class="packing-item-detail" style="padding: 10px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold; color: #F4AB3D;">#${item.order?.order_number || '-'}</td>
                 </tr>
              `;
     });
@@ -151,15 +153,15 @@ export async function buildPackingListDocument(shipmentId: number, packingClient
         totalPcs = documentShipment.item_count || 0;
         itemsHtml += `
                 <tr>
-                    <td colspan="4" style="padding: 12px; border-bottom: 1px solid #eee; font-weight: 600; text-transform: uppercase;">${cargoDescription}</td>
+                    <td colspan="4" class="packing-item-detail" style="padding: 12px; border-bottom: 1px solid #eee; font-weight: 600; text-transform: uppercase;">${cargoDescription}</td>
                 </tr>
              `;
     }
 
     itemsHtml += `
             <tr style="background-color: #f9f9f9; border-top: 2px solid #0D3B4C;">
-                <td style="padding: 12px; text-align: center; font-size: 16px; font-weight: 900; color: #0D3B4C;">${totalPcs}</td>
-                <td colspan="2" style="padding: 12px; text-align: right; font-size: 11px; font-weight: 900; color: #0D3B4C; text-transform: uppercase; letter-spacing: 1px;">Total PCs</td>
+                <td class="packing-total-pcs" style="padding: 12px; text-align: center; font-weight: 900; color: #0D3B4C;">${totalPcs}</td>
+                <td colspan="2" class="packing-total-label" style="padding: 12px; text-align: right; font-weight: 900; color: #0D3B4C; text-transform: uppercase; letter-spacing: 1px;">Total PCs</td>
                 <td></td>
             </tr>
         `;
@@ -170,13 +172,43 @@ export async function buildPackingListDocument(shipmentId: number, packingClient
             <meta charset="utf-8">
             <style>
                 @page { size: Letter; margin: 0; }
+                :root {
+                    --packing-brand-size: ${PACKING_LIST_TYPOGRAPHY.pdf.brandPx}px;
+                    --packing-brand-meta-size: ${PACKING_LIST_TYPOGRAPHY.pdf.brandMetaPx}px;
+                    --packing-document-title-size: ${PACKING_LIST_TYPOGRAPHY.pdf.documentTitlePx}px;
+                    --packing-document-number-size: ${PACKING_LIST_TYPOGRAPHY.pdf.documentNumberPx}px;
+                    --packing-metadata-size: ${PACKING_LIST_TYPOGRAPHY.pdf.metadataPx}px;
+                    --packing-item-header-size: ${PACKING_LIST_TYPOGRAPHY.pdf.itemHeaderPx}px;
+                    --packing-item-detail-size: ${PACKING_LIST_TYPOGRAPHY.pdf.itemDetailPx}px;
+                    --packing-item-color-size: ${PACKING_LIST_TYPOGRAPHY.pdf.itemColorPx}px;
+                    --packing-total-pcs-size: ${PACKING_LIST_TYPOGRAPHY.pdf.totalPcsPx}px;
+                    --packing-total-label-size: ${PACKING_LIST_TYPOGRAPHY.pdf.totalLabelPx}px;
+                    --packing-shipping-label-size: ${PACKING_LIST_TYPOGRAPHY.pdf.shippingLabelPx}px;
+                    --packing-shipping-route-size: ${PACKING_LIST_TYPOGRAPHY.pdf.shippingRoutePx}px;
+                    --packing-shipping-amount-size: ${PACKING_LIST_TYPOGRAPHY.pdf.shippingAmountPx}px;
+                    --packing-footer-size: ${PACKING_LIST_TYPOGRAPHY.pdf.footerPx}px;
+                }
                 * { box-sizing: border-box; }
                 html, body { width: 8.5in; min-height: 11in; margin: 0; padding: 0; background: #fff; }
-                body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; font-size: var(--packing-item-detail-size); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                 .packing-page { width: 8.5in; height: 11in; padding: 0.38in 0.48in 0.32in; display: flex; flex-direction: column; background: #fff; }
                 .packing-shell { width: 100%; max-width: 700px; flex: 1; min-height: 0; margin: 0 auto; display: flex; flex-direction: column; background: #fff; border: 1px solid #eee; }
                 .packing-main { padding: 20px; flex: 1; min-height: 0; display: flex; flex-direction: column; }
                 .packing-bottom { margin-top: auto; page-break-inside: avoid; }
+                .packing-brand { font-size: var(--packing-brand-size); }
+                .packing-brand-meta { font-size: var(--packing-brand-meta-size); }
+                .packing-document-title { font-size: var(--packing-document-title-size); }
+                .packing-document-number { font-size: var(--packing-document-number-size); }
+                .packing-metadata { font-size: var(--packing-metadata-size); }
+                .packing-item-header { font-size: var(--packing-item-header-size); }
+                .packing-item-detail { font-size: var(--packing-item-detail-size); }
+                .packing-item-color { font-size: var(--packing-item-color-size); }
+                .packing-total-pcs { font-size: var(--packing-total-pcs-size); }
+                .packing-total-label { font-size: var(--packing-total-label-size); }
+                .packing-shipping-label { font-size: var(--packing-shipping-label-size); }
+                .packing-shipping-route { font-size: var(--packing-shipping-route-size); }
+                .packing-shipping-amount { font-size: var(--packing-shipping-amount-size); }
+                .packing-footer { font-size: var(--packing-footer-size); }
             </style>
         </head>
         <body>
@@ -184,22 +216,22 @@ export async function buildPackingListDocument(shipmentId: number, packingClient
             <div class="packing-shell">
                 <!-- Header ESWCARGO -->
                 <div style="background-color: #0D3B4C; padding: 20px; text-align: center; border-bottom: 5px solid #F4AB3D;">
-                    <h1 style="color: #fff; margin: 0; font-size: 28px; letter-spacing: 2px; font-style: italic;">
+                    <h1 class="packing-brand" style="color: #fff; margin: 0; letter-spacing: 2px; font-style: italic;">
                         ESW<span style="color: #72C4B7; font-style: normal; font-weight: 900;">CARGO</span>
                     </h1>
-                    <p style="color: #72C4B7; margin: 5px 0 0 0; font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 3px;">International Logistics & Forwarding</p>
+                    <p class="packing-brand-meta" style="color: #72C4B7; margin: 5px 0 0 0; font-weight: bold; text-transform: uppercase; letter-spacing: 3px;">International Logistics & Forwarding</p>
                 </div>
                 
                 <div class="packing-main">
                     <table style="width: 100%; margin-bottom: 25px;">
                         <tr>
                             <td>
-                                <h2 style="color: #0D3B4C; margin: 0; font-size: 24px; text-transform: uppercase; font-weight: 900;">PACKING LIST</h2>
-                                <p style="font-size: 18px; font-weight: bold; color: #F4AB3D; margin: 5px 0 0 0;">SHIPMENT #${packingDocumentNumber}</p>
+                                <h2 class="packing-document-title" style="color: #0D3B4C; margin: 0; text-transform: uppercase; font-weight: 900;">PACKING LIST</h2>
+                                <p class="packing-document-number" style="font-weight: bold; color: #F4AB3D; margin: 5px 0 0 0;">SHIPMENT #${packingDocumentNumber}</p>
                             </td>
                             <td style="text-align: right; vertical-align: top;">
-                                <p style="margin: 0; font-size: 13px; color: #666;"><strong>FECHA:</strong> ${new Date().toLocaleDateString()}</p>
-                                <p style="margin: 5px 0 0 0; font-size: 13px; color: #666;"><strong>CLIENTE:</strong> ${documentShipment.client?.name || 'N/A'}</p>
+                                <p class="packing-metadata" style="margin: 0; color: #666;"><strong>FECHA:</strong> ${new Date().toLocaleDateString()}</p>
+                                <p class="packing-metadata" style="margin: 5px 0 0 0; color: #666;"><strong>CLIENTE:</strong> ${documentShipment.client?.name || 'N/A'}</p>
                             </td>
                         </tr>
                     </table>
@@ -207,14 +239,14 @@ export async function buildPackingListDocument(shipmentId: number, packingClient
                     <table style="width: 100%; border-collapse: collapse; background-color: #fff; border-radius: 8px; overflow: hidden;">
                         <thead>
                             <tr style="background-color: #0D3B4C; color: #fff; text-transform: uppercase;">
-                                <th style="padding: 12px; font-size: 11px;">QTY</th>
-                                <th style="padding: 12px; font-size: 11px; text-align: left;">DESCRIPTION</th>
-                                <th style="padding: 12px; font-size: 11px; text-align: center;">COLOR</th>
-                                <th style="padding: 12px; font-size: 11px; text-align: center;">INVOICE</th>
+                                <th class="packing-item-header" style="padding: 12px;">QTY</th>
+                                <th class="packing-item-header" style="padding: 12px; text-align: left;">DESCRIPTION</th>
+                                <th class="packing-item-header" style="padding: 12px; text-align: center;">COLOR</th>
+                                <th class="packing-item-header" style="padding: 12px; text-align: center;">INVOICE</th>
                             </tr>
                         </thead>
                         <tbody>
-                            ${itemsHtml || '<tr><td colspan="4" style="padding: 30px; text-align: center; color: #999;">No items found in this shipment</td></tr>'}
+                            ${itemsHtml || '<tr><td colspan="4" class="packing-item-detail" style="padding: 30px; text-align: center; color: #999;">No items found in this shipment</td></tr>'}
                         </tbody>
                     </table>
                     
@@ -223,12 +255,12 @@ export async function buildPackingListDocument(shipmentId: number, packingClient
                         <table style="width: 100%;">
                             <tr>
                                 <td>
-                                    <p style="margin: 0; font-size: 12px; color: #666; text-transform: uppercase; font-weight: bold;">Transporte Internacional</p>
-                                    <p style="margin: 5px 0 0 0; font-size: 14px; font-weight: bold; color: #0D3B4C;">MIAMI > BUENOS AIRES</p>
+                                    <p class="packing-shipping-label" style="margin: 0; color: #666; text-transform: uppercase; font-weight: bold;">Transporte Internacional</p>
+                                    <p class="packing-shipping-route" style="margin: 5px 0 0 0; font-weight: bold; color: #0D3B4C;">MIAMI > BUENOS AIRES</p>
                                 </td>
                                 <td style="text-align: right;">
-                                    <p style="margin: 0; font-size: 12px; color: #666; text-transform: uppercase; font-weight: bold;">${documentShipment.packingSegment.isSharedShipment ? 'Subtotal a pagar' : 'Costo de Envío'}</p>
-                                    <p style="margin: 5px 0 0 0; font-size: 22px; font-weight: 900; color: #0D3B4C;">
+                                    <p class="packing-shipping-label" style="margin: 0; color: #666; text-transform: uppercase; font-weight: bold;">${documentShipment.packingSegment.isSharedShipment ? 'Subtotal a pagar' : 'Costo de Envío'}</p>
+                                    <p class="packing-shipping-amount" style="margin: 5px 0 0 0; font-weight: 900; color: #0D3B4C;">
                                     USD ${packingSubtotal?.toFixed(2) || '0.00'}
                                     </p>
                                 </td>
@@ -236,7 +268,7 @@ export async function buildPackingListDocument(shipmentId: number, packingClient
                         </table>
                     </div>
                     
-                    <div style="margin-top: 50px; font-size: 11px; color: #888; text-align: center; border-top: 1px solid #eee; padding-top: 25px;">
+                    <div class="packing-footer" style="margin-top: 50px; color: #888; text-align: center; border-top: 1px solid #eee; padding-top: 25px;">
                         <p style="font-weight: bold; color: #0D3B4C; margin-bottom: 10px;">ESWCARGO | 9600 NW 38th OF 208, Doral, FL 33172</p>
                         <p>
                             <a href="https://eswcargo.com" style="color: #72C4B7; text-decoration: none; font-weight: bold;">eswcargo.com</a> | 
@@ -317,58 +349,82 @@ export async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocu
                 <meta charset="utf-8">
                 <style>
                     @page { size: Letter; margin: 0; }
+                    :root {
+                        --invoice-brand-size: ${INVOICE_TYPOGRAPHY.pdf.brandPx}px;
+                        --invoice-brand-meta-size: ${INVOICE_TYPOGRAPHY.pdf.brandMetaPx}px;
+                        --invoice-document-title-size: ${INVOICE_TYPOGRAPHY.pdf.documentTitlePx}px;
+                        --invoice-document-number-size: ${INVOICE_TYPOGRAPHY.pdf.documentNumberPx}px;
+                        --invoice-section-label-size: ${INVOICE_TYPOGRAPHY.pdf.sectionLabelPx}px;
+                        --invoice-customer-name-size: ${INVOICE_TYPOGRAPHY.pdf.customerNamePx}px;
+                        --invoice-customer-line-size: ${INVOICE_TYPOGRAPHY.pdf.customerLinePx}px;
+                        --invoice-meta-row-size: ${INVOICE_TYPOGRAPHY.pdf.metaRowPx}px;
+                        --invoice-item-header-size: ${INVOICE_TYPOGRAPHY.pdf.itemHeaderPx}px;
+                        --invoice-item-detail-size: ${INVOICE_TYPOGRAPHY.pdf.itemDetailPx}px;
+                        --invoice-item-color-size: ${INVOICE_TYPOGRAPHY.pdf.itemColorPx}px;
+                        --invoice-total-pcs-size: ${INVOICE_TYPOGRAPHY.pdf.totalPcsPx}px;
+                        --invoice-total-label-size: ${INVOICE_TYPOGRAPHY.pdf.totalLabelPx}px;
+                        --invoice-bank-title-size: ${INVOICE_TYPOGRAPHY.pdf.bankTitlePx}px;
+                        --invoice-bank-copy-size: ${INVOICE_TYPOGRAPHY.pdf.bankCopyPx}px;
+                        --invoice-summary-row-size: ${INVOICE_TYPOGRAPHY.pdf.summaryRowPx}px;
+                        --invoice-grand-total-label-size: ${INVOICE_TYPOGRAPHY.pdf.grandTotalLabelPx}px;
+                        --invoice-grand-total-amount-size: ${INVOICE_TYPOGRAPHY.pdf.grandTotalAmountPx}px;
+                        --invoice-currency-size: ${INVOICE_TYPOGRAPHY.pdf.currencyPx}px;
+                        --invoice-legal-size: ${INVOICE_TYPOGRAPHY.pdf.legalPx}px;
+                        --invoice-social-size: ${INVOICE_TYPOGRAPHY.pdf.socialPx}px;
+                        --invoice-thanks-size: ${INVOICE_TYPOGRAPHY.pdf.thanksPx}px;
+                    }
                     * { box-sizing: border-box; }
                     html, body { width: 8.5in; min-height: 11in; margin: 0; padding: 0; background: #fff; }
                     body { font-family: Arial, Helvetica, sans-serif; color: #263853; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
                     .page { width: 8.5in; height: 11in; padding: 0.38in 0.48in 0.32in; background: #fff; display: flex; flex-direction: column; }
                     .header { min-height: 1.12in; padding: 0.19in 0.26in; background: #103a89; color: #fff; display: flex; justify-content: space-between; align-items: flex-start; }
-                    .brand { margin: 0; font-size: 23px; line-height: 1; letter-spacing: -0.5px; font-weight: 900; }
-                    .brand-meta { margin-top: 7px; font-size: 7.5px; line-height: 1.5; letter-spacing: 0.35px; font-weight: 700; }
-                    .invoice-title { min-width: 2.32in; padding: 7px 12px; border: 1px solid rgba(255,255,255,.3); border-radius: 5px; text-align: center; font-size: 13px; font-weight: 900; letter-spacing: 1.3px; }
-                    .invoice-number { margin-top: 8px; text-align: right; font-size: 25px; line-height: 1; font-weight: 900; letter-spacing: 1px; }
+                    .brand { margin: 0; font-size: var(--invoice-brand-size); line-height: 1; letter-spacing: -0.5px; font-weight: 900; }
+                    .brand-meta { margin-top: 7px; font-size: var(--invoice-brand-meta-size); line-height: 1.5; letter-spacing: 0.35px; font-weight: 700; }
+                    .invoice-title { min-width: 2.32in; padding: 7px 12px; border: 1px solid rgba(255,255,255,.3); border-radius: 5px; text-align: center; font-size: var(--invoice-document-title-size); font-weight: 900; letter-spacing: 1.3px; }
+                    .invoice-number { margin-top: 8px; text-align: right; font-size: var(--invoice-document-number-size); line-height: 1; font-weight: 900; letter-spacing: 1px; }
                     .main { flex: 1; min-height: 0; padding: 0.22in 0.21in 0; display: flex; flex-direction: column; }
                     .meta-grid { display: grid; grid-template-columns: 1fr 2.25in; gap: 0.45in; margin-bottom: 0.18in; }
-                    .section-label { width: 1.05in; padding-bottom: 5px; border-bottom: 1px solid #b8c5db; color: #103a89; font-size: 8px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; }
-                    .customer-name { margin-top: 9px; color: #273953; font-size: 12px; font-weight: 900; text-transform: uppercase; }
-                    .customer-line { margin-top: 5px; color: #53657e; font-size: 8px; font-weight: 600; text-transform: uppercase; }
+                    .section-label { width: 1.05in; padding-bottom: 5px; border-bottom: 1px solid #b8c5db; color: #103a89; font-size: var(--invoice-section-label-size); font-weight: 900; letter-spacing: 1px; text-transform: uppercase; }
+                    .customer-name { margin-top: 9px; color: #273953; font-size: var(--invoice-customer-name-size); font-weight: 900; text-transform: uppercase; }
+                    .customer-line { margin-top: 5px; color: #53657e; font-size: var(--invoice-customer-line-size); font-weight: 600; text-transform: uppercase; }
                     .invoice-meta .section-label { width: 100%; text-align: right; }
-                    .meta-row { display: grid; grid-template-columns: 0.8in 1fr; margin-top: 8px; font-size: 8px; text-align: right; }
+                    .meta-row { display: grid; grid-template-columns: 0.8in 1fr; margin-top: 8px; font-size: var(--invoice-meta-row-size); text-align: right; }
                     .meta-key { color: #64748b; font-weight: 800; }
                     .meta-value { color: #103a89; font-weight: 900; }
                     table.items { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid #dbe3ef; border-radius: 5px; overflow: hidden; }
                     .items thead { background: #103a89; color: #fff; }
-                    .items th { height: 0.39in; padding: 7px 9px; border-right: 1px solid rgba(255,255,255,.18); font-size: 7.2px; letter-spacing: 0.8px; text-transform: uppercase; }
+                    .items th { height: 0.39in; padding: 7px 9px; border-right: 1px solid rgba(255,255,255,.18); font-size: var(--invoice-item-header-size); letter-spacing: 0.8px; text-transform: uppercase; }
                     .items th:nth-child(1) { width: 7%; }
                     .items th:nth-child(2) { width: 50%; text-align: left; }
                     .items th:nth-child(3) { width: 13%; }
                     .items th:nth-child(4) { width: 14%; text-align: right; }
                     .items th:nth-child(5) { width: 16%; text-align: right; }
-                    .items td { min-height: 0.27in; padding: 7px 9px; border-right: 1px solid #dbe3ef; border-bottom: 1px solid #dbe3ef; font-size: 8.4px; }
+                    .items td { min-height: 0.27in; padding: 7px 9px; border-right: 1px solid #dbe3ef; border-bottom: 1px solid #dbe3ef; font-size: var(--invoice-item-detail-size); }
                     .items tr.alternate td { background: #f6f8fb; }
                     .items .qty { color: #103a89; text-align: center; font-weight: 900; }
                     .items .description { font-weight: 600; }
-                    .items .color { color: #64748b; text-align: center; font-size: 7.2px; font-weight: 700; text-transform: uppercase; }
+                    .items .color { color: #64748b; text-align: center; font-size: var(--invoice-item-color-size); font-weight: 700; text-transform: uppercase; }
                     .items .money { text-align: right; white-space: nowrap; }
                     .items .strong { color: #263853; font-weight: 900; }
                     .items tfoot td { height: 0.36in; border-bottom: 0; background: #f6f8fb; }
-                    .items tfoot .total-pcs { color: #103a89; font-size: 11px; font-weight: 900; text-align: center; }
-                    .items tfoot .total-label { color: #103a89; font-size: 7px; font-weight: 900; text-align: right; text-transform: uppercase; letter-spacing: .8px; }
+                    .items tfoot .total-pcs { color: #103a89; font-size: var(--invoice-total-pcs-size); font-weight: 900; text-align: center; }
+                    .items tfoot .total-label { color: #103a89; font-size: var(--invoice-total-label-size); font-weight: 900; text-align: right; text-transform: uppercase; letter-spacing: .8px; }
                     .document-bottom { margin-top: auto; page-break-inside: avoid; }
                     .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.28in; page-break-inside: avoid; }
                     .bank { min-height: 1.48in; padding: 0.16in; border: 1px solid #e3e9f1; border-radius: 5px; background: #f8fafc; }
-                    .bank h3 { margin: 0 0 8px; color: #103a89; font-size: 7.3px; letter-spacing: 1px; text-transform: uppercase; }
-                    .bank p { margin: 0; font-size: 6.6px; line-height: 1.45; }
+                    .bank h3 { margin: 0 0 8px; color: #103a89; font-size: var(--invoice-bank-title-size); letter-spacing: 1px; text-transform: uppercase; }
+                    .bank p { margin: 0; font-size: var(--invoice-bank-copy-size); line-height: 1.45; }
                     .bank .crypto { margin-top: 8px; padding-top: 7px; border-top: 1px solid #cbd5e1; color: #103a89; font-weight: 900; }
-                    .summary-row { display: flex; justify-content: space-between; padding: 0.12in 0.13in; border-radius: 4px; background: #f6f8fb; color: #64748b; font-size: 8px; font-weight: 900; text-transform: uppercase; }
+                    .summary-row { display: flex; justify-content: space-between; padding: 0.12in 0.13in; border-radius: 4px; background: #f6f8fb; color: #64748b; font-size: var(--invoice-summary-row-size); font-weight: 900; text-transform: uppercase; }
                     .summary-row + .summary-row { margin-top: 6px; }
                     .summary-row .value { color: #263853; }
-                    .grand-total { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 6px; padding: 0.12in 0.08in 0.09in; border-top: 2px solid #103a89; color: #103a89; font-size: 11px; font-weight: 900; text-transform: uppercase; }
-                    .grand-total .amount { text-align: right; font-size: 24px; line-height: .9; }
-                    .grand-total .currency { display: block; margin-bottom: 4px; color: #64748b; font-size: 7px; }
-                    .legal { margin-top: 0.11in; color: #94a3b8; font-size: 5.8px; line-height: 1.35; font-style: italic; }
+                    .grand-total { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 6px; padding: 0.12in 0.08in 0.09in; border-top: 2px solid #103a89; color: #103a89; font-size: var(--invoice-grand-total-label-size); font-weight: 900; text-transform: uppercase; }
+                    .grand-total .amount { text-align: right; font-size: var(--invoice-grand-total-amount-size); line-height: .9; }
+                    .grand-total .currency { display: block; margin-bottom: 4px; color: #64748b; font-size: var(--invoice-currency-size); }
+                    .legal { margin-top: 0.11in; color: #94a3b8; font-size: var(--invoice-legal-size); line-height: 1.35; font-style: italic; }
                     .footer { margin-top: 0.16in; padding-top: 0.11in; border-top: 1px solid #e3e9f1; text-align: center; page-break-inside: avoid; }
-                    .social { color: #54709f; font-size: 6.4px; font-weight: 800; letter-spacing: .6px; word-spacing: 10px; }
-                    .thanks { margin-top: 0.15in; color: #263853; font-size: 7.5px; font-weight: 900; font-style: italic; text-transform: uppercase; }
+                    .social { color: #54709f; font-size: var(--invoice-social-size); font-weight: 800; letter-spacing: .6px; word-spacing: 10px; }
+                    .thanks { margin-top: 0.15in; color: #263853; font-size: var(--invoice-thanks-size); font-weight: 900; font-style: italic; text-transform: uppercase; }
                 </style>
             </head>
             <body>

@@ -7,6 +7,7 @@ import { useEffect, useTransition } from 'react';
 import { buildShipmentItems, getShipmentCargoDescription } from '../../../../lib/shipment-items';
 import { getPackingDocumentNumber, getPackingSubtotal, isSharedShipmentPacking } from '../../../../lib/packing-segments';
 import { toInvNumber4 } from '../../../../lib/inv-filename';
+import { PACKING_LIST_TYPOGRAPHY } from '../../../../lib/packing-list-typography';
 
 /* eslint-disable @next/next/no-img-element */
 
@@ -92,6 +93,46 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
     return (
         <div className="min-h-screen bg-white text-black p-8 font-sans print:p-0 print:m-0">
             <style jsx global>{`
+                #packing-list-content {
+                    --packing-brand-size: ${PACKING_LIST_TYPOGRAPHY.ui.brandPx}px;
+                    --packing-brand-meta-size: ${PACKING_LIST_TYPOGRAPHY.ui.brandMetaPx}px;
+                    --packing-address-size: ${PACKING_LIST_TYPOGRAPHY.ui.addressPx}px;
+                    --packing-document-title-size: ${PACKING_LIST_TYPOGRAPHY.ui.documentTitlePx}px;
+                    --packing-document-number-size: ${PACKING_LIST_TYPOGRAPHY.ui.documentNumberPx}px;
+                    --packing-segment-notice-size: ${PACKING_LIST_TYPOGRAPHY.ui.segmentNoticePx}px;
+                    --packing-section-title-size: ${PACKING_LIST_TYPOGRAPHY.ui.sectionTitlePx}px;
+                    --packing-detail-size: ${PACKING_LIST_TYPOGRAPHY.ui.detailPx}px;
+                    --packing-content-title-size: ${PACKING_LIST_TYPOGRAPHY.ui.contentTitlePx}px;
+                    --packing-item-header-size: ${PACKING_LIST_TYPOGRAPHY.ui.itemHeaderPx}px;
+                    --packing-item-detail-size: ${PACKING_LIST_TYPOGRAPHY.ui.itemDetailPx}px;
+                    --packing-item-ratio-size: ${PACKING_LIST_TYPOGRAPHY.ui.itemRatioPx}px;
+                    --packing-summary-title-size: ${PACKING_LIST_TYPOGRAPHY.ui.summaryTitlePx}px;
+                    --packing-summary-weight-size: ${PACKING_LIST_TYPOGRAPHY.ui.summaryWeightPx}px;
+                    --packing-summary-amount-size: ${PACKING_LIST_TYPOGRAPHY.ui.summaryAmountPx}px;
+                    --packing-remarks-title-size: ${PACKING_LIST_TYPOGRAPHY.ui.remarksTitlePx}px;
+                    --packing-remarks-copy-size: ${PACKING_LIST_TYPOGRAPHY.ui.remarksCopyPx}px;
+                    --packing-footer-size: ${PACKING_LIST_TYPOGRAPHY.ui.footerPx}px;
+                    --packing-footer-links-size: ${PACKING_LIST_TYPOGRAPHY.ui.footerLinksPx}px;
+                }
+                #packing-list-content .packing-brand { font-size: var(--packing-brand-size); }
+                #packing-list-content .packing-brand-meta { font-size: var(--packing-brand-meta-size); }
+                #packing-list-content .packing-address { font-size: var(--packing-address-size); }
+                #packing-list-content .packing-document-title { font-size: var(--packing-document-title-size); }
+                #packing-list-content .packing-document-number { font-size: var(--packing-document-number-size); }
+                #packing-list-content .packing-segment-notice { font-size: var(--packing-segment-notice-size); }
+                #packing-list-content .packing-section-title { font-size: var(--packing-section-title-size); }
+                #packing-list-content .packing-detail { font-size: var(--packing-detail-size); }
+                #packing-list-content .packing-content-title { font-size: var(--packing-content-title-size); }
+                #packing-list-content .packing-item-header { font-size: var(--packing-item-header-size); }
+                #packing-list-content .packing-item-detail { font-size: var(--packing-item-detail-size); }
+                #packing-list-content .packing-item-ratio { font-size: var(--packing-item-ratio-size); }
+                #packing-list-content .packing-summary-title { font-size: var(--packing-summary-title-size); }
+                #packing-list-content .packing-summary-weight { font-size: var(--packing-summary-weight-size); }
+                #packing-list-content .packing-summary-amount { font-size: var(--packing-summary-amount-size); }
+                #packing-list-content .packing-remarks-title { font-size: var(--packing-remarks-title-size); }
+                #packing-list-content .packing-remarks-copy { font-size: var(--packing-remarks-copy-size); }
+                #packing-list-content .packing-footer { font-size: var(--packing-footer-size); }
+                #packing-list-content .packing-footer-links { font-size: var(--packing-footer-links-size); }
                 @media print {
                     @page {
                         margin: 0.2cm;
@@ -123,6 +164,12 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                     }
                     .page-break-inside-avoid {
                         page-break-inside: avoid;
+                    }
+                    #packing-list-content {
+                        --packing-brand-meta-size: ${PACKING_LIST_TYPOGRAPHY.browserPrint.brandMetaPx}px;
+                        --packing-document-title-size: ${PACKING_LIST_TYPOGRAPHY.browserPrint.documentTitlePx}px;
+                        --packing-document-number-size: ${PACKING_LIST_TYPOGRAPHY.browserPrint.documentNumberPx}px;
+                        --packing-remarks-title-size: ${PACKING_LIST_TYPOGRAPHY.browserPrint.remarksTitlePx}px;
                     }
                 }
             `}</style>
@@ -162,7 +209,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
             </div>
 
             {/* A4 Container */}
-            <div className="max-w-[850px] mx-auto bg-white print:w-full print:max-w-none print-container">
+            <div id="packing-list-content" className="max-w-[850px] mx-auto bg-white print:w-full print:max-w-none print-container">
 
                 {/* Header Section */}
                 <div className="flex justify-between items-start mb-8">
@@ -175,11 +222,11 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                                 <Package className="h-6 w-6 stroke-[3]" />
                             </div>
                             {/* ESW Text */}
-                            <h1 className="text-5xl font-black italic tracking-tighter text-[#0D3B4C] leading-none font-sans">
+                            <h1 className="packing-brand font-black italic tracking-tighter text-[#0D3B4C] leading-none font-sans">
                                 ESW
                             </h1>
                             {/* CARGO Text */}
-                            <h2 className="text-lg print:text-base font-bold tracking-[0.2em] text-[#72C4B7] uppercase leading-none mt-0">
+                            <h2 className="packing-brand-meta font-bold tracking-[0.2em] text-[#72C4B7] uppercase leading-none mt-0">
                                 CARGO
                             </h2>
                         </div>
@@ -192,7 +239,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                     </div>
 
                     {/* Center: Address */}
-                    <div className="hidden sm:block text-[#0D3B4C] text-xs font-semibold mt-8 text-center">
+                    <div className="packing-address hidden sm:block text-[#0D3B4C] font-semibold mt-8 text-center">
                         <p>9600 NW 38th OF 208</p>
                         <p>DORAL, FL 33172</p>
                         <p>FLORIDA USA</p>
@@ -201,23 +248,23 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
 
                     {/* Right: Document Label */}
                     <div className="text-right">
-                        <h2 className="text-[#0D3B4C] text-2xl print:text-xl font-bold uppercase tracking-wide mb-1">PACKING LIST</h2>
+                        <h2 className="packing-document-title text-[#0D3B4C] font-bold uppercase tracking-wide mb-1">PACKING LIST</h2>
                         <div className="inline-block bg-[#F4AB3D] text-[#0D3B4C] px-3 py-1 rounded-sm shadow-sm">
-                            <p className="font-bold text-lg print:text-base tracking-wider">ENVÍO #{packingDocumentNumber}</p>
+                            <p className="packing-document-number font-bold tracking-wider">ENVÍO #{packingDocumentNumber}</p>
                         </div>
                     </div>
                 </div>
 
-                {isSharedShipment && <p className="mb-4 border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900 print:hidden">Packing segmentado por cliente. El subtotal mostrado corresponde exclusivamente a este cliente.</p>}
+                {isSharedShipment && <p className="packing-segment-notice mb-4 border border-amber-300 bg-amber-50 px-3 py-2 font-medium text-amber-900 print:hidden">Packing segmentado por cliente. El subtotal mostrado corresponde exclusivamente a este cliente.</p>}
 
                 {/* Info Grid */}
                 <div className="grid grid-cols-2 gap-8 mb-4 print:mb-2 border-t-2 border-[#0D3B4C] pt-4 print:pt-2">
                     {/* Consignee */}
                     <div>
-                        <div className="bg-[#0D3B4C] text-white px-3 py-1.5 font-bold text-sm uppercase mb-2 rounded-sm shadow-sm">
+                        <div className="packing-section-title bg-[#0D3B4C] text-white px-3 py-1.5 font-bold uppercase mb-2 rounded-sm shadow-sm">
                             CONSIGNEE / CLIENT
                         </div>
-                        <div className="text-sm space-y-1 px-2 font-medium text-gray-800">
+                        <div className="packing-detail space-y-1 px-2 font-medium text-gray-800">
                             {shipment.client ? (
                                 <>
                                     <div className="grid grid-cols-[80px_1fr]">
@@ -249,10 +296,10 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
 
                     {/* Shipment Details */}
                     <div>
-                        <div className="bg-[#0D3B4C] text-white px-3 py-1.5 font-bold text-sm uppercase mb-2 rounded-sm shadow-sm">
+                        <div className="packing-section-title bg-[#0D3B4C] text-white px-3 py-1.5 font-bold uppercase mb-2 rounded-sm shadow-sm">
                             SHIPMENT DETAILS
                         </div>
-                        <div className="text-sm space-y-1 px-2 font-medium text-gray-800">
+                        <div className="packing-detail space-y-1 px-2 font-medium text-gray-800">
                             <div className="grid grid-cols-[100px_1fr]">
                                 <span className="font-bold text-[#0D3B4C]">DATE</span>
                                 <span>{dateShipped}</span>
@@ -271,11 +318,11 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
 
                 {/* Items Table */}
                 <div className="mb-0">
-                    <div className="bg-[#0D3B4C] text-white px-3 py-1 font-bold text-xs uppercase mb-0 rounded-t-sm">
+                    <div className="packing-content-title bg-[#0D3B4C] text-white px-3 py-1 font-bold uppercase mb-0 rounded-t-sm">
                         CONTENT DESCRIPTION
                     </div>
-                    <table className="w-full text-sm border-collapse border border-gray-200 shadow-sm">
-                        <thead>
+                    <table className="packing-item-detail w-full border-collapse border border-gray-200 shadow-sm">
+                        <thead className="packing-item-header">
                             <tr className="bg-gray-100 text-[#0D3B4C] border-b border-gray-300">
                                 <th className="py-2 px-4 text-center font-bold w-16 border-r border-gray-300">QTY</th>
                                 <th className="py-2 px-4 text-left font-bold border-r border-gray-300">DESCRIPTION</th>
@@ -318,7 +365,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                                             <td className="py-2 px-4 text-center border-r border-gray-200 align-top text-gray-700 font-mono font-bold">
                                                 {item.orderNumber ? item.orderNumber : '-'}
                                             </td>
-                                            <td className="py-2 px-4 text-center border-gray-200 align-top font-black text-[#0D3B4C] text-base">
+                                            <td className="packing-item-ratio py-2 px-4 text-center border-gray-200 align-top font-black text-[#0D3B4C]">
                                                 {displayRatio}
                                             </td>
                                         </tr>
@@ -352,17 +399,17 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                 {/* Footer / Totals Section */}
                 <div className="mt-4 print:mt-2 flex justify-end">
                     <div className="w-1/2 rounded border border-[#0D3B4C] overflow-hidden shadow-sm">
-                        <div className="bg-[#0D3B4C] text-white px-3 py-1 font-bold text-center text-xs uppercase">
+                        <div className="packing-summary-title bg-[#0D3B4C] text-white px-3 py-1 font-bold text-center uppercase">
                             SHIPPING SUMMARY
                         </div>
                         <div className="p-3 print:p-2 space-y-2 bg-white">
                             {!isSharedShipment && (
-                                <div className="flex justify-between items-center text-base border-b border-gray-200 pb-1">
+                                <div className="packing-summary-weight flex justify-between items-center border-b border-gray-200 pb-1">
                                     <span className="font-bold text-gray-700">TOTAL WEIGHT</span>
                                     <span className="font-bold text-[#0D3B4C]">{shipment.weight_cli ? shipment.weight_cli.toFixed(2) : '0.00'} kg</span>
                                 </div>
                             )}
-                            <div className="flex justify-between items-center text-lg bg-orange-50 p-1.5 rounded border border-[#F4AB3D]/20">
+                            <div className="packing-summary-amount flex justify-between items-center bg-orange-50 p-1.5 rounded border border-[#F4AB3D]/20">
                                 <span className="font-bold text-[#0D3B4C]">{isSharedShipment ? 'SUBTOTAL A PAGAR' : 'TOTAL DUE'}</span>
                                 <span className="font-bold text-[#0D3B4C]">
                                     USD {new Intl.NumberFormat('en-US', { minimumFractionDigits: 2 }).format(packingSubtotal || 0)}
@@ -375,14 +422,14 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                 {/* Remarks */}
                 {shipment.notes && (
                     <div className="mt-4 print:mt-1 page-break-inside-avoid">
-                        <span className="font-bold text-sm print:text-xs block mb-1 text-[#0D3B4C]">REMARKS / OBSERVACIONES:</span>
-                        <div className="border border-gray-300 p-2 text-sm text-gray-600 min-h-[40px] print:min-h-0 bg-slate-50 rounded-sm italic">
+                        <span className="packing-remarks-title font-bold block mb-1 text-[#0D3B4C]">REMARKS / OBSERVACIONES:</span>
+                        <div className="packing-remarks-copy border border-gray-300 p-2 text-gray-600 min-h-[40px] print:min-h-0 bg-slate-50 rounded-sm italic">
                             {shipment.notes}
                         </div>
                     </div>
                 )}
 
-                <div className="text-center text-xs text-gray-400 mt-12 italic print:mt-16 border-t pt-4">
+                <div className="packing-footer text-center text-gray-400 mt-12 italic print:mt-16 border-t pt-4">
                     <p>ESWCARGO | 9600 NW 38th OF 208, Doral, 33172 - Florida USA | LOGISTICS & SOLUTIONS</p>
 
                     <div className="flex justify-center items-center gap-4 mt-2 print:hidden">
@@ -397,7 +444,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                         </a>
                     </div>
                     {/* Print version of links (just text) */}
-                    <div className="hidden print:flex justify-center gap-4 mt-1 text-[10px]">
+                    <div className="packing-footer-links hidden print:flex justify-center gap-4 mt-1">
                         <span>eswcargo.com</span>
                         <span>instagram.com/eswcargo</span>
                         <span>facebook.com/ESWCargo</span>
