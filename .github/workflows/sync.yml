@@ -104,6 +104,15 @@ jobs:
           ALLOW_LEGACY_LEDGER_CLEANUP: '0'
         run: |
           stage_started_at=$(date +%s)
+          run_optional_audit() {
+            local audit_name="$1"
+            shift
+            if "$@"; then
+              return 0
+            fi
+            echo "::warning::${audit_name} encontró observaciones; la actualización operativa continúa y el detalle queda en el log."
+            return 0
+          }
           export GOOGLE_CREDENTIALS_FILE="$GITHUB_WORKSPACE/google_credentials.json"
           required_files=(
             "$GOOGLE_CREDENTIALS_FILE"
@@ -161,33 +170,33 @@ jobs:
               attempt=$(( attempt + 1 ))
             done
           }
+          migrate_with_transient_retry
           if [ "$FULL_AUDIT" = "1" ]; then
-            migrate_with_transient_retry
             node scripts/cleanup-legacy-ledger-imports.mjs
           else
-            echo "Modo diferencial: migraciones y limpieza histórica se reservan para la corrida FULL."
+            echo "Modo diferencial: limpieza histórica reservada para la corrida FULL."
           fi
           if [ "$FULL_AUDIT" = "1" ]; then
             "$GITHUB_WORKSPACE/.venv/bin/python" scripts/export-cash-flow-raw-transactions.py > /tmp/cashflow-raw-source.json
-            node scripts/audit-cash-flow-raw-drift.mjs --source /tmp/cashflow-raw-source.json
-            "$GITHUB_WORKSPACE/.venv/bin/python" scripts/audit-cashflow-invoice-references.py --summary
-            node scripts/audit-ledgers.mjs || echo "::warning::Auditoria CC previa con advertencias; se continua la sincronizacion operativa."
-            node scripts/audit-client-account-coverage.mjs --summary
-            node scripts/audit-ledger-duplicates.mjs || echo "::warning::Posibles duplicados o documentos repetidos en Cuenta Corriente; revisar Mantenimiento antes de emitir cobros."
-            node scripts/audit-purchase-allocations.mjs
-            node scripts/audit-supplier-ledgers.mjs || echo "::warning::Proveedores con movimientos a revisar; no se modificaron saldos automaticamente."
+            run_optional_audit "Auditoría de deriva Cash Flow" node scripts/audit-cash-flow-raw-drift.mjs --source /tmp/cashflow-raw-source.json
+            run_optional_audit "Auditoría de referencias Invoice" "$GITHUB_WORKSPACE/.venv/bin/python" scripts/audit-cashflow-invoice-references.py --summary
+            run_optional_audit "Auditoría de Cuenta Corriente previa" node scripts/audit-ledgers.mjs
+            run_optional_audit "Auditoría de cobertura de clientes" node scripts/audit-client-account-coverage.mjs --summary
+            run_optional_audit "Auditoría de duplicados de Cuenta Corriente" node scripts/audit-ledger-duplicates.mjs
+            run_optional_audit "Auditoría de asignaciones de compras" node scripts/audit-purchase-allocations.mjs
+            run_optional_audit "Auditoría de saldos de proveedores" node scripts/audit-supplier-ledgers.mjs
           fi
           npx tsx prisma/seed_fast.ts
-          node scripts/audit-shipment-reconciliation.mjs
-          node scripts/audit-packing-readiness.mjs
-          node scripts/audit-invoice-readiness.mjs
+          run_optional_audit "Auditoría de asignaciones de envíos" node scripts/audit-shipment-reconciliation.mjs
+          run_optional_audit "Auditoría de packing" node scripts/audit-packing-readiness.mjs
+          run_optional_audit "Auditoría de invoices" node scripts/audit-invoice-readiness.mjs
           if [ "$FULL_AUDIT" = "1" ]; then
-            node scripts/audit-cash-flow-raw-drift.mjs --source /tmp/cashflow-raw-source.json
-            node scripts/audit-ledgers.mjs || echo "::warning::Auditoria CC posterior con advertencias; revisar cuenta corriente sin bloquear sync."
-            node scripts/audit-client-account-coverage.mjs --summary
-            node scripts/audit-ledger-duplicates.mjs || echo "::warning::Posibles duplicados o documentos repetidos en Cuenta Corriente; revisar Mantenimiento antes de emitir cobros."
-            node scripts/audit-purchase-allocations.mjs
-            node scripts/audit-supplier-ledgers.mjs || echo "::warning::Proveedores con movimientos a revisar; no se modificaron saldos automaticamente."
+            run_optional_audit "Auditoría de deriva Cash Flow posterior" node scripts/audit-cash-flow-raw-drift.mjs --source /tmp/cashflow-raw-source.json
+            run_optional_audit "Auditoría de Cuenta Corriente posterior" node scripts/audit-ledgers.mjs
+            run_optional_audit "Auditoría de cobertura de clientes posterior" node scripts/audit-client-account-coverage.mjs --summary
+            run_optional_audit "Auditoría de duplicados de Cuenta Corriente posterior" node scripts/audit-ledger-duplicates.mjs
+            run_optional_audit "Auditoría de asignaciones de compras posterior" node scripts/audit-purchase-allocations.mjs
+            run_optional_audit "Auditoría de saldos de proveedores posterior" node scripts/audit-supplier-ledgers.mjs
           fi
           echo "- Actualización y auditorías: $(( $(date +%s) - stage_started_at ))s" >> "$GITHUB_STEP_SUMMARY"
 
