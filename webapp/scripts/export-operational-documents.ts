@@ -8,6 +8,7 @@ import {
     isWithinDocumentExportWindow,
     shouldExportOperationalDocument,
 } from '../lib/document-export-policy';
+import { getShipmentClientCharge } from '../lib/shipment-client-charge';
 import { getPackingSegments } from '../lib/packing-segments';
 
 dotenv.config({
@@ -197,35 +198,63 @@ async function main() {
         const operationalDate = shipment.date_shipped || shipment.createdAt;
         const isRequestedDate = Boolean(dateArg && utcDateKey(operationalDate) === dateArg);
         const isWithinLookback = isWithinDocumentExportWindow(operationalDate);
-        const shouldExport = shouldExportOperationalDocument({
-            currentFingerprint,
-            previousFingerprint: previous?.shipments[key],
-            hasPreviousState: Boolean(previous),
-            isWithinLookback,
-            isRequestedDate,
-            force,
-        });
-        if (!shouldExport) {
-            if (!isWithinLookback && !isRequestedDate && previous?.shipments[key] !== currentFingerprint) {
+        if (!isWithinLookback && !isRequestedDate) {
+            if (previous?.shipments[key] !== currentFingerprint) {
                 ignoredOutsideLookback += 1;
             }
             next.shipments[key] = currentFingerprint;
             continue;
         }
 
-        try {
-            const segments = getPackingSegments(shipment);
-            if (segments.length === 0) throw new Error('El envío no tiene clientes o artículos confirmados.');
-            for (const segment of segments) {
+        const segments = getPackingSegments(shipment);
+        if (segments.length === 0) {
+            failures.push({
+                type: 'PACKING_LIST',
+                number: Number(shipment.shipment_number ?? shipment.id),
+                message: 'El envío no tiene clientes o artículos confirmados.',
+            });
+            continue;
+        }
+
+        for (const segment of segments) {
+            const segmentKey = `${key}:${segment.clientId}`;
+            const clientCharge = segments.length > 1 && shipment.shipment_number
+                ? await getShipmentClientCharge(shipment.shipment_number, segment.clientId)
+                : null;
+            const segmentFingerprint = fingerprint({ shipment, segment, clientCharge });
+            const previousSegmentFingerprint = previous?.shipments[segmentKey];
+            const comparisonFingerprint = previousSegmentFingerprint === undefined
+                ? currentFingerprint
+                : segmentFingerprint;
+            const previousComparisonFingerprint = previousSegmentFingerprint === undefined
+                ? previous?.shipments[key]
+                : previousSegmentFingerprint;
+            const shouldExportSegment = shouldExportOperationalDocument({
+                currentFingerprint: comparisonFingerprint,
+                previousFingerprint: previousComparisonFingerprint,
+                hasPreviousState: Boolean(previous),
+                isWithinLookback,
+                isRequestedDate,
+                force,
+            });
+
+            if (!shouldExportSegment) {
+                next.shipments[segmentKey] = segmentFingerprint;
+                continue;
+            }
+
+            try {
                 const document = await buildPackingListDocument(shipment.id, segment.clientId);
                 const destination = await atomicWrite(document.fileName, document.pdfBuffer);
+                next.shipments[segmentKey] = segmentFingerprint;
                 exported += 1;
                 await logEvent({ type: 'PACKING_LIST', id: shipment.id, number: shipment.shipment_number, clientId: segment.clientId, fileName: document.fileName, destination });
+            } catch (error: unknown) {
+                failures.push({ type: 'PACKING_LIST', number: Number(shipment.shipment_number ?? shipment.id), message: error instanceof Error ? error.message : String(error) });
             }
-            next.shipments[key] = currentFingerprint;
-        } catch (error: unknown) {
-            failures.push({ type: 'PACKING_LIST', number: Number(shipment.shipment_number ?? shipment.id), message: error instanceof Error ? error.message : String(error) });
         }
+
+        next.shipments[key] = currentFingerprint;
     }
 
     const temporaryState = `${statePath}.${process.pid}.tmp`;
