@@ -3,6 +3,11 @@ import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises
 import os from 'node:os';
 import path from 'node:path';
 import dotenv from 'dotenv';
+import {
+    DOCUMENT_EXPORT_LOOKBACK_DAYS,
+    isWithinDocumentExportWindow,
+    shouldExportOperationalDocument,
+} from '../lib/document-export-policy';
 import { getPackingSegments } from '../lib/packing-segments';
 
 dotenv.config({
@@ -151,18 +156,26 @@ async function main() {
     });
 
     let exported = 0;
+    let ignoredOutsideLookback = 0;
     const failures: Array<{ type: string; number: number; message: string }> = [];
 
     for (const order of orders) {
         const key = String(order.id);
         const currentFingerprint = fingerprint(order);
         const isRequestedDate = Boolean(dateArg && utcDateKey(order.date) === dateArg);
-        const shouldExport = isRequestedDate || (Boolean(previous) && previous?.orders[key] !== currentFingerprint);
-        if (!shouldExport && !force) {
-            next.orders[key] = currentFingerprint;
-            continue;
-        }
-        if (force && dateArg && !isRequestedDate) {
+        const isWithinLookback = isWithinDocumentExportWindow(order.date);
+        const shouldExport = shouldExportOperationalDocument({
+            currentFingerprint,
+            previousFingerprint: previous?.orders[key],
+            hasPreviousState: Boolean(previous),
+            isWithinLookback,
+            isRequestedDate,
+            force,
+        });
+        if (!shouldExport) {
+            if (!isWithinLookback && !isRequestedDate && previous?.orders[key] !== currentFingerprint) {
+                ignoredOutsideLookback += 1;
+            }
             next.orders[key] = currentFingerprint;
             continue;
         }
@@ -181,18 +194,21 @@ async function main() {
     for (const shipment of shipments) {
         const key = String(shipment.id);
         const currentFingerprint = fingerprint(shipment);
-        const isRequestedDate = Boolean(dateArg && [
-            shipment.date_shipped,
-            shipment.date_arrived,
-            shipment.createdAt,
-            shipment.updatedAt,
-        ].some((value) => utcDateKey(value) === dateArg));
-        const shouldExport = isRequestedDate || (Boolean(previous) && previous?.shipments[key] !== currentFingerprint);
-        if (!shouldExport && !force) {
-            next.shipments[key] = currentFingerprint;
-            continue;
-        }
-        if (force && dateArg && !isRequestedDate) {
+        const operationalDate = shipment.date_shipped || shipment.createdAt;
+        const isRequestedDate = Boolean(dateArg && utcDateKey(operationalDate) === dateArg);
+        const isWithinLookback = isWithinDocumentExportWindow(operationalDate);
+        const shouldExport = shouldExportOperationalDocument({
+            currentFingerprint,
+            previousFingerprint: previous?.shipments[key],
+            hasPreviousState: Boolean(previous),
+            isWithinLookback,
+            isRequestedDate,
+            force,
+        });
+        if (!shouldExport) {
+            if (!isWithinLookback && !isRequestedDate && previous?.shipments[key] !== currentFingerprint) {
+                ignoredOutsideLookback += 1;
+            }
             next.shipments[key] = currentFingerprint;
             continue;
         }
@@ -215,9 +231,21 @@ async function main() {
     const temporaryState = `${statePath}.${process.pid}.tmp`;
     await writeFile(temporaryState, JSON.stringify(next, null, 2));
     await rename(temporaryState, statePath);
-    await logEvent({ type: 'RUN', exported, failures });
+    await logEvent({
+        type: 'RUN',
+        exported,
+        failures,
+        lookbackDays: DOCUMENT_EXPORT_LOOKBACK_DAYS,
+        ignoredOutsideLookback,
+    });
 
-    console.log(JSON.stringify({ exportDir, exported, failures }, null, 2));
+    console.log(JSON.stringify({
+        exportDir,
+        exported,
+        failures,
+        lookbackDays: DOCUMENT_EXPORT_LOOKBACK_DAYS,
+        ignoredOutsideLookback,
+    }, null, 2));
     if (failures.length > 0) process.exitCode = 1;
 }
 
