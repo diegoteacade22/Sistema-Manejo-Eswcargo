@@ -333,6 +333,17 @@ function credentialsFromEnvironment() {
   return credentials;
 }
 
+export function isRetryableSheetsError(error: unknown) {
+  const candidate = error as { status?: number; response?: { status?: number }; name?: string; code?: string };
+  const status = candidate.status ?? candidate.response?.status;
+  return status === undefined
+    || status === 408
+    || status === 429
+    || status >= 500
+    || candidate.name === 'AbortError'
+    || candidate.code === 'ETIMEDOUT';
+}
+
 async function fetchOperationalSource() {
   const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID?.trim() || DEFAULT_SPREADSHEET_ID;
   const auth = new GoogleAuth({
@@ -346,11 +357,21 @@ async function fetchOperationalSource() {
     dateTimeRenderOption: 'SERIAL_NUMBER',
   });
   for (const range of ranges) query.append('ranges', range);
-  const response = await auth.request<BatchGetResponse>({
-    url: `${SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values:batchGet?${query}`,
-    method: 'GET',
-    timeout: SHEET_TIMEOUT_MS,
-  });
+  let response: Awaited<ReturnType<typeof auth.request<BatchGetResponse>>> | null = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      response = await auth.request<BatchGetResponse>({
+        url: `${SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values:batchGet?${query}`,
+        method: 'GET',
+        timeout: SHEET_TIMEOUT_MS,
+      });
+      break;
+    } catch (error) {
+      if (attempt === 2 || !isRetryableSheetsError(error)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 750));
+    }
+  }
+  if (!response) throw new Error('Google Sheets no respondio despues de los reintentos.');
   const returned = response.data.valueRanges ?? [];
   if (returned.length !== ranges.length) throw new Error('Google Sheets no devolvio las tres hojas operativas.');
   return parseOperationalSheets({

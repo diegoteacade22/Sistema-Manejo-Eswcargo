@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   changedFieldPatch,
   directShipmentStatus,
+  isRetryableSheetsError,
   parseOperationalSheets,
   sourceWouldEraseExistingItems,
 } from '../lib/direct-sheet-sync';
@@ -94,4 +95,11 @@ test('un envio terminal nunca retrocede por un estado viejo de Sheets', () => {
   assert.equal(directShipmentStatus({ existingStatus: 'ENTREGADO', sourceStatus: 'SALIENDO' }), 'ENTREGADO');
   assert.equal(directShipmentStatus({ existingStatus: 'CANCELADO', sourceStatus: 'MIAMI' }), 'CANCELADO');
   assert.equal(directShipmentStatus({ existingStatus: 'MIAMI', sourceStatus: 'SALIENDO' }), 'SALIENDO');
+});
+
+test('reintenta solo errores transitorios de Google Sheets', () => {
+  assert.equal(isRetryableSheetsError({ response: { status: 429 } }), true);
+  assert.equal(isRetryableSheetsError({ response: { status: 503 } }), true);
+  assert.equal(isRetryableSheetsError({ name: 'AbortError' }), true);
+  assert.equal(isRetryableSheetsError({ response: { status: 403 } }), false);
 });
