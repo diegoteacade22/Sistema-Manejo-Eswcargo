@@ -193,7 +193,9 @@ export async function syncExcel(requestedDays: number = 7) {
             return {
                 success: true,
                 completed: true,
-                message: `OK: actualizacion directa finalizada en ${Math.max(1, Math.round(result.durationMs / 1000))}s. ${changed} cambios aplicados y verificados.`,
+                message: changed === 0
+                    ? `OK: el sistema ya estaba actualizado. Verificado en ${Math.max(1, Math.round(result.durationMs / 1000))}s; no habia cambios pendientes.`
+                    : `OK: actualizacion directa finalizada en ${Math.max(1, Math.round(result.durationMs / 1000))}s. ${changed} cambios aplicados y verificados.`,
                 summary: result.summary,
             };
         }
