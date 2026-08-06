@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   changedFieldPatch,
+  directShipmentStatus,
   parseOperationalSheets,
   sourceWouldEraseExistingItems,
 } from '../lib/direct-sheet-sync';
@@ -87,4 +88,10 @@ test('una fuente parcial nunca borra items existentes', () => {
   assert.equal(sourceWouldEraseExistingItems(0, 3), true);
   assert.equal(sourceWouldEraseExistingItems(1, 3), false);
   assert.equal(sourceWouldEraseExistingItems(0, 0), false);
+});
+
+test('un envio terminal nunca retrocede por un estado viejo de Sheets', () => {
+  assert.equal(directShipmentStatus({ existingStatus: 'ENTREGADO', sourceStatus: 'SALIENDO' }), 'ENTREGADO');
+  assert.equal(directShipmentStatus({ existingStatus: 'CANCELADO', sourceStatus: 'MIAMI' }), 'CANCELADO');
+  assert.equal(directShipmentStatus({ existingStatus: 'MIAMI', sourceStatus: 'SALIENDO' }), 'SALIENDO');
 });

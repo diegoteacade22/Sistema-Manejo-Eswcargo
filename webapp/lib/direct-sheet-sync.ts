@@ -85,7 +85,15 @@ export type DirectSyncResult = {
   runId: number;
   durationMs: number;
   summary: DirectSyncSummary;
-  plannedChanges?: Array<{ entity: string; entityKey: string; action: string; fields: string[] }>;
+  plannedChanges?: Array<{
+    entity: string;
+    entityKey: string;
+    action: string;
+    reason: string;
+    fields: string[];
+    before?: Record<string, unknown>;
+    after?: Record<string, unknown>;
+  }>;
 };
 
 type Change = {
@@ -298,6 +306,21 @@ export function sourceWouldEraseExistingItems(sourceItemCount: number, existingI
   return sourceItemCount === 0 && existingItemCount > 0;
 }
 
+export function directShipmentStatus(options: {
+  existingStatus?: string | null;
+  sourceStatus?: string | null;
+  dateShipped?: string | null;
+  dateArrived?: string | null;
+}) {
+  const existing = sourceShipmentStatus(options.existingStatus);
+  if (existing === 'ENTREGADO' || existing === 'CANCELADO') return existing;
+  return sourceShipmentStatus(options.sourceStatus) ?? resolveShipmentStatus({
+    existingStatus: options.existingStatus,
+    dateShipped: options.dateShipped,
+    dateArrived: options.dateArrived,
+  });
+}
+
 function credentialsFromEnvironment() {
   const encoded = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64?.trim();
   const raw = encoded
@@ -490,7 +513,6 @@ export async function runDirectSheetSync(options: { dryRun?: boolean; days?: num
         const client = source.old_client_id
           ? clientsByOldId.get(source.old_client_id)
           : clientsByName.get(nameKey(source.client_name_match));
-        const explicitStatus = sourceShipmentStatus(source.status);
         const data = {
           shipment_number: shipmentNumber,
           clientId: client?.id ?? existing?.clientId ?? null,
@@ -504,7 +526,9 @@ export async function runDirectSheetSync(options: { dryRun?: boolean; days?: num
           cost_total: Number(source.cost_total || 0),
           price_total: Number(source.price_total || 0),
           profit: Number(source.profit || 0),
-          status: explicitStatus ?? existing?.status ?? resolveShipmentStatus({
+          status: directShipmentStatus({
+            existingStatus: existing?.status,
+            sourceStatus: source.status,
             dateShipped: source.date_shipped ?? null,
             dateArrived: source.date_arrived ?? null,
           }),
@@ -728,7 +752,10 @@ export async function runDirectSheetSync(options: { dryRun?: boolean; days?: num
             entity: change.entity,
             entityKey: change.entityKey,
             action: change.action,
+            reason: change.reason,
             fields: Object.keys(change.after ?? {}),
+            ...(change.before ? { before: change.before } : {}),
+            ...(change.after ? { after: change.after } : {}),
           })),
         } : {}),
       };

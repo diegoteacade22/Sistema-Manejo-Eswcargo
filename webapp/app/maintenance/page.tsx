@@ -5,5 +5,5 @@ export const maxDuration = 60;
 
 export default async function MaintenancePage() {
     await requireAdminUser();
-    return <MaintenanceClient />;
+    return <MaintenanceClient directSyncEnabled={process.env.DIRECT_SHEETS_SYNC_ENABLED === 'true'} />;
 }

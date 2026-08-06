@@ -28,7 +28,7 @@ function formatDuration(seconds: number | null) {
     return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
-export function MaintenanceClient() {
+export function MaintenanceClient({ directSyncEnabled }: { directSyncEnabled: boolean }) {
     const [isPending, startTransition] = useTransition();
     const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
     const [syncControl, setSyncControl] = useState<SyncControlCenter | null>(null);
@@ -304,7 +304,11 @@ export function MaintenanceClient() {
                                     disabled={isPending || isSyncing}
                                 >
                                     <Cloud className={`mr-2 h-4 w-4 ${isSyncing ? 'animate-bounce' : ''}`} />
-                                    {isSyncing ? 'SINCRONIZANDO...' : 'ACTUALIZAR AHORA (DIRECTO)'}
+                                    {isSyncing
+                                        ? 'SINCRONIZANDO...'
+                                        : directSyncEnabled
+                                            ? 'ACTUALIZAR AHORA (DIRECTO)'
+                                            : 'ACTUALIZAR 7 DIAS (CLOUD)'}
                                 </Button>
                                 <Button
                                     variant="outline"
