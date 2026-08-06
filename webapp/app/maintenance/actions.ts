@@ -10,6 +10,7 @@ import path from 'path';
 import { access } from 'fs/promises';
 import clientBalanceControls from '@/scripts/client-balance-controls.json';
 import { randomUUID } from 'node:crypto';
+import { runDirectSheetSync } from '@/lib/direct-sheet-sync';
 
 const execAsync = promisify(exec);
 
@@ -158,6 +159,7 @@ export async function syncExcel(requestedDays: number = 7) {
         const hookUrl = process.env.SYNC_HOOK_URL;
         const hookToken = process.env.SYNC_HOOK_TOKEN;
         const isVercelRuntime = process.env.VERCEL === '1';
+        const directSyncEnabled = process.env.DIRECT_SHEETS_SYNC_ENABLED === 'true';
 
         if (!isVercelRuntime && scriptPath) {
             console.log(`Starting local Excel Sync (${days} days) with script: ${scriptPath}`);
@@ -168,6 +170,32 @@ export async function syncExcel(requestedDays: number = 7) {
             revalidatePath('/', 'layout');
             revalidateDataViews();
             return { success: true, message: `OK: actualizacion ${syncScope} finalizada. Ya podes ver los cambios en el sistema.` };
+        }
+
+        if (isVercelRuntime && days !== 0 && directSyncEnabled) {
+            let result;
+            try {
+                result = await runDirectSheetSync({ days });
+            } catch (error) {
+                console.error('Direct Sheets sync failed:', error);
+                return {
+                    success: false,
+                    message: 'La actualización directa se detuvo sin aplicar cambios. Revisá el control de sincronización o usá la reconciliación completa.',
+                };
+            }
+            const changed = result.summary.created.shipments
+                + result.summary.created.orders
+                + result.summary.updated.shipments
+                + result.summary.updated.orders
+                + result.summary.replaced.orderItems;
+            revalidatePath('/', 'layout');
+            revalidateDataViews();
+            return {
+                success: true,
+                completed: true,
+                message: `OK: actualizacion directa finalizada en ${Math.max(1, Math.round(result.durationMs / 1000))}s. ${changed} cambios aplicados y verificados.`,
+                summary: result.summary,
+            };
         }
 
         if (hookUrl && hookUrl.trim().length > 0) {

@@ -3,9 +3,8 @@ run-name: "Sync ESWCARGO ${{ github.event.inputs.days || '7' }} días · ${{ git
 
 on:
   schedule:
-    # Cambios operativos recientes: máximo 30 minutos de demora.
-    - cron: '*/30 * * * *'
-    # Revisión total diaria de cambios históricos, separada del ciclo rápido.
+    # Revisión total diaria de cambios históricos. Los cambios operativos se
+    # aplican desde la ruta directa de Mantenimiento para evitar colas solapadas.
     - cron: '5 8 * * *'
   workflow_dispatch: # Permite ejecutarlo manualmente desde GitHub o desde el panel
     inputs:

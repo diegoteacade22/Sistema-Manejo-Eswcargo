@@ -74,6 +74,7 @@ export function MaintenanceClient() {
             const requestId = 'requestId' in res ? res.requestId : null;
             if (!runId && !requestId) {
                 setMessage({ text: res.message || `Actualizacion ${syncScope} finalizada.`, type: 'success' });
+                await loadSyncControl();
                 return;
             }
 
@@ -293,7 +294,7 @@ export function MaintenanceClient() {
                             <h4 className="text-sm font-semibold flex items-center gap-2">
                                 <RefreshCw className="h-4 w-4 text-emerald-500" /> Sincronizar con Excel (Drive)
                             </h4>
-                            <p className="text-xs text-muted-foreground">Usa 7 o 30 dias para cambios recientes. Elegi completa solo para correcciones historicas.</p>
+                            <p className="text-xs text-muted-foreground">La actualización operativa compara Google Sheets con Supabase y escribe solamente los cambios. La completa queda como reconciliación de respaldo.</p>
 
                             <div className="grid grid-cols-1 gap-2">
                                 <Button
@@ -303,16 +304,7 @@ export function MaintenanceClient() {
                                     disabled={isPending || isSyncing}
                                 >
                                     <Cloud className={`mr-2 h-4 w-4 ${isSyncing ? 'animate-bounce' : ''}`} />
-                                    {isSyncing ? 'SINCRONIZANDO...' : 'ACTUALIZAR ULTIMOS 7 DIAS'}
-                                </Button>
-                                <Button
-                                    variant="outline"
-                                    className="justify-start text-blue-600 border-blue-200 dark:border-blue-800 hover:bg-blue-50"
-                                    onClick={() => handleSync(30)}
-                                    disabled={isPending || isSyncing}
-                                >
-                                    <Cloud className={`mr-2 h-4 w-4 ${isSyncing ? 'animate-bounce' : ''}`} />
-                                    ACTUALIZAR ULTIMOS 30 DIAS
+                                    {isSyncing ? 'SINCRONIZANDO...' : 'ACTUALIZAR AHORA (DIRECTO)'}
                                 </Button>
                                 <Button
                                     variant="outline"
