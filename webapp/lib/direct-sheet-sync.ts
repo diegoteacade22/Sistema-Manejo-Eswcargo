@@ -306,6 +306,18 @@ export function sourceWouldEraseExistingItems(sourceItemCount: number, existingI
   return sourceItemCount === 0 && existingItemCount > 0;
 }
 
+export function shipmentBelongsToWindow(
+  shipment: { shipment_number?: unknown; date_shipped?: unknown; date_arrived?: unknown },
+  cutoffKey: string,
+  referencedShipmentNumbers: Set<number>,
+) {
+  const shipped = shipment.date_shipped ? String(shipment.date_shipped).slice(0, 10) : null;
+  const arrived = shipment.date_arrived ? String(shipment.date_arrived).slice(0, 10) : null;
+  return (shipped !== null && shipped >= cutoffKey)
+    || (arrived !== null && arrived >= cutoffKey)
+    || referencedShipmentNumbers.has(Number(shipment.shipment_number));
+}
+
 export function directShipmentStatus(options: {
   existingStatus?: string | null;
   sourceStatus?: string | null;
@@ -448,7 +460,6 @@ export async function runDirectSheetSync(options: { dryRun?: boolean; days?: num
       })),
       shipmentRules,
     );
-    const acceptedShipments = normalizedShipments.accepted;
     const normalizedOrders = normalizeSourceRows(
       parsedSource.orders.map((order) => ({
         ...order,
@@ -466,6 +477,12 @@ export async function runDirectSheetSync(options: { dryRun?: boolean; days?: num
     const acceptedOrders = cutoffKey
       ? normalizedAcceptedOrders.filter((order) => order.date !== null && order.date >= cutoffKey)
       : normalizedAcceptedOrders;
+    const recentShipmentNumbers = new Set(
+      acceptedOrders.flatMap((order) => order.items.flatMap((item) => item.shipmentNumber ? [item.shipmentNumber] : [])),
+    );
+    const acceptedShipments = cutoffKey
+      ? normalizedShipments.accepted.filter((shipment) => shipmentBelongsToWindow(shipment, cutoffKey, recentShipmentNumbers))
+      : normalizedShipments.accepted;
     const hash = sourceHash(parsedSource);
 
     const result = await prisma.$transaction(async (tx) => {
@@ -618,7 +635,7 @@ export async function runDirectSheetSync(options: { dryRun?: boolean; days?: num
             entity: 'ORDER_ITEMS',
             entityKey: `#${source.orderNumber}`,
             action: 'REJECTED',
-            reason: 'La fuente directa trajo menos items que Supabase; una eliminacion requiere reconciliacion FULL.',
+            reason: 'La fuente directa trajo menos items que Supabase; se conserva el pedido hasta verificar la fuente o autorizar una reduccion destructiva.',
           });
           continue;
         }
@@ -691,7 +708,7 @@ export async function runDirectSheetSync(options: { dryRun?: boolean; days?: num
             entity: 'ORDER_ITEMS',
             entityKey: `#${source.orderNumber}`,
             action: 'REJECTED',
-            reason: 'DETA_VENTAS no devolvio items para un pedido que ya tiene detalle; se preserva la base.',
+            reason: 'DETA_VENTAS no devolvio items para un pedido que ya tiene detalle; se conserva el pedido hasta verificar la fuente.',
           });
           continue;
         }
@@ -756,9 +773,6 @@ export async function runDirectSheetSync(options: { dryRun?: boolean; days?: num
       summary.changed = writeCount;
       const rejectedCount = summary.rejected.shipments + summary.rejected.orders;
       summary.idempotent = writeCount === 0 && rejectedCount === 0;
-      if (!options.dryRun && rejectedCount > 0) {
-        throw new Error(`La fuente directa contiene ${rejectedCount} registros rechazados; no se aplico ningun cambio.`);
-      }
       if (!options.dryRun) {
         await tx.syncRun.update({
           where: { id: runId },

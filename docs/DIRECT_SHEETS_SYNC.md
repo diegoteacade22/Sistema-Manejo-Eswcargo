@@ -15,8 +15,8 @@ completas y recien despues filtraba fechas.
 
 - El boton operativo ejecuta `runDirectSheetSync()` dentro del backend autenticado de la aplicacion.
 - Google Sheets se lee con una sola solicitud `values.batchGet` y rangos acotados.
-- Los pedidos y sus items se limitan realmente a la ventana solicitada (7 dias en el boton);
-  los estados de envios se comparan por delta porque la hoja no expone fecha de ultima modificacion.
+- Los pedidos y sus items se limitan a la ventana solicitada (7 dias en el boton). Los envios se
+  limitan por fecha de salida/llegada o por estar referenciados por un pedido reciente.
 - La fuente se compara por claves de negocio estables (`shipment_number`, `order_number` y los items
   normalizados).
 - Supabase recibe solamente registros nuevos o modificados.
@@ -34,8 +34,14 @@ completas y recien despues filtraba fechas.
 - La cuenta de servicio se obtiene unicamente de variables de entorno del servidor.
 - Ninguna credencial se envia al navegador ni se escribe en logs.
 - Los estados en blanco no reemplazan estados existentes.
-- Una lectura incompleta detiene la operacion antes de borrar o reemplazar items.
-- La interfaz informa exito solo despues de finalizar las escrituras y actualizar `SyncRun`.
+- Una reduccion de items nunca se aplica automaticamente. El pedido conflictivo queda en cuarentena,
+  conserva su detalle actual y no bloquea los cambios sanos de otros pedidos.
+- Si la fuente presenta mas de cinco pedidos reducidos, FULL falla cerrado porque el snapshot puede
+  estar incompleto. El limite se puede endurecer con `SYNC_INCOMPLETE_ORDER_QUARANTINE_LIMIT`.
+- DIRECT registra cada rechazo en `SyncChange`, aplica los cambios sanos y la interfaz informa
+  `actualizacion parcial`; nunca presenta una corrida parcial como exito completo.
+- Reducir items en FULL requiere `ALLOW_DESTRUCTIVE_FULL_RECONCILIATION=1` y validacion previa.
+- La interfaz informa el estado real solo despues de finalizar las escrituras y actualizar `SyncRun`.
 - `DIRECT_SHEETS_SYNC_ENABLED=true` habilita la ruta directa. El valor por defecto es `false` para
   que un deploy no cambie el flujo antes de terminar la validacion controlada.
 
@@ -50,6 +56,15 @@ completas y recien despues filtraba fechas.
    Supabase y `SyncChange`.
 6. Repetir la misma ejecucion y comprobar idempotencia (`changed = 0`).
 7. Confirmar desde la aplicacion que el cambio ya se proyecta sin recargar un deploy.
+
+## Diagnostico de detalle incompleto
+
+1. Comparar la cabecera del pedido en `CABE_VENTAS` con sus filas en `DETA_VENTAS`.
+2. Si Sheets trae menos filas que Supabase, no repetir FULL a ciegas: corregir o terminar la edicion
+   del Sheet y volver a ejecutar DIRECT.
+3. Verificar que la corrida figure parcial, que el pedido quede `REJECTED` y que sus items sigan
+   intactos; los demas cambios deben quedar aplicados.
+4. Usar FULL destructivo solo cuando la eliminacion de filas sea intencional y verificable.
 
 ## Rollback
 

@@ -9,7 +9,7 @@ import { DeleteEntityCard } from '@/components/delete-entity-card';
 
 export function MaintenanceClient({ directSyncEnabled }: { directSyncEnabled: boolean }) {
     const [isPending, startTransition] = useTransition();
-    const [message, setMessage] = useState<{ text: string, type: 'success' | 'error' } | null>(null);
+    const [message, setMessage] = useState<{ text: string, type: 'success' | 'warning' | 'error' } | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
 
     const handleRevalidate = () => {
@@ -39,7 +39,10 @@ export function MaintenanceClient({ directSyncEnabled }: { directSyncEnabled: bo
             const runId = 'runId' in res ? res.runId : null;
             const requestId = 'requestId' in res ? res.requestId : null;
             if (!runId && !requestId) {
-                setMessage({ text: res.message || `Actualizacion ${syncScope} finalizada.`, type: 'success' });
+                setMessage({
+                    text: res.message || `Actualizacion ${syncScope} finalizada.`,
+                    type: 'partial' in res && res.partial ? 'warning' : 'success',
+                });
                 return;
             }
 
@@ -103,7 +106,11 @@ export function MaintenanceClient({ directSyncEnabled }: { directSyncEnabled: bo
             </div>
 
             {message && (
-                <div className={`p-4 rounded-md border flex items-center gap-2 ${message.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/20 dark:border-emerald-900 dark:text-emerald-400' : 'bg-red-50 border-red-200 text-red-800 dark:bg-red-900/20 dark:border-red-900 dark:text-red-400'}`}>
+                <div className={`p-4 rounded-md border flex items-center gap-2 ${message.type === 'success'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-900/20 dark:border-emerald-900 dark:text-emerald-400'
+                    : message.type === 'warning'
+                        ? 'bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-900/20 dark:border-amber-900 dark:text-amber-300'
+                        : 'bg-red-50 border-red-200 text-red-800 dark:bg-red-900/20 dark:border-red-900 dark:text-red-400'}`}>
                     {message.type === 'success' ? <CheckCircle2 className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
                     <p className="text-sm font-medium">{message.text}</p>
                 </div>

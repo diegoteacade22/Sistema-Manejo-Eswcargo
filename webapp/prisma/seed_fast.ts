@@ -14,6 +14,7 @@ import {
     resolveShipmentStatus,
     sourceShipmentStatus,
 } from '../lib/shipment-sync-status';
+import { partitionOrdersByItemIntegrity } from '../lib/sync-source-integrity';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
 let activeSyncRunId: number | null = null;
@@ -237,14 +238,38 @@ async function main() {
         items.push(item);
         existingItemsByOrderId.set(item.orderId, items);
     }
-    const incompleteOrders = normalizedOrdersData
-        .filter((order: any) => {
+    const allowDestructiveFullReconciliation = process.env.ALLOW_DESTRUCTIVE_FULL_RECONCILIATION === '1';
+    const existingOrderItemCounts = new Map<number, { orderId: number; itemCount: number }>(
+        normalizedOrdersData.flatMap((order: any) => {
             const dbOrder = orderNumMap.get(order.order_number);
-            return dbOrder && (order.items || []).length === 0 && (existingItemsByOrderId.get(dbOrder.id)?.length || 0) > 0;
-        })
-        .map((order: any) => `#${order.order_number}`);
-    if (incompleteOrders.length) {
-        throw new Error(`Sincronización detenida: la fuente no trajo el detalle de ${incompleteOrders.join(', ')}. No se eliminó ningún ítem.`);
+            return dbOrder
+                ? [[order.order_number, { orderId: dbOrder.id, itemCount: existingItemsByOrderId.get(dbOrder.id)?.length || 0 }]]
+                : [];
+        }),
+    );
+    const orderIntegrity = partitionOrdersByItemIntegrity(
+        normalizedOrdersData,
+        existingOrderItemCounts,
+        isFullSync && allowDestructiveFullReconciliation,
+    );
+    const quarantineLimit = Math.max(1, Number(process.env.SYNC_INCOMPLETE_ORDER_QUARANTINE_LIMIT || 5));
+    if (orderIntegrity.quarantined.length > quarantineLimit) {
+        const orderKeys = orderIntegrity.quarantined.slice(0, quarantineLimit + 1).map(({ order }: any) => `#${order.order_number}`);
+        throw new Error(`Sincronización detenida: ${orderIntegrity.quarantined.length} pedidos redujeron su detalle (${orderKeys.join(', ')}). La fuente parece incompleta y no se aplicaron cambios.`);
+    }
+    const syncableOrdersData = orderIntegrity.accepted;
+    for (const quarantined of orderIntegrity.quarantined) {
+        const orderNumber = quarantined.order.order_number;
+        processedOrderIds.add(quarantined.orderId);
+        console.warn(`⚠️ Pedido #${orderNumber} en cuarentena: fuente ${quarantined.sourceItemCount} ítem(s), base ${quarantined.existingItemCount}. Se conserva sin cambios.`);
+        trackChange({
+            entity: 'ORDER_ITEMS',
+            entityKey: `#${orderNumber}`,
+            action: 'REJECTED',
+            reason: 'La fuente redujo el detalle del pedido; se conserva la versión existente hasta una reconciliación destructiva explícita.',
+            before: { count: quarantined.existingItemCount },
+            after: { count: quarantined.sourceItemCount },
+        });
     }
 
     // 3. PROCESAR CLIENTES (Diferencial)
@@ -394,12 +419,12 @@ async function main() {
     }
 
     // 6. PROCESAR PEDIDOS
-    console.log(`📑 Sincronizando ${normalizedOrdersData.length} pedidos...`);
+    console.log(`📑 Sincronizando ${syncableOrdersData.length} pedidos; ${orderIntegrity.quarantined.length} en cuarentena...`);
     let orderCounter = 0;
     let orderItemsReplaced = 0;
-    const syncedOrderNumbers = new Set(normalizedOrdersData.map((o: any) => o.order_number));
+    const syncedOrderNumbers = new Set(syncableOrdersData.map((o: any) => o.order_number));
 
-    for (const o of (normalizedOrdersData as any[])) {
+    for (const o of (syncableOrdersData as any[])) {
         const existing = orderNumMap.get(o.order_number);
         const dbClientId = o.client_old_id ? clientOldIdMap.get(o.client_old_id)?.id : (o.client_name_match ? clientNameMap.get(o.client_name_match.trim().toUpperCase())?.id : null);
         const resolvedOrderClientId = dbClientId ?? existing?.clientId ?? unknownClientId;
@@ -500,7 +525,7 @@ async function main() {
         orderCounter++;
         if (orderCounter % 50 === 0) console.log(`   ...procesados ${orderCounter} pedidos`);
     }
-    console.log(`   ↻ Ítems reemplazados por cambios reales: ${orderItemsReplaced}/${normalizedOrdersData.length}`);
+    console.log(`   ↻ Ítems reemplazados por cambios reales: ${orderItemsReplaced}/${syncableOrdersData.length}`);
 
     // 6.1 RECONCILIAR ASIGNACIONES DE ENVIO HISTORICAS
     // Los cambios de ENVIO NRO no modifican la fecha de venta, por lo que no
@@ -655,7 +680,7 @@ async function main() {
     }
 
     const shipmentIdsToRefresh = new Set<number>(affectedShipmentIds);
-    for (const order of normalizedOrdersData as any[]) {
+    for (const order of syncableOrdersData as any[]) {
         for (const item of order.items || []) {
             const shipmentId = item.shipment_number ? shipmentNumMap.get(item.shipment_number)?.id : null;
             if (shipmentId) shipmentIdsToRefresh.add(shipmentId);
@@ -695,7 +720,7 @@ async function main() {
     );
     const operationalLedgerInputs: OperationLedgerInput[] = [];
 
-    for (const order of normalizedOrdersData as any[]) {
+    for (const order of syncableOrdersData as any[]) {
         const orderDate = parseSafeDate(order.date);
         if (!orderDate || orderDate < ledgerPolicyEffectiveDate || Number(order.total_amount || 0) <= 0) continue;
         const dbClientId = order.client_old_id
@@ -763,7 +788,7 @@ async function main() {
     const allTxs: any[] = [];
 
     // A. Transacciones de Pedidos
-    for (const o of normalizedOrdersData) {
+    for (const o of syncableOrdersData) {
         const dbClientId = o.client_old_id ? clientOldIdMap.get(o.client_old_id)?.id : (o.client_name_match ? clientNameMap.get(o.client_name_match.trim().toUpperCase())?.id : null);
         if (!dbClientId) continue;
         const oDate = parseSafeDate(o.date) || new Date();
@@ -1078,7 +1103,6 @@ async function main() {
 
     // 7. LIMPIEZA DE HUERFANOS (solo bajo una operación explícita y controlada).
     // Una descarga o extracción parcial nunca debe borrar registros productivos.
-    const allowDestructiveFullReconciliation = process.env.ALLOW_DESTRUCTIVE_FULL_RECONCILIATION === '1';
     if (isFullSync && allowDestructiveFullReconciliation) {
         console.log("🧹 Iniciando limpieza de registros huérfanos...");
 
@@ -1150,6 +1174,7 @@ async function main() {
                 products: productsData.length,
                 shipments: shipmentsData.length,
                 orders: normalizedOrdersData.length,
+                quarantinedOrders: orderIntegrity.quarantined.length,
                 orderItemsReplaced,
                 reconciliationOrders: reconciliationOrderIds.length,
                 changes: changesByAction,

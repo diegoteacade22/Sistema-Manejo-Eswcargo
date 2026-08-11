@@ -40,6 +40,7 @@
     "reconcile:stale-order-charges": "node scripts/remove-stale-neutralized-order-charges-20260718.mjs",
     "test:sync-delta": "tsx scripts/test-sync-item-delta.ts",
     "test:sync-source": "tsx scripts/test-sync-source-normalization.ts",
+    "test:sync-operational": "tsx --test tests/direct-sheet-sync.test.ts",
     "test:agent-order": "tsx scripts/test-agent-order-invariants.ts",
     "test:cashflow-export": "python3 scripts/test-export-cash-flow-raw-transactions.py",
     "test:cashflow-reconciliation": "node scripts/test-cashflow-reconciliation.mjs",
