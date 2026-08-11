@@ -3,7 +3,7 @@ import { GoogleAuth } from 'google-auth-library';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { calculateActiveOrderTotal } from '@/lib/order-totals';
-import { sameItemSet } from '@/lib/sync-item-comparison';
+import { itemSyncSignature, sameItemSet } from '@/lib/sync-item-comparison';
 import {
   type CanonicalSourceRules,
   normalizeShipmentSourceRows,
@@ -752,7 +752,20 @@ export async function runDirectSheetSync(options: { dryRun?: boolean; days?: num
             if (nextItems.length) await tx.orderItem.createMany({ data: nextItems.map((item) => ({ ...item, orderId })) });
           }
           summary.replaced.orderItems++;
-          changes.push({ entity: 'ORDER_ITEMS', entityKey: `#${source.orderNumber}`, action: 'REPLACED', reason: 'Cambio real en productos, cantidades, precios, estado o envio.', after: { count: nextItems.length } });
+          changes.push({
+            entity: 'ORDER_ITEMS',
+            entityKey: `#${source.orderNumber}`,
+            action: 'REPLACED',
+            reason: 'Cambio real en productos, cantidades, precios, estado o envio.',
+            before: {
+              count: existing?.items.length ?? 0,
+              signatures: (existing?.items ?? []).map(itemSyncSignature).sort(),
+            },
+            after: {
+              count: nextItems.length,
+              signatures: nextItems.map(itemSyncSignature).sort(),
+            },
+          });
         }
       }
 
