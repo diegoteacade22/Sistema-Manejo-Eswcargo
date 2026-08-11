@@ -94,37 +94,15 @@ docker-compose up -d --build
 
 ---
 
-## ⏱️ Sincronización automática con Google Sheets (cada hora laboral)
+## ⏱️ Sincronización con Google Sheets
 
-Para mantener la app actualizada con los últimos cambios de la planilla:
+La operación normal se ejecuta desde **Mantenimiento → ACTUALIZAR AHORA (DIRECTO)**. Compara los
+últimos 7 días y escribe solamente cambios confirmados. La reconciliación FULL de GitHub Actions es
+un respaldo diario y no debe usarse como botón operativo.
 
-```bash
-cd /ruta/al/proyecto/sistema_gestion_importaciones
-chmod +x install_business_hours_sync.sh run_scheduled_sync.sh
-./install_business_hours_sync.sh
-```
-
-Configuración por defecto:
-- **Frecuencia:** 1 vez por hora
-- **Horario:** lunes a viernes, 08:00 a 18:00
-- **Rango de datos:** últimos 7 días
-
-Comandos útiles:
-
-```bash
-# Ver cron instalado
-crontab -l | grep ESWCARGO_BUSINESS_SYNC
-
-# Ver logs de ejecución programada
-tail -f logs/sync/cron.log
-tail -f logs/sync/auto_sync.log
-```
-
-Opcional (personalizar horario o días):
-
-```bash
-SYNC_CRON_SCHEDULE="0 9-19 * * 1-5" SYNC_DAYS=14 ./install_business_hours_sync.sh
-```
+Los pedidos cuyo detalle se reduzca quedan en cuarentena: no se borran sus artículos y tampoco
+bloquean los demás cambios. Consultar `docs/DIRECT_SHEETS_SYNC.md` para validación, diagnóstico y
+rollback.
 
 ---
 

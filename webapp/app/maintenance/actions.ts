@@ -188,14 +188,18 @@ export async function syncExcel(requestedDays: number = 7) {
                 + result.summary.updated.shipments
                 + result.summary.updated.orders
                 + result.summary.replaced.orderItems;
+            const rejected = result.summary.rejected.shipments + result.summary.rejected.orders;
             revalidatePath('/', 'layout');
             revalidateDataViews();
             return {
                 success: true,
+                partial: rejected > 0,
                 completed: true,
-                message: changed === 0
-                    ? `OK: el sistema ya estaba actualizado. Verificado en ${Math.max(1, Math.round(result.durationMs / 1000))}s; no habia cambios pendientes.`
-                    : `OK: actualizacion directa finalizada en ${Math.max(1, Math.round(result.durationMs / 1000))}s. ${changed} cambios aplicados y verificados.`,
+                message: rejected > 0
+                    ? `Actualizacion parcial verificada en ${Math.max(1, Math.round(result.durationMs / 1000))}s: ${changed} cambios aplicados y ${rejected} pedido(s) conservados sin modificar por diferencias de detalle. Revisá el Sheet antes de autorizar una reducción.`
+                    : changed === 0
+                        ? `OK: el sistema ya estaba actualizado. Verificado en ${Math.max(1, Math.round(result.durationMs / 1000))}s; no habia cambios pendientes.`
+                        : `OK: actualizacion directa finalizada en ${Math.max(1, Math.round(result.durationMs / 1000))}s. ${changed} cambios aplicados y verificados.`,
                 summary: result.summary,
             };
         }

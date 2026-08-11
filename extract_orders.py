@@ -84,8 +84,15 @@ def extract_orders():
             if s.lower() in ['nan', 'none', 'null', '']: return None
             return s
 
+        def first_present(row, *names):
+            for name in names:
+                value = row.get(name)
+                if value is not None and not pd.isna(value):
+                    return value
+            return None
+
         for _, row in df_det.iterrows():
-            order_id = row.get('INV-REM') or row.get('NRO_PEDIDO')
+            order_id = first_present(row, 'INV-REM', 'NRO_PEDIDO')
             if pd.isna(order_id): continue
             
             try: order_id = int(order_id)
@@ -94,10 +101,10 @@ def extract_orders():
             if order_id not in details_map: details_map[order_id] = []
             
             sku = clean_text(row.get('SKU')) or ''
-            qty = clean_num(row.get('CANT') or row.get('CANTIDAD'))
-            price = clean_num(row.get('VTA UNI') or row.get('PRECIO'))
+            qty = clean_num(first_present(row, 'CANT', 'CANTIDAD'))
+            price = clean_num(first_present(row, 'VTA UNI', 'PRECIO'))
             profit = clean_num(row.get('GANANCIA')) 
-            cost = clean_num(row.get('COSTO') or row.get('COSTO X ART'))
+            cost = clean_num(first_present(row, 'COSTO', 'COSTO X ART'))
             
             item_status_raw = row.get('ESTADO')
             item_status = normalize_status(item_status_raw)

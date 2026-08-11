@@ -5,8 +5,10 @@ import {
   directShipmentStatus,
   isRetryableSheetsError,
   parseOperationalSheets,
+  shipmentBelongsToWindow,
   sourceWouldEraseExistingItems,
 } from '../lib/direct-sheet-sync';
+import { partitionOrdersByItemIntegrity } from '../lib/sync-source-integrity';
 
 test('parsea las tres hojas operativas y conserva estados en blanco', () => {
   const source = parseOperationalSheets({
@@ -89,6 +91,41 @@ test('una fuente parcial nunca borra items existentes', () => {
   assert.equal(sourceWouldEraseExistingItems(0, 3), true);
   assert.equal(sourceWouldEraseExistingItems(1, 3), false);
   assert.equal(sourceWouldEraseExistingItems(0, 0), false);
+});
+
+test('un pedido reducido queda en cuarentena sin bloquear los pedidos sanos', () => {
+  const source = [
+    { order_number: 100, items: [{ sku: 'A' }] },
+    { order_number: 101, items: [{ sku: 'B' }, { sku: 'C' }] },
+  ];
+  const result = partitionOrdersByItemIntegrity(source, new Map([
+    [100, { orderId: 1, itemCount: 3 }],
+    [101, { orderId: 2, itemCount: 2 }],
+  ]));
+
+  assert.deepEqual(result.accepted.map((order) => order.order_number), [101]);
+  assert.equal(result.quarantined.length, 1);
+  assert.deepEqual(result.quarantined[0], {
+    order: source[0], orderId: 1, sourceItemCount: 1, existingItemCount: 3,
+  });
+});
+
+test('una reduccion solo se acepta con reconciliacion destructiva explicita', () => {
+  const source = [{ order_number: 100, items: [] }];
+  const result = partitionOrdersByItemIntegrity(
+    source,
+    new Map([[100, { orderId: 1, itemCount: 3 }]]),
+    true,
+  );
+  assert.equal(result.accepted.length, 1);
+  assert.equal(result.quarantined.length, 0);
+});
+
+test('la ventana directa excluye envios historicos no relacionados', () => {
+  const related = new Set([501]);
+  assert.equal(shipmentBelongsToWindow({ shipment_number: 500, date_shipped: '2026-07-01' }, '2026-08-04', related), false);
+  assert.equal(shipmentBelongsToWindow({ shipment_number: 501, date_shipped: '2026-07-01' }, '2026-08-04', related), true);
+  assert.equal(shipmentBelongsToWindow({ shipment_number: 502, date_arrived: '2026-08-10' }, '2026-08-04', related), true);
 });
 
 test('un envio terminal nunca retrocede por un estado viejo de Sheets', () => {

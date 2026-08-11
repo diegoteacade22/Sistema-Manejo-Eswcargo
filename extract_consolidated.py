@@ -37,6 +37,13 @@ def clean_date(d):
     except:
         return None
 
+def first_present_value(row, *names):
+    for name in names:
+        value = row.get(name)
+        if value is not None and not pd.isna(value):
+            return value
+    return None
+
 def parse_int_like(value):
     if pd.isna(value) or value is None:
         return None
@@ -331,7 +338,7 @@ def extract_all():
     det_client_map = {} # Map order_id -> {id: ..., name: ...}
     order_status_map = {}
     for _, row in df_dv.iterrows():
-        oid = row.get('INV-REM') or row.get('NRO_PEDIDO')
+        oid = first_present_value(row, 'INV-REM', 'NRO_PEDIDO')
         if pd.isna(oid): continue
         try: oid = int(oid)
         except: continue
@@ -347,9 +354,9 @@ def extract_all():
 
         item_data = {
             'sku': clean_text(row.get('SKU')),
-            'quantity': int(clean_num(row.get('CANT') or row.get('CANTIDAD'))),
-            'unit_price': clean_num(row.get('VTA UNI') or row.get('PRECIO')),
-            'unit_cost': clean_num(row.get('COSTO') or row.get('COSTO X ART')),
+            'quantity': int(clean_num(first_present_value(row, 'CANT', 'CANTIDAD'))),
+            'unit_price': clean_num(first_present_value(row, 'VTA UNI', 'PRECIO')),
+            'unit_cost': clean_num(first_present_value(row, 'COSTO', 'COSTO X ART')),
             'profit': clean_num(row.get('GANANCIA')),
             'product_name': clean_text(row.get('DETALLE')),
             'shipment_number': sn_val,
