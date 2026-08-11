@@ -150,20 +150,32 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
                         -webkit-print-color-adjust: exact;
                         print-color-adjust: exact;
                         background: white !important;
+                        height: auto !important;
+                        overflow: visible !important;
                     }
                     .print-compact { transform: none; }
                     #invoice-content {
-                        height: 10.65in;
-                        display: flex;
-                        flex-direction: column;
+                        height: auto;
+                        min-height: 10.65in;
+                        display: block;
+                        overflow: visible !important;
                     }
                     .invoice-body {
-                        flex: 1;
-                        min-height: 0;
-                        display: flex;
-                        flex-direction: column;
+                        min-height: auto;
+                        display: block;
                     }
-                    .invoice-bottom { margin-top: auto; }
+                    .invoice-items-wrapper { overflow: visible !important; }
+                    .invoice-items-table thead { display: table-header-group; }
+                    .invoice-items-table tfoot { display: table-row-group; }
+                    .invoice-items-table tr {
+                        break-inside: avoid;
+                        page-break-inside: avoid;
+                    }
+                    .invoice-bottom {
+                        margin-top: 1rem;
+                        break-inside: avoid;
+                        page-break-inside: avoid;
+                    }
                     .no-print { display: none !important; }
                 }
             `}} />
@@ -216,7 +228,7 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
                 {/* Main Invoice Sheet */}
                 <div
                     id="invoice-content"
-                    className="bg-white shadow-2xl rounded-sm overflow-hidden border border-slate-200 print:shadow-none print:border-none print:w-full"
+                    className="bg-white shadow-2xl rounded-sm overflow-hidden border border-slate-200 print:shadow-none print:border-none print:w-full print:overflow-visible"
                 >
                     {/* Header */}
                     <div className="bg-[#103a89] text-white p-8 print:p-6 flex justify-between items-start">
@@ -265,8 +277,8 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
                         </div>
 
                         {/* Items Table */}
-                        <div className="overflow-hidden rounded-lg border border-slate-200">
-                            <table className="w-full text-left border-collapse">
+                        <div className="invoice-items-wrapper overflow-hidden rounded-lg border border-slate-200">
+                            <table className="invoice-items-table w-full text-left border-collapse">
                                 <thead>
                                     <tr className="invoice-item-header bg-[#103a89] text-white uppercase font-black tracking-widest">
                                         <th className="px-4 py-3 border-r border-white/10 text-center w-12">Qty</th>
