@@ -40,6 +40,8 @@ completas y recien despues filtraba fechas.
   estar incompleto. El limite se puede endurecer con `SYNC_INCOMPLETE_ORDER_QUARANTINE_LIMIT`.
 - DIRECT registra cada rechazo en `SyncChange`, aplica los cambios sanos y la interfaz informa
   `actualizacion parcial`; nunca presenta una corrida parcial como exito completo.
+- Todo reemplazo de items registra conteo y firmas `before/after` en `SyncChange` para readback y
+  restauracion controlada.
 - Reducir items en FULL requiere `ALLOW_DESTRUCTIVE_FULL_RECONCILIATION=1` y validacion previa.
 - La interfaz informa el estado real solo despues de finalizar las escrituras y actualizar `SyncRun`.
 - `DIRECT_SHEETS_SYNC_ENABLED=true` habilita la ruta directa. El valor por defecto es `false` para
