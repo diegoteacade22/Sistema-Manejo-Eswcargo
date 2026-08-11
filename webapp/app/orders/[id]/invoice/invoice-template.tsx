@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Printer, Mail, FileText, Loader2, Instagram, Globe, MessageSquare, Twitter, Download } from 'lucide-react';
-import { saveInvoicePdfToDrive, sendInvoiceEmail } from '@/app/email-actions';
+import { sendInvoiceEmail } from '@/app/email-actions';
 import { toast } from 'sonner';
 import { toInvNumber4 } from '@/lib/inv-filename';
 import { INVOICE_TYPOGRAPHY } from '@/lib/invoice-typography';
@@ -69,14 +69,22 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
     const handleSaveDrive = async () => {
         setIsSaving(true);
         try {
-            const result = await saveInvoicePdfToDrive(order.id);
-            if (result.success) {
-                toast.success(`Guardado: ${result.fileName}`);
-            } else {
-                toast.error('Error al guardar: ' + result.message);
+            const response = await fetch(`/api/orders/${order.id}/invoice`);
+            if (!response.ok) {
+                throw new Error((await response.text()) || 'No se pudo generar el invoice.');
             }
-        } catch {
-            toast.error('Error de red al guardar el PDF');
+
+            const blobUrl = URL.createObjectURL(await response.blob());
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = invFileName;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(blobUrl);
+            toast.success(`Descargado: ${invFileName}`);
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'Error de red al descargar el PDF');
         } finally {
             setIsSaving(false);
         }
@@ -84,6 +92,7 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
 
     const totalValue = order.total_amount;
     const items = order.items || [];
+    const totalPcs = items.reduce((sum: number, item: any) => sum + Number(item.quantity || 0), 0);
     const hasConfirmedInvoice = items.length > 0 && Number(totalValue || 0) > 0;
     const customerId = order.client.old_id || order.client.id;
 
@@ -199,7 +208,7 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
                             className="bg-emerald-600 hover:bg-emerald-700 text-white"
                         >
                             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                            Guardar PDF
+                            Descargar PDF
                         </Button>
                         <Button
                             variant="outline"
@@ -340,7 +349,7 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
                                 </div>
                                 <div className="flex justify-between items-center py-2 px-4 bg-slate-50 rounded-lg">
                                     <span className="invoice-summary-label font-black text-slate-500 uppercase">Items Count</span>
-                                    <span className="invoice-summary-value font-bold text-slate-900">{items.length} PCS</span>
+                                    <span className="invoice-summary-value font-bold text-slate-900">{totalPcs} PCS</span>
                                 </div>
                                 <div className="pt-4 border-t-2 border-[#103a89] flex justify-between items-baseline px-2">
                                     <span className="invoice-grand-total-label font-black text-[#103a89] uppercase tracking-tighter">Total Invoice</span>

@@ -33,7 +33,8 @@ async function getOrders(query: string, sortField: string = 'date', sortOrder: S
     }
 
     if (query) {
-        const asNumber = parseInt(query);
+        const invoiceMatch = query.trim().match(/^(?:inv(?:oice)?\s*)?#?\s*(\d+)$/i);
+        const asNumber = invoiceMatch ? Number(invoiceMatch[1]) : Number.NaN;
         const orConditions: any[] = [];
 
         // Always search client name (insensitive) if admin

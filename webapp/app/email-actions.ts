@@ -473,7 +473,7 @@ export async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocu
                                 </div>
                                 <div>
                                     <div class="summary-row"><span>Weight Total</span><span class="value">${weightLabel}</span></div>
-                                    <div class="summary-row"><span>Items Count</span><span class="value">${invoiceItems.length} PCS</span></div>
+                                    <div class="summary-row"><span>Items Count</span><span class="value">${totalPcs} PCS</span></div>
                                     <div class="grand-total"><span>Total Invoice</span><span class="amount"><span class="currency">USD</span>${new Intl.NumberFormat('en-US').format(order.total_amount)}</span></div>
                                 </div>
                             </div>
