@@ -376,13 +376,13 @@ export async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocu
                     * { box-sizing: border-box; }
                     html, body { width: 8.5in; min-height: 11in; margin: 0; padding: 0; background: #fff; }
                     body { font-family: Arial, Helvetica, sans-serif; color: #263853; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-                    .page { width: 8.5in; height: 11in; padding: 0.38in 0.48in 0.32in; background: #fff; display: flex; flex-direction: column; }
+                    .page { width: 8.5in; min-height: 11in; height: auto; padding: 0.38in 0.48in 0.32in; background: #fff; display: block; overflow: visible; }
                     .header { min-height: 1.12in; padding: 0.19in 0.26in; background: #103a89; color: #fff; display: flex; justify-content: space-between; align-items: flex-start; }
                     .brand { margin: 0; font-size: var(--invoice-brand-size); line-height: 1; letter-spacing: -0.5px; font-weight: 900; }
                     .brand-meta { margin-top: 7px; font-size: var(--invoice-brand-meta-size); line-height: 1.5; letter-spacing: 0.35px; font-weight: 700; }
                     .invoice-title { min-width: 2.32in; padding: 7px 12px; border: 1px solid rgba(255,255,255,.3); border-radius: 5px; text-align: center; font-size: var(--invoice-document-title-size); font-weight: 900; letter-spacing: 1.3px; }
                     .invoice-number { margin-top: 8px; text-align: right; font-size: var(--invoice-document-number-size); line-height: 1; font-weight: 900; letter-spacing: 1px; }
-                    .main { flex: 1; min-height: 0; padding: 0.22in 0.21in 0; display: flex; flex-direction: column; }
+                    .main { min-height: 0; padding: 0.22in 0.21in 0; display: block; }
                     .meta-grid { display: grid; grid-template-columns: 1fr 2.25in; gap: 0.45in; margin-bottom: 0.18in; }
                     .section-label { width: 1.05in; padding-bottom: 5px; border-bottom: 1px solid #b8c5db; color: #103a89; font-size: var(--invoice-section-label-size); font-weight: 900; letter-spacing: 1px; text-transform: uppercase; }
                     .customer-name { margin-top: 9px; color: #273953; font-size: var(--invoice-customer-name-size); font-weight: 900; text-transform: uppercase; }
@@ -391,8 +391,10 @@ export async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocu
                     .meta-row { display: grid; grid-template-columns: 0.8in 1fr; margin-top: 8px; font-size: var(--invoice-meta-row-size); text-align: right; }
                     .meta-key { color: #64748b; font-weight: 800; }
                     .meta-value { color: #103a89; font-weight: 900; }
-                    table.items { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid #dbe3ef; border-radius: 5px; overflow: hidden; }
-                    .items thead { background: #103a89; color: #fff; }
+                    table.items { width: 100%; border-collapse: separate; border-spacing: 0; border: 1px solid #dbe3ef; border-radius: 5px; overflow: visible; }
+                    .items thead { display: table-header-group; background: #103a89; color: #fff; }
+                    .items tfoot { display: table-row-group; }
+                    .items tr { break-inside: avoid; page-break-inside: avoid; }
                     .items th { height: 0.39in; padding: 7px 9px; border-right: 1px solid rgba(255,255,255,.18); font-size: var(--invoice-item-header-size); letter-spacing: 0.8px; text-transform: uppercase; }
                     .items th:nth-child(1) { width: 7%; }
                     .items th:nth-child(2) { width: 50%; text-align: left; }
@@ -409,7 +411,7 @@ export async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocu
                     .items tfoot td { height: 0.36in; border-bottom: 0; background: #f6f8fb; }
                     .items tfoot .total-pcs { color: #103a89; font-size: var(--invoice-total-pcs-size); font-weight: 900; text-align: center; }
                     .items tfoot .total-label { color: #103a89; font-size: var(--invoice-total-label-size); font-weight: 900; text-align: right; text-transform: uppercase; letter-spacing: .8px; }
-                    .document-bottom { margin-top: auto; page-break-inside: avoid; }
+                    .document-bottom { margin-top: 0.18in; break-inside: avoid; page-break-inside: avoid; }
                     .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.28in; page-break-inside: avoid; }
                     .bank { min-height: 1.48in; padding: 0.16in; border: 1px solid #e3e9f1; border-radius: 5px; background: #f8fafc; }
                     .bank h3 { margin: 0 0 8px; color: #103a89; font-size: var(--invoice-bank-title-size); letter-spacing: 1px; text-transform: uppercase; }
