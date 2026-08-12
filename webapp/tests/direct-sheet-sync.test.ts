@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   changedFieldPatch,
+  directOrderStatus,
   directShipmentStatus,
   isRetryableSheetsError,
   parseOperationalSheets,
@@ -35,6 +36,32 @@ test('parsea las tres hojas operativas y conserva estados en blanco', () => {
   assert.equal(source.orders[0].orderNumber, 9001);
   assert.equal(source.orders[0].items[0].status, null);
   assert.equal(source.orders[0].items[0].shipmentNumber, 501);
+});
+
+test('una fila con cantidad cero se interpreta como eliminación, no como línea imprimible', () => {
+  const source = parseOperationalSheets({
+    cabeEnvios: [['NUMERO', 'FORWARDER', 'FECHA SAL', 'FECHA LLEG', 'LLEGO?', 'OBSERVACION'], [1, 'FW', 46240, '', '', '']],
+    cabeVentas: [['INVOICE', 'CLIENTE', 'NRO CLI', 'FECHA', 'METODO'], [10, 'Cliente', 1, '08/12/2026', 'Zelle']],
+    detaVentas: [
+      ['INV-REM', 'SKU', 'CANT', 'VTA UNI', 'COSTO', 'GANANCIA', 'DETALLE', 'ENVIO NRO', 'ESTADO'],
+      [10, 'SKU-0', 0, 100, 50, 50, 'Eliminado', 1, 'MIAMI'],
+      [10, 'SKU-1', 2, 100, 50, 100, 'Vigente', 1, 'MIAMI'],
+    ],
+  });
+  assert.deepEqual(source.orders[0].items.map((item) => item.sku), ['SKU-1']);
+});
+
+test('una cantidad vacía no se confunde con una eliminación explícita', () => {
+  const source = parseOperationalSheets({
+    cabeEnvios: [['NUMERO', 'FORWARDER', 'FECHA SAL', 'FECHA LLEG', 'LLEGO?', 'OBSERVACION'], [1, 'FW', 46240, '', '', '']],
+    cabeVentas: [['INVOICE', 'CLIENTE', 'NRO CLI', 'FECHA', 'METODO'], [10, 'Cliente', 1, '08/12/2026', 'Zelle']],
+    detaVentas: [
+      ['INV-REM', 'SKU', 'CANT', 'VTA UNI', 'COSTO', 'GANANCIA', 'DETALLE', 'ENVIO NRO', 'ESTADO'],
+      [10, 'SKU-PENDIENTE', '', 100, 50, 50, 'Edición incompleta', 1, 'MIAMI'],
+    ],
+  });
+  assert.equal(source.orders[0].items.length, 1);
+  assert.equal(source.orders[0].items[0].quantity, 0);
 });
 
 test('delta escribe solo campos cambiados y puede preservar blancos', () => {
@@ -132,6 +159,12 @@ test('un envio terminal nunca retrocede por un estado viejo de Sheets', () => {
   assert.equal(directShipmentStatus({ existingStatus: 'ENTREGADO', sourceStatus: 'SALIENDO' }), 'ENTREGADO');
   assert.equal(directShipmentStatus({ existingStatus: 'CANCELADO', sourceStatus: 'MIAMI' }), 'CANCELADO');
   assert.equal(directShipmentStatus({ existingStatus: 'MIAMI', sourceStatus: 'SALIENDO' }), 'SALIENDO');
+});
+
+test('un pedido terminal nunca retrocede por un estado viejo de Sheets', () => {
+  assert.equal(directOrderStatus('ENTREGADO', 'SALIENDO'), 'ENTREGADO');
+  assert.equal(directOrderStatus('CANCELADO', 'MIAMI'), 'CANCELADO');
+  assert.equal(directOrderStatus('MIAMI', 'SALIENDO'), 'SALIENDO');
 });
 
 test('reintenta solo errores transitorios de Google Sheets', () => {

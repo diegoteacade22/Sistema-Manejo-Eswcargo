@@ -74,9 +74,19 @@ async function main() {
     const isFullSync = process.env.SYNC_MODE === 'FULL';
     console.log(`🚀 Iniciando Sembrado Rápido (Consolidado) - Modo: ${isFullSync ? 'COMPLETO' : 'DIFERENCIAL'}...`);
     const startTime = Date.now();
-    const syncRun = await prisma.syncRun.create({
-        data: { scope: isFullSync ? 'FULL' : 'DIFF', status: 'RUNNING' }
-    });
+    // Acquire the same transactional gate used by DIRECT and publish RUNNING
+    // before releasing it. A later DIRECT run will then fail closed on SyncRun.
+    const syncRun = await prisma.$transaction(async (tx) => {
+        const lockRows = await tx.$queryRaw<Array<{ acquired: boolean }>>`
+            select pg_try_advisory_xact_lock(hashtextextended('eswcargo-direct-operational-sync', 0)) as acquired
+        `;
+        if (!lockRows[0]?.acquired) {
+            throw new Error('Ya existe otra sincronización operativa en curso. Reintentar cuando finalice.');
+        }
+        return tx.syncRun.create({
+            data: { scope: isFullSync ? 'FULL' : 'DIFF', status: 'RUNNING' }
+        });
+    }, { isolationLevel: 'Serializable', maxWait: 5_000, timeout: 10_000 });
     activeSyncRunId = syncRun.id;
     const syncChanges: SyncChangeInput[] = [];
     const trackChange = (change: SyncChangeInput) => syncChanges.push(change);

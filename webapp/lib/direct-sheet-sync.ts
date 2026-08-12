@@ -3,6 +3,7 @@ import { GoogleAuth } from 'google-auth-library';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { calculateActiveOrderTotal } from '@/lib/order-totals';
+import { upsertOperationLedger } from '@/lib/client-account-policy';
 import { itemSyncSignature, sameItemSet } from '@/lib/sync-item-comparison';
 import {
   type CanonicalSourceRules,
@@ -93,6 +94,14 @@ export type DirectSyncResult = {
     fields: string[];
     before?: Record<string, unknown>;
     after?: Record<string, unknown>;
+  }>;
+  issues: Array<{
+    orderNumber: number | null;
+    reason: string;
+    sourceItemCount?: number;
+    existingItemCount?: number;
+    canApproveReduction: boolean;
+    approvalToken?: string;
   }>;
 };
 
@@ -241,10 +250,16 @@ export function parseOperationalSheets(input: {
   for (const row of itemTable.rows) {
     const orderNumber = integer(cell(itemTable, row, ['INV-REM', 'NRO_PEDIDO']));
     if (!orderNumber) continue;
+    const rawQuantity = cell(itemTable, row, ['CANT', 'CANTIDAD']);
+    const quantityText = cleanText(rawQuantity);
+    const quantity = Math.trunc(numeric(rawQuantity));
+    // In the operational Sheet a zero quantity means the row no longer belongs
+    // to the invoice. Treat it as an explicit omission, never as a zero line.
+    if (quantityText !== null && quantity === 0) continue;
     const item: DirectOrderItemSource = {
       sku: cleanText(cell(itemTable, row, ['SKU'])),
       productName: cleanText(cell(itemTable, row, ['DETALLE', 'PRODUCTO'])),
-      quantity: Math.trunc(numeric(cell(itemTable, row, ['CANT', 'CANTIDAD']))),
+      quantity,
       unitPrice: numeric(cell(itemTable, row, ['VTA UNI', 'PRECIO'])),
       unitCost: numeric(cell(itemTable, row, ['COSTO', 'COSTO X ART'])),
       profit: numeric(cell(itemTable, row, ['GANANCIA'])),
@@ -333,6 +348,12 @@ export function directShipmentStatus(options: {
   });
 }
 
+export function directOrderStatus(existingStatus: string | null | undefined, sourceStatus: string | null | undefined) {
+  const existing = normalizedOrderStatus(existingStatus);
+  if (existing === 'ENTREGADO' || existing === 'CANCELADO') return existing;
+  return normalizedOrderStatus(sourceStatus) ?? existing ?? 'COMPRAR';
+}
+
 function credentialsFromEnvironment() {
   const encoded = process.env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64?.trim();
   const raw = encoded
@@ -417,12 +438,28 @@ function jsonSnapshot(value: Record<string, unknown>): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
 
-export async function runDirectSheetSync(options: { dryRun?: boolean; days?: number } = {}): Promise<DirectSyncResult> {
+function reductionApprovalToken(source: DirectOrderSource, existingItems: Array<Record<string, unknown>>) {
+  return createHash('sha256').update(JSON.stringify({
+    orderNumber: source.orderNumber,
+    source: source.items.map((item) => JSON.stringify(item)).sort(),
+    existing: existingItems.map(itemSyncSignature).sort(),
+  })).digest('hex');
+}
+
+export async function runDirectSheetSync(options: {
+  dryRun?: boolean;
+  days?: number;
+  orderNumbers?: number[];
+  approvedReductionTokens?: Record<number, string>;
+} = {}): Promise<DirectSyncResult> {
   const startedAt = Date.now();
   const deadline = startedAt + OVERALL_TIMEOUT_MS;
   let parsedSource: DirectOperationalSource | null = null;
   try {
     parsedSource = await fetchOperationalSource();
+    if (parsedSource.orders.length === 0 || parsedSource.shipments.length === 0) {
+      throw new Error('Google Sheets devolvio una fuente operativa vacia; no se aplicaron cambios.');
+    }
     assertDeadline(deadline);
     const configuredShipmentRules = canonicalSources.shipments as CanonicalSourceRules;
     const shipmentRules = Object.fromEntries(Object.entries(configuredShipmentRules).map(([key, rule]) => [
@@ -474,15 +511,25 @@ export async function runDirectSheetSync(options: { dryRun?: boolean; days?: num
     const cutoffKey = days > 0
       ? new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10)
       : null;
-    const acceptedOrders = cutoffKey
-      ? normalizedAcceptedOrders.filter((order) => order.date !== null && order.date >= cutoffKey)
-      : normalizedAcceptedOrders;
+    const requestedOrderNumbers = new Set((options.orderNumbers ?? []).filter(Number.isInteger));
+    const acceptedOrders = requestedOrderNumbers.size > 0
+      ? normalizedAcceptedOrders.filter((order) => requestedOrderNumbers.has(order.orderNumber))
+      : cutoffKey
+        ? normalizedAcceptedOrders.filter((order) => order.date !== null && order.date >= cutoffKey)
+        : normalizedAcceptedOrders;
+    if (requestedOrderNumbers.size > 0 && acceptedOrders.length !== requestedOrderNumbers.size) {
+      const found = new Set(acceptedOrders.map((order) => order.orderNumber));
+      const missing = [...requestedOrderNumbers].filter((orderNumber) => !found.has(orderNumber));
+      throw new Error(`No se encontraron en Google Sheets los invoice: ${missing.join(', ')}.`);
+    }
     const recentShipmentNumbers = new Set(
       acceptedOrders.flatMap((order) => order.items.flatMap((item) => item.shipmentNumber ? [item.shipmentNumber] : [])),
     );
-    const acceptedShipments = cutoffKey
-      ? normalizedShipments.accepted.filter((shipment) => shipmentBelongsToWindow(shipment, cutoffKey, recentShipmentNumbers))
-      : normalizedShipments.accepted;
+    const acceptedShipments = requestedOrderNumbers.size > 0
+      ? normalizedShipments.accepted.filter((shipment) => recentShipmentNumbers.has(Number(shipment.shipment_number)))
+      : cutoffKey
+        ? normalizedShipments.accepted.filter((shipment) => shipmentBelongsToWindow(shipment, cutoffKey, recentShipmentNumbers))
+        : normalizedShipments.accepted;
     const hash = sourceHash(parsedSource);
 
     const result = await prisma.$transaction(async (tx) => {
@@ -511,6 +558,7 @@ export async function runDirectSheetSync(options: { dryRun?: boolean; days?: num
         entity: 'SHIPMENT', entityKey: `#${collision.key}`, action: 'REJECTED',
         reason: 'CABE_ENVIOS contiene cabeceras incompatibles para el mismo envio.',
       }));
+      const issues: DirectSyncResult['issues'] = [];
       changes.push(...normalizedOrders.rejected.map((collision) => ({
         entity: 'ORDER', entityKey: `#${collision.key}`, action: 'REJECTED' as const,
         reason: 'CABE_VENTAS contiene cabeceras incompatibles para el mismo pedido.',
@@ -629,14 +677,37 @@ export async function runDirectSheetSync(options: { dryRun?: boolean; days?: num
           continue;
         }
 
-        if (existing && source.items.length < existing.items.length) {
+        const reductionToken = existing && source.items.length < existing.items.length
+          ? reductionApprovalToken(source, existing.items)
+          : null;
+        const reductionApproved = reductionToken !== null
+          && options.approvedReductionTokens?.[source.orderNumber] === reductionToken;
+        if (existing && source.items.length < existing.items.length && !reductionApproved) {
           summary.rejected.orders++;
+          const reason = 'La fuente directa trajo menos items que Supabase; se conserva el pedido hasta autorizar esta reduccion.';
           changes.push({
             entity: 'ORDER_ITEMS',
             entityKey: `#${source.orderNumber}`,
             action: 'REJECTED',
-            reason: 'La fuente directa trajo menos items que Supabase; se conserva el pedido hasta verificar la fuente o autorizar una reduccion destructiva.',
+            reason,
           });
+          issues.push({
+            orderNumber: source.orderNumber,
+            reason,
+            sourceItemCount: source.items.length,
+            existingItemCount: existing.items.length,
+            canApproveReduction: source.items.length > 0 && existing.items.every((item) => item._count.allocations === 0 && item.shipping_cost === null && item.supplierId === null && item.purchase_invoice === null),
+            approvalToken: reductionToken ?? undefined,
+          });
+          continue;
+        }
+
+        const incompleteItem = source.items.find((item) => item.quantity <= 0 || (!item.productName && !item.sku) || item.unitPrice <= 0);
+        if (incompleteItem) {
+          const reason = 'DETA_VENTAS contiene una linea sin producto o con precio de venta vacio/cero; se conserva el invoice.';
+          summary.rejected.orders++;
+          changes.push({ entity: 'ORDER_ITEMS', entityKey: `#${source.orderNumber}`, action: 'REJECTED', reason });
+          issues.push({ orderNumber: source.orderNumber, reason, canApproveReduction: false });
           continue;
         }
 
@@ -648,7 +719,6 @@ export async function runDirectSheetSync(options: { dryRun?: boolean; days?: num
           bucket.push(item);
           existingItemBuckets.set(key, bucket);
         }
-        let invalidItemReason: string | null = null;
         const nextItems = source.items.map((item) => {
           const product = item.sku ? productsBySku.get(skuKey(item.sku)) : null;
           const shipment = item.shipmentNumber ? shipmentsByNumber.get(item.shipmentNumber) : null;
@@ -658,13 +728,14 @@ export async function runDirectSheetSync(options: { dryRun?: boolean; days?: num
           ];
           const matchingKey = sourceKeys.find((key) => (existingItemBuckets.get(key)?.length ?? 0) > 0);
           const matching = matchingKey ? existingItemBuckets.get(matchingKey)?.shift() : undefined;
-          if (item.sku && !product && !matching) {
-            invalidItemReason = `SKU desconocido ${item.sku} en pedido #${source.orderNumber}.`;
-          }
           return {
             orderId: existing?.id ?? 0,
             productId: product?.id ?? matching?.productId ?? null,
-            productName: item.productName ?? item.sku ?? 'Producto sin Nombre',
+            // A new SKU must not freeze an otherwise valid invoice. Keep it
+            // unlinked from the catalogue while preserving its exact source key.
+            productName: !product && !matching && item.sku
+              ? `${item.productName ?? 'Producto'} [${item.sku}]`
+              : item.productName ?? item.sku ?? 'Producto sin Nombre',
             quantity: item.quantity,
             unit_price: item.unitPrice,
             unit_cost: item.unitCost,
@@ -680,13 +751,13 @@ export async function runDirectSheetSync(options: { dryRun?: boolean; days?: num
         const unmatchedProtectedItem = Array.from(existingItemBuckets.values())
           .flat()
           .find((item) => item._count.allocations > 0 || item.shipping_cost !== null || item.supplierId !== null || item.purchase_invoice !== null);
-        if (invalidItemReason || unmatchedProtectedItem) {
+        if (unmatchedProtectedItem) {
           summary.rejected.orders++;
           changes.push({
             entity: 'ORDER_ITEMS',
             entityKey: `#${source.orderNumber}`,
             action: 'REJECTED',
-            reason: invalidItemReason ?? 'El reemplazo perderia metadatos de compra o envio no presentes en Google Sheets.',
+            reason: 'El reemplazo perderia metadatos de compra o envio no presentes en Google Sheets.',
           });
           continue;
         }
@@ -697,11 +768,33 @@ export async function runDirectSheetSync(options: { dryRun?: boolean; days?: num
           order_number: source.orderNumber,
           clientId: client?.id ?? existing?.clientId ?? unknownClient!.id,
           date: dateFromKey(source.date) ?? existing?.date ?? new Date(),
-          status: explicitStatuses.length === 1 ? explicitStatuses[0]! : source.status ?? existing?.status ?? 'COMPRAR',
+          status: directOrderStatus(existing?.status, explicitStatuses.length === 1 ? explicitStatuses[0]! : source.status),
           shipmentId: itemShipmentIds.length === 1 ? itemShipmentIds[0] : null,
           total_amount: totalAmount,
           paymentMethod: source.paymentMethod ?? existing?.paymentMethod ?? null,
         };
+        const ledgerCutoff = new Date(process.env.CLIENT_LEDGER_POLICY_EFFECTIVE_DATE || '2026-07-27T00:00:00Z');
+        if (existing && client && client.id !== existing.clientId) {
+          const reason = 'El cliente del invoice cambió en Google Sheets; requiere conciliación controlada para no dejar cargos en la cuenta anterior.';
+          summary.rejected.orders++;
+          changes.push({ entity: 'ORDER', entityKey: `#${source.orderNumber}`, action: 'REJECTED', reason });
+          issues.push({ orderNumber: source.orderNumber, reason, canApproveReduction: false });
+          continue;
+        }
+        if (existing && existing.date >= ledgerCutoff && orderData.date < ledgerCutoff) {
+          const reason = 'La fecha del invoice retrocede fuera del período de cuenta corriente; requiere conciliación controlada.';
+          summary.rejected.orders++;
+          changes.push({ entity: 'ORDER', entityKey: `#${source.orderNumber}`, action: 'REJECTED', reason });
+          issues.push({ orderNumber: source.orderNumber, reason, canApproveReduction: false });
+          continue;
+        }
+        if (totalAmount <= 0) {
+          const reason = 'El invoice no tiene un total positivo verificable; se conserva sin cambios.';
+          summary.rejected.orders++;
+          changes.push({ entity: 'ORDER', entityKey: `#${source.orderNumber}`, action: 'REJECTED', reason });
+          issues.push({ orderNumber: source.orderNumber, reason, canApproveReduction: false });
+          continue;
+        }
         if (existing && sourceWouldEraseExistingItems(source.items.length, existing.items.length)) {
           summary.rejected.orders++;
           changes.push({
@@ -710,12 +803,20 @@ export async function runDirectSheetSync(options: { dryRun?: boolean; days?: num
             action: 'REJECTED',
             reason: 'DETA_VENTAS no devolvio items para un pedido que ya tiene detalle; se conserva el pedido hasta verificar la fuente.',
           });
+          issues.push({
+            orderNumber: source.orderNumber,
+            reason: 'DETA_VENTAS no devolvio items para un pedido que ya tiene detalle.',
+            sourceItemCount: 0,
+            existingItemCount: existing.items.length,
+            canApproveReduction: false,
+          });
           continue;
         }
         const itemsChanged = !existing || !sameItemSet(existing.items, nextItems);
         if (existing && itemsChanged && existing.items.some((item) => item._count.allocations > 0)) {
           summary.rejected.orders++;
           changes.push({ entity: 'ORDER_ITEMS', entityKey: `#${source.orderNumber}`, action: 'REJECTED', reason: 'El detalle tiene asignaciones de compra; no se modifica automaticamente.' });
+          issues.push({ orderNumber: source.orderNumber, reason: 'El detalle tiene asignaciones de compra; no se modifica automaticamente.', canApproveReduction: false });
           continue;
         }
 
@@ -767,6 +868,46 @@ export async function runDirectSheetSync(options: { dryRun?: boolean; days?: num
             },
           });
         }
+
+        if (!options.dryRun) {
+          const persisted = await tx.order.findUnique({
+            where: { id: orderId },
+            include: { items: true },
+          });
+          const scalarMatches = persisted
+            && persisted.clientId === orderData.clientId
+            && persisted.date.toISOString().slice(0, 10) === orderData.date.toISOString().slice(0, 10)
+            && persisted.status === orderData.status
+            && persisted.shipmentId === orderData.shipmentId
+            && (persisted.paymentMethod ?? null) === (orderData.paymentMethod ?? null);
+          if (!persisted || !scalarMatches || !sameItemSet(persisted.items, nextItems) || Math.abs(persisted.total_amount - totalAmount) > 0.000001) {
+            throw new Error(`El readback del invoice #${source.orderNumber} no coincide con Google Sheets.`);
+          }
+          if (orderData.date >= ledgerCutoff && totalAmount > 0) {
+            const ledgerResult = await upsertOperationLedger(tx as any, {
+              clientId: orderData.clientId,
+              date: orderData.date,
+              amount: totalAmount,
+              chargeDescription: `Compra - Pedido #${source.orderNumber}`,
+              chargeReference: `Order #${source.orderNumber}`,
+              operationKind: 'ORDER',
+              operationKey: String(source.orderNumber),
+            });
+            const charge = await tx.transaction.findUnique({ where: { id: ledgerResult.chargeId } });
+            if (!charge
+              || charge.clientId !== orderData.clientId
+              || Math.abs(charge.amount + totalAmount) > 0.000001
+              || charge.date.toISOString().slice(0, 10) !== orderData.date.toISOString().slice(0, 10)) {
+              throw new Error(`El readback de cuenta corriente del invoice #${source.orderNumber} no coincide.`);
+            }
+          }
+        }
+        changes.push({
+          entity: 'ORDER',
+          entityKey: `#${source.orderNumber}`,
+          action: 'UPDATED',
+          reason: 'Invoice verificado contra Google Sheets despues de aplicar la sincronizacion.',
+        });
       }
 
       if (changes.length && !options.dryRun) {
@@ -795,6 +936,7 @@ export async function runDirectSheetSync(options: { dryRun?: boolean; days?: num
       return {
         runId,
         summary,
+        issues,
         ...(options.dryRun ? {
           plannedChanges: changes.map((change) => ({
             entity: change.entity,

@@ -4,13 +4,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Server, Database, RefreshCw, HardDrive, AlertTriangle, CheckCircle2, Cloud, Users, Rocket, FileCheck2, Landmark } from "lucide-react";
 import { useState, useTransition } from 'react';
-import { getGitHubSyncStatus, revalidateSystem, syncExcel, deployToProduction, applyProductionRefresh } from './actions';
+import { getGitHubSyncStatus, revalidateSystem, syncExcel, syncInvoice, deployToProduction, applyProductionRefresh } from './actions';
 import { DeleteEntityCard } from '@/components/delete-entity-card';
 
 export function MaintenanceClient({ directSyncEnabled }: { directSyncEnabled: boolean }) {
     const [isPending, startTransition] = useTransition();
     const [message, setMessage] = useState<{ text: string, type: 'success' | 'warning' | 'error' } | null>(null);
     const [isSyncing, setIsSyncing] = useState(false);
+    const [invoiceNumber, setInvoiceNumber] = useState('');
+    const [reductionIssue, setReductionIssue] = useState<{
+        orderNumber: number | null;
+        reason: string;
+        sourceItemCount?: number;
+        existingItemCount?: number;
+        canApproveReduction: boolean;
+        approvalToken?: string;
+    } | null>(null);
 
     const handleRevalidate = () => {
         setMessage(null);
@@ -22,6 +31,24 @@ export function MaintenanceClient({ directSyncEnabled }: { directSyncEnabled: bo
                 setMessage({ text: 'Error al revalidar', type: 'error' });
             }
         });
+    };
+
+    const handleInvoiceSync = async (reductionApprovalToken?: string) => {
+        if (isSyncing) return;
+        const orderNumber = Number(invoiceNumber);
+        setIsSyncing(true);
+        setReductionIssue(null);
+        setMessage({ text: `Verificando invoice #${invoiceNumber}...`, type: 'success' });
+        try {
+            const res = await syncInvoice(orderNumber, reductionApprovalToken);
+            setMessage({
+                text: res.message,
+                type: res.success ? ('partial' in res && res.partial ? 'warning' : 'success') : 'error',
+            });
+            if ('issue' in res && res.issue) setReductionIssue(res.issue);
+        } finally {
+            setIsSyncing(false);
+        }
     };
 
     const handleSync = async (days: 0 | 7 | 30) => {
@@ -172,6 +199,53 @@ export function MaintenanceClient({ directSyncEnabled }: { directSyncEnabled: bo
                                 <RefreshCw className="h-4 w-4 text-emerald-500" /> Sincronizar con Excel (Drive)
                             </h4>
                             <p className="text-xs text-muted-foreground">La actualización operativa compara Google Sheets con Supabase y escribe solamente los cambios. La completa queda como reconciliación de respaldo.</p>
+
+                            <div className="space-y-2 rounded-md border border-slate-700/60 p-3">
+                                <label htmlFor="invoice-sync-number" className="text-xs font-medium">
+                                    Invoice urgente (incluye históricos)
+                                </label>
+                                <div className="flex gap-2">
+                                    <input
+                                        id="invoice-sync-number"
+                                        inputMode="numeric"
+                                        value={invoiceNumber}
+                                        onChange={(event) => setInvoiceNumber(event.target.value.replace(/\D/g, ''))}
+                                        placeholder="Ej. 2593"
+                                        className="min-w-0 flex-1 rounded-md border border-slate-700 bg-transparent px-3 py-2 text-sm"
+                                    />
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() => handleInvoiceSync()}
+                                        disabled={isPending || isSyncing || !invoiceNumber}
+                                    >
+                                        Actualizar invoice
+                                    </Button>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground">Compara ese invoice aunque su fecha sea anterior a 7 días y verifica el resultado antes de habilitar la impresión.</p>
+                                {reductionIssue?.canApproveReduction && reductionIssue.orderNumber && (
+                                    <div className="rounded-md border border-amber-700/60 bg-amber-950/30 p-2 text-xs text-amber-200">
+                                        <p>
+                                            Google Sheets tiene {reductionIssue.sourceItemCount} línea(s) y Supabase {reductionIssue.existingItemCount}.
+                                            La reducción no perderá compras, costos de envío ni asignaciones protegidas.
+                                        </p>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="outline"
+                                            className="mt-2 border-amber-500 text-amber-200"
+                                            onClick={() => {
+                                                if (confirm(`¿Confirmás eliminar del invoice #${reductionIssue.orderNumber} las líneas que ya no están en Google Sheets?`)) {
+                                                    void handleInvoiceSync(reductionIssue.approvalToken);
+                                                }
+                                            }}
+                                            disabled={isSyncing}
+                                        >
+                                            Confirmar reducción de este invoice
+                                        </Button>
+                                    </div>
+                                )}
+                            </div>
 
                             <div className="grid grid-cols-1 gap-2">
                                 <Button

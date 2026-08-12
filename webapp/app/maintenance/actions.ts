@@ -189,6 +189,11 @@ export async function syncExcel(requestedDays: number = 7) {
                 + result.summary.updated.orders
                 + result.summary.replaced.orderItems;
             const rejected = result.summary.rejected.shipments + result.summary.rejected.orders;
+            const rejectedInvoices = result.issues
+                .map((issue) => issue.orderNumber)
+                .filter((value): value is number => value !== null)
+                .map((value) => `#${value}`)
+                .join(', ');
             revalidatePath('/', 'layout');
             revalidateDataViews();
             return {
@@ -196,11 +201,12 @@ export async function syncExcel(requestedDays: number = 7) {
                 partial: rejected > 0,
                 completed: true,
                 message: rejected > 0
-                    ? `Actualizacion parcial verificada en ${Math.max(1, Math.round(result.durationMs / 1000))}s: ${changed} cambios aplicados y ${rejected} pedido(s) conservados sin modificar por diferencias de detalle. Revisá el Sheet antes de autorizar una reducción.`
+                    ? `Actualización parcial en ${Math.max(1, Math.round(result.durationMs / 1000))}s: ${changed} cambios aplicados. Invoice(s) sin modificar: ${rejectedInvoices || rejected}. Ingresá cada número en "Invoice urgente" para ver y resolver la causa.`
                     : changed === 0
                         ? `OK: el sistema ya estaba actualizado. Verificado en ${Math.max(1, Math.round(result.durationMs / 1000))}s; no habia cambios pendientes.`
                         : `OK: actualizacion directa finalizada en ${Math.max(1, Math.round(result.durationMs / 1000))}s. ${changed} cambios aplicados y verificados.`,
                 summary: result.summary,
+                issues: result.issues,
             };
         }
 
@@ -259,6 +265,51 @@ export async function syncExcel(requestedDays: number = 7) {
     } catch (error: any) {
         console.error("Sync Error:", error);
         return { success: false, message: `Error al sincronizar: ${error.message}` };
+    }
+}
+
+export async function syncInvoice(orderNumberInput: number, reductionApprovalToken?: string) {
+    await requireAdminUser();
+    const orderNumber = Math.trunc(Number(orderNumberInput));
+    if (!Number.isInteger(orderNumber) || orderNumber <= 0) {
+        return { success: false, message: 'Ingresá un número de invoice válido.' };
+    }
+    if (process.env.VERCEL !== '1' || process.env.DIRECT_SHEETS_SYNC_ENABLED !== 'true') {
+        return { success: false, message: 'La actualización directa de invoice no está habilitada en este entorno.' };
+    }
+
+    try {
+        const result = await runDirectSheetSync({
+            orderNumbers: [orderNumber],
+            approvedReductionTokens: reductionApprovalToken
+                ? { [orderNumber]: reductionApprovalToken }
+                : {},
+        });
+        revalidatePath('/', 'layout');
+        revalidateDataViews();
+        const issue = result.issues.find((candidate) => candidate.orderNumber === orderNumber);
+        if (issue) {
+            return {
+                success: true,
+                partial: true,
+                completed: true,
+                message: `Invoice #${orderNumber} conservado sin cambios: ${issue.reason}`,
+                issue,
+                summary: result.summary,
+            };
+        }
+        return {
+            success: true,
+            completed: true,
+            message: result.summary.changed === 0
+                ? `Invoice #${orderNumber} verificado: ya coincidía con Google Sheets.`
+                : `Invoice #${orderNumber} actualizado y verificado contra Google Sheets en ${Math.max(1, Math.round(result.durationMs / 1000))}s.`,
+            summary: result.summary,
+        };
+    } catch (error) {
+        console.error(`Direct invoice sync failed for #${orderNumber}:`, error);
+        const detail = error instanceof Error ? error.message : String(error);
+        return { success: false, message: `No se actualizó el invoice #${orderNumber}: ${detail}` };
     }
 }
 
