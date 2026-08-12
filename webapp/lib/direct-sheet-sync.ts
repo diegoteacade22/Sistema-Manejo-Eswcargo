@@ -579,12 +579,11 @@ export async function runDirectSheetSync(options: {
         idempotent: false,
       };
 
-      const [clients, products, existingShipments, existingOrders, unknownClient] = await Promise.all([
+      const [clients, products, existingShipments, existingOrders] = await Promise.all([
         tx.client.findMany({ select: { id: true, old_id: true, name: true } }),
         tx.product.findMany({ select: { id: true, sku: true } }),
         tx.shipment.findMany(),
         tx.order.findMany({ include: { items: { include: { _count: { select: { allocations: true } } } } } }),
-        tx.client.findFirst({ where: { name: 'CLIENTE DESCONOCIDO' }, select: { id: true } }),
       ]);
       const clientsByOldId = new Map(clients.filter((client) => client.old_id !== null).map((client) => [client.old_id!, client]));
       const clientsByName = new Map(clients.map((client) => [nameKey(client.name), client]));
@@ -671,9 +670,18 @@ export async function runDirectSheetSync(options: {
         const client = source.oldClientId
           ? clientsByOldId.get(source.oldClientId)
           : clientsByName.get(nameKey(source.clientName));
-        if (!existing && !client && !unknownClient) {
+        if (!existing && !client) {
+          const reason = 'Pedido nuevo sin cliente identificable; no se crea ni se registra en cuenta corriente.';
           summary.rejected.orders++;
-          changes.push({ entity: 'ORDER', entityKey: `#${source.orderNumber}`, action: 'REJECTED', reason: 'Pedido nuevo sin cliente identificable.' });
+          changes.push({ entity: 'ORDER', entityKey: `#${source.orderNumber}`, action: 'REJECTED', reason });
+          issues.push({ orderNumber: source.orderNumber, reason, canApproveReduction: false });
+          continue;
+        }
+        if (!existing && !source.date) {
+          const reason = 'Pedido nuevo sin fecha válida en Google Sheets; no se crea ni se registra en cuenta corriente.';
+          summary.rejected.orders++;
+          changes.push({ entity: 'ORDER', entityKey: `#${source.orderNumber}`, action: 'REJECTED', reason });
+          issues.push({ orderNumber: source.orderNumber, reason, canApproveReduction: false });
           continue;
         }
 
@@ -766,8 +774,8 @@ export async function runDirectSheetSync(options: {
         const itemShipmentIds = [...new Set(nextItems.map((item) => item.shipmentId).filter((id): id is number => typeof id === 'number'))];
         const orderData = {
           order_number: source.orderNumber,
-          clientId: client?.id ?? existing?.clientId ?? unknownClient!.id,
-          date: dateFromKey(source.date) ?? existing?.date ?? new Date(),
+          clientId: client?.id ?? existing!.clientId,
+          date: dateFromKey(source.date) ?? existing!.date,
           status: directOrderStatus(existing?.status, explicitStatuses.length === 1 ? explicitStatuses[0]! : source.status),
           shipmentId: itemShipmentIds.length === 1 ? itemShipmentIds[0] : null,
           total_amount: totalAmount,

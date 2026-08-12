@@ -83,6 +83,17 @@ async function main() {
         if (!lockRows[0]?.acquired) {
             throw new Error('Ya existe otra sincronización operativa en curso. Reintentar cuando finalice.');
         }
+        const activeRun = await tx.syncRun.findFirst({
+            where: {
+                status: 'RUNNING',
+                scope: { in: ['DIRECT_OPERATIONAL', 'DIFF', 'FULL'] },
+                startedAt: { gte: new Date(Date.now() - 60 * 60_000) },
+            },
+            select: { id: true, scope: true },
+        });
+        if (activeRun) {
+            throw new Error(`Ya existe una sincronización ${activeRun.scope} en curso (run ${activeRun.id}).`);
+        }
         return tx.syncRun.create({
             data: { scope: isFullSync ? 'FULL' : 'DIFF', status: 'RUNNING' }
         });
