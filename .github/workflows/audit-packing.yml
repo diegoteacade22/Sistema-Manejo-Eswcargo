@@ -1,6 +1,17 @@
 name: Auditoría programada de packing lists
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/audit-packing.yml'
+      - 'webapp/prisma/packing-readiness-exceptions.json'
+      - 'webapp/prisma/schema.prisma'
+      - 'webapp/prisma/shipments_seed.json'
+      - 'webapp/scripts/audit-packing-readiness.mjs'
+      - 'webapp/scripts/packing-readiness-exceptions.mjs'
+      - 'webapp/scripts/packing-readiness-exceptions.test.mjs'
   schedule:
     - cron: '30 8 * * *'
   workflow_dispatch:
