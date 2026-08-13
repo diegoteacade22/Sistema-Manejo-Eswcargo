@@ -1,24 +1,18 @@
 import { PrismaClient } from '@prisma/client';
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  buildSourceStatuses,
+  loadKnownEmptyPackingExceptions,
+  matchesKnownEmptyPackingException,
+} from './packing-readiness-exceptions.mjs';
 
 const prisma = new PrismaClient();
-
-function loadKnownEmptyPackingExceptions(prismaDir) {
-  const exceptionPath = path.join(prismaDir, 'packing-readiness-exceptions.json');
-  if (!fs.existsSync(exceptionPath)) return new Map();
-
-  const entries = JSON.parse(fs.readFileSync(exceptionPath, 'utf8'));
-  return new Map(
-    (entries.knownEmptyOperationalShipments || [])
-      .filter((entry) => Number.isInteger(entry?.shipment_number))
-      .map((entry) => [entry.shipment_number, entry.reason || 'Sin detalle'])
-  );
-}
 
 async function main() {
   const auditAll = process.env.PACKING_AUDIT_SCOPE === 'all';
   const sourceShipmentNumbers = new Set();
+  const sourceShipmentRecords = [];
   const prismaDir = path.join(process.cwd(), 'prisma');
   const knownEmptyPackingExceptions = loadKnownEmptyPackingExceptions(prismaDir);
 
@@ -27,12 +21,16 @@ async function main() {
     if (!fs.existsSync(seedPath)) continue;
     const records = JSON.parse(fs.readFileSync(seedPath, 'utf8'));
     for (const record of records) {
-      if (record.shipment_number) sourceShipmentNumbers.add(record.shipment_number);
+      if (record.shipment_number) {
+        sourceShipmentNumbers.add(record.shipment_number);
+        sourceShipmentRecords.push(record);
+      }
       for (const item of record.items || []) {
         if (item.shipment_number) sourceShipmentNumbers.add(item.shipment_number);
       }
     }
   }
+  const sourceStatusesByShipment = buildSourceStatuses(sourceShipmentRecords);
 
   if (!auditAll && sourceShipmentNumbers.size === 0) {
     console.log('✅ Auditoría de packing omitida: la actualización no contiene envíos afectados.');
@@ -98,16 +96,17 @@ async function main() {
     console.log(`Packing con descripción operativa: ${cargoFallbacks.length}${sample ? ` (${sample}${cargoFallbacks.length > 10 ? ', ...' : ''})` : ''}.`);
   }
 
-  const knownMissingContent = missingContent.filter((shipment) =>
-    knownEmptyPackingExceptions.has(shipment.shipment_number)
+  const isKnownMissingContent = (shipment) => matchesKnownEmptyPackingException(
+    shipment,
+    knownEmptyPackingExceptions.get(shipment.shipment_number),
+    sourceStatusesByShipment.get(shipment.shipment_number) || []
   );
-  const blockingMissingContent = missingContent.filter((shipment) =>
-    !knownEmptyPackingExceptions.has(shipment.shipment_number)
-  );
+  const knownMissingContent = missingContent.filter(isKnownMissingContent);
+  const blockingMissingContent = missingContent.filter((shipment) => !isKnownMissingContent(shipment));
 
   if (knownMissingContent.length) {
     const detail = knownMissingContent
-      .map((shipment) => `#${shipment.shipment_number}: ${knownEmptyPackingExceptions.get(shipment.shipment_number)}`)
+      .map((shipment) => `#${shipment.shipment_number}: ${knownEmptyPackingExceptions.get(shipment.shipment_number).reason}`)
       .join('; ');
     console.warn(`Packing sin contenido conocido y bloqueado para emisión: ${detail}.`);
   }

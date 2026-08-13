@@ -27,4 +27,5 @@ jobs:
           npm init -y >/dev/null
           npm install --silent prisma@5.22.0 @prisma/client@5.22.0
           npx prisma generate --schema prisma/schema.prisma
+          node --test scripts/packing-readiness-exceptions.test.mjs
           node scripts/audit-packing-readiness.mjs
