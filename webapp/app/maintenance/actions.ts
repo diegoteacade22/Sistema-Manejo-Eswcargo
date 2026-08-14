@@ -183,28 +183,31 @@ export async function syncExcel(requestedDays: number = 7) {
                     message: 'La actualización directa se detuvo sin aplicar cambios. Revisá el control de sincronización o usá la reconciliación completa.',
                 };
             }
-            const changed = result.summary.created.shipments
-                + result.summary.created.orders
-                + result.summary.updated.shipments
-                + result.summary.updated.orders
-                + result.summary.replaced.orderItems;
+            const changed = result.summary.changed;
             const rejected = result.summary.rejected.shipments + result.summary.rejected.orders;
-            const rejectedInvoices = result.issues
+            const skipped = result.summary.skipped.historicalInvalidOrders + result.summary.skipped.protectedOrders;
+            const preservedInvoices = [...new Set([
+                ...result.issues
                 .map((issue) => issue.orderNumber)
-                .filter((value): value is number => value !== null)
+                .filter((value): value is number => value !== null),
+                ...result.summary.skipped.orderNumbers,
+            ])]
                 .map((value) => `#${value}`)
                 .join(', ');
+            const affectedPackings = result.summary.affectedShipments.length > 0
+                ? ` Packings recalculados: ${result.summary.affectedShipments.map((value) => `#${value}`).join(', ')}.`
+                : '';
             revalidatePath('/', 'layout');
             revalidateDataViews();
             return {
                 success: true,
-                partial: rejected > 0,
+                partial: rejected > 0 || skipped > 0,
                 completed: true,
-                message: rejected > 0
-                    ? `Actualización parcial en ${Math.max(1, Math.round(result.durationMs / 1000))}s: ${changed} cambios aplicados. Invoice(s) sin modificar: ${rejectedInvoices || rejected}. Ingresá cada número en "Invoice urgente" para ver y resolver la causa.`
+                message: rejected > 0 || skipped > 0
+                    ? `Actualización aplicada en ${Math.max(1, Math.round(result.durationMs / 1000))}s: ${changed} cambios verificados.${affectedPackings} Invoice(s) preservados por datos incompletos o guardas: ${preservedInvoices || rejected + skipped}. Usá "Invoice urgente" sólo para diagnosticar esos casos.`
                     : changed === 0
                         ? `OK: el sistema ya estaba actualizado. Verificado en ${Math.max(1, Math.round(result.durationMs / 1000))}s; no habia cambios pendientes.`
-                        : `OK: actualizacion directa finalizada en ${Math.max(1, Math.round(result.durationMs / 1000))}s. ${changed} cambios aplicados y verificados.`,
+                        : `OK: actualizacion directa finalizada en ${Math.max(1, Math.round(result.durationMs / 1000))}s. ${changed} cambios aplicados y verificados.${affectedPackings}`,
                 summary: result.summary,
                 issues: result.issues,
             };

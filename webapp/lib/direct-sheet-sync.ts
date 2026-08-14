@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { GoogleAuth } from 'google-auth-library';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { calculateActiveOrderTotal } from '@/lib/order-totals';
 import { upsertOperationLedger } from '@/lib/client-account-policy';
@@ -19,6 +19,7 @@ const SHEET_TIMEOUT_MS = 12_000;
 const TRANSACTION_TIMEOUT_MS = 25_000;
 const OVERALL_TIMEOUT_MS = 42_000;
 const DIRECT_SCOPE = 'DIRECT_OPERATIONAL';
+const DIRECT_SYNC_VERSION = 'global-delta-v2';
 
 type SheetValue = string | number | boolean | null | undefined;
 type SheetMatrix = SheetValue[][];
@@ -50,7 +51,10 @@ export type DirectOrderItemSource = {
   quantity: number;
   unitPrice: number;
   unitCost: number;
+  shippingCost: number | null;
   profit: number;
+  supplierName: string | null;
+  purchaseInvoice: string | null;
   shipmentNumber: number | null;
   status: string | null;
 };
@@ -70,16 +74,51 @@ export type DirectOperationalSource = {
   orders: DirectOrderSource[];
 };
 
+type DirectOrderItemWrite = {
+  orderId: number;
+  productId: number | null;
+  productName: string;
+  quantity: number;
+  unit_price: number;
+  unit_cost: number;
+  shipping_cost: number | null;
+  subtotal: number;
+  profit: number;
+  supplierId: number | null;
+  purchase_invoice: string | null;
+  shipmentId: number | null;
+  status: string | null;
+};
+
 export type DirectSyncSummary = {
   sourceHash: string;
+  syncVersion: string;
+  selection: string;
+  sourceSettled: boolean;
   changed: number;
   source: { shipments: number; orders: number; items: number };
-  created: { shipments: number; orders: number };
+  created: { shipments: number; orders: number; suppliers: number };
   updated: { shipments: number; orders: number };
   replaced: { orderItems: number };
   unchanged: { shipments: number; orders: number };
   rejected: { shipments: number; orders: number };
+  skipped: { historicalInvalidOrders: number; protectedOrders: number; orderNumbers: number[] };
+  stateBaseline: {
+    shipments: Record<string, string | null>;
+    orders: Record<string, string | null>;
+  };
+  affectedShipments: number[];
+  unresolvedIssues: DirectSyncIssue[];
   idempotent: boolean;
+};
+
+export type DirectSyncIssue = {
+  orderNumber: number | null;
+  reason: string;
+  sourceItemCount?: number;
+  existingItemCount?: number;
+  canApproveReduction: boolean;
+  approvalToken?: string;
 };
 
 export type DirectSyncResult = {
@@ -95,14 +134,7 @@ export type DirectSyncResult = {
     before?: Record<string, unknown>;
     after?: Record<string, unknown>;
   }>;
-  issues: Array<{
-    orderNumber: number | null;
-    reason: string;
-    sourceItemCount?: number;
-    existingItemCount?: number;
-    canApproveReduction: boolean;
-    approvalToken?: string;
-  }>;
+  issues: DirectSyncIssue[];
 };
 
 type Change = {
@@ -219,7 +251,8 @@ export function parseOperationalSheets(input: {
   assertRequiredColumns(itemTable, 'DETA_VENTAS', [
     ['INV-REM', 'NRO_PEDIDO'], ['SKU'], ['CANT', 'CANTIDAD'], ['DETALLE', 'PRODUCTO'],
     ['ENVIO NRO', 'NRO ENVIO'], ['VTA UNI', 'PRECIO'], ['COSTO', 'COSTO X ART'],
-    ['GANANCIA'], ['ESTADO'],
+    ['ENVIO'], ['GANANCIA'], ['ESTADO'], ['SUPPLIER', 'PROVEEDOR'],
+    ['INVOICE', 'FACTURA COMPRA', 'PURCHASE INVOICE'],
   ]);
 
   const shipments = shipmentTable.rows.flatMap((row): DirectShipmentSource[] => {
@@ -262,7 +295,12 @@ export function parseOperationalSheets(input: {
       quantity,
       unitPrice: numeric(cell(itemTable, row, ['VTA UNI', 'PRECIO'])),
       unitCost: numeric(cell(itemTable, row, ['COSTO', 'COSTO X ART'])),
+      shippingCost: cleanText(cell(itemTable, row, ['ENVIO'])) === null
+        ? null
+        : numeric(cell(itemTable, row, ['ENVIO'])),
       profit: numeric(cell(itemTable, row, ['GANANCIA'])),
+      supplierName: cleanText(cell(itemTable, row, ['SUPPLIER', 'PROVEEDOR'])),
+      purchaseInvoice: cleanText(cell(itemTable, row, ['INVOICE', 'FACTURA COMPRA', 'PURCHASE INVOICE'])),
       shipmentNumber: integer(cell(itemTable, row, ['ENVIO NRO', 'NRO ENVIO'])),
       status: normalizedOrderStatus(cell(itemTable, row, ['ESTADO'])),
     };
@@ -321,6 +359,27 @@ export function sourceWouldEraseExistingItems(sourceItemCount: number, existingI
   return sourceItemCount === 0 && existingItemCount > 0;
 }
 
+export function selectDirectOrders<T extends { orderNumber: number }>(orders: T[], requestedOrderNumbers: Set<number>) {
+  return requestedOrderNumbers.size > 0
+    ? orders.filter((order) => requestedOrderNumbers.has(order.orderNumber))
+    : orders;
+}
+
+export function canUpdateMatchedItemsInPlace(existingItemCount: number, matchingItemIds: Array<number | null | undefined>) {
+  const ids = matchingItemIds.filter((id): id is number => typeof id === 'number');
+  return existingItemCount > 0
+    && ids.length === existingItemCount
+    && new Set(ids).size === existingItemCount;
+}
+
+export function shouldReportSourceIntegrityIssue(
+  _sourceDate: string | null,
+  targeted: boolean,
+  _nowMs = Date.now(),
+) {
+  return targeted;
+}
+
 export function shipmentBelongsToWindow(
   shipment: { shipment_number?: unknown; date_shipped?: unknown; date_arrived?: unknown },
   cutoffKey: string,
@@ -338,9 +397,10 @@ export function directShipmentStatus(options: {
   sourceStatus?: string | null;
   dateShipped?: string | null;
   dateArrived?: string | null;
+  sourceAuthoritative?: boolean;
 }) {
   const existing = sourceShipmentStatus(options.existingStatus);
-  if (existing === 'ENTREGADO' || existing === 'CANCELADO') return existing;
+  if (!options.sourceAuthoritative && (existing === 'ENTREGADO' || existing === 'CANCELADO')) return existing;
   return sourceShipmentStatus(options.sourceStatus) ?? resolveShipmentStatus({
     existingStatus: options.existingStatus,
     dateShipped: options.dateShipped,
@@ -348,10 +408,19 @@ export function directShipmentStatus(options: {
   });
 }
 
-export function directOrderStatus(existingStatus: string | null | undefined, sourceStatus: string | null | undefined) {
+export function directOrderStatus(
+  existingStatus: string | null | undefined,
+  sourceStatus: string | null | undefined,
+  sourceAuthoritative = false,
+) {
   const existing = normalizedOrderStatus(existingStatus);
-  if (existing === 'ENTREGADO' || existing === 'CANCELADO') return existing;
+  if (!sourceAuthoritative && (existing === 'ENTREGADO' || existing === 'CANCELADO')) return existing;
   return normalizedOrderStatus(sourceStatus) ?? existing ?? 'COMPRAR';
+}
+
+function directSourceOrderStatus(source: DirectOrderSource) {
+  const explicitStatuses = [...new Set(source.items.map((item) => item.status).filter(Boolean))];
+  return normalizedOrderStatus(explicitStatuses.length === 1 ? explicitStatuses[0]! : source.status);
 }
 
 function credentialsFromEnvironment() {
@@ -424,6 +493,16 @@ function dateFromKey(value: string | null) {
 
 function nameKey(value: string | null | undefined) {
   return String(value ?? '').trim().toUpperCase();
+}
+
+export function supplierMatchKey(value: string | null | undefined) {
+  const generic = new Set(['LLC', 'INC', 'CORP', 'CORPORATION', 'TRADING', 'USA']);
+  return normalizedHeader(value)
+    .replace(/[^A-Z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter((token) => token && !generic.has(token))
+    .join(' ');
 }
 
 function skuKey(value: string | null | undefined) {
@@ -527,16 +606,12 @@ export async function runDirectSheetSync(options: {
       canonicalSources.orders as CanonicalSourceRules,
     );
     const normalizedAcceptedOrders = normalizedOrders.accepted as unknown as DirectOrderSource[];
-    const days = options.days ?? 7;
-    const cutoffKey = days > 0
-      ? new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10)
-      : null;
     const requestedOrderNumbers = new Set((options.orderNumbers ?? []).filter(Number.isInteger));
-    const acceptedOrders = requestedOrderNumbers.size > 0
-      ? normalizedAcceptedOrders.filter((order) => requestedOrderNumbers.has(order.orderNumber))
-      : cutoffKey
-        ? normalizedAcceptedOrders.filter((order) => order.date !== null && order.date >= cutoffKey)
-        : normalizedAcceptedOrders;
+    // The operational Sheet has no reliable row-level modified timestamp.
+    // Limiting by sale date misses later edits to price, supplier, status or
+    // Packing assignment. Compare the complete operational snapshot in memory
+    // and persist only actual deltas; an explicit invoice request stays scoped.
+    const acceptedOrders = selectDirectOrders(normalizedAcceptedOrders, requestedOrderNumbers);
     if (requestedOrderNumbers.size > 0 && acceptedOrders.length !== requestedOrderNumbers.size) {
       const found = new Set(acceptedOrders.map((order) => order.orderNumber));
       const missing = [...requestedOrderNumbers].filter((orderNumber) => !found.has(orderNumber));
@@ -547,10 +622,18 @@ export async function runDirectSheetSync(options: {
     );
     const acceptedShipments = requestedOrderNumbers.size > 0
       ? normalizedShipments.accepted.filter((shipment) => recentShipmentNumbers.has(Number(shipment.shipment_number)))
-      : cutoffKey
-        ? normalizedShipments.accepted.filter((shipment) => shipmentBelongsToWindow(shipment, cutoffKey, recentShipmentNumbers))
-        : normalizedShipments.accepted;
+      : normalizedShipments.accepted;
     const hash = sourceHash(parsedSource);
+    const stateBaseline: DirectSyncSummary['stateBaseline'] = {
+      shipments: Object.fromEntries(acceptedShipments.map((shipment) => [
+        String(shipment.shipment_number),
+        sourceShipmentStatus(shipment.status),
+      ])),
+      orders: Object.fromEntries(acceptedOrders.map((order) => [
+        String(order.orderNumber),
+        directSourceOrderStatus(order),
+      ])),
+    };
 
     const result = await prisma.$transaction(async (tx) => {
       const lockRows = await tx.$queryRaw<Array<{ acquired: boolean }>>`
@@ -571,6 +654,65 @@ export async function runDirectSheetSync(options: {
         throw new Error(`Hay una reconciliacion cloud ${cloudRun.scope} en curso (run ${cloudRun.id}).`);
       }
 
+      let previousGlobalSummary: Partial<DirectSyncSummary> | null = null;
+      if (requestedOrderNumbers.size === 0) {
+        const recentSuccessfulRuns = await tx.syncRun.findMany({
+          where: { scope: DIRECT_SCOPE, status: 'SUCCESS' },
+          orderBy: { finishedAt: 'desc' },
+          take: 20,
+          select: { id: true, summary: true },
+        });
+        const latestGlobalRun = recentSuccessfulRuns.find((run) => {
+          const summary = run.summary as Record<string, unknown> | null;
+          return summary?.selection === 'GLOBAL';
+        });
+        previousGlobalSummary = latestGlobalRun?.summary as unknown as Partial<DirectSyncSummary> | null;
+        const settledRun = latestGlobalRun && (() => {
+          const run = latestGlobalRun;
+          const summary = run.summary as Record<string, unknown> | null;
+          return summary?.sourceHash === hash
+            && summary.syncVersion === DIRECT_SYNC_VERSION
+            && summary.selection === 'GLOBAL'
+            && summary.sourceSettled === true
+            ? run
+            : undefined;
+        })();
+        if (settledRun) {
+          const previous = settledRun.summary as unknown as Partial<DirectSyncSummary>;
+          const unresolvedIssues = Array.isArray(previous.unresolvedIssues)
+            ? previous.unresolvedIssues
+            : [];
+          const rejected = previous.rejected ?? { shipments: 0, orders: 0 };
+          return {
+            runId: settledRun.id,
+            summary: {
+              sourceHash: hash,
+              syncVersion: DIRECT_SYNC_VERSION,
+              selection: 'GLOBAL',
+              sourceSettled: true,
+              changed: 0,
+              source: {
+                shipments: acceptedShipments.length,
+                orders: acceptedOrders.length,
+                items: acceptedOrders.reduce((sum, order) => sum + order.items.length, 0),
+              },
+              created: { shipments: 0, orders: 0, suppliers: 0 },
+              updated: { shipments: 0, orders: 0 },
+              replaced: { orderItems: 0 },
+              unchanged: { shipments: acceptedShipments.length, orders: acceptedOrders.length },
+              rejected,
+              skipped: previous.skipped ?? { historicalInvalidOrders: 0, protectedOrders: 0, orderNumbers: [] },
+              stateBaseline: previous.stateBaseline ?? stateBaseline,
+              affectedShipments: [],
+              unresolvedIssues,
+              idempotent: rejected.shipments + rejected.orders === 0,
+            },
+            issues: unresolvedIssues,
+            ...(options.dryRun ? { plannedChanges: [] } : {}),
+          };
+        }
+      }
+
       const runId = options.dryRun
         ? 0
         : (await tx.syncRun.create({ data: { scope: DIRECT_SCOPE, status: 'RUNNING' } })).id;
@@ -585,31 +727,93 @@ export async function runDirectSheetSync(options: {
       })));
       const summary: DirectSyncSummary = {
         sourceHash: hash,
+        syncVersion: DIRECT_SYNC_VERSION,
+        selection: requestedOrderNumbers.size > 0
+          ? `ORDERS:${[...requestedOrderNumbers].sort((left, right) => left - right).join(',')}`
+          : 'GLOBAL',
+        sourceSettled: false,
         changed: 0,
         source: {
           shipments: acceptedShipments.length,
           orders: acceptedOrders.length,
           items: acceptedOrders.reduce((sum, order) => sum + order.items.length, 0),
         },
-        created: { shipments: 0, orders: 0 },
+        created: { shipments: 0, orders: 0, suppliers: 0 },
         updated: { shipments: 0, orders: 0 },
         replaced: { orderItems: 0 },
         unchanged: { shipments: 0, orders: 0 },
         rejected: { shipments: normalizedShipments.rejected.length, orders: normalizedOrders.rejected.length },
+        skipped: { historicalInvalidOrders: 0, protectedOrders: 0, orderNumbers: [] },
+        stateBaseline,
+        affectedShipments: [],
+        unresolvedIssues: [],
         idempotent: false,
       };
 
-      const [clients, products, existingShipments, existingOrders] = await Promise.all([
+      const [clients, products, suppliers, existingShipments, existingOrders] = await Promise.all([
         tx.client.findMany({ select: { id: true, old_id: true, name: true } }),
         tx.product.findMany({ select: { id: true, sku: true } }),
+        tx.supplier.findMany({ select: { id: true, name: true } }),
         tx.shipment.findMany(),
-        tx.order.findMany({ include: { items: { include: { _count: { select: { allocations: true } } } } } }),
+        tx.order.findMany({
+          include: {
+            items: {
+              include: {
+                _count: { select: { allocations: true } },
+                allocations: { select: { quantity: true } },
+              },
+              orderBy: { id: 'asc' },
+            },
+          },
+        }),
       ]);
       const clientsByOldId = new Map(clients.filter((client) => client.old_id !== null).map((client) => [client.old_id!, client]));
       const clientsByName = new Map(clients.map((client) => [nameKey(client.name), client]));
       const productsBySku = new Map(products.map((product) => [skuKey(product.sku), product]));
       const productsById = new Map(products.map((product) => [product.id, product]));
+      const suppliersByName = new Map(suppliers.map((supplier) => [nameKey(supplier.name), supplier]));
+      const suppliersByMatchKey = new Map<string, typeof suppliers[number] | null>();
+      for (const supplier of suppliers) {
+        const key = supplierMatchKey(supplier.name);
+        if (!key) continue;
+        const current = suppliersByMatchKey.get(key);
+        suppliersByMatchKey.set(key, current && current.id !== supplier.id ? null : supplier);
+      }
       const shipmentsByNumber = new Map(existingShipments.filter((shipment) => shipment.shipment_number !== null).map((shipment) => [shipment.shipment_number!, shipment]));
+      const shipmentsById = new Map(existingShipments.map((shipment) => [shipment.id, shipment]));
+      const currentItemQuantityByShipmentId = new Map<number, number>();
+      for (const order of existingOrders) {
+        for (const item of order.items) {
+          if (item.shipmentId === null) continue;
+          currentItemQuantityByShipmentId.set(
+            item.shipmentId,
+            (currentItemQuantityByShipmentId.get(item.shipmentId) ?? 0) + item.quantity,
+          );
+        }
+      }
+      const itemQuantityDeltaByShipmentId = new Map<number, number>();
+      const pendingMatchedItemUpdates: Array<{ id: number; data: Omit<DirectOrderItemWrite, 'orderId'> }> = [];
+      const pendingOrderVerifications: Array<{
+        orderId: number;
+        sourceOrderNumber: number;
+        orderData: {
+          clientId: number;
+          date: Date;
+          status: string;
+          shipmentId: number | null;
+          total_amount: number;
+          paymentMethod: string | null;
+        };
+        nextItems: DirectOrderItemWrite[];
+        totalAmount: number;
+      }> = [];
+      const ledgerCutoff = new Date(process.env.CLIENT_LEDGER_POLICY_EFFECTIVE_DATE || '2026-07-27T00:00:00Z');
+      const sourceStateChanged = (entity: 'orders' | 'shipments', key: number, nextStatus: string | null) => {
+        const previous = previousGlobalSummary?.stateBaseline?.[entity];
+        if (previous === undefined) return false;
+        if (!Object.prototype.hasOwnProperty.call(previous, String(key))) return true;
+        return previous[String(key)] !== nextStatus;
+      };
 
       for (const source of acceptedShipments) {
         assertDeadline(deadline);
@@ -636,6 +840,8 @@ export async function runDirectSheetSync(options: {
             sourceStatus: source.status,
             dateShipped: source.date_shipped ?? null,
             dateArrived: source.date_arrived ?? null,
+            sourceAuthoritative: requestedOrderNumbers.size > 0
+              || sourceStateChanged('shipments', shipmentNumber, sourceShipmentStatus(source.status)),
           }),
           notes: source.notes ?? null,
         };
@@ -652,6 +858,7 @@ export async function runDirectSheetSync(options: {
               }
             : await tx.shipment.create({ data });
           shipmentsByNumber.set(shipmentNumber, created);
+          shipmentsById.set(created.id, created);
           summary.created.shipments++;
           changes.push({ entity: 'SHIPMENT', entityKey: `#${shipmentNumber}`, action: 'CREATED', reason: 'Nuevo envio en CABE_ENVIOS.', after: data });
           continue;
@@ -715,6 +922,11 @@ export async function runDirectSheetSync(options: {
         const reductionApproved = reductionToken !== null
           && options.approvedReductionTokens?.[source.orderNumber] === reductionToken;
         if (existing && source.items.length < existingCommercialItems.length && !reductionApproved) {
+          if (requestedOrderNumbers.size === 0) {
+            summary.skipped.protectedOrders++;
+            summary.skipped.orderNumbers.push(source.orderNumber);
+            continue;
+          }
           summary.rejected.orders++;
           const reason = 'La fuente directa trajo menos items que Supabase; se conserva el pedido hasta autorizar esta reduccion.';
           changes.push({
@@ -728,7 +940,7 @@ export async function runDirectSheetSync(options: {
             reason,
             sourceItemCount: source.items.length,
             existingItemCount: existingCommercialItems.length,
-            canApproveReduction: source.items.length > 0 && existing.items.every((item) => item._count.allocations === 0 && item.shipping_cost === null && item.supplierId === null && item.purchase_invoice === null),
+            canApproveReduction: source.items.length > 0 && existing.items.every((item) => item._count.allocations === 0),
             approvalToken: reductionToken ?? undefined,
           });
           continue;
@@ -736,11 +948,55 @@ export async function runDirectSheetSync(options: {
 
         const incompleteItem = source.items.find((item) => item.quantity <= 0 || (!item.productName && !item.sku) || item.unitPrice <= 0);
         if (incompleteItem) {
+          if (!shouldReportSourceIntegrityIssue(source.date, requestedOrderNumbers.size > 0)) {
+            summary.skipped.historicalInvalidOrders++;
+            summary.skipped.orderNumbers.push(source.orderNumber);
+            continue;
+          }
           const reason = 'DETA_VENTAS contiene una linea sin producto o con precio de venta vacio/cero; se conserva el invoice.';
           summary.rejected.orders++;
           changes.push({ entity: 'ORDER_ITEMS', entityKey: `#${source.orderNumber}`, action: 'REJECTED', reason });
           issues.push({ orderNumber: source.orderNumber, reason, canApproveReduction: false });
           continue;
+        }
+
+        const missingShipment = source.items.find((item) => item.shipmentNumber !== null
+          && !shipmentsByNumber.has(item.shipmentNumber));
+        if (missingShipment) {
+          if (requestedOrderNumbers.size === 0) {
+            summary.skipped.protectedOrders++;
+            summary.skipped.orderNumbers.push(source.orderNumber);
+            continue;
+          }
+          const reason = `El Packing #${missingShipment.shipmentNumber} no existe en CABE_ENVIOS; se conserva el invoice sin cambios.`;
+          summary.rejected.orders++;
+          changes.push({ entity: 'ORDER_ITEMS', entityKey: `#${source.orderNumber}`, action: 'REJECTED', reason });
+          issues.push({ orderNumber: source.orderNumber, reason, canApproveReduction: false });
+          continue;
+        }
+
+        for (const supplierName of [...new Set(source.items.map((item) => item.supplierName).filter((value): value is string => Boolean(value)))]) {
+          const exactKey = nameKey(supplierName);
+          if (suppliersByName.has(exactKey)) continue;
+          const matched = suppliersByMatchKey.get(supplierMatchKey(supplierName));
+          if (matched) {
+            suppliersByName.set(exactKey, matched);
+            continue;
+          }
+          const created = options.dryRun
+            ? { id: -(100_000 + summary.created.suppliers), name: supplierName }
+            : await tx.supplier.create({ data: { name: supplierName }, select: { id: true, name: true } });
+          suppliersByName.set(exactKey, created);
+          const matchKey = supplierMatchKey(supplierName);
+          if (matchKey) suppliersByMatchKey.set(matchKey, created);
+          summary.created.suppliers++;
+          changes.push({
+            entity: 'SUPPLIER',
+            entityKey: supplierName,
+            action: 'CREATED',
+            reason: 'Proveedor presente en Google Sheets y ausente en Supabase.',
+            after: { name: supplierName },
+          });
         }
 
         const existingItemBuckets = new Map<string, typeof existingOrders[number]['items']>();
@@ -751,60 +1007,84 @@ export async function runDirectSheetSync(options: {
           bucket.push(item);
           existingItemBuckets.set(key, bucket);
         }
-        const nextItems = source.items.map((item) => {
+        let ambiguousProtectedMatch = false;
+        const plannedItems = source.items.map((item) => {
           const product = item.sku ? productsBySku.get(skuKey(item.sku)) : null;
           const shipment = item.shipmentNumber ? shipmentsByNumber.get(item.shipmentNumber) : null;
           // SKU is authoritative. Falling back to the product name when a new
           // SKU is present can silently keep the previous productId.
           const sourceKeys = sourceItemMatchKeys(item);
           const matchingKey = sourceKeys.find((key) => (existingItemBuckets.get(key)?.length ?? 0) > 0);
-          const matching = matchingKey ? existingItemBuckets.get(matchingKey)?.shift() : undefined;
+          const candidates = matchingKey ? existingItemBuckets.get(matchingKey)! : [];
+          const sameQuantity = candidates.filter((candidate) => candidate.quantity === item.quantity);
+          if (candidates.length > 1 && sameQuantity.length !== 1
+            && candidates.some((candidate) => candidate._count.allocations > 0)) {
+            ambiguousProtectedMatch = true;
+          }
+          const matching = sameQuantity.length === 1 ? sameQuantity[0] : candidates[0];
+          if (matchingKey && matching) {
+            candidates.splice(candidates.indexOf(matching), 1);
+          }
           return {
-            orderId: existing?.id ?? 0,
-            productId: product?.id ?? matching?.productId ?? null,
-            // A new SKU must not freeze an otherwise valid invoice. Keep it
-            // unlinked from the catalogue while preserving its exact source key.
-            productName: !product && !matching && item.sku
-              ? `${item.productName ?? 'Producto'} [${item.sku}]`
-              : item.productName ?? item.sku ?? 'Producto sin Nombre',
-            quantity: item.quantity,
-            unit_price: item.unitPrice,
-            unit_cost: item.unitCost,
-            shipping_cost: matching?.shipping_cost ?? null,
-            subtotal: item.unitPrice * item.quantity,
-            profit: item.profit,
-            supplierId: matching?.supplierId ?? null,
-            purchase_invoice: matching?.purchase_invoice ?? null,
-            shipmentId: shipment?.id ?? null,
-            status: item.status ?? matching?.status ?? null,
+            matching,
+            next: {
+              orderId: existing?.id ?? 0,
+              productId: product?.id ?? matching?.productId ?? null,
+              // A new SKU must not freeze an otherwise valid invoice. Keep it
+              // unlinked from the catalogue while preserving its exact source key.
+              productName: !product && !matching && item.sku
+                ? `${item.productName ?? 'Producto'} [${item.sku}]`
+                : item.productName ?? item.sku ?? 'Producto sin Nombre',
+              quantity: item.quantity,
+              unit_price: item.unitPrice,
+              unit_cost: item.unitCost,
+              shipping_cost: item.shippingCost,
+              subtotal: item.unitPrice * item.quantity,
+              profit: item.profit,
+              supplierId: item.supplierName ? suppliersByName.get(nameKey(item.supplierName))!.id : null,
+              purchase_invoice: item.purchaseInvoice,
+              shipmentId: shipment?.id ?? null,
+              status: item.status ?? matching?.status ?? null,
+            },
           };
         });
+        const nextItems = plannedItems.map((item) => item.next);
+        const canUpdateItemsInPlace = canUpdateMatchedItemsInPlace(
+          existing?.items.length ?? 0,
+          plannedItems.map((item) => item.matching?.id),
+        );
         const unmatchedProtectedItem = Array.from(existingItemBuckets.values())
           .flat()
-          .find((item) => item._count.allocations > 0 || item.shipping_cost !== null || item.supplierId !== null || item.purchase_invoice !== null);
+          .find((item) => item._count.allocations > 0);
         if (unmatchedProtectedItem) {
           summary.rejected.orders++;
+          const reason = 'El reemplazo perdería una asignación de compra existente; se conserva el invoice sin cambios.';
           changes.push({
             entity: 'ORDER_ITEMS',
             entityKey: `#${source.orderNumber}`,
             action: 'REJECTED',
-            reason: 'El reemplazo perderia metadatos de compra o envio no presentes en Google Sheets.',
+            reason,
           });
+          issues.push({ orderNumber: source.orderNumber, reason, canApproveReduction: false });
           continue;
         }
         const totalAmount = calculateActiveOrderTotal(nextItems);
-        const explicitStatuses = [...new Set(nextItems.map((item) => item.status).filter(Boolean))];
         const itemShipmentIds = [...new Set(nextItems.map((item) => item.shipmentId).filter((id): id is number => typeof id === 'number'))];
+        const sourceOrderStatus = directSourceOrderStatus(source);
         const orderData = {
           order_number: source.orderNumber,
           clientId: client?.id ?? existing!.clientId,
           date: dateFromKey(source.date) ?? existing!.date,
-          status: directOrderStatus(existing?.status, explicitStatuses.length === 1 ? explicitStatuses[0]! : source.status),
+          status: directOrderStatus(
+            existing?.status,
+            sourceOrderStatus,
+            requestedOrderNumbers.size > 0
+              || sourceStateChanged('orders', source.orderNumber, sourceOrderStatus),
+          ),
           shipmentId: itemShipmentIds.length === 1 ? itemShipmentIds[0] : null,
           total_amount: totalAmount,
           paymentMethod: source.paymentMethod ?? existing?.paymentMethod ?? null,
         };
-        const ledgerCutoff = new Date(process.env.CLIENT_LEDGER_POLICY_EFFECTIVE_DATE || '2026-07-27T00:00:00Z');
         if (existing && client && client.id !== existing.clientId) {
           const reason = 'El cliente del invoice cambió en Google Sheets; requiere conciliación controlada para no dejar cargos en la cuenta anterior.';
           summary.rejected.orders++;
@@ -820,6 +1100,11 @@ export async function runDirectSheetSync(options: {
           continue;
         }
         if (totalAmount <= 0) {
+          if (!shouldReportSourceIntegrityIssue(source.date, requestedOrderNumbers.size > 0)) {
+            summary.skipped.historicalInvalidOrders++;
+            summary.skipped.orderNumbers.push(source.orderNumber);
+            continue;
+          }
           const reason = 'El invoice no tiene un total positivo verificable; se conserva sin cambios.';
           summary.rejected.orders++;
           changes.push({ entity: 'ORDER', entityKey: `#${source.orderNumber}`, action: 'REJECTED', reason });
@@ -844,7 +1129,25 @@ export async function runDirectSheetSync(options: {
           continue;
         }
         const itemsChanged = !existing || !sameItemSet(existing.items, nextItems);
-        if (existing && itemsChanged && existing.items.some((item) => item._count.allocations > 0)) {
+        const overAllocatedItem = plannedItems.find((item) => item.matching
+          && item.matching.allocations.reduce((sum, allocation) => sum + allocation.quantity, 0) > item.next.quantity);
+        if (existing && itemsChanged && overAllocatedItem) {
+          summary.rejected.orders++;
+          const allocated = overAllocatedItem.matching!.allocations.reduce((sum, allocation) => sum + allocation.quantity, 0);
+          const reason = `La cantidad propuesta (${overAllocatedItem.next.quantity}) es menor que la ya asignada a compras (${allocated}); se conserva el invoice.`;
+          changes.push({ entity: 'ORDER_ITEMS', entityKey: `#${source.orderNumber}`, action: 'REJECTED', reason });
+          issues.push({ orderNumber: source.orderNumber, reason, canApproveReduction: false });
+          continue;
+        }
+        if (existing && itemsChanged && ambiguousProtectedMatch) {
+          summary.rejected.orders++;
+          const reason = 'El invoice tiene líneas duplicadas con asignaciones de compra y el cambio no permite identificar una línea única.';
+          changes.push({ entity: 'ORDER_ITEMS', entityKey: `#${source.orderNumber}`, action: 'REJECTED', reason });
+          issues.push({ orderNumber: source.orderNumber, reason, canApproveReduction: false });
+          continue;
+        }
+        if (existing && itemsChanged && !canUpdateItemsInPlace
+          && existing.items.some((item) => item._count.allocations > 0)) {
           summary.rejected.orders++;
           changes.push({ entity: 'ORDER_ITEMS', entityKey: `#${source.orderNumber}`, action: 'REJECTED', reason: 'El detalle tiene asignaciones de compra; no se modifica automaticamente.' });
           issues.push({ orderNumber: source.orderNumber, reason: 'El detalle tiene asignaciones de compra; no se modifica automaticamente.', canApproveReduction: false });
@@ -852,6 +1155,7 @@ export async function runDirectSheetSync(options: {
         }
 
         let orderId: number;
+        let scalarChanged = !existing;
         if (!existing) {
           orderId = options.dryRun
             ? -source.orderNumber
@@ -872,23 +1176,50 @@ export async function runDirectSheetSync(options: {
           const patch = changedFieldPatch(existingOrderScalar, orderData, { preserveBlank: ['status', 'paymentMethod'] });
           if (Object.keys(patch).length > 0) {
             if (!options.dryRun) await tx.order.update({ where: { id: existing.id }, data: patch });
+            scalarChanged = true;
             summary.updated.orders++;
             changes.push({ entity: 'ORDER', entityKey: `#${source.orderNumber}`, action: 'UPDATED', reason: 'Cambio operativo confirmado en CABE_VENTAS/DETA_VENTAS.', before: existingOrderScalar, after: patch });
           } else if (!itemsChanged) {
             summary.unchanged.orders++;
+            continue;
           }
         }
         if (itemsChanged) {
+          for (const item of existing?.items ?? []) {
+            if (item.shipmentId === null) continue;
+            itemQuantityDeltaByShipmentId.set(
+              item.shipmentId,
+              (itemQuantityDeltaByShipmentId.get(item.shipmentId) ?? 0) - item.quantity,
+            );
+          }
+          for (const item of nextItems) {
+            if (item.shipmentId === null) continue;
+            itemQuantityDeltaByShipmentId.set(
+              item.shipmentId,
+              (itemQuantityDeltaByShipmentId.get(item.shipmentId) ?? 0) + item.quantity,
+            );
+          }
           if (!options.dryRun) {
-            if (existing) await tx.orderItem.deleteMany({ where: { orderId } });
-            if (nextItems.length) await tx.orderItem.createMany({ data: nextItems.map((item) => ({ ...item, orderId })) });
+            if (existing && canUpdateItemsInPlace) {
+              for (const item of plannedItems) {
+                const { orderId: _orderId, ...data } = item.next;
+                if (itemSyncSignature(item.matching!) !== itemSyncSignature(item.next)) {
+                  pendingMatchedItemUpdates.push({ id: item.matching!.id, data });
+                }
+              }
+            } else {
+              if (existing) await tx.orderItem.deleteMany({ where: { orderId } });
+              if (nextItems.length) await tx.orderItem.createMany({ data: nextItems.map((item) => ({ ...item, orderId })) });
+            }
           }
           summary.replaced.orderItems++;
           changes.push({
             entity: 'ORDER_ITEMS',
             entityKey: `#${source.orderNumber}`,
-            action: 'REPLACED',
-            reason: 'Cambio real en productos, cantidades, precios, estado o envio.',
+            action: existing && canUpdateItemsInPlace ? 'UPDATED' : 'REPLACED',
+            reason: existing && canUpdateItemsInPlace
+              ? 'Líneas actualizadas preservando identidad y asignaciones: detalle, precios, costos, proveedor, invoice de compra, estado o Packing.'
+              : 'Detalle reconstruido por cambios confirmados de líneas en Google Sheets.',
             before: {
               count: existing?.items.length ?? 0,
               signatures: (existing?.items ?? []).map(itemSyncSignature).sort(),
@@ -900,38 +1231,14 @@ export async function runDirectSheetSync(options: {
           });
         }
 
-        if (!options.dryRun) {
-          const persisted = await tx.order.findUnique({
-            where: { id: orderId },
-            include: { items: true },
+        if (!options.dryRun && (scalarChanged || itemsChanged)) {
+          pendingOrderVerifications.push({
+            orderId,
+            sourceOrderNumber: source.orderNumber,
+            orderData,
+            nextItems,
+            totalAmount,
           });
-          const scalarMatches = persisted
-            && persisted.clientId === orderData.clientId
-            && persisted.date.toISOString().slice(0, 10) === orderData.date.toISOString().slice(0, 10)
-            && persisted.status === orderData.status
-            && persisted.shipmentId === orderData.shipmentId
-            && (persisted.paymentMethod ?? null) === (orderData.paymentMethod ?? null);
-          if (!persisted || !scalarMatches || !sameItemSet(persisted.items, nextItems) || Math.abs(persisted.total_amount - totalAmount) > 0.000001) {
-            throw new Error(`El readback del invoice #${source.orderNumber} no coincide con Google Sheets.`);
-          }
-          if (orderData.date >= ledgerCutoff && totalAmount > 0) {
-            const ledgerResult = await upsertOperationLedger(tx as any, {
-              clientId: orderData.clientId,
-              date: orderData.date,
-              amount: totalAmount,
-              chargeDescription: `Compra - Pedido #${source.orderNumber}`,
-              chargeReference: `Order #${source.orderNumber}`,
-              operationKind: 'ORDER',
-              operationKey: String(source.orderNumber),
-            });
-            const charge = await tx.transaction.findUnique({ where: { id: ledgerResult.chargeId } });
-            if (!charge
-              || charge.clientId !== orderData.clientId
-              || Math.abs(charge.amount + totalAmount) > 0.000001
-              || charge.date.toISOString().slice(0, 10) !== orderData.date.toISOString().slice(0, 10)) {
-              throw new Error(`El readback de cuenta corriente del invoice #${source.orderNumber} no coincide.`);
-            }
-          }
         }
         changes.push({
           entity: 'ORDER',
@@ -939,6 +1246,153 @@ export async function runDirectSheetSync(options: {
           action: 'UPDATED',
           reason: 'Invoice verificado contra Google Sheets despues de aplicar la sincronizacion.',
         });
+      }
+
+      if (!options.dryRun && pendingMatchedItemUpdates.length > 0) {
+        // A full operational comparison can find hundreds of real line changes.
+        // Apply matched-line deltas in a few parameterized statements instead
+        // of one network round-trip per item.
+        const chunkSize = 400;
+        for (let offset = 0; offset < pendingMatchedItemUpdates.length; offset += chunkSize) {
+          const chunk = pendingMatchedItemUpdates.slice(offset, offset + chunkSize);
+          const rows = chunk.map(({ id, data }) => Prisma.sql`(
+            ${id}::integer,
+            ${data.productId}::integer,
+            ${data.productName}::text,
+            ${data.quantity}::integer,
+            ${data.unit_price}::double precision,
+            ${data.unit_cost}::double precision,
+            ${data.shipping_cost}::double precision,
+            ${data.subtotal}::double precision,
+            ${data.profit}::double precision,
+            ${data.supplierId}::integer,
+            ${data.purchase_invoice}::text,
+            ${data.shipmentId}::integer,
+            ${data.status}::text
+          )`);
+          await tx.$executeRaw(Prisma.sql`
+            UPDATE "OrderItem" AS target
+            SET
+              "productId" = source."productId",
+              "productName" = source."productName",
+              "quantity" = source."quantity",
+              "unit_price" = source."unit_price",
+              "unit_cost" = source."unit_cost",
+              "shipping_cost" = source."shipping_cost",
+              "subtotal" = source."subtotal",
+              "profit" = source."profit",
+              "supplierId" = source."supplierId",
+              "purchase_invoice" = source."purchase_invoice",
+              "shipmentId" = source."shipmentId",
+              "status" = source."status"
+            FROM (VALUES ${Prisma.join(rows)}) AS source(
+              "id", "productId", "productName", "quantity", "unit_price", "unit_cost",
+              "shipping_cost", "subtotal", "profit", "supplierId", "purchase_invoice", "shipmentId", "status"
+            )
+            WHERE target."id" = source."id"
+          `);
+        }
+      }
+
+      if (!options.dryRun && pendingOrderVerifications.length > 0) {
+        const persistedOrders = await tx.order.findMany({
+          where: { id: { in: pendingOrderVerifications.map((entry) => entry.orderId) } },
+          include: { items: true },
+        });
+        const persistedById = new Map(persistedOrders.map((order) => [order.id, order]));
+        for (const expected of pendingOrderVerifications) {
+          const persisted = persistedById.get(expected.orderId);
+          const scalarMatches = persisted
+            && persisted.clientId === expected.orderData.clientId
+            && persisted.date.toISOString().slice(0, 10) === expected.orderData.date.toISOString().slice(0, 10)
+            && persisted.status === expected.orderData.status
+            && persisted.shipmentId === expected.orderData.shipmentId
+            && (persisted.paymentMethod ?? null) === (expected.orderData.paymentMethod ?? null);
+          if (!persisted || !scalarMatches || !sameItemSet(persisted.items, expected.nextItems)
+            || Math.abs(persisted.total_amount - expected.totalAmount) > 0.000001) {
+            throw new Error(`El readback del invoice #${expected.sourceOrderNumber} no coincide con Google Sheets.`);
+          }
+          if (expected.orderData.date >= ledgerCutoff && expected.totalAmount > 0) {
+            const ledgerResult = await upsertOperationLedger(tx as any, {
+              clientId: expected.orderData.clientId,
+              date: expected.orderData.date,
+              amount: expected.totalAmount,
+              chargeDescription: `Compra - Pedido #${expected.sourceOrderNumber}`,
+              chargeReference: `Order #${expected.sourceOrderNumber}`,
+              operationKind: 'ORDER',
+              operationKey: String(expected.sourceOrderNumber),
+            });
+            const charge = await tx.transaction.findUnique({ where: { id: ledgerResult.chargeId } });
+            if (!charge
+              || charge.clientId !== expected.orderData.clientId
+              || Math.abs(charge.amount + expected.totalAmount) > 0.000001
+              || charge.date.toISOString().slice(0, 10) !== expected.orderData.date.toISOString().slice(0, 10)) {
+              throw new Error(`El readback de cuenta corriente del invoice #${expected.sourceOrderNumber} no coincide.`);
+            }
+          }
+        }
+      }
+
+      for (const [shipmentId, quantityDelta] of itemQuantityDeltaByShipmentId) {
+        if (quantityDelta === 0) continue;
+        const existingShipment = shipmentsById.get(shipmentId);
+        if (!existingShipment) throw new Error(`No se encontró el envío ${shipmentId} para recalcular su cantidad.`);
+        const nextItemCount = (currentItemQuantityByShipmentId.get(shipmentId) ?? 0) + quantityDelta;
+        if (existingShipment.item_count === nextItemCount) continue;
+        if (!options.dryRun) {
+          const aggregate = await tx.orderItem.aggregate({
+            where: { shipmentId },
+            _sum: { quantity: true },
+          });
+          if ((aggregate._sum.quantity ?? 0) !== nextItemCount) {
+            throw new Error(`El readback de cantidad del Packing #${existingShipment.shipment_number ?? shipmentId} no coincide.`);
+          }
+          await tx.shipment.update({ where: { id: shipmentId }, data: { item_count: nextItemCount } });
+        }
+        summary.updated.shipments++;
+        if (existingShipment.shipment_number !== null) {
+          summary.affectedShipments.push(existingShipment.shipment_number);
+        }
+        changes.push({
+          entity: 'SHIPMENT',
+          entityKey: `#${existingShipment.shipment_number ?? shipmentId}`,
+          action: 'UPDATED',
+          reason: 'Cantidad recalculada por cambios confirmados en las líneas asignadas al Packing.',
+          before: { item_count: existingShipment.item_count },
+          after: { item_count: nextItemCount },
+        });
+      }
+      summary.affectedShipments.sort((left, right) => left - right);
+      summary.skipped.orderNumbers = [...new Set(summary.skipped.orderNumbers)].sort((left, right) => left - right);
+
+      // A skipped/rejected entity did not reach verified persistence. Do not
+      // advance its source-state baseline, otherwise a terminal status edit
+      // could be forgotten when the incomplete row is corrected later.
+      const unresolvedOrderNumbers = new Set<number>([
+        ...summary.skipped.orderNumbers,
+        ...issues.flatMap((issue) => issue.orderNumber === null ? [] : [issue.orderNumber]),
+        ...normalizedOrders.rejected.flatMap((collision) => {
+          const orderNumber = Number(collision.key);
+          return Number.isInteger(orderNumber) ? [orderNumber] : [];
+        }),
+      ]);
+      for (const orderNumber of unresolvedOrderNumbers) {
+        const key = String(orderNumber);
+        const previous = previousGlobalSummary?.stateBaseline?.orders;
+        if (previous && Object.prototype.hasOwnProperty.call(previous, key)) {
+          summary.stateBaseline.orders[key] = previous[key];
+        } else {
+          delete summary.stateBaseline.orders[key];
+        }
+      }
+      for (const collision of normalizedShipments.rejected) {
+        const key = String(collision.key);
+        const previous = previousGlobalSummary?.stateBaseline?.shipments;
+        if (previous && Object.prototype.hasOwnProperty.call(previous, key)) {
+          summary.stateBaseline.shipments[key] = previous[key];
+        } else {
+          delete summary.stateBaseline.shipments[key];
+        }
       }
 
       if (changes.length && !options.dryRun) {
@@ -953,10 +1407,12 @@ export async function runDirectSheetSync(options: {
         }));
         await tx.syncChange.createMany({ data: auditRows });
       }
-      const writeCount = summary.created.shipments + summary.created.orders + summary.updated.shipments
+      const writeCount = summary.created.shipments + summary.created.orders + summary.created.suppliers + summary.updated.shipments
         + summary.updated.orders + summary.replaced.orderItems;
       summary.changed = writeCount;
       const rejectedCount = summary.rejected.shipments + summary.rejected.orders;
+      summary.sourceSettled = rejectedCount === 0;
+      summary.unresolvedIssues = issues;
       summary.idempotent = writeCount === 0 && rejectedCount === 0;
       if (!options.dryRun) {
         await tx.syncRun.update({

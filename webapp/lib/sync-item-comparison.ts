@@ -4,8 +4,11 @@ export type SyncComparableItem = {
     quantity?: number | null;
     unit_price?: number | null;
     unit_cost?: number | null;
+    shipping_cost?: number | null;
     subtotal?: number | null;
     profit?: number | null;
+    supplierId?: number | null;
+    purchase_invoice?: string | null;
     shipmentId?: number | null;
     status?: string | null;
 };
@@ -21,8 +24,11 @@ export function itemSyncSignature(item: SyncComparableItem) {
         Number(item.quantity || 0),
         money(item.unit_price),
         money(item.unit_cost),
+        money(item.shipping_cost),
         money(item.subtotal),
         money(item.profit),
+        item.supplierId || '',
+        String(item.purchase_invoice || '').trim(),
         item.shipmentId || '',
         String(item.status || '').trim(),
     ].join('|');

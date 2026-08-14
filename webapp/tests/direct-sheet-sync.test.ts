@@ -2,15 +2,20 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   changedFieldPatch,
+  canUpdateMatchedItemsInPlace,
   directOrderStatus,
   directShipmentStatus,
   isDisposableZeroItem,
   isRetryableSheetsError,
   parseOperationalSheets,
+  selectDirectOrders,
+  shouldReportSourceIntegrityIssue,
   shipmentBelongsToWindow,
   sourceItemMatchKeys,
+  supplierMatchKey,
   sourceWouldEraseExistingItems,
 } from '../lib/direct-sheet-sync';
+import { sameItemSet } from '../lib/sync-item-comparison';
 import { filterPersistableSourceItems, isHistoricalReconciliationEligible, partitionOrdersByItemIntegrity } from '../lib/sync-source-integrity';
 
 test('parsea las tres hojas operativas y conserva estados en blanco', () => {
@@ -25,8 +30,8 @@ test('parsea las tres hojas operativas y conserva estados en blanco', () => {
       [9001, 77, 'Cliente Uno', '08/05/2026', 'Zelle', ''],
     ],
     detaVentas: [
-      ['INV-REM', 'SKU', 'CANT', 'VTA UNI', 'COSTO', 'GANANCIA', 'DETALLE', 'ENVIO NRO', 'ESTADO', 'COD CLI', 'NOMBRE'],
-      [9001, 'SKU-1', 2, 300, 200, 200, 'Telefono', 501, '', 77, 'Cliente Uno'],
+      ['INV-REM', 'SKU', 'CANT', 'VTA UNI', 'COSTO', 'GANANCIA', 'DETALLE', 'ENVIO NRO', 'ESTADO', 'COD CLI', 'NOMBRE', 'ENVIO', 'SUPPLIER', 'INVOICE'],
+      [9001, 'SKU-1', 2, 300, 200, 200, 'Telefono', 501, '', 77, 'Cliente Uno', 5, 'Proveedor Uno', 'FC-1'],
     ],
   });
 
@@ -38,6 +43,9 @@ test('parsea las tres hojas operativas y conserva estados en blanco', () => {
   assert.equal(source.orders[0].orderNumber, 9001);
   assert.equal(source.orders[0].items[0].status, null);
   assert.equal(source.orders[0].items[0].shipmentNumber, 501);
+  assert.equal(source.orders[0].items[0].shippingCost, 5);
+  assert.equal(source.orders[0].items[0].supplierName, 'Proveedor Uno');
+  assert.equal(source.orders[0].items[0].purchaseInvoice, 'FC-1');
 });
 
 test('una fila con cantidad cero se interpreta como eliminación, no como línea imprimible', () => {
@@ -45,9 +53,9 @@ test('una fila con cantidad cero se interpreta como eliminación, no como línea
     cabeEnvios: [['NUMERO', 'FORWARDER', 'FECHA SAL', 'FECHA LLEG', 'LLEGO?', 'OBSERVACION'], [1, 'FW', 46240, '', '', '']],
     cabeVentas: [['INVOICE', 'CLIENTE', 'NRO CLI', 'FECHA', 'METODO'], [10, 'Cliente', 1, '08/12/2026', 'Zelle']],
     detaVentas: [
-      ['INV-REM', 'SKU', 'CANT', 'VTA UNI', 'COSTO', 'GANANCIA', 'DETALLE', 'ENVIO NRO', 'ESTADO'],
-      [10, 'SKU-0', 0, 100, 50, 50, 'Eliminado', 1, 'MIAMI'],
-      [10, 'SKU-1', 2, 100, 50, 100, 'Vigente', 1, 'MIAMI'],
+      ['INV-REM', 'SKU', 'CANT', 'VTA UNI', 'COSTO', 'GANANCIA', 'DETALLE', 'ENVIO NRO', 'ESTADO', 'ENVIO', 'SUPPLIER', 'INVOICE'],
+      [10, 'SKU-0', 0, 100, 50, 50, 'Eliminado', 1, 'MIAMI', '', '', ''],
+      [10, 'SKU-1', 2, 100, 50, 100, 'Vigente', 1, 'MIAMI', '', '', ''],
     ],
   });
   assert.deepEqual(source.orders[0].items.map((item) => item.sku), ['SKU-1']);
@@ -58,8 +66,8 @@ test('una cantidad vacía no se confunde con una eliminación explícita', () =>
     cabeEnvios: [['NUMERO', 'FORWARDER', 'FECHA SAL', 'FECHA LLEG', 'LLEGO?', 'OBSERVACION'], [1, 'FW', 46240, '', '', '']],
     cabeVentas: [['INVOICE', 'CLIENTE', 'NRO CLI', 'FECHA', 'METODO'], [10, 'Cliente', 1, '08/12/2026', 'Zelle']],
     detaVentas: [
-      ['INV-REM', 'SKU', 'CANT', 'VTA UNI', 'COSTO', 'GANANCIA', 'DETALLE', 'ENVIO NRO', 'ESTADO'],
-      [10, 'SKU-PENDIENTE', '', 100, 50, 50, 'Edición incompleta', 1, 'MIAMI'],
+      ['INV-REM', 'SKU', 'CANT', 'VTA UNI', 'COSTO', 'GANANCIA', 'DETALLE', 'ENVIO NRO', 'ESTADO', 'ENVIO', 'SUPPLIER', 'INVOICE'],
+      [10, 'SKU-PENDIENTE', '', 100, 50, 50, 'Edición incompleta', 1, 'MIAMI', '', '', ''],
     ],
   });
   assert.equal(source.orders[0].items.length, 1);
@@ -142,6 +150,46 @@ test('una segunda comparacion identica produce delta vacio', () => {
   assert.deepEqual(changedFieldPatch(current, { ...current }), {});
 });
 
+test('el directo compara también pedidos históricos si no se pidió un invoice puntual', () => {
+  const orders = [
+    { orderNumber: 2584, date: '2026-08-06' },
+    { orderNumber: 2592, date: '2026-08-10' },
+  ];
+  assert.deepEqual(selectDirectOrders(orders, new Set()).map((order) => order.orderNumber), [2584, 2592]);
+  assert.deepEqual(selectDirectOrders(orders, new Set([2592])).map((order) => order.orderNumber), [2592]);
+});
+
+test('una reasignación de Packing cambia la firma aunque el resto de la línea sea igual', () => {
+  const current = [{ productId: 1, productName: 'A', quantity: 1, unit_price: 100, shipmentId: 1264 }];
+  const next = [{ productId: 1, productName: 'A', quantity: 1, unit_price: 100, shipmentId: 1262 }];
+  assert.equal(sameItemSet(current, next), false);
+});
+
+test('proveedor, invoice de compra y costo de envío forman parte del delta', () => {
+  const current = [{ productId: 1, productName: 'A', quantity: 1, supplierId: 10, purchase_invoice: 'A', shipping_cost: 5 }];
+  assert.equal(sameItemSet(current, [{ ...current[0], supplierId: 11 }]), false);
+  assert.equal(sameItemSet(current, [{ ...current[0], purchase_invoice: 'B' }]), false);
+  assert.equal(sameItemSet(current, [{ ...current[0], shipping_cost: 6 }]), false);
+});
+
+test('el proveedor abreviado coincide con su razón social sin sufijos corporativos', () => {
+  assert.equal(supplierMatchKey('FREEZIA'), supplierMatchKey('Freezia Trading LLC'));
+  assert.equal(supplierMatchKey('MOUNTOLE'), supplierMatchKey('MOUNTOLE USA'));
+});
+
+test('líneas emparejadas uno a uno pueden actualizarse preservando ids y allocations', () => {
+  assert.equal(canUpdateMatchedItemsInPlace(2, [101, 102]), true);
+  assert.equal(canUpdateMatchedItemsInPlace(2, [101, 101]), false);
+  assert.equal(canUpdateMatchedItemsInPlace(2, [101, undefined]), false);
+});
+
+test('una anomalía histórica no ensucia el control general pero sí el diagnóstico puntual', () => {
+  const now = Date.parse('2026-08-13T12:00:00Z');
+  assert.equal(shouldReportSourceIntegrityIssue('2026-06-01', false, now), false);
+  assert.equal(shouldReportSourceIntegrityIssue('2026-08-10', false, now), false);
+  assert.equal(shouldReportSourceIntegrityIssue('2026-06-01', true, now), true);
+});
+
 test('la comparacion de fechas ignora diferencias de hora del mismo dia', () => {
   const current = { date: new Date('2026-08-05T04:00:00.000Z') };
   const source = { date: new Date('2026-08-05T00:00:00.000Z') };
@@ -170,7 +218,7 @@ test('falla cerrado cuando falta una columna critica', () => {
       ['INVOICE', 'NRO CLI', 'CLIENTE', 'FECHA', 'METODO', 'ESTADO'],
     ],
     detaVentas: [
-      ['INV-REM', 'SKU', 'CANT', 'COSTO', 'GANANCIA', 'DETALLE', 'ENVIO NRO', 'ESTADO', 'COD CLI', 'NOMBRE'],
+      ['INV-REM', 'SKU', 'CANT', 'COSTO', 'GANANCIA', 'DETALLE', 'ENVIO NRO', 'ESTADO', 'COD CLI', 'NOMBRE', 'ENVIO', 'SUPPLIER', 'INVOICE'],
     ],
   }), /VTA UNI/);
 });
@@ -216,15 +264,17 @@ test('la ventana directa excluye envios historicos no relacionados', () => {
   assert.equal(shipmentBelongsToWindow({ shipment_number: 502, date_arrived: '2026-08-10' }, '2026-08-04', related), true);
 });
 
-test('un envio terminal nunca retrocede por un estado viejo de Sheets', () => {
+test('el general no retrocede estados terminales y el invoice puntual permite una corrección explícita', () => {
   assert.equal(directShipmentStatus({ existingStatus: 'ENTREGADO', sourceStatus: 'SALIENDO' }), 'ENTREGADO');
   assert.equal(directShipmentStatus({ existingStatus: 'CANCELADO', sourceStatus: 'MIAMI' }), 'CANCELADO');
+  assert.equal(directShipmentStatus({ existingStatus: 'ENTREGADO', sourceStatus: 'SALIENDO', sourceAuthoritative: true }), 'SALIENDO');
   assert.equal(directShipmentStatus({ existingStatus: 'MIAMI', sourceStatus: 'SALIENDO' }), 'SALIENDO');
 });
 
-test('un pedido terminal nunca retrocede por un estado viejo de Sheets', () => {
+test('el estado terminal sólo se corrige mediante la actualización puntual del invoice', () => {
   assert.equal(directOrderStatus('ENTREGADO', 'SALIENDO'), 'ENTREGADO');
   assert.equal(directOrderStatus('CANCELADO', 'MIAMI'), 'CANCELADO');
+  assert.equal(directOrderStatus('ENTREGADO', 'SALIENDO', true), 'SALIENDO');
   assert.equal(directOrderStatus('MIAMI', 'SALIENDO'), 'SALIENDO');
 });
 

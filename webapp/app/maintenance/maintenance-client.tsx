@@ -198,7 +198,7 @@ export function MaintenanceClient({ directSyncEnabled }: { directSyncEnabled: bo
                             <h4 className="text-sm font-semibold flex items-center gap-2">
                                 <RefreshCw className="h-4 w-4 text-emerald-500" /> Sincronizar con Excel (Drive)
                             </h4>
-                            <p className="text-xs text-muted-foreground">La actualización operativa compara Google Sheets con Supabase y escribe solamente los cambios. La completa queda como reconciliación de respaldo.</p>
+                            <p className="text-xs text-muted-foreground">La actualización operativa compara todo Google Sheets con Supabase —sin excluir invoices históricos— y escribe solamente las diferencias. La completa queda como reconciliación de respaldo.</p>
 
                             <div className="space-y-2 rounded-md border border-slate-700/60 p-3">
                                 <label htmlFor="invoice-sync-number" className="text-xs font-medium">
@@ -222,7 +222,7 @@ export function MaintenanceClient({ directSyncEnabled }: { directSyncEnabled: bo
                                         Actualizar invoice
                                     </Button>
                                 </div>
-                                <p className="text-[11px] text-muted-foreground">Compara ese invoice aunque su fecha sea anterior a 7 días y verifica el resultado antes de habilitar la impresión.</p>
+                                <p className="text-[11px] text-muted-foreground">Limita el diagnóstico a ese invoice y verifica el resultado antes de habilitar la impresión.</p>
                                 {reductionIssue?.canApproveReduction && reductionIssue.orderNumber && (
                                     <div className="rounded-md border border-amber-700/60 bg-amber-950/30 p-2 text-xs text-amber-200">
                                         <p>
