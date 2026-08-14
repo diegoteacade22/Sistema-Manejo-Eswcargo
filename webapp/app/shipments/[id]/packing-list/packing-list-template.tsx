@@ -79,8 +79,16 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
 
     // Basic date formatting
     const dateShipped = shipment.date_shipped
-        ? new Date(shipment.date_shipped).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+        ? new Date(shipment.date_shipped).toLocaleDateString('en-US', {
+            month: '2-digit',
+            day: '2-digit',
+            year: 'numeric',
+            timeZone: 'UTC',
+        })
         : '-';
+    const emailSentAt = shipment.email_sent_at ? new Date(shipment.email_sent_at) : null;
+    const emailSentDate = emailSentAt?.toLocaleDateString('es-AR', { timeZone: 'America/New_York' });
+    const emailSentTime = emailSentAt?.toLocaleTimeString('es-AR', { timeZone: 'America/New_York' });
 
     const shipmentItems = buildShipmentItems(shipment);
     const cargoDescription = getShipmentCargoDescription(shipment);
@@ -200,7 +208,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                 {shipment.email_sent_at && !isSharedShipment && (
                     <p className="text-xs text-green-600 font-medium flex items-center">
                         <span className="mr-1">✓</span>
-                        Email enviado el {new Date(shipment.email_sent_at).toLocaleDateString()} a las {new Date(shipment.email_sent_at).toLocaleTimeString()}
+                        Email enviado el {emailSentDate} a las {emailSentTime}
                     </p>
                 )}
                 {!hasConfirmedContent && (
