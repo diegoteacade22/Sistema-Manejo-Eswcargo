@@ -14,7 +14,7 @@ import {
     resolveShipmentStatus,
     sourceShipmentStatus,
 } from '../lib/shipment-sync-status';
-import { partitionOrdersByItemIntegrity } from '../lib/sync-source-integrity';
+import { filterPersistableSourceItems, isHistoricalReconciliationEligible, partitionOrdersByItemIntegrity } from '../lib/sync-source-integrity';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
 let activeSyncRunId: number | null = null;
@@ -281,13 +281,16 @@ async function main() {
     const syncableOrdersData = orderIntegrity.accepted;
     for (const quarantined of orderIntegrity.quarantined) {
         const orderNumber = quarantined.order.order_number;
-        processedOrderIds.add(quarantined.orderId);
-        console.warn(`⚠️ Pedido #${orderNumber} en cuarentena: fuente ${quarantined.sourceItemCount} ítem(s), base ${quarantined.existingItemCount}. Se conserva sin cambios.`);
+        if (quarantined.orderId !== null) processedOrderIds.add(quarantined.orderId);
+        const reason = quarantined.reason === 'INCOMPLETE_QUANTITY'
+            ? 'La fuente contiene una cantidad vacía o inválida; se conserva la versión existente hasta completar la edición.'
+            : 'La fuente redujo el detalle del pedido; se conserva la versión existente hasta una reconciliación destructiva explícita.';
+        console.warn(`⚠️ Pedido #${orderNumber} en cuarentena: ${reason}`);
         trackChange({
             entity: 'ORDER_ITEMS',
             entityKey: `#${orderNumber}`,
             action: 'REJECTED',
-            reason: 'La fuente redujo el detalle del pedido; se conserva la versión existente hasta una reconciliación destructiva explícita.',
+            reason,
             before: { count: quarantined.existingItemCount },
             after: { count: quarantined.sourceItemCount },
         });
@@ -444,6 +447,7 @@ async function main() {
     let orderCounter = 0;
     let orderItemsReplaced = 0;
     const syncedOrderNumbers = new Set(syncableOrdersData.map((o: any) => o.order_number));
+    const quarantinedOrderNumbers = new Set(orderIntegrity.quarantined.map(({ order }: any) => order.order_number));
 
     for (const o of (syncableOrdersData as any[])) {
         const existing = orderNumMap.get(o.order_number);
@@ -451,7 +455,10 @@ async function main() {
         const resolvedOrderClientId = dbClientId ?? existing?.clientId ?? unknownClientId;
 
         const orderDate = parseSafeDate(o.date) || new Date();
-        const items = o.items || [];
+        // Quantity zero is an explicit removal in the operational Sheet. Keep
+        // the raw rows for the integrity guard above, but never persist inert
+        // detail that DIRECT will correctly omit on its next run.
+        const items = filterPersistableSourceItems(o.items || []);
         const totalAmount = Number(o.total_amount || 0);
 
         const itemStatuses = [...new Set(
@@ -506,7 +513,7 @@ async function main() {
         }
         processedOrderIds.add(dbOrder.id);
 
-        const orderItemsToCreate = o.items.map((item: any) => {
+        const orderItemsToCreate = items.map((item: any) => {
             const shipId = item.shipment_number ? shipmentNumMap.get(item.shipment_number)?.id : null;
             const dbProd = (item.sku && productSkuMap.has(item.sku)) ? productSkuMap.get(item.sku) : null;
             return {
@@ -584,7 +591,7 @@ async function main() {
     const reconciliationItemsToCreate: any[] = [];
     const affectedShipmentIds = new Set<number>();
     const reconciliationDbOrderIds = Array.from(reconciliationOrderNumbers)
-        .filter(orderNumber => !syncedOrderNumbers.has(orderNumber))
+        .filter(orderNumber => isHistoricalReconciliationEligible(orderNumber, syncedOrderNumbers, quarantinedOrderNumbers))
         .map(orderNumber => orderNumMap.get(orderNumber)?.id)
         .filter((orderId): orderId is number => typeof orderId === 'number');
     const currentReconciliationItems = reconciliationDbOrderIds.length > 0
@@ -619,7 +626,7 @@ async function main() {
     ].join('|');
 
     for (const orderNumber of reconciliationOrderNumbers) {
-        if (syncedOrderNumbers.has(orderNumber)) continue;
+        if (!isHistoricalReconciliationEligible(orderNumber, syncedOrderNumbers, quarantinedOrderNumbers)) continue;
 
         const sourceOrder = reconciliationByOrderNumber.get(orderNumber);
         const dbOrder = orderNumMap.get(orderNumber);
@@ -628,7 +635,7 @@ async function main() {
             continue;
         }
 
-        const sourceItems = sourceOrder.items || [];
+        const sourceItems = filterPersistableSourceItems(sourceOrder.items || []);
         const sourceShipmentIds = Array.from(new Set<number>(
             sourceItems
                 .map((item: any): number | null => item.shipment_number ? shipmentNumMap.get(item.shipment_number)?.id || null : null)

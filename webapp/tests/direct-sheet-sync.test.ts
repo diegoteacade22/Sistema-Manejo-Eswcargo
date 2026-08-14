@@ -4,12 +4,14 @@ import {
   changedFieldPatch,
   directOrderStatus,
   directShipmentStatus,
+  isDisposableZeroItem,
   isRetryableSheetsError,
   parseOperationalSheets,
   shipmentBelongsToWindow,
+  sourceItemMatchKeys,
   sourceWouldEraseExistingItems,
 } from '../lib/direct-sheet-sync';
-import { partitionOrdersByItemIntegrity } from '../lib/sync-source-integrity';
+import { filterPersistableSourceItems, isHistoricalReconciliationEligible, partitionOrdersByItemIntegrity } from '../lib/sync-source-integrity';
 
 test('parsea las tres hojas operativas y conserva estados en blanco', () => {
   const source = parseOperationalSheets({
@@ -62,6 +64,65 @@ test('una cantidad vacía no se confunde con una eliminación explícita', () =>
   });
   assert.equal(source.orders[0].items.length, 1);
   assert.equal(source.orders[0].items[0].quantity, 0);
+});
+
+test('una fila residual en cero sin metadatos no cuenta como detalle comercial', () => {
+  assert.equal(isDisposableZeroItem({
+    quantity: 0,
+    shipping_cost: null,
+    supplierId: null,
+    purchase_invoice: null,
+    _count: { allocations: 0 },
+  }), true);
+  assert.equal(isDisposableZeroItem({
+    quantity: 0,
+    shipping_cost: null,
+    supplierId: null,
+    purchase_invoice: null,
+    _count: { allocations: 1 },
+  }), false);
+  assert.equal(isDisposableZeroItem({
+    quantity: 1,
+    shipping_cost: null,
+    supplierId: null,
+    purchase_invoice: null,
+    _count: { allocations: 0 },
+  }), false);
+});
+
+test('un SKU nuevo nunca hereda el producto anterior por coincidencia de nombre', () => {
+  assert.deepEqual(sourceItemMatchKeys({ sku: 'SKU-NUEVO', productName: 'Mismo nombre' }), ['S:SKU-NUEVO']);
+  assert.deepEqual(sourceItemMatchKeys({ sku: null, productName: 'Mismo nombre' }), ['N:MISMO NOMBRE']);
+});
+
+test('FULL elimina solo un cero explícito antes de persistir', () => {
+  const items = [
+    { sku: 'ACTIVO', quantity: 2, quantity_is_explicit: true },
+    { sku: 'ELIMINADO', quantity: 0, quantity_is_explicit: true },
+    { sku: 'EN-EDICION', quantity: 0, quantity_is_explicit: false },
+  ];
+  assert.deepEqual(filterPersistableSourceItems(items).map((item) => item.sku), ['ACTIVO', 'EN-EDICION']);
+});
+
+test('FULL pone en cuarentena un invoice con cantidad vacía o inválida', () => {
+  const source = [{
+    order_number: 100,
+    items: [
+      { quantity_is_explicit: true },
+      { quantity_is_explicit: false },
+    ],
+  }];
+  const result = partitionOrdersByItemIntegrity(source, new Map([
+    [100, { orderId: 1, itemCount: 2 }],
+  ]), true);
+  assert.equal(result.accepted.length, 0);
+  assert.equal(result.quarantined[0].reason, 'INCOMPLETE_QUANTITY');
+});
+
+test('la reconciliación histórica nunca salta la cuarentena de una reducción', () => {
+  assert.equal(isHistoricalReconciliationEligible(100, new Set(), new Set([100])), false);
+  assert.equal(isHistoricalReconciliationEligible(100, new Set([100]), new Set()), false);
+  assert.equal(isHistoricalReconciliationEligible(100, new Set(), new Set()), true);
 });
 
 test('delta escribe solo campos cambiados y puede preservar blancos', () => {
@@ -133,7 +194,7 @@ test('un pedido reducido queda en cuarentena sin bloquear los pedidos sanos', ()
   assert.deepEqual(result.accepted.map((order) => order.order_number), [101]);
   assert.equal(result.quarantined.length, 1);
   assert.deepEqual(result.quarantined[0], {
-    order: source[0], orderId: 1, sourceItemCount: 1, existingItemCount: 3,
+    order: source[0], orderId: 1, sourceItemCount: 1, existingItemCount: 3, reason: 'ITEM_REDUCTION',
   });
 });
 

@@ -6,7 +6,11 @@ const OPERATIONAL_SYNC_SCOPES = ['FULL', 'DIFF', 'DIRECT_OPERATIONAL'];
 const SHARED_SHIPMENT_HEADER_CONFLICT = 'La fuente contiene más de una cabecera incompatible para el mismo número de envío.';
 
 export function sourceDecisionBlock(action: string | null | undefined, reason: string | null | undefined) {
-    return action === 'REJECTED' ? reason || 'La fuente rechazó este registro.' : null;
+    // A rejected source delta preserves the last confirmed database version.
+    // It belongs in maintenance/audit, but it must not make that valid version
+    // impossible to invoice, pack or email. Reserve document blocking for an
+    // explicit decision that says the persisted document itself is invalid.
+    return action === 'BLOCKED' ? reason || 'El documento confirmado no es válido para emitir.' : null;
 }
 
 export async function getSourceDocumentBlock(entity: SourceEntity, sourceNumber: number | null | undefined) {

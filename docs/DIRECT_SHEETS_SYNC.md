@@ -34,8 +34,12 @@ completas y recien despues filtraba fechas.
 - La cuenta de servicio se obtiene unicamente de variables de entorno del servidor.
 - Ninguna credencial se envia al navegador ni se escribe en logs.
 - Los estados en blanco no reemplazan estados existentes.
-- Una reduccion de items nunca se aplica automaticamente. El pedido conflictivo queda en cuarentena,
-  conserva su detalle actual y no bloquea los cambios sanos de otros pedidos.
+- Una reduccion comercial nunca se aplica automaticamente. Las filas residuales con cantidad cero y
+  sin compras, asignaciones ni costos protegidos se depuran porque no representan mercaderia.
+- El pedido conflictivo queda en cuarentena y conserva su detalle confirmado, pero una diferencia de
+  fuente no bloquea la impresion de esa ultima version valida.
+- Una cantidad vacia o invalida pone solo ese invoice en cuarentena; FULL tampoco puede persistirla
+  como cero ni saltar la proteccion desde la reconciliacion historica de envios.
 - Si la fuente presenta mas de cinco pedidos reducidos, FULL falla cerrado porque el snapshot puede
   estar incompleto. El limite se puede endurecer con `SYNC_INCOMPLETE_ORDER_QUARANTINE_LIMIT`.
 - DIRECT registra cada rechazo en `SyncChange`, aplica los cambios sanos y la interfaz informa
@@ -64,9 +68,11 @@ completas y recien despues filtraba fechas.
 1. Comparar la cabecera del pedido en `CABE_VENTAS` con sus filas en `DETA_VENTAS`.
 2. Si Sheets trae menos filas que Supabase, no repetir FULL a ciegas: corregir o terminar la edicion
    del Sheet y volver a ejecutar DIRECT.
-3. Verificar que la corrida figure parcial, que el pedido quede `REJECTED` y que sus items sigan
-   intactos; los demas cambios deben quedar aplicados.
-4. Usar FULL destructivo solo cuando la eliminacion de filas sea intencional y verificable.
+3. Si la unica diferencia es una fila de cantidad cero sin metadatos protegidos, DIRECT debe retirarla
+   automaticamente y FULL no debe volver a crearla.
+4. Para una reduccion comercial ambigua, verificar que la corrida figure parcial, que el pedido quede
+   `REJECTED` y que sus items sigan intactos; la version confirmada debe continuar imprimible.
+5. Usar FULL destructivo solo cuando la eliminacion de filas sea intencional y verificable.
 
 ## Rollback
 

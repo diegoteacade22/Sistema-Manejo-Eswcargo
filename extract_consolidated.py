@@ -352,9 +352,13 @@ def extract_all():
         except:
             sn_val = None
 
+        raw_quantity = first_present_value(row, 'CANT', 'CANTIDAD')
+        parsed_quantity = pd.to_numeric(raw_quantity, errors='coerce')
+        quantity_is_explicit = not pd.isna(parsed_quantity)
         item_data = {
             'sku': clean_text(row.get('SKU')),
-            'quantity': int(clean_num(first_present_value(row, 'CANT', 'CANTIDAD'))),
+            'quantity': int(clean_num(raw_quantity)),
+            'quantity_is_explicit': quantity_is_explicit,
             'unit_price': clean_num(first_present_value(row, 'VTA UNI', 'PRECIO')),
             'unit_cost': clean_num(first_present_value(row, 'COSTO', 'COSTO X ART')),
             'profit': clean_num(row.get('GANANCIA')),

@@ -430,6 +430,12 @@ function skuKey(value: string | null | undefined) {
   return String(value ?? '').trim().toUpperCase();
 }
 
+export function sourceItemMatchKeys(item: { sku?: string | null; productName?: string | null }) {
+  return item.sku
+    ? [`S:${skuKey(item.sku)}`]
+    : [`N:${nameKey(item.productName)}`];
+}
+
 function assertDeadline(deadline: number) {
   if (Date.now() > deadline) throw new Error('La sincronizacion directa supero el tiempo operativo permitido.');
 }
@@ -444,6 +450,20 @@ function reductionApprovalToken(source: DirectOrderSource, existingItems: Array<
     source: source.items.map((item) => JSON.stringify(item)).sort(),
     existing: existingItems.map(itemSyncSignature).sort(),
   })).digest('hex');
+}
+
+export function isDisposableZeroItem(item: {
+  quantity?: number | null;
+  shipping_cost?: number | null;
+  supplierId?: number | null;
+  purchase_invoice?: string | null;
+  _count?: { allocations?: number | null } | null;
+}) {
+  return Number(item.quantity ?? 0) <= 0
+    && Number(item._count?.allocations ?? 0) === 0
+    && item.shipping_cost === null
+    && item.supplierId === null
+    && item.purchase_invoice === null;
 }
 
 export async function runDirectSheetSync(options: {
@@ -685,12 +705,16 @@ export async function runDirectSheetSync(options: {
           continue;
         }
 
-        const reductionToken = existing && source.items.length < existing.items.length
-          ? reductionApprovalToken(source, existing.items)
+        // FULL historically persisted zero-quantity rows while DIRECT treats a
+        // zero as an explicit removal. Those inert rows are not commercial
+        // detail and must not turn a valid Sheet edit into a reduction alert.
+        const existingCommercialItems = (existing?.items ?? []).filter((item) => !isDisposableZeroItem(item));
+        const reductionToken = existing && source.items.length < existingCommercialItems.length
+          ? reductionApprovalToken(source, existingCommercialItems)
           : null;
         const reductionApproved = reductionToken !== null
           && options.approvedReductionTokens?.[source.orderNumber] === reductionToken;
-        if (existing && source.items.length < existing.items.length && !reductionApproved) {
+        if (existing && source.items.length < existingCommercialItems.length && !reductionApproved) {
           summary.rejected.orders++;
           const reason = 'La fuente directa trajo menos items que Supabase; se conserva el pedido hasta autorizar esta reduccion.';
           changes.push({
@@ -703,7 +727,7 @@ export async function runDirectSheetSync(options: {
             orderNumber: source.orderNumber,
             reason,
             sourceItemCount: source.items.length,
-            existingItemCount: existing.items.length,
+            existingItemCount: existingCommercialItems.length,
             canApproveReduction: source.items.length > 0 && existing.items.every((item) => item._count.allocations === 0 && item.shipping_cost === null && item.supplierId === null && item.purchase_invoice === null),
             approvalToken: reductionToken ?? undefined,
           });
@@ -730,10 +754,9 @@ export async function runDirectSheetSync(options: {
         const nextItems = source.items.map((item) => {
           const product = item.sku ? productsBySku.get(skuKey(item.sku)) : null;
           const shipment = item.shipmentNumber ? shipmentsByNumber.get(item.shipmentNumber) : null;
-          const sourceKeys = [
-            ...(item.sku ? [`S:${skuKey(item.sku)}`] : []),
-            `N:${nameKey(item.productName ?? item.sku)}`,
-          ];
+          // SKU is authoritative. Falling back to the product name when a new
+          // SKU is present can silently keep the previous productId.
+          const sourceKeys = sourceItemMatchKeys(item);
           const matchingKey = sourceKeys.find((key) => (existingItemBuckets.get(key)?.length ?? 0) > 0);
           const matching = matchingKey ? existingItemBuckets.get(matchingKey)?.shift() : undefined;
           return {
