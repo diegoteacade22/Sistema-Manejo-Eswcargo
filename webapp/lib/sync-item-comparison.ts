@@ -34,6 +34,22 @@ export function itemSyncSignature(item: SyncComparableItem) {
     ].join('|');
 }
 
+export function itemSyncSignatureWithoutStatus(item: SyncComparableItem) {
+    return [
+        item.productId || '',
+        String(item.productName || '').trim(),
+        Number(item.quantity || 0),
+        money(item.unit_price),
+        money(item.unit_cost),
+        money(item.shipping_cost),
+        money(item.subtotal),
+        money(item.profit),
+        item.supplierId || '',
+        String(item.purchase_invoice || '').trim(),
+        item.shipmentId || '',
+    ].join('|');
+}
+
 export function sameItemSet(currentItems: SyncComparableItem[], nextItems: SyncComparableItem[]) {
     if (currentItems.length !== nextItems.length) return false;
     const current = currentItems.map(itemSyncSignature).sort();

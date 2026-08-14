@@ -2,11 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   resolveShipmentStatus,
+  resolveSheetShipmentStatus,
+  shipmentBusinessDateKey,
   shipmentOrderItemStatusWhere,
   shipmentOrderStatusWhere,
   shipmentStatusPatch,
+  shouldUseAuthoritativeShipmentHeader,
   sourceShipmentStatus,
   sourceShipmentStatusChanged,
+  unanimousSourceShipmentStatus,
   validateManualShipmentStatus,
 } from '../lib/shipment-sync-status';
 
@@ -100,6 +104,29 @@ test('un estado explicito de CABE_ENVIOS si se incluye en el seed', () => {
   assert.equal(sourceShipmentStatusChanged('SALIENDO', 'LLEGANDO'), true);
 });
 
+test('la importación respeta el estado explícito y sólo deriva fechas cuando está vacío', () => {
+  const now = new Date('2026-08-13T16:00:00.000Z');
+  assert.equal(resolveSheetShipmentStatus({
+    sourceStatus: 'LLEGANDO',
+    existingStatus: 'ENTREGADO',
+    dateArrived: '2026-08-11',
+    now,
+  }), 'LLEGANDO');
+  assert.equal(resolveSheetShipmentStatus({
+    sourceStatus: null,
+    existingStatus: 'SALIENDO',
+    dateArrived: '2026-08-11',
+    now,
+  }), 'ENTREGADO');
+  assert.equal(shipmentBusinessDateKey(now), '2026-08-13');
+});
+
+test('DETA sólo proyecta un estado de Packing cuando todas sus líneas coinciden', () => {
+  assert.equal(unanimousSourceShipmentStatus(['LLEGANDO', 'EN TRANSITO']), 'LLEGANDO');
+  assert.equal(unanimousSourceShipmentStatus(['LLEGANDO', 'ENTREGADO']), null);
+  assert.equal(unanimousSourceShipmentStatus(['LLEGANDO', 'VENDIDO']), null);
+});
+
 test('un item asignado a otro envio no cambia por la cabecera de su pedido', () => {
   assert.deepEqual(shipmentOrderItemStatusWhere([101, 102]), {
     AND: [
@@ -119,4 +146,25 @@ test('un item asignado a otro envio no cambia por la cabecera de su pedido', () 
     shipmentId: { in: [101, 102] },
     status: { in: ['MIAMI', 'SALIENDO', 'SALIENDO MIAMI', 'LLEGANDO', 'EN TRANSITO', 'EN_TRANSITO', 'EN BSAS', 'EN 🇦🇷', 'RECIBIDO BSAS', 'ARRIBADO'] },
   });
+});
+
+test('la autoridad de CABE persiste en una segunda comparación completa', () => {
+  assert.equal(shouldUseAuthoritativeShipmentHeader({
+    shipmentNumber: 1264,
+    status: 'LLEGANDO',
+    previousHeaders: { '1264': null },
+    previousAuthority: {},
+  }), true);
+  assert.equal(shouldUseAuthoritativeShipmentHeader({
+    shipmentNumber: 1264,
+    status: 'LLEGANDO',
+    previousHeaders: { '1264': 'LLEGANDO' },
+    previousAuthority: { '1264': 'LLEGANDO' },
+  }), true);
+  assert.equal(shouldUseAuthoritativeShipmentHeader({
+    shipmentNumber: 1264,
+    status: 'LLEGANDO',
+    previousHeaders: { '1264': 'LLEGANDO' },
+    previousAuthority: {},
+  }), false);
 });

@@ -4,6 +4,7 @@ import {
   changedFieldPatch,
   canUpdateMatchedItemsInPlace,
   directOrderStatus,
+  directSourceOrderStatus,
   directShipmentStatus,
   isDisposableZeroItem,
   isRetryableSheetsError,
@@ -11,12 +12,15 @@ import {
   selectDirectOrders,
   shouldReportSourceIntegrityIssue,
   shipmentBelongsToWindow,
+  shipmentStatusFromOrderItems,
   sourceItemMatchKeys,
   supplierMatchKey,
   sourceWouldEraseExistingItems,
 } from '../lib/direct-sheet-sync';
-import { sameItemSet } from '../lib/sync-item-comparison';
+import { itemSyncSignatureWithoutStatus, sameItemSet } from '../lib/sync-item-comparison';
 import { filterPersistableSourceItems, isHistoricalReconciliationEligible, partitionOrdersByItemIntegrity } from '../lib/sync-source-integrity';
+import { normalizeShipmentSourceRows } from '../lib/sync-source-normalization';
+import { effectiveSourceOrderStatus } from '../lib/sync-status-precedence';
 
 test('parsea las tres hojas operativas y conserva estados en blanco', () => {
   const source = parseOperationalSheets({
@@ -150,6 +154,19 @@ test('una segunda comparacion identica produce delta vacio', () => {
   assert.deepEqual(changedFieldPatch(current, { ...current }), {});
 });
 
+test('el delta ignora ruido binario insignificante en importes', () => {
+  assert.deepEqual(changedFieldPatch(
+    { total_amount: 6913.440000000001 },
+    { total_amount: 6913.4400000000005 },
+  ), {});
+});
+
+test('CABE_VENTAS prevalece sobre estados distintos de DETA en DIRECT y FULL', () => {
+  assert.equal(effectiveSourceOrderStatus('ENTREGADO', ['LLEGANDO', 'LLEGANDO']), 'ENTREGADO');
+  assert.equal(effectiveSourceOrderStatus('', ['LLEGANDO', 'LLEGANDO']), 'LLEGANDO');
+  assert.equal(effectiveSourceOrderStatus('', ['LLEGANDO', 'SALIENDO']), null);
+});
+
 test('el directo compara también pedidos históricos si no se pidió un invoice puntual', () => {
   const orders = [
     { orderNumber: 2584, date: '2026-08-06' },
@@ -170,6 +187,13 @@ test('proveedor, invoice de compra y costo de envío forman parte del delta', ()
   assert.equal(sameItemSet(current, [{ ...current[0], supplierId: 11 }]), false);
   assert.equal(sameItemSet(current, [{ ...current[0], purchase_invoice: 'B' }]), false);
   assert.equal(sameItemSet(current, [{ ...current[0], shipping_cost: 6 }]), false);
+});
+
+test('un cambio sólo de estado conserva la identidad de la línea para FULL', () => {
+  const current = { productId: 1, productName: 'A', quantity: 2, unit_price: 100, unit_cost: 80, shipmentId: 1262, status: 'SALIENDO' };
+  const next = { ...current, status: 'LLEGANDO' };
+  assert.notEqual(current.status, next.status);
+  assert.equal(itemSyncSignatureWithoutStatus(current), itemSyncSignatureWithoutStatus(next));
 });
 
 test('el proveedor abreviado coincide con su razón social sin sufijos corporativos', () => {
@@ -264,18 +288,60 @@ test('la ventana directa excluye envios historicos no relacionados', () => {
   assert.equal(shipmentBelongsToWindow({ shipment_number: 502, date_arrived: '2026-08-10' }, '2026-08-04', related), true);
 });
 
-test('el general no retrocede estados terminales y el invoice puntual permite una corrección explícita', () => {
+test('un cambio de fuente confirmado corrige un terminal y un baseline inicial lo protege', () => {
   assert.equal(directShipmentStatus({ existingStatus: 'ENTREGADO', sourceStatus: 'SALIENDO' }), 'ENTREGADO');
   assert.equal(directShipmentStatus({ existingStatus: 'CANCELADO', sourceStatus: 'MIAMI' }), 'CANCELADO');
   assert.equal(directShipmentStatus({ existingStatus: 'ENTREGADO', sourceStatus: 'SALIENDO', sourceAuthoritative: true }), 'SALIENDO');
+  assert.equal(directShipmentStatus({ existingStatus: 'ENTREGADO', sourceStatus: null }), 'ENTREGADO');
   assert.equal(directShipmentStatus({ existingStatus: 'MIAMI', sourceStatus: 'SALIENDO' }), 'SALIENDO');
 });
 
-test('el estado terminal sólo se corrige mediante la actualización puntual del invoice', () => {
+test('el estado del invoice corrige un terminal sólo tras detectar cambio de fuente', () => {
   assert.equal(directOrderStatus('ENTREGADO', 'SALIENDO'), 'ENTREGADO');
   assert.equal(directOrderStatus('CANCELADO', 'MIAMI'), 'CANCELADO');
   assert.equal(directOrderStatus('ENTREGADO', 'SALIENDO', true), 'SALIENDO');
+  assert.equal(directOrderStatus('ENTREGADO', null), 'ENTREGADO');
   assert.equal(directOrderStatus('MIAMI', 'SALIENDO'), 'SALIENDO');
+});
+
+test('el estado unánime de DETA_VENTAS se proyecta al Packing si CABE_ENVIOS está vacío', () => {
+  const orders = [{
+    orderNumber: 10,
+    oldClientId: null,
+    clientName: null,
+    date: '2026-08-13',
+    paymentMethod: null,
+    status: null,
+    items: [
+      { sku: 'A', productName: 'A', quantity: 1, unitPrice: 1, unitCost: 1, shippingCost: null, profit: 0, supplierName: null, purchaseInvoice: null, shipmentNumber: 1262, status: 'LLEGANDO' },
+      { sku: 'B', productName: 'B', quantity: 1, unitPrice: 1, unitCost: 1, shippingCost: null, profit: 0, supplierName: null, purchaseInvoice: null, shipmentNumber: 1262, status: 'LLEGANDO' },
+    ],
+  }];
+  assert.equal(shipmentStatusFromOrderItems(orders, 1262), 'LLEGANDO');
+  orders[0].items[1].status = 'ENTREGADO';
+  assert.equal(shipmentStatusFromOrderItems(orders, 1262), null);
+});
+
+test('CABE_ENVIOS explícito prevalece al proyectar el estado del pedido', () => {
+  const source = {
+    orderNumber: 10,
+    oldClientId: null,
+    clientName: null,
+    date: '2026-08-13',
+    paymentMethod: null,
+    status: null,
+    items: [{ sku: 'A', productName: 'A', quantity: 1, unitPrice: 1, unitCost: 1, shippingCost: null, profit: 0, supplierName: null, purchaseInvoice: null, shipmentNumber: 1262, status: 'SALIENDO' }],
+  };
+  assert.equal(directSourceOrderStatus(source, new Map([[1262, 'LLEGANDO']])), 'LLEGANDO');
+});
+
+test('un Packing compartido con estados de cabecera distintos se rechaza', () => {
+  const result = normalizeShipmentSourceRows([
+    { shipment_number: 1262, forwarder: 'FW', date_shipped: '2026-08-11', date_arrived: null, status: 'SALIENDO' },
+    { shipment_number: 1262, forwarder: 'FW', date_shipped: '2026-08-11', date_arrived: null, status: 'LLEGANDO' },
+  ]);
+  assert.equal(result.accepted.length, 0);
+  assert.equal(result.rejected.length, 1);
 });
 
 test('reintenta solo errores transitorios de Google Sheets', () => {

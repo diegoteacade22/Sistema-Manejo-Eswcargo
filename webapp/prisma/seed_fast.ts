@@ -1,8 +1,9 @@
 
 import { PrismaClient } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import fs from 'fs';
 import path from 'path';
-import { itemSyncSignature, sameItemSet } from '../lib/sync-item-comparison';
+import { itemSyncSignature, itemSyncSignatureWithoutStatus, sameItemSet } from '../lib/sync-item-comparison';
 import {
     CanonicalSourceRules,
     normalizeShipmentSourceRows,
@@ -11,9 +12,14 @@ import {
 import { type OperationLedgerInput, upsertOperationLedger } from '../lib/client-account-policy';
 import { calculateActiveOrderTotal } from '../lib/order-totals';
 import {
-    resolveShipmentStatus,
+    resolveSheetShipmentStatus,
+    shipmentBusinessDateKey,
+    shouldUseAuthoritativeShipmentHeader,
     sourceShipmentStatus,
+    unanimousSourceShipmentStatus,
 } from '../lib/shipment-sync-status';
+import { appendShipmentStatusAudit, type ShipmentStatusAuditEntry } from '../lib/shipment-status-audit';
+import { effectiveSourceOrderStatus } from '../lib/sync-status-precedence';
 import { filterPersistableSourceItems, isHistoricalReconciliationEligible, partitionOrdersByItemIntegrity } from '../lib/sync-source-integrity';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
@@ -193,6 +199,31 @@ async function main() {
             ? calculateActiveOrderTotal(order.items)
             : Number(order.total_amount || 0),
     }));
+    const shipmentDetailStatusValues = new Map<number, unknown[]>();
+    const shipmentStatusOrders = ((shipmentReconciliationData as any[]).length > 0
+        ? shipmentReconciliationData as any[]
+        : normalizedOrdersData as any[]).filter((order: any) => {
+            const items = filterPersistableSourceItems<any>(order.items || []);
+            return items.length > 0
+                && items.every((item: any) => Number(item.quantity) > 0
+                    && Boolean(item.product_name || item.productName || item.sku)
+                    && Number(item.unit_price) > 0)
+                && calculateActiveOrderTotal(items) > 0;
+        });
+    for (const order of shipmentStatusOrders) {
+        for (const item of order.items || []) {
+            const shipmentNumber = Number(item.shipment_number);
+            if (!Number.isInteger(shipmentNumber) || Number(item.quantity || 0) <= 0) continue;
+            const values = shipmentDetailStatusValues.get(shipmentNumber) || [];
+            values.push(item.status);
+            shipmentDetailStatusValues.set(shipmentNumber, values);
+        }
+    }
+    const shipmentDetailStatuses = new Map<number, string>();
+    for (const [shipmentNumber, values] of shipmentDetailStatusValues) {
+        const status = unanimousSourceShipmentStatus(values);
+        if (status) shipmentDetailStatuses.set(shipmentNumber, status);
+    }
 
     // ID tracking for cleanup
     const processedShipmentIds = new Set<number>();
@@ -230,6 +261,36 @@ async function main() {
     const orderNumMap = new Map<number, any>(dbOrders.filter(o => o.order_number !== null).map(o => [o.order_number as number, o]));
     const supplierOldIdMap = new Map<number, any>(dbSuppliers.filter(s => s.old_id !== null).map(s => [s.old_id as number, s]));
     const supplierNameMap = new Map<string, any>(dbSuppliers.map(s => [s.name.trim().toUpperCase(), s]));
+    const latestDirectStateRun = await prisma.syncRun.findFirst({
+        where: {
+            scope: 'DIRECT_OPERATIONAL',
+            status: 'SUCCESS',
+            summary: { path: ['selection'], equals: 'GLOBAL' },
+        },
+        orderBy: { finishedAt: 'desc' },
+        select: { summary: true },
+    });
+    const latestDirectShipmentBaseline = ((latestDirectStateRun?.summary as any)?.stateBaseline?.shipments || {}) as Record<string, string | null>;
+    const latestDirectOrderBaseline = ((latestDirectStateRun?.summary as any)?.stateBaseline?.orders || {}) as Record<string, string | null>;
+    const latestDirectShipmentHeaders = (latestDirectStateRun?.summary as any)?.stateBaseline?.shipmentHeaders as Record<string, string | null> | undefined;
+    const latestDirectShipmentAuthority = (latestDirectStateRun?.summary as any)?.stateBaseline?.authoritativeShipmentHeaders as Record<string, string> | undefined;
+    const authoritativeShipmentHeaderStatuses = new Map<number, string>((shipmentsData as any[]).flatMap((shipment: any) => {
+        const shipmentNumber = Number(shipment.shipment_number);
+        const status = sourceShipmentStatus(shipment.status);
+        return shouldUseAuthoritativeShipmentHeader({
+            shipmentNumber,
+            status,
+            previousHeaders: latestDirectShipmentHeaders,
+            previousAuthority: latestDirectShipmentAuthority,
+        })
+            ? [[shipmentNumber, status as string]]
+            : [];
+    }));
+    const effectiveSourceItemStatus = (item: any) => {
+        const shipmentNumber = Number(item.shipment_number);
+        return (Number.isInteger(shipmentNumber) ? authoritativeShipmentHeaderStatuses.get(shipmentNumber) : null)
+            ?? ((item.status || '').toString().trim() || null);
+    };
 
     // A partial spreadsheet read must never erase the items already assigned to
     // an order. Abort before any writes so a retry can use a complete source.
@@ -240,6 +301,7 @@ async function main() {
         ? await prisma.orderItem.findMany({
             where: { orderId: { in: existingOrderIds } },
             select: {
+                id: true,
                 orderId: true,
                 productId: true,
                 productName: true,
@@ -250,6 +312,7 @@ async function main() {
                 profit: true,
                 shipmentId: true,
                 status: true,
+                _count: { select: { allocations: true } },
             },
         })
         : [];
@@ -384,13 +447,17 @@ async function main() {
 
     // 5. PROCESAR ENVIOS
     console.log(`🚛 Sincronizando ${shipmentsData.length} envíos...`);
+    const shipmentStatusOperationId = randomUUID();
+    const shipmentStatusSelectedDate = shipmentBusinessDateKey(new Date());
     for (const s of shipmentsData) {
         const existing = shipmentNumMap.get(s.shipment_number);
         const dbClientId = s.old_client_id
             ? clientOldIdMap.get(s.old_client_id)?.id
             : (s.client_name_match ? clientNameMap.get(s.client_name_match.trim().toUpperCase())?.id : null);
         const resolvedShipmentClientId = dbClientId ?? existing?.clientId ?? null;
-        const sourceStatus = sourceShipmentStatus(s.status);
+        const headerStatus = sourceShipmentStatus(s.status);
+        const detailStatus = shipmentDetailStatuses.get(Number(s.shipment_number)) || null;
+        const sourceStatus = headerStatus ?? detailStatus;
 
         const data = {
             ...s,
@@ -400,12 +467,19 @@ async function main() {
         };
         delete (data as any).old_client_id;
         delete (data as any).client_name_match;
-        const resolvedStatus = resolveShipmentStatus({
-            sourceStatus,
-            existingStatus: existing?.status,
-            dateShipped: data.date_shipped,
-            dateArrived: data.date_arrived,
-        });
+        const existingStatus = sourceShipmentStatus(existing?.status);
+        const baselineHasShipment = Object.prototype.hasOwnProperty.call(latestDirectShipmentBaseline, String(s.shipment_number));
+        const sourceChangedSinceDirect = baselineHasShipment
+            && latestDirectShipmentBaseline[String(s.shipment_number)] !== sourceStatus;
+        const resolvedStatus = !sourceChangedSinceDirect
+            && (existingStatus === 'ENTREGADO' || existingStatus === 'CANCELADO')
+            ? existingStatus
+            : resolveSheetShipmentStatus({
+                sourceStatus,
+                existingStatus: existing?.status,
+                dateShipped: data.date_shipped,
+                dateArrived: data.date_arrived,
+            });
         (data as any).status = resolvedStatus;
 
         let dbShipment: any;
@@ -432,7 +506,31 @@ async function main() {
 
             if (hasChanges) {
                 const before = { clientId: existing.clientId, status: existing.status, forwarder: existing.forwarder, weight_fw: existing.weight_fw, price_total: existing.price_total, cost_total: existing.cost_total, date_shipped: existing.date_shipped?.toISOString?.() || null, date_arrived: existing.date_arrived?.toISOString?.() || null };
-                dbShipment = await (prisma as any).shipment.update({ where: { id: existing.id }, data });
+                const statusChanged = existing.status !== resolvedStatus;
+                if (statusChanged) {
+                    const auditEntry: ShipmentStatusAuditEntry = {
+                        operationId: shipmentStatusOperationId,
+                        shipmentId: existing.id,
+                        shipmentNumber: Number(s.shipment_number),
+                        actorName: 'Sincronización Google Sheets',
+                        selectedDate: shipmentStatusSelectedDate,
+                        fromStatus: existing.status,
+                        toStatus: resolvedStatus,
+                        eventType: 'SYSTEM_UPDATED',
+                        details: {
+                            source: headerStatus ? 'CABE_ENVIOS' : detailStatus ? 'DETA_VENTAS' : 'FECHAS_O_EXISTENTE',
+                            syncRunId: activeSyncRunId,
+                            scope: isFullSync ? 'FULL' : 'DIFF',
+                        },
+                    };
+                    dbShipment = await prisma.$transaction(async (tx: any) => {
+                        const updated = await tx.shipment.update({ where: { id: existing.id }, data });
+                        await appendShipmentStatusAudit(tx, [auditEntry]);
+                        return updated;
+                    });
+                } else {
+                    dbShipment = await (prisma as any).shipment.update({ where: { id: existing.id }, data });
+                }
                 trackChange({ entity: 'SHIPMENT', entityKey: `#${s.shipment_number}`, action: 'UPDATED', reason: 'Cambió cabecera de envío en la fuente operativa.', before, after: { clientId: resolvedShipmentClientId, status: resolvedStatus, forwarder: s.forwarder, weight_fw: s.weight_fw, price_total: s.price_total, cost_total: s.cost_total, date_shipped: data.date_shipped?.toISOString?.() || null, date_arrived: data.date_arrived?.toISOString?.() || null } });
             } else {
                 dbShipment = existing;
@@ -441,7 +539,6 @@ async function main() {
         processedShipmentIds.add(dbShipment.id);
         shipmentNumMap.set(s.shipment_number, dbShipment);
     }
-
     // 6. PROCESAR PEDIDOS
     console.log(`📑 Sincronizando ${syncableOrdersData.length} pedidos; ${orderIntegrity.quarantined.length} en cuarentena...`);
     let orderCounter = 0;
@@ -463,8 +560,8 @@ async function main() {
 
         const itemStatuses = [...new Set(
             items
-                .map((i: any) => (i.status || '').toString().trim())
-                .filter((value: string) => value.length > 0)
+                .map(effectiveSourceItemStatus)
+                .filter((value: string | null): value is string => value !== null)
         )];
 
         const itemShipmentIds = [...new Set(
@@ -473,8 +570,60 @@ async function main() {
                 .filter((value: number | null | undefined): value is number => typeof value === 'number')
         )];
 
-        const resolvedStatus = itemStatuses.length === 1 ? itemStatuses[0] : o.status;
+        const sourceOrderStatus = effectiveSourceOrderStatus(o.status, itemStatuses);
+        const candidateOrderStatus = sourceOrderStatus ?? existing?.status ?? 'COMPRAR';
+        const normalizedExistingOrderStatus = String(existing?.status || '').trim().toUpperCase();
+        const normalizedSourceOrderStatus = sourceOrderStatus == null
+            ? null
+            : String(sourceOrderStatus).trim().toUpperCase();
+        const baselineHasOrder = Object.prototype.hasOwnProperty.call(latestDirectOrderBaseline, String(o.order_number));
+        const orderSourceChangedSinceDirect = baselineHasOrder
+            && latestDirectOrderBaseline[String(o.order_number)] !== normalizedSourceOrderStatus;
+        const resolvedStatus = !orderSourceChangedSinceDirect
+            && (normalizedExistingOrderStatus === 'ENTREGADO' || normalizedExistingOrderStatus === 'CANCELADO')
+            ? existing.status
+            : candidateOrderStatus;
         const resolvedShipmentId = itemShipmentIds.length === 1 ? itemShipmentIds[0] : null;
+        const plannedOrderItems = items.map((item: any) => {
+            const shipId = item.shipment_number ? shipmentNumMap.get(item.shipment_number)?.id : null;
+            const dbProd = (item.sku && productSkuMap.has(item.sku)) ? productSkuMap.get(item.sku) : null;
+            return {
+                orderId: existing?.id || 0,
+                productId: dbProd?.id || null,
+                productName: item.product_name || item.sku || "Producto sin Nombre",
+                quantity: item.quantity,
+                unit_price: item.unit_price,
+                unit_cost: item.unit_cost,
+                subtotal: item.unit_price * item.quantity,
+                profit: item.profit,
+                shipmentId: shipId,
+                status: effectiveSourceItemStatus(item)
+            };
+        });
+        const currentItems = existing ? existingItemsByOrderId.get(existing.id) || [] : [];
+        const itemsChanged = !sameItemSet(currentItems, plannedOrderItems);
+        const currentWithoutStatus = currentItems.map(itemSyncSignatureWithoutStatus).sort();
+        const plannedWithoutStatus = plannedOrderItems.map(itemSyncSignatureWithoutStatus).sort();
+        const statusOnlyItemChange = itemsChanged
+            && currentWithoutStatus.length === plannedWithoutStatus.length
+            && currentWithoutStatus.every((signature, index) => signature === plannedWithoutStatus[index]);
+        const protectedStructuralChange = existing
+            && itemsChanged
+            && !statusOnlyItemChange
+            && currentItems.some((item: any) => item._count?.allocations > 0);
+        if (protectedStructuralChange) {
+            processedOrderIds.add(existing.id);
+            quarantinedOrderNumbers.add(o.order_number);
+            trackChange({
+                entity: 'ORDER_ITEMS',
+                entityKey: `#${o.order_number}`,
+                action: 'REJECTED',
+                reason: 'El detalle cambió estructuralmente y tiene asignaciones de compra; se conserva completo para no borrar allocations.',
+                before: { count: currentItems.length },
+                after: { count: plannedOrderItems.length },
+            });
+            continue;
+        }
 
         const orderData = {
             order_number: o.order_number,
@@ -513,36 +662,48 @@ async function main() {
         }
         processedOrderIds.add(dbOrder.id);
 
-        const orderItemsToCreate = items.map((item: any) => {
-            const shipId = item.shipment_number ? shipmentNumMap.get(item.shipment_number)?.id : null;
-            const dbProd = (item.sku && productSkuMap.has(item.sku)) ? productSkuMap.get(item.sku) : null;
-            return {
-                orderId: dbOrder.id,
-                productId: dbProd?.id || null,
-                productName: item.product_name || item.sku || "Producto sin Nombre",
-                quantity: item.quantity,
-                unit_price: item.unit_price,
-                unit_cost: item.unit_cost,
-                subtotal: item.unit_price * item.quantity,
-                profit: item.profit,
-                shipmentId: shipId,
-                status: item.status
-            };
-        });
-
-        const currentItems = existingItemsByOrderId.get(dbOrder.id) || [];
+        const orderItemsToCreate = plannedOrderItems.map((item: any) => ({ ...item, orderId: dbOrder.id }));
         if (!sameItemSet(currentItems, orderItemsToCreate)) {
             const before = { count: currentItems.length, signatures: currentItems.map(itemSyncSignature).sort() };
             const after = { count: orderItemsToCreate.length, signatures: orderItemsToCreate.map(itemSyncSignature).sort() };
-            await prisma.$transaction(async (tx) => {
-                await tx.orderItem.deleteMany({ where: { orderId: dbOrder.id } });
-                if (orderItemsToCreate.length > 0) {
-                    await tx.orderItem.createMany({ data: orderItemsToCreate });
+            if (statusOnlyItemChange) {
+                const currentByIdentity = new Map<string, any[]>();
+                for (const item of currentItems) {
+                    const key = itemSyncSignatureWithoutStatus(item);
+                    const bucket = currentByIdentity.get(key) || [];
+                    bucket.push(item);
+                    currentByIdentity.set(key, bucket);
                 }
-            });
+                await prisma.$transaction(async (tx) => {
+                    for (const item of orderItemsToCreate) {
+                        const key = itemSyncSignatureWithoutStatus(item);
+                        const matching = currentByIdentity.get(key)?.shift();
+                        if (!matching) throw new Error(`No se pudo emparejar una línea del pedido #${o.order_number}.`);
+                        if ((matching.status ?? null) !== (item.status ?? null)) {
+                            await tx.orderItem.update({ where: { id: matching.id }, data: { status: item.status } });
+                        }
+                    }
+                });
+            } else {
+                await prisma.$transaction(async (tx) => {
+                    await tx.orderItem.deleteMany({ where: { orderId: dbOrder.id } });
+                    if (orderItemsToCreate.length > 0) {
+                        await tx.orderItem.createMany({ data: orderItemsToCreate });
+                    }
+                });
+            }
             existingItemsByOrderId.set(dbOrder.id, orderItemsToCreate);
             orderItemsReplaced++;
-            trackChange({ entity: 'ORDER_ITEMS', entityKey: `#${o.order_number}`, action: 'REPLACED', reason: 'El detalle de productos, cantidades, precios, envío o estado cambió en la fuente operativa.', before, after });
+            trackChange({
+                entity: 'ORDER_ITEMS',
+                entityKey: `#${o.order_number}`,
+                action: statusOnlyItemChange ? 'UPDATED' : 'REPLACED',
+                reason: statusOnlyItemChange
+                    ? 'El estado cambió y se actualizó preservando IDs y allocations.'
+                    : 'El detalle de productos, cantidades, precios o envío cambió en la fuente operativa.',
+                before,
+                after,
+            });
         }
 
         // Actualizar Transacciones (ELIMINACIÓN PRECISA para evitar borrar otros pedidos que contengan el mismo número)
@@ -598,6 +759,7 @@ async function main() {
         ? await prisma.orderItem.findMany({
             where: { orderId: { in: reconciliationDbOrderIds } },
             select: {
+                id: true,
                 orderId: true,
                 productName: true,
                 quantity: true,
@@ -605,7 +767,8 @@ async function main() {
                 unit_cost: true,
                 profit: true,
                 shipmentId: true,
-                status: true
+                status: true,
+                _count: { select: { allocations: true } },
             }
         })
         : [];
@@ -615,14 +778,22 @@ async function main() {
         items.push(item);
         currentItemsByOrderId.set(item.orderId, items);
     }
-    const itemSignature = (item: any, shipmentId: number | null) => [
+    const itemSignature = (item: any, shipmentId: number | null, status = item.status) => [
         item.product_name || item.productName || item.sku || '',
         item.quantity || 0,
         item.unit_price || 0,
         item.unit_cost || 0,
         item.profit || 0,
         shipmentId || '',
-        item.status || ''
+        status || ''
+    ].join('|');
+    const itemSignatureWithoutStatus = (item: any, shipmentId: number | null) => [
+        item.product_name || item.productName || item.sku || '',
+        item.quantity || 0,
+        item.unit_price || 0,
+        item.unit_cost || 0,
+        item.profit || 0,
+        shipmentId || '',
     ].join('|');
 
     for (const orderNumber of reconciliationOrderNumbers) {
@@ -643,15 +814,71 @@ async function main() {
         ));
         const resolvedShipmentId = sourceShipmentIds.length === 1 ? sourceShipmentIds[0] : null;
         const expectedItemSignatures: string[] = sourceItems
-            .map((item: any) => itemSignature(item, item.shipment_number ? shipmentNumMap.get(item.shipment_number)?.id || null : null))
+            .map((item: any) => itemSignature(
+                item,
+                item.shipment_number ? shipmentNumMap.get(item.shipment_number)?.id || null : null,
+                effectiveSourceItemStatus(item),
+            ))
             .sort();
         const currentItemSignatures: string[] = (currentItemsByOrderId.get(dbOrder.id) || [])
             .map((item: any) => itemSignature(item, item.shipmentId))
             .sort();
         const itemsMatch = expectedItemSignatures.length === currentItemSignatures.length &&
             expectedItemSignatures.every((signature, index) => signature === currentItemSignatures[index]);
+        const expectedWithoutStatus = sourceItems
+            .map((item: any) => itemSignatureWithoutStatus(item, item.shipment_number ? shipmentNumMap.get(item.shipment_number)?.id || null : null))
+            .sort();
+        const currentOrderItems = currentItemsByOrderId.get(dbOrder.id) || [];
+        const currentWithoutStatus = currentOrderItems
+            .map((item: any) => itemSignatureWithoutStatus(item, item.shipmentId))
+            .sort();
+        const statusOnlyChange = !itemsMatch
+            && expectedWithoutStatus.length === currentWithoutStatus.length
+            && expectedWithoutStatus.every((signature, index) => signature === currentWithoutStatus[index]);
 
         if (itemsMatch && dbOrder.shipmentId === resolvedShipmentId) {
+            continue;
+        }
+
+        if (statusOnlyChange && dbOrder.shipmentId === resolvedShipmentId) {
+            const currentByIdentity = new Map<string, any[]>();
+            for (const item of currentOrderItems) {
+                const key = itemSignatureWithoutStatus(item, item.shipmentId);
+                const bucket = currentByIdentity.get(key) || [];
+                bucket.push(item);
+                currentByIdentity.set(key, bucket);
+            }
+            await prisma.$transaction(async (tx) => {
+                for (const item of sourceItems) {
+                    const shipmentId = item.shipment_number ? shipmentNumMap.get(item.shipment_number)?.id || null : null;
+                    const matching = currentByIdentity.get(itemSignatureWithoutStatus(item, shipmentId))?.shift();
+                    if (!matching) throw new Error(`No se pudo emparejar una línea histórica del pedido #${orderNumber}.`);
+                    const effectiveStatus = effectiveSourceItemStatus(item);
+                    if ((matching.status ?? null) !== effectiveStatus) {
+                        await tx.orderItem.update({ where: { id: matching.id }, data: { status: effectiveStatus } });
+                    }
+                }
+            });
+            trackChange({
+                entity: 'ORDER_ASSIGNMENTS',
+                entityKey: `#${orderNumber}`,
+                action: 'UPDATED',
+                reason: 'El estado histórico cambió y se actualizó preservando IDs y allocations.',
+                before: { itemSignatures: currentItemSignatures },
+                after: { itemSignatures: expectedItemSignatures },
+            });
+            continue;
+        }
+
+        if (currentOrderItems.some((item: any) => item._count?.allocations > 0)) {
+            trackChange({
+                entity: 'ORDER_ASSIGNMENTS',
+                entityKey: `#${orderNumber}`,
+                action: 'REJECTED',
+                reason: 'La asignación histórica cambió estructuralmente y tiene allocations; se conserva sin reconstruir.',
+                before: { shipmentId: dbOrder.shipmentId, itemSignatures: currentItemSignatures },
+                after: { shipmentId: resolvedShipmentId, itemSignatures: expectedItemSignatures },
+            });
             continue;
         }
 
@@ -684,7 +911,7 @@ async function main() {
                 subtotal: item.unit_price * item.quantity,
                 profit: item.profit,
                 shipmentId,
-                status: item.status
+                status: effectiveSourceItemStatus(item)
             });
         }
         trackChange({

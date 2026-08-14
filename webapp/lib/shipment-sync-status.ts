@@ -47,7 +47,7 @@ function storedDateKey(value: Date | string | null | undefined): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
 }
 
-function businessDateKey(now: Date): string {
+export function shipmentBusinessDateKey(now: Date): string {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: BUSINESS_TIME_ZONE,
     year: 'numeric',
@@ -63,6 +63,28 @@ export function sourceShipmentStatus(value: unknown): ShipmentStatus | null {
   return normalizedShipmentStatus(value);
 }
 
+export function unanimousSourceShipmentStatus(values: unknown[]): ShipmentStatus | null {
+  if (values.length === 0) return null;
+  const statuses = values.map(sourceShipmentStatus);
+  if (statuses.some((status) => status === null)) return null;
+  const unique = [...new Set(statuses)];
+  return unique.length === 1 ? unique[0] : null;
+}
+
+export function shouldUseAuthoritativeShipmentHeader(options: {
+  shipmentNumber: number;
+  status: string | null;
+  previousHeaders?: Record<string, string | null>;
+  previousAuthority?: Record<string, string>;
+}) {
+  if (!options.status) return false;
+  const key = String(options.shipmentNumber);
+  if (options.previousAuthority?.[key] === options.status) return true;
+  if (options.previousHeaders === undefined) return false;
+  return !Object.prototype.hasOwnProperty.call(options.previousHeaders, key)
+    || options.previousHeaders[key] !== options.status;
+}
+
 export function resolveShipmentStatus({
   sourceStatus,
   existingStatus,
@@ -75,7 +97,7 @@ export function resolveShipmentStatus({
   const explicitStatus = source ?? existing;
   const arrivedKey = storedDateKey(dateArrived);
   const shippedKey = storedDateKey(dateShipped);
-  const todayKey = businessDateKey(now);
+  const todayKey = shipmentBusinessDateKey(now);
 
   if (explicitStatus === 'CANCELADO' || explicitStatus === 'ENTREGADO') {
     return explicitStatus;
@@ -86,6 +108,23 @@ export function resolveShipmentStatus({
   if (arrivedKey) return 'LLEGANDO';
   if (shippedKey && shippedKey <= todayKey) return 'SALIENDO';
   return 'MIAMI';
+}
+
+export function resolveSheetShipmentStatus({
+  sourceStatus,
+  existingStatus,
+  dateShipped,
+  dateArrived,
+  now = new Date(),
+}: ShipmentStatusResolution): ShipmentStatus {
+  const explicitSource = sourceShipmentStatus(sourceStatus);
+  if (explicitSource) return explicitSource;
+  return resolveShipmentStatus({
+    existingStatus,
+    dateShipped,
+    dateArrived,
+    now,
+  });
 }
 
 export function validateManualShipmentStatus(

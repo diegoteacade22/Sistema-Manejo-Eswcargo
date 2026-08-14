@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { GoogleAuth } from 'google-auth-library';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
@@ -10,7 +10,15 @@ import {
   normalizeShipmentSourceRows,
   normalizeSourceRows,
 } from '@/lib/sync-source-normalization';
-import { resolveShipmentStatus, sourceShipmentStatus } from '@/lib/shipment-sync-status';
+import {
+  resolveSheetShipmentStatus,
+  shipmentBusinessDateKey,
+  shouldUseAuthoritativeShipmentHeader,
+  sourceShipmentStatus,
+  unanimousSourceShipmentStatus,
+} from '@/lib/shipment-sync-status';
+import { appendShipmentStatusAudit, type ShipmentStatusAuditEntry } from '@/lib/shipment-status-audit';
+import { effectiveSourceOrderStatus, normalizedOrderStatus } from '@/lib/sync-status-precedence';
 import canonicalSources from '@/config/canonical-source-overrides.json';
 
 const DEFAULT_SPREADSHEET_ID = '1GhLokb_V5Yok2ubxBg8Tr0jxE3nFkwCD2sMvWDHZ20o';
@@ -19,7 +27,7 @@ const SHEET_TIMEOUT_MS = 12_000;
 const TRANSACTION_TIMEOUT_MS = 25_000;
 const OVERALL_TIMEOUT_MS = 42_000;
 const DIRECT_SCOPE = 'DIRECT_OPERATIONAL';
-const DIRECT_SYNC_VERSION = 'global-delta-v2';
+const DIRECT_SYNC_VERSION = 'global-delta-v3-status-source';
 
 type SheetValue = string | number | boolean | null | undefined;
 type SheetMatrix = SheetValue[][];
@@ -93,8 +101,10 @@ type DirectOrderItemWrite = {
 export type DirectSyncSummary = {
   sourceHash: string;
   syncVersion: string;
+  evaluationDate: string;
   selection: string;
   sourceSettled: boolean;
+  fastPathSafe: boolean;
   changed: number;
   source: { shipments: number; orders: number; items: number };
   created: { shipments: number; orders: number; suppliers: number };
@@ -105,6 +115,8 @@ export type DirectSyncSummary = {
   skipped: { historicalInvalidOrders: number; protectedOrders: number; orderNumbers: number[] };
   stateBaseline: {
     shipments: Record<string, string | null>;
+    shipmentHeaders: Record<string, string | null>;
+    authoritativeShipmentHeaders: Record<string, string>;
     orders: Record<string, string | null>;
   };
   affectedShipments: number[];
@@ -182,21 +194,6 @@ function dateKey(value: SheetValue) {
   if (slash) return `${slash[3]}-${slash[1].padStart(2, '0')}-${slash[2].padStart(2, '0')}`;
   const parsed = new Date(text);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
-}
-
-function normalizedOrderStatus(value: SheetValue) {
-  const text = normalizedHeader(value);
-  if (!text) return null;
-  if (text.includes('CANCELADO')) return 'CANCELADO';
-  if (text.includes('ENTREGADO') || text.includes('FINALIZADO')) return 'ENTREGADO';
-  if (text.includes('BSAS') || text.includes('RECIBIDO')) return 'EN BSAS';
-  if (text.includes('TRANSITO')) return 'EN TRANSITO';
-  if (text.includes('LLEGANDO')) return 'LLEGANDO';
-  if (text.includes('SALIENDO')) return 'SALIENDO';
-  if (text.includes('MIAMI')) return 'MIAMI';
-  if (text.includes('ENCARGADO')) return 'ENCARGADO';
-  if (text.includes('COMPRAR')) return 'COMPRAR';
-  return cleanText(value)?.toUpperCase() ?? null;
 }
 
 type Table = { headers: string[]; rows: SheetMatrix };
@@ -348,7 +345,7 @@ export function changedFieldPatch<T extends Record<string, unknown>>(
     const equal = current instanceof Date && value instanceof Date
       ? current.toISOString().slice(0, 10) === value.toISOString().slice(0, 10)
       : typeof current === 'number' || typeof value === 'number'
-        ? Number(current ?? 0) === Number(value ?? 0)
+        ? Math.abs(Number(current ?? 0) - Number(value ?? 0)) <= 1e-9
         : (current ?? null) === (value ?? null);
     if (!equal) patch[rawKey] = value;
   }
@@ -401,7 +398,8 @@ export function directShipmentStatus(options: {
 }) {
   const existing = sourceShipmentStatus(options.existingStatus);
   if (!options.sourceAuthoritative && (existing === 'ENTREGADO' || existing === 'CANCELADO')) return existing;
-  return sourceShipmentStatus(options.sourceStatus) ?? resolveShipmentStatus({
+  return resolveSheetShipmentStatus({
+    sourceStatus: options.sourceStatus,
     existingStatus: options.existingStatus,
     dateShipped: options.dateShipped,
     dateArrived: options.dateArrived,
@@ -418,9 +416,23 @@ export function directOrderStatus(
   return normalizedOrderStatus(sourceStatus) ?? existing ?? 'COMPRAR';
 }
 
-function directSourceOrderStatus(source: DirectOrderSource) {
-  const explicitStatuses = [...new Set(source.items.map((item) => item.status).filter(Boolean))];
-  return normalizedOrderStatus(explicitStatuses.length === 1 ? explicitStatuses[0]! : source.status);
+export function directSourceOrderStatus(
+  source: DirectOrderSource,
+  shipmentHeaderStatuses: ReadonlyMap<number, string> = new Map(),
+) {
+  const itemStatuses = source.items.map((item) => item.shipmentNumber
+    ? shipmentHeaderStatuses.get(item.shipmentNumber) ?? normalizedOrderStatus(item.status)
+    : normalizedOrderStatus(item.status));
+  return effectiveSourceOrderStatus(source.status, itemStatuses);
+}
+
+export function shipmentStatusFromOrderItems(
+  orders: DirectOrderSource[],
+  shipmentNumber: number,
+) {
+  const items = orders.flatMap((order) => order.items)
+    .filter((item) => item.shipmentNumber === shipmentNumber);
+  return unanimousSourceShipmentStatus(items.map((item) => item.status));
 }
 
 function credentialsFromEnvironment() {
@@ -624,11 +636,38 @@ export async function runDirectSheetSync(options: {
       ? normalizedShipments.accepted.filter((shipment) => recentShipmentNumbers.has(Number(shipment.shipment_number)))
       : normalizedShipments.accepted;
     const hash = sourceHash(parsedSource);
+    const evaluationDate = shipmentBusinessDateKey(new Date());
+    const statusProjectionOrders = normalizedAcceptedOrders.map((order) => {
+      const isComplete = order.items.length > 0
+        && order.items.every((item) => item.quantity > 0 && Boolean(item.productName || item.sku) && item.unitPrice > 0)
+        && calculateActiveOrderTotal(order.items.map((item) => ({
+          quantity: item.quantity,
+          unit_price: item.unitPrice,
+        }))) > 0;
+      return isComplete
+        ? order
+        : { ...order, items: order.items.map((item) => ({ ...item, status: null })) };
+    });
+    const detailShipmentStatuses = new Map<number, ReturnType<typeof shipmentStatusFromOrderItems>>(
+      acceptedShipments.map((shipment) => {
+        const shipmentNumber = Number(shipment.shipment_number);
+        return [shipmentNumber, shipmentStatusFromOrderItems(statusProjectionOrders, shipmentNumber)];
+      }),
+    );
+    const effectiveShipmentSourceStatus = (shipment: typeof acceptedShipments[number]) =>
+      sourceShipmentStatus(shipment.status)
+        ?? detailShipmentStatuses.get(Number(shipment.shipment_number))
+        ?? null;
     const stateBaseline: DirectSyncSummary['stateBaseline'] = {
       shipments: Object.fromEntries(acceptedShipments.map((shipment) => [
         String(shipment.shipment_number),
+        effectiveShipmentSourceStatus(shipment),
+      ])),
+      shipmentHeaders: Object.fromEntries(acceptedShipments.map((shipment) => [
+        String(shipment.shipment_number),
         sourceShipmentStatus(shipment.status),
       ])),
+      authoritativeShipmentHeaders: {},
       orders: Object.fromEntries(acceptedOrders.map((order) => [
         String(order.orderNumber),
         directSourceOrderStatus(order),
@@ -654,29 +693,46 @@ export async function runDirectSheetSync(options: {
         throw new Error(`Hay una reconciliacion cloud ${cloudRun.scope} en curso (run ${cloudRun.id}).`);
       }
 
-      let previousGlobalSummary: Partial<DirectSyncSummary> | null = null;
+      const latestGlobalRun = await tx.syncRun.findFirst({
+        where: {
+          scope: DIRECT_SCOPE,
+          status: 'SUCCESS',
+          summary: { path: ['selection'], equals: 'GLOBAL' },
+        },
+        orderBy: { finishedAt: 'desc' },
+        select: { id: true, finishedAt: true, summary: true },
+      });
+      const previousGlobalSummary = latestGlobalRun?.summary as unknown as Partial<DirectSyncSummary> | null;
       if (requestedOrderNumbers.size === 0) {
-        const recentSuccessfulRuns = await tx.syncRun.findMany({
-          where: { scope: DIRECT_SCOPE, status: 'SUCCESS' },
-          orderBy: { finishedAt: 'desc' },
-          take: 20,
-          select: { id: true, summary: true },
-        });
-        const latestGlobalRun = recentSuccessfulRuns.find((run) => {
-          const summary = run.summary as Record<string, unknown> | null;
-          return summary?.selection === 'GLOBAL';
-        });
-        previousGlobalSummary = latestGlobalRun?.summary as unknown as Partial<DirectSyncSummary> | null;
-        const settledRun = latestGlobalRun && (() => {
+        let settledRun = latestGlobalRun && (() => {
           const run = latestGlobalRun;
           const summary = run.summary as Record<string, unknown> | null;
           return summary?.sourceHash === hash
             && summary.syncVersion === DIRECT_SYNC_VERSION
+            && summary.evaluationDate === evaluationDate
             && summary.selection === 'GLOBAL'
-            && summary.sourceSettled === true
+            && summary.fastPathSafe === true
             ? run
             : undefined;
         })();
+        if (settledRun?.finishedAt) {
+          const settledFinishedAt = settledRun.finishedAt;
+          const [shipmentMutation, orderMutation, laterCloudRun] = await Promise.all([
+            tx.shipment.aggregate({ _max: { updatedAt: true } }),
+            tx.order.aggregate({ _max: { updatedAt: true } }),
+            tx.syncRun.findFirst({
+              where: {
+                scope: { in: ['DIFF', 'FULL'] },
+                status: 'SUCCESS',
+                finishedAt: { gt: settledFinishedAt },
+              },
+              select: { id: true },
+            }),
+          ]);
+          const databaseChangedAfterRun = [shipmentMutation._max.updatedAt, orderMutation._max.updatedAt]
+            .some((changedAt) => changedAt && changedAt > settledFinishedAt);
+          if (databaseChangedAfterRun || laterCloudRun) settledRun = undefined;
+        }
         if (settledRun) {
           const previous = settledRun.summary as unknown as Partial<DirectSyncSummary>;
           const unresolvedIssues = Array.isArray(previous.unresolvedIssues)
@@ -688,8 +744,10 @@ export async function runDirectSheetSync(options: {
             summary: {
               sourceHash: hash,
               syncVersion: DIRECT_SYNC_VERSION,
+              evaluationDate,
               selection: 'GLOBAL',
-              sourceSettled: true,
+              sourceSettled: previous.sourceSettled ?? true,
+              fastPathSafe: true,
               changed: 0,
               source: {
                 shipments: acceptedShipments.length,
@@ -728,10 +786,12 @@ export async function runDirectSheetSync(options: {
       const summary: DirectSyncSummary = {
         sourceHash: hash,
         syncVersion: DIRECT_SYNC_VERSION,
+        evaluationDate,
         selection: requestedOrderNumbers.size > 0
           ? `ORDERS:${[...requestedOrderNumbers].sort((left, right) => left - right).join(',')}`
           : 'GLOBAL',
         sourceSettled: false,
+        fastPathSafe: false,
         changed: 0,
         source: {
           shipments: acceptedShipments.length,
@@ -807,6 +867,8 @@ export async function runDirectSheetSync(options: {
         nextItems: DirectOrderItemWrite[];
         totalAmount: number;
       }> = [];
+      const shipmentStatusAuditEntries: ShipmentStatusAuditEntry[] = [];
+      const shipmentStatusOperationId = randomUUID();
       const ledgerCutoff = new Date(process.env.CLIENT_LEDGER_POLICY_EFFECTIVE_DATE || '2026-07-27T00:00:00Z');
       const sourceStateChanged = (entity: 'orders' | 'shipments', key: number, nextStatus: string | null) => {
         const previous = previousGlobalSummary?.stateBaseline?.[entity];
@@ -814,11 +876,38 @@ export async function runDirectSheetSync(options: {
         if (!Object.prototype.hasOwnProperty.call(previous, String(key))) return true;
         return previous[String(key)] !== nextStatus;
       };
+      const authoritativeShipmentHeaderStatuses = new Map<number, string>(acceptedShipments.flatMap((shipment) => {
+        const shipmentNumber = Number(shipment.shipment_number);
+        const status = sourceShipmentStatus(shipment.status);
+        return shouldUseAuthoritativeShipmentHeader({
+          shipmentNumber,
+          status,
+          previousHeaders: previousGlobalSummary?.stateBaseline?.shipmentHeaders,
+          previousAuthority: previousGlobalSummary?.stateBaseline?.authoritativeShipmentHeaders,
+        })
+          ? [[shipmentNumber, status as string]]
+          : [];
+      }));
+      summary.stateBaseline.authoritativeShipmentHeaders = Object.fromEntries(
+        authoritativeShipmentHeaderStatuses.entries(),
+      );
+      summary.stateBaseline.orders = Object.fromEntries(acceptedOrders.map((order) => [
+        String(order.orderNumber),
+        directSourceOrderStatus(order, authoritativeShipmentHeaderStatuses),
+      ]));
 
       for (const source of acceptedShipments) {
         assertDeadline(deadline);
         const shipmentNumber = Number(source.shipment_number);
         const existing = shipmentsByNumber.get(shipmentNumber);
+        const headerSourceStatus = sourceShipmentStatus(source.status);
+        const detailSourceStatus = detailShipmentStatuses.get(shipmentNumber) ?? null;
+        const sourceStatus = headerSourceStatus ?? detailSourceStatus;
+        const statusSource = headerSourceStatus
+          ? 'CABE_ENVIOS'
+          : detailSourceStatus
+            ? 'DETA_VENTAS'
+            : 'FECHAS_O_EXISTENTE';
         const client = source.old_client_id
           ? clientsByOldId.get(source.old_client_id)
           : clientsByName.get(nameKey(source.client_name_match));
@@ -837,11 +926,10 @@ export async function runDirectSheetSync(options: {
           profit: Number(source.profit || 0),
           status: directShipmentStatus({
             existingStatus: existing?.status,
-            sourceStatus: source.status,
+            sourceStatus,
             dateShipped: source.date_shipped ?? null,
             dateArrived: source.date_arrived ?? null,
-            sourceAuthoritative: requestedOrderNumbers.size > 0
-              || sourceStateChanged('shipments', shipmentNumber, sourceShipmentStatus(source.status)),
+            sourceAuthoritative: sourceStateChanged('shipments', shipmentNumber, sourceStatus),
           }),
           notes: source.notes ?? null,
         };
@@ -887,7 +975,34 @@ export async function runDirectSheetSync(options: {
           : await tx.shipment.update({ where: { id: existing.id }, data: patch });
         shipmentsByNumber.set(shipmentNumber, updated);
         summary.updated.shipments++;
-        changes.push({ entity: 'SHIPMENT', entityKey: `#${shipmentNumber}`, action: 'UPDATED', reason: 'Cambio operativo confirmado en CABE_ENVIOS.', before: existing, after: patch });
+        const statusChanged = typeof patch.status === 'string' && patch.status !== existing.status;
+        changes.push({
+          entity: 'SHIPMENT',
+          entityKey: `#${shipmentNumber}`,
+          action: 'UPDATED',
+          reason: statusChanged
+            ? `Cambio de estado confirmado en ${statusSource}.`
+            : 'Cambio operativo confirmado en CABE_ENVIOS.',
+          before: existing,
+          after: patch,
+        });
+        if (statusChanged) {
+          shipmentStatusAuditEntries.push({
+            operationId: shipmentStatusOperationId,
+            shipmentId: existing.id,
+            shipmentNumber,
+            actorName: 'Sincronización Google Sheets',
+            selectedDate: evaluationDate,
+            fromStatus: existing.status,
+            toStatus: String(patch.status),
+            eventType: 'SYSTEM_UPDATED',
+            details: {
+              source: statusSource,
+              syncRunId: runId,
+              scope: DIRECT_SCOPE,
+            },
+          });
+        }
       }
 
       const ordersByNumber = new Map(existingOrders.filter((order) => order.order_number !== null).map((order) => [order.order_number!, order]));
@@ -1044,7 +1159,10 @@ export async function runDirectSheetSync(options: {
               supplierId: item.supplierName ? suppliersByName.get(nameKey(item.supplierName))!.id : null,
               purchase_invoice: item.purchaseInvoice,
               shipmentId: shipment?.id ?? null,
-              status: item.status ?? matching?.status ?? null,
+              status: (item.shipmentNumber ? authoritativeShipmentHeaderStatuses.get(item.shipmentNumber) : null)
+                ?? item.status
+                ?? matching?.status
+                ?? null,
             },
           };
         });
@@ -1070,7 +1188,7 @@ export async function runDirectSheetSync(options: {
         }
         const totalAmount = calculateActiveOrderTotal(nextItems);
         const itemShipmentIds = [...new Set(nextItems.map((item) => item.shipmentId).filter((id): id is number => typeof id === 'number'))];
-        const sourceOrderStatus = directSourceOrderStatus(source);
+        const sourceOrderStatus = directSourceOrderStatus(source, authoritativeShipmentHeaderStatuses);
         const orderData = {
           order_number: source.orderNumber,
           clientId: client?.id ?? existing!.clientId,
@@ -1078,8 +1196,7 @@ export async function runDirectSheetSync(options: {
           status: directOrderStatus(
             existing?.status,
             sourceOrderStatus,
-            requestedOrderNumbers.size > 0
-              || sourceStateChanged('orders', source.orderNumber, sourceOrderStatus),
+            sourceStateChanged('orders', source.orderNumber, sourceOrderStatus),
           ),
           shipmentId: itemShipmentIds.length === 1 ? itemShipmentIds[0] : null,
           total_amount: totalAmount,
@@ -1295,6 +1412,12 @@ export async function runDirectSheetSync(options: {
       }
 
       if (!options.dryRun && pendingOrderVerifications.length > 0) {
+        // OrderItem has no updatedAt column. Touch the parent so the fast path
+        // can detect later item-only writes and never reuse a stale comparison.
+        await tx.order.updateMany({
+          where: { id: { in: pendingOrderVerifications.map((entry) => entry.orderId) } },
+          data: { updatedAt: new Date() },
+        });
         const persistedOrders = await tx.order.findMany({
           where: { id: { in: pendingOrderVerifications.map((entry) => entry.orderId) } },
           include: { items: true },
@@ -1387,14 +1510,19 @@ export async function runDirectSheetSync(options: {
       }
       for (const collision of normalizedShipments.rejected) {
         const key = String(collision.key);
-        const previous = previousGlobalSummary?.stateBaseline?.shipments;
-        if (previous && Object.prototype.hasOwnProperty.call(previous, key)) {
-          summary.stateBaseline.shipments[key] = previous[key];
-        } else {
-          delete summary.stateBaseline.shipments[key];
+        for (const field of ['shipments', 'shipmentHeaders', 'authoritativeShipmentHeaders'] as const) {
+          const previous = previousGlobalSummary?.stateBaseline?.[field];
+          if (previous && Object.prototype.hasOwnProperty.call(previous, key)) {
+            (summary.stateBaseline[field] as Record<string, string | null>)[key] = previous[key];
+          } else {
+            delete summary.stateBaseline[field][key];
+          }
         }
       }
 
+      if (shipmentStatusAuditEntries.length && !options.dryRun) {
+        await appendShipmentStatusAudit(tx, shipmentStatusAuditEntries);
+      }
       if (changes.length && !options.dryRun) {
         const auditRows: Prisma.SyncChangeCreateManyInput[] = changes.map((change) => ({
           syncRunId: runId,
@@ -1411,7 +1539,9 @@ export async function runDirectSheetSync(options: {
         + summary.updated.orders + summary.replaced.orderItems;
       summary.changed = writeCount;
       const rejectedCount = summary.rejected.shipments + summary.rejected.orders;
-      summary.sourceSettled = rejectedCount === 0;
+      const skippedCount = summary.skipped.historicalInvalidOrders + summary.skipped.protectedOrders;
+      summary.sourceSettled = rejectedCount === 0 && skippedCount === 0;
+      summary.fastPathSafe = rejectedCount === 0;
       summary.unresolvedIssues = issues;
       summary.idempotent = writeCount === 0 && rejectedCount === 0;
       if (!options.dryRun) {

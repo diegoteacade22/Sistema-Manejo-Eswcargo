@@ -45,6 +45,7 @@ const shipmentPhysicalFields = [
     'forwarder',
     'date_shipped',
     'date_arrived',
+    'status',
 ] as const;
 
 const shipmentAggregateFields = [

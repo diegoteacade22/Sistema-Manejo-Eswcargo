@@ -75,6 +75,10 @@ def normalize_status(s):
     if 'CANCELADO' in s_up: return 'CANCELADO'
     return s
 
+def normalize_optional_status(value):
+    raw_status = clean_text(value)
+    return normalize_status(raw_status) if raw_status else None
+
 def normalize_shipment_status(value):
     raw_status = clean_text(value)
     if not raw_status:
@@ -336,14 +340,13 @@ def extract_all():
     # Mapear detalles por pedido (solo los recientes para el sync financiero)
     det_map = {}
     det_client_map = {} # Map order_id -> {id: ..., name: ...}
-    order_status_map = {}
     for _, row in df_dv.iterrows():
         oid = first_present_value(row, 'INV-REM', 'NRO_PEDIDO')
         if pd.isna(oid): continue
         try: oid = int(oid)
         except: continue
         
-        st = normalize_status(clean_text(row.get('ESTADO')))
+        st = normalize_optional_status(row.get('ESTADO'))
         
         try:
             raw_env_nro = row.get('ENVIO NRO')
@@ -388,8 +391,6 @@ def extract_all():
             continue
 
         det_map.setdefault(oid, []).append(item_data)
-        if st != 'COMPRAR':
-            order_status_map[oid] = st
     
     # ... (orders processing)
     
@@ -448,7 +449,9 @@ def extract_all():
                 'total_amount': total_val,
                 'payment_amount': pago_val, # Use the PAGO column if present
                 'payment_method': clean_text(row.get(col_metodo)),
-                'status': order_status_map.get(onum) or normalize_status(clean_text(row.get('ESTADO'))),
+                # La cabecera del pedido es autoritativa. Los estados de
+                # DETA_VENTAS permanecen exclusivamente en items[].status.
+                'status': normalize_optional_status(row.get('ESTADO')),
                 'items': items
             })
         
