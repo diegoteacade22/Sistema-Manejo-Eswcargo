@@ -635,7 +635,7 @@ async function main() {
             continue;
         }
 
-        const sourceItems = filterPersistableSourceItems(sourceOrder.items || []);
+        const sourceItems = filterPersistableSourceItems<any>(sourceOrder.items || []);
         const sourceShipmentIds = Array.from(new Set<number>(
             sourceItems
                 .map((item: any): number | null => item.shipment_number ? shipmentNumMap.get(item.shipment_number)?.id || null : null)

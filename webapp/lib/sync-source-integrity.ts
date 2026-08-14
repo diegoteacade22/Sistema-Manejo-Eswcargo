@@ -28,9 +28,9 @@ export function isHistoricalReconciliationEligible(
  * partial Google Sheets snapshot. Keep that order untouched unless a separate,
  * explicitly destructive reconciliation was authorized.
  */
-export function partitionOrdersByItemIntegrity<T extends {
+export function partitionOrdersByItemIntegrity<TItem extends object, T extends {
   order_number: number;
-  items?: Array<{ quantity_is_explicit?: boolean }>;
+  items?: TItem[];
 }>(
   sourceOrders: T[],
   existingByOrderNumber: Map<number, OrderItemCount>,
@@ -42,7 +42,7 @@ export function partitionOrdersByItemIntegrity<T extends {
   for (const order of sourceOrders) {
     const existing = existingByOrderNumber.get(order.order_number);
     const sourceItemCount = order.items?.length ?? 0;
-    if (order.items?.some((item) => item.quantity_is_explicit === false)) {
+    if (order.items?.some((item) => (item as { quantity_is_explicit?: boolean }).quantity_is_explicit === false)) {
       quarantined.push({
         order,
         orderId: existing?.orderId ?? null,
