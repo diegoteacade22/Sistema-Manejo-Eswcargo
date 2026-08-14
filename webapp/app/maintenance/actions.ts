@@ -186,14 +186,15 @@ export async function syncExcel(requestedDays: number = 7) {
             const changed = result.summary.changed;
             const rejected = result.summary.rejected.shipments + result.summary.rejected.orders;
             const skipped = result.summary.skipped.historicalInvalidOrders + result.summary.skipped.protectedOrders;
-            const preservedInvoices = [...new Set([
+            const preservedInvoiceNumbers = [...new Set([
                 ...result.issues
                 .map((issue) => issue.orderNumber)
                 .filter((value): value is number => value !== null),
                 ...result.summary.skipped.orderNumbers,
-            ])]
-                .map((value) => `#${value}`)
-                .join(', ');
+            ])];
+            const preservedInvoices = preservedInvoiceNumbers.length <= 5
+                ? preservedInvoiceNumbers.map((value) => `#${value}`).join(', ')
+                : `${preservedInvoiceNumbers.length} invoices históricos`;
             const affectedPackings = result.summary.affectedShipments.length > 0
                 ? ` Packings recalculados: ${result.summary.affectedShipments.map((value) => `#${value}`).join(', ')}.`
                 : '';
@@ -204,7 +205,7 @@ export async function syncExcel(requestedDays: number = 7) {
                 partial: rejected > 0 || skipped > 0,
                 completed: true,
                 message: rejected > 0 || skipped > 0
-                    ? `Actualización aplicada en ${Math.max(1, Math.round(result.durationMs / 1000))}s: ${changed} cambios verificados.${affectedPackings} Invoice(s) preservados por datos incompletos o guardas: ${preservedInvoices || rejected + skipped}. Usá "Invoice urgente" sólo para diagnosticar esos casos.`
+                    ? `Actualización aplicada en ${Math.max(1, Math.round(result.durationMs / 1000))}s: ${changed} cambios verificados.${affectedPackings} ${preservedInvoices || rejected + skipped} quedaron preservados por datos incompletos, sin bloquear el resto. Usá "Invoice urgente" sólo si necesitás diagnosticar uno de esos casos.`
                     : changed === 0
                         ? `OK: el sistema ya estaba actualizado. Verificado en ${Math.max(1, Math.round(result.durationMs / 1000))}s; no habia cambios pendientes.`
                         : `OK: actualizacion directa finalizada en ${Math.max(1, Math.round(result.durationMs / 1000))}s. ${changed} cambios aplicados y verificados.${affectedPackings}`,
