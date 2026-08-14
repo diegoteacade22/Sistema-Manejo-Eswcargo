@@ -83,7 +83,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
             month: '2-digit',
             day: '2-digit',
             year: 'numeric',
-            timeZone: 'UTC',
+            timeZone: 'America/New_York',
         })
         : '-';
     const emailSentAt = shipment.email_sent_at ? new Date(shipment.email_sent_at) : null;
