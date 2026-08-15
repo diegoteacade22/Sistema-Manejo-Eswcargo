@@ -11,6 +11,7 @@ const ADMIN_ONLY_PREFIXES = [
     '/expenses',
     '/maintenance',
     '/analytics',
+    '/company-os',
     '/orders/new',
     '/shipments/new',
 ];

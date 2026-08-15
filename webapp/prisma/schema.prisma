@@ -418,3 +418,56 @@ model SupplierProduct {
 
   @@unique([supplierId, supplierSku, supplierName])
 }
+
+model CompanyAgentRun {
+  id           String   @id @default(cuid())
+  requestKey   String   @unique
+  businessDate String
+  objectiveHash String
+  snapshotId   String
+  provider     String
+  model        String
+  responseId   String?
+  status       String
+  authMode     String
+  actorRef     String
+  snapshot     Json
+  brief        Json
+  createdAt    DateTime @default(now())
+  missions     CompanyAgentMission[]
+
+  @@index([createdAt])
+  @@index([businessDate])
+  @@index([snapshotId])
+  @@index([actorRef, createdAt])
+}
+
+model CompanyAgentMission {
+  id             String          @id @default(cuid())
+  runId          String
+  agent          String
+  mission        String
+  why            String
+  expectedOutput String
+  status         String          @default("PLANNED")
+  createdAt      DateTime        @default(now())
+  run            CompanyAgentRun @relation(fields: [runId], references: [id], onDelete: Restrict)
+
+  @@index([runId])
+  @@index([status, createdAt])
+}
+
+model CompanyAgentRequest {
+  id             String   @id @default(cuid())
+  requestKey     String
+  actorRef       String
+  status         String
+  leaseToken     String   @unique
+  leaseExpiresAt DateTime
+  runId          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([requestKey, createdAt])
+  @@index([actorRef, createdAt])
+}
