@@ -24,7 +24,8 @@ import {
     Globe,
     Terminal,
     CalendarDays,
-    BadgeDollarSign
+    BadgeDollarSign,
+    BrainCircuit
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -92,6 +93,13 @@ const standaloneRoutes: Route[] = [
         href: '/',
         color: 'text-sky-500',
         roles: ['ADMIN', 'CLIENT']
+    },
+    {
+        label: 'Gerente General AI',
+        icon: BrainCircuit,
+        href: '/company-os',
+        color: 'text-cyan-300',
+        roles: ['ADMIN']
     },
     {
         label: 'Compras',
