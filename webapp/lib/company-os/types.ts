@@ -67,6 +67,7 @@ export type CompanyDelegation = {
   mission: string;
   why: string;
   expectedOutput: string;
+  status: 'PLANNED';
 };
 
 export const COMPANY_OS_EVIDENCE_KEYS = [
@@ -118,8 +119,12 @@ export type CompanyBrief = {
 
 export type ModelBrief = {
   schemaVersion: '1';
-  executiveSummary: string;
-  priorities: Array<Omit<CompanyPriority, 'evidence'> & { evidenceRefs: CompanyEvidenceKey[] }>;
-  delegations: CompanyDelegation[];
-  dataQuality: { gaps: string[] };
+  priorities: Array<{
+    id: string;
+    area: CompanyOsArea;
+    urgency: 'P0' | 'P1' | 'P2';
+    evidenceRefs: CompanyEvidenceKey[];
+    actionType: 'REVIEW' | 'ANALYZE' | 'PREPARE_REPORT' | 'ESCALATE_FOR_HUMAN_DECISION';
+    dueWindow: 'TODAY' | '24_HOURS' | '48_HOURS' | '7_DAYS';
+  }>;
 };

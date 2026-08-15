@@ -48,31 +48,16 @@ const snapshot: CompanySnapshot = {
 
 const modelOutput = {
   schemaVersion: '1',
-  executiveSummary: 'Hay dos frentes operativos prioritarios.',
   priorities: [
     {
       id: 'P-001',
-      title: 'Revisar envíos demorados',
-      area: 'LOGISTICA',
-      urgency: 'P0',
-      evidenceRefs: ['delayedShipments'],
-      recommendedAction: 'Preparar excepción con evidencia.',
-      owner: 'Logística',
-      dueWindow: '24 horas',
-      requiresHumanApproval: true,
+      area: 'FINANZAS',
+      urgency: 'P1',
+      evidenceRefs: ['expensesLast30DaysUsd'],
+      actionType: 'PREPARE_REPORT',
+      dueWindow: '48_HOURS',
     },
   ],
-  delegations: [
-    {
-      agent: 'LOGISTICA',
-      mission: 'Preparar lista de excepciones.',
-      why: 'Existe un envío demorado.',
-      expectedOutput: 'Informe read-only.',
-    },
-  ],
-  dataQuality: {
-    gaps: [],
-  },
 };
 
 test('fallback conserva read-only y limita prioridades', () => {
@@ -117,9 +102,10 @@ test('Responses API usa salida estructurada, no usa tools y enlaza snapshot', as
     assert.equal(brief.execution.provider, 'openai');
     assert.equal(brief.execution.responseId, 'resp_test_001');
     assert.equal(brief.execution.snapshotId, snapshot.snapshotId);
-    assert.equal(brief.priorities.length, 1);
-    assert.deepEqual(brief.priorities[0].evidence, ['1 envío(s) en tránsito por más de 14 días']);
+    assert.equal(brief.priorities.length, 5);
+    assert.ok(brief.priorities.some((priority) => priority.evidence.includes('USD 900.00 de gastos en los últimos 30 días')));
     assert.equal(brief.status, 'NEEDS_ATTENTION');
+    assert.ok(brief.delegations.every((delegation) => delegation.status === 'PLANNED'));
   } finally {
     if (previousKey == null) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previousKey;
@@ -196,8 +182,7 @@ test('rechaza campos anidados fuera de política aunque el proveedor responda 20
       area: 'PAGOS',
       urgency: 'NOW',
       evidenceRefs: ['inventedMetric'],
-      recommendedAction: 'Pagar ahora',
-      requiresHumanApproval: false,
+      actionType: 'PAY_NOW',
     }],
   };
   const mockFetch: typeof fetch = async () => new Response(JSON.stringify({
@@ -213,15 +198,14 @@ test('rechaza campos anidados fuera de política aunque el proveedor responda 20
   }
 });
 
-test('rechaza autorización de transferencia aunque declare que no requiere aprobación', async () => {
+test('rechaza cualquier texto de acción libre aunque use un sinónimo no previsto', async () => {
   const previousKey = process.env.OPENAI_API_KEY;
   process.env.OPENAI_API_KEY = 'test-key-never-sent';
   const unsafe = {
     ...modelOutput,
     priorities: [{
       ...modelOutput.priorities[0],
-      recommendedAction: 'Autorizar transferencia bancaria hoy',
-      requiresHumanApproval: false,
+      recommendedAction: 'Abonar la factura hoy',
     }],
   };
   const mockFetch: typeof fetch = async () => new Response(JSON.stringify({
@@ -230,7 +214,7 @@ test('rechaza autorización de transferencia aunque declare que no requiere apro
     output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(unsafe) }] }],
   }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   try {
-    await assert.rejects(() => generateGeneralManagerBrief(snapshot, '', mockFetch), /acción prohibida/);
+    await assert.rejects(() => generateGeneralManagerBrief(snapshot, '', mockFetch), /campos no permitidos/);
   } finally {
     if (previousKey == null) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previousKey;
@@ -252,8 +236,28 @@ test('calcula BLOCKED server-side y materializa evidencia solo desde el snapshot
   try {
     const brief = await generateGeneralManagerBrief(noSyncSnapshot, '', mockFetch);
     assert.equal(brief.status, 'BLOCKED');
-    assert.deepEqual(brief.priorities[0].evidence, ['1 envío(s) en tránsito por más de 14 días']);
+    assert.deepEqual(brief.priorities[0].evidence, ['No existe SyncRun operativo verificable']);
     assert.equal(JSON.stringify(brief).includes('9999'), false);
+  } finally {
+    if (previousKey == null) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test('no declara READY si el snapshot tiene una excepción aunque el modelo no priorice nada', async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = 'test-key-never-sent';
+  const emptyModel = { schemaVersion: '1', priorities: [] };
+  const mockFetch: typeof fetch = async () => new Response(JSON.stringify({
+    id: 'resp_empty_priorities',
+    status: 'completed',
+    output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(emptyModel) }] }],
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  try {
+    const brief = await generateGeneralManagerBrief(snapshot, '', mockFetch);
+    assert.equal(brief.status, 'NEEDS_ATTENTION');
+    assert.ok(brief.priorities.some((priority) => priority.id === 'LOG-DELAY'));
+    assert.match(brief.executiveSummary, /1 envío\(s\) demorado/);
   } finally {
     if (previousKey == null) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previousKey;

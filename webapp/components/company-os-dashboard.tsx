@@ -140,11 +140,15 @@ export function CompanyOsDashboard() {
             </section>
 
             <section>
-              <h2 className="mb-3 text-xl font-black">Misiones delegadas</h2>
+              <h2 className="mb-1 text-xl font-black">Planes de misión</h2>
+              <p className="mb-3 text-sm text-slate-400">Planificados para coordinación; todavía no ejecutados.</p>
               <div className="space-y-3">
                 {brief.delegations.map((delegation, index) => (
                   <div key={`${delegation.agent}-${index}`} className="grid gap-2 rounded-2xl border border-white/10 bg-slate-950/80 p-4 md:grid-cols-[180px_1fr]">
-                    <div className="font-bold text-violet-300">{delegation.agent}</div>
+                    <div>
+                      <div className="font-bold text-violet-300">{delegation.agent}</div>
+                      <Badge variant="outline" className="mt-2 border-amber-500/30 text-amber-300">{delegation.status}</Badge>
+                    </div>
                     <div>
                       <p className="font-semibold text-slate-100">{delegation.mission}</p>
                       <p className="mt-1 text-sm text-slate-400">{delegation.why}</p>
