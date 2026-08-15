@@ -1,0 +1,37 @@
+name: Cloud public health checks
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-public-health
+  cancel-in-progress: true
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check public production endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          check() {
+            local name="$1" url="$2"
+            local code
+            code="$(curl --silent --show-error --location --connect-timeout 10 --max-time 30 \
+              --output /tmp/health-response --write-out '%{http_code}' "$url")"
+            echo "${name}: HTTP ${code} ${url}"
+            if [[ "$code" != 2?? ]]; then
+              echo "Health check failed for ${name}" >&2
+              return 1
+            fi
+          }
+          check "ESWCARGO" "https://webapp-weld-psi.vercel.app/login"
+          check "CRM ESWTECH" "https://eswtech-crm.vercel.app/login"
+          check "AGENTE BOT WASA" "https://agente-bot-wasa.vercel.app/health"
