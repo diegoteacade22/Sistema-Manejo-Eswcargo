@@ -38,7 +38,6 @@ const BRIEF_SCHEMA = {
         type: 'object',
         additionalProperties: false,
         properties: {
-          id: { type: 'string' },
           area: {
             type: 'string',
             enum: ['GERENCIA_GENERAL', 'DATA_QUALITY', 'FINANZAS', 'COMPRAS', 'COMERCIAL', 'LOGISTICA', 'TECNOLOGIA'],
@@ -48,7 +47,7 @@ const BRIEF_SCHEMA = {
           actionType: { type: 'string', enum: ['REVIEW', 'ANALYZE', 'PREPARE_REPORT', 'ESCALATE_FOR_HUMAN_DECISION'] },
           dueWindow: { type: 'string', enum: ['TODAY', '24_HOURS', '48_HOURS', '7_DAYS'] },
         },
-        required: ['id', 'area', 'urgency', 'evidenceRefs', 'actionType', 'dueWindow'],
+        required: ['area', 'urgency', 'evidenceRefs', 'actionType', 'dueWindow'],
       },
     },
   },
@@ -100,11 +99,11 @@ function validateModelBrief(value: unknown): asserts value is ModelBrief {
   for (const priority of brief.priorities) {
     if (!priority || typeof priority !== 'object') throw new Error('Prioridad AI sin objeto');
     const item = priority as Partial<ModelBrief['priorities'][number]>;
-    if (!hasOnlyKeys(priority, ['id', 'area', 'urgency', 'evidenceRefs', 'actionType', 'dueWindow'])) {
+    if (!hasOnlyKeys(priority, ['area', 'urgency', 'evidenceRefs', 'actionType', 'dueWindow'])) {
       throw new Error('Prioridad AI contiene campos no permitidos');
     }
-    if (!nonEmptyString(item.id) || !/^[A-Z0-9_-]{1,40}$/.test(item.id) || !AREAS.has(String(item.area)) || !URGENCIES.has(String(item.urgency))) {
-      throw new Error('Prioridad AI con identidad, área o urgencia inválida');
+    if (!AREAS.has(String(item.area)) || !URGENCIES.has(String(item.urgency))) {
+      throw new Error('Prioridad AI con área o urgencia inválida');
     }
     if (!Array.isArray(item.evidenceRefs) || item.evidenceRefs.length < 1 || item.evidenceRefs.some((key) => !COMPANY_OS_EVIDENCE_KEYS.includes(key))) {
       throw new Error('Prioridad AI sin referencias de evidencia válidas');
@@ -168,7 +167,7 @@ function executiveSummary(snapshot: CompanySnapshot, status: CompanyBrief['statu
   return `Estado ${status}. Snapshot ${snapshot.businessDate}: ${snapshot.metrics.ordersLast7Days} pedido(s) recientes, ${snapshot.metrics.delayedShipments} envío(s) demorado(s), ${snapshot.metrics.ordersToBuy} pedido(s) por abastecer y ${snapshot.metrics.purchasesPending} compra(s) pendiente(s). Se organizaron ${priorityCount} prioridad(es).`;
 }
 
-function modelPriority(snapshot: CompanySnapshot, item: ModelBrief['priorities'][number]): CompanyPriority {
+function modelPriority(snapshot: CompanySnapshot, item: ModelBrief['priorities'][number], index: number): CompanyPriority {
   const labels: Record<CompanyEvidenceKey, string> = {
     ordersLast7Days: 'actividad reciente de pedidos',
     revenueLast7DaysUsd: 'facturación reciente en USD',
@@ -210,7 +209,7 @@ function modelPriority(snapshot: CompanySnapshot, item: ModelBrief['priorities']
   };
   const primaryEvidence = item.evidenceRefs[0];
   return {
-    id: item.id,
+    id: `AI-${index + 1}-${item.area}`,
     title: `Revisar ${labels[primaryEvidence]}`,
     area: item.area,
     urgency: item.urgency,
@@ -422,7 +421,7 @@ export async function generateGeneralManagerBrief(
   if (snapshot.metrics.ordersNonUsdLast7Days > 0) requiredEvidence.add('ordersNonUsdLast7Days');
   const modelPriorities = modelBrief.priorities
     .filter((item) => !item.evidenceRefs.some((key) => requiredEvidence.has(key)))
-    .map((item) => modelPriority(snapshot, item));
+    .map((item, index) => modelPriority(snapshot, item, index));
   const priorities = [...required, ...modelPriorities].slice(0, 5);
   const status = serverStatus(snapshot);
 

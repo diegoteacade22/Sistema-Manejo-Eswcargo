@@ -120,7 +120,6 @@ export type CompanyBrief = {
 export type ModelBrief = {
   schemaVersion: '1';
   priorities: Array<{
-    id: string;
     area: CompanyOsArea;
     urgency: 'P0' | 'P1' | 'P2';
     evidenceRefs: CompanyEvidenceKey[];

@@ -50,7 +50,6 @@ const modelOutput = {
   schemaVersion: '1',
   priorities: [
     {
-      id: 'P-001',
       area: 'FINANZAS',
       urgency: 'P1',
       evidenceRefs: ['expensesLast30DaysUsd'],
