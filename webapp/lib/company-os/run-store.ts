@@ -40,8 +40,8 @@ export async function executeCompanyAgentCycle(input: {
   const reservation = await prisma.$transaction(async (tx) => {
     // Serializa el presupuesto por actor y luego el request canónico. Ambos
     // locks duran solo esta transacción corta; nunca abarcan la llamada OpenAI.
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`company-os-rate:${input.actorRef}`}))`;
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`company-os-cycle:${input.canonicalRequestKey}`}))`;
+    await tx.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtext(${`company-os-rate:${input.actorRef}`}))`;
+    await tx.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtext(${`company-os-cycle:${input.canonicalRequestKey}`}))`;
 
     const existing = await tx.companyAgentRun.findUnique({ where: { requestKey: input.canonicalRequestKey } });
     if (existing?.provider === 'openai') {
@@ -87,7 +87,7 @@ export async function executeCompanyAgentCycle(input: {
   try {
     const generated = await input.generate();
     return await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`company-os-cycle:${input.canonicalRequestKey}`}))`;
+      await tx.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtext(${`company-os-cycle:${input.canonicalRequestKey}`}))`;
       const request = await tx.companyAgentRequest.findUnique({ where: { leaseToken } });
       if (!request || request.id !== reservation.requestId || request.status !== 'PENDING') {
         throw new Error('Reserva del ciclo inválida o vencida');
