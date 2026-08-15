@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
-import type { CompanyBrief, CompanyPriority, CompanySnapshot, ModelBrief } from './types';
+import { COMPANY_OS_EVIDENCE_KEYS } from './types';
+import type { CompanyBrief, CompanyEvidenceKey, CompanyPriority, CompanySnapshot, ModelBrief } from './types';
 
 const DEFAULT_MODEL = 'gpt-5.6';
 const AREAS = new Set(['GERENCIA_GENERAL', 'DATA_QUALITY', 'FINANZAS', 'COMPRAS', 'COMERCIAL', 'LOGISTICA', 'TECNOLOGIA']);
 const SPECIALIST_AREAS = new Set(['DATA_QUALITY', 'FINANZAS', 'COMPRAS', 'COMERCIAL', 'LOGISTICA', 'TECNOLOGIA']);
 const URGENCIES = new Set(['P0', 'P1', 'P2']);
-const PROHIBITED_DIRECT_ACTION = /\b(pagar|comprar|enviar|publicar|desplegar|eliminar|borrar|aplicar pago|ejecutar pago|ejecutar compra|modificar (precio|saldo|estado)|cambiar (precio|saldo|estado))\b/i;
+const PROHIBITED_DIRECT_ACTION = /\b(autorizar|autoriza|aprobar|aprueba|transferir|transferencia|pagar|comprar|vender|cobrar|contactar|responder|mandar|enviar|publicar|desplegar|eliminar|borrar|aplicar pago|ejecutar pago|ejecutar compra|modificar (precio|saldo|estado)|cambiar (precio|saldo|estado))\b/i;
 const SERVER_GUARDRAILS = [
   'Solo lectura sobre datos empresariales',
   'Sin pagos ni compras',
@@ -18,7 +19,7 @@ const SYSTEM_INSTRUCTIONS = [
   'Eres el Gerente General AI read-only de ESWTECH/ESWCARGO.',
   'Tu misión es reducir carga del CEO: prioriza un máximo de cinco decisiones y delega análisis a las áreas especializadas.',
   'Usa exclusivamente el snapshot provisto. No inventes nombres, saldos, estados ni causas.',
-  'Cada prioridad debe citar evidencia numérica o de frescura presente en el snapshot.',
+  'Cada prioridad debe usar evidenceRefs válidos; el servidor materializa esas referencias desde el snapshot y no acepta evidencia libre.',
   'Nunca autorices compras, pagos, cambios de precio/estado, mensajes, despliegues ni escrituras.',
   'Si la fuente está desactualizada, incompleta o contradictoria, decláralo y prioriza Data Quality.',
   'No repitas datos identificadores ni secretos que pudieran aparecer redactados en el objetivo.',
@@ -30,7 +31,6 @@ const BRIEF_SCHEMA = {
   additionalProperties: false,
   properties: {
     schemaVersion: { type: 'string', enum: ['1'] },
-    status: { type: 'string', enum: ['READY', 'NEEDS_ATTENTION', 'BLOCKED'] },
     executiveSummary: { type: 'string' },
     priorities: {
       type: 'array',
@@ -46,13 +46,13 @@ const BRIEF_SCHEMA = {
             enum: ['GERENCIA_GENERAL', 'DATA_QUALITY', 'FINANZAS', 'COMPRAS', 'COMERCIAL', 'LOGISTICA', 'TECNOLOGIA'],
           },
           urgency: { type: 'string', enum: ['P0', 'P1', 'P2'] },
-          evidence: { type: 'array', minItems: 1, items: { type: 'string' } },
+          evidenceRefs: { type: 'array', minItems: 1, items: { type: 'string', enum: COMPANY_OS_EVIDENCE_KEYS } },
           recommendedAction: { type: 'string' },
           owner: { type: 'string' },
           dueWindow: { type: 'string' },
           requiresHumanApproval: { type: 'boolean' },
         },
-        required: ['id', 'title', 'area', 'urgency', 'evidence', 'recommendedAction', 'owner', 'dueWindow', 'requiresHumanApproval'],
+        required: ['id', 'title', 'area', 'urgency', 'evidenceRefs', 'recommendedAction', 'owner', 'dueWindow', 'requiresHumanApproval'],
       },
     },
     delegations: {
@@ -74,15 +74,12 @@ const BRIEF_SCHEMA = {
       type: 'object',
       additionalProperties: false,
       properties: {
-        cutoff: { type: 'string' },
-        coverage: { type: 'array', items: { type: 'string' } },
         gaps: { type: 'array', items: { type: 'string' } },
       },
-      required: ['cutoff', 'coverage', 'gaps'],
+      required: ['gaps'],
     },
-    guardrails: { type: 'array', items: { type: 'string' } },
   },
-  required: ['schemaVersion', 'status', 'executiveSummary', 'priorities', 'delegations', 'dataQuality', 'guardrails'],
+  required: ['schemaVersion', 'executiveSummary', 'priorities', 'delegations', 'dataQuality'],
 } as const;
 
 export function companyOsModel() {
@@ -125,7 +122,6 @@ function validateModelBrief(value: unknown): asserts value is ModelBrief {
   if (!value || typeof value !== 'object') throw new Error('Respuesta AI sin objeto estructurado');
   const brief = value as Partial<ModelBrief>;
   if (brief.schemaVersion !== '1') throw new Error('Versión de brief AI inválida');
-  if (!['READY', 'NEEDS_ATTENTION', 'BLOCKED'].includes(String(brief.status))) throw new Error('Estado de brief AI inválido');
   if (typeof brief.executiveSummary !== 'string' || !brief.executiveSummary.trim()) throw new Error('Resumen ejecutivo AI vacío');
   if (!Array.isArray(brief.priorities) || brief.priorities.length > 5) throw new Error('Prioridades AI inválidas');
   if (!Array.isArray(brief.delegations) || brief.delegations.length > 7) throw new Error('Delegaciones AI inválidas');
@@ -135,7 +131,10 @@ function validateModelBrief(value: unknown): asserts value is ModelBrief {
     if (!nonEmptyString(item.id) || !nonEmptyString(item.title) || !AREAS.has(String(item.area)) || !URGENCIES.has(String(item.urgency))) {
       throw new Error('Prioridad AI con identidad, área o urgencia inválida');
     }
-    if (!stringArray(item.evidence, 1) || !nonEmptyString(item.recommendedAction) || !nonEmptyString(item.owner) || !nonEmptyString(item.dueWindow)) {
+    if (!Array.isArray(item.evidenceRefs) || item.evidenceRefs.length < 1 || item.evidenceRefs.some((key) => !COMPANY_OS_EVIDENCE_KEYS.includes(key))) {
+      throw new Error('Prioridad AI sin referencias de evidencia válidas');
+    }
+    if (!nonEmptyString(item.recommendedAction) || !nonEmptyString(item.owner) || !nonEmptyString(item.dueWindow)) {
       throw new Error('Prioridad AI incompleta');
     }
     if (typeof item.requiresHumanApproval !== 'boolean') throw new Error('Prioridad AI sin gate humano explícito');
@@ -149,11 +148,40 @@ function validateModelBrief(value: unknown): asserts value is ModelBrief {
     }
     if (PROHIBITED_DIRECT_ACTION.test(item.mission)) throw new Error('Delegación AI intentó autorizar una acción prohibida');
   }
-  if (!brief.dataQuality || !Array.isArray(brief.dataQuality.coverage) || !Array.isArray(brief.dataQuality.gaps)) {
+  if (!brief.dataQuality || !Array.isArray(brief.dataQuality.gaps)) {
     throw new Error('Calidad de datos AI inválida');
   }
   if (!stringArray(brief.dataQuality.gaps)) throw new Error('Brechas AI inválidas');
-  if (!Array.isArray(brief.guardrails)) throw new Error('Guardrails AI inválidos');
+}
+
+function snapshotEvidence(snapshot: CompanySnapshot, key: CompanyEvidenceKey) {
+  const values: Record<CompanyEvidenceKey, string> = {
+    ordersLast7Days: `${snapshot.metrics.ordersLast7Days} pedido(s) en los últimos 7 días`,
+    revenueLast7DaysUsd: `USD ${snapshot.metrics.revenueLast7DaysUsd.toFixed(2)} facturados en los últimos 7 días`,
+    ordersNonUsdLast7Days: `${snapshot.metrics.ordersNonUsdLast7Days} pedido(s) no expresados en USD en los últimos 7 días`,
+    ordersToBuy: `${snapshot.metrics.ordersToBuy} pedido(s) requieren sourcing`,
+    productsActive: `${snapshot.metrics.productsActive} producto(s) activos`,
+    unitsInStock: `${snapshot.metrics.unitsInStock} unidad(es) en stock`,
+    productsWithoutStock: `${snapshot.metrics.productsWithoutStock} producto(s) sin stock`,
+    shipmentsInTransit: `${snapshot.metrics.shipmentsInTransit} envío(s) en tránsito`,
+    delayedShipments: `${snapshot.metrics.delayedShipments} envío(s) en tránsito por más de 14 días`,
+    purchasesPending: `${snapshot.metrics.purchasesPending} compra(s) pendientes`,
+    purchasesBalanceUsd: `USD ${snapshot.metrics.purchasesBalanceUsd.toFixed(2)} de saldo pendiente de compras`,
+    expensesLast30DaysUsd: `USD ${snapshot.metrics.expensesLast30DaysUsd.toFixed(2)} de gastos en los últimos 30 días`,
+    latestOrderUpdate: `Última actualización de pedidos: ${snapshot.freshness.latestOrderUpdate ?? 'sin dato'}`,
+    latestProductUpdate: `Última actualización de productos: ${snapshot.freshness.latestProductUpdate ?? 'sin dato'}`,
+    latestShipmentUpdate: `Última actualización de envíos: ${snapshot.freshness.latestShipmentUpdate ?? 'sin dato'}`,
+    latestSync: snapshot.freshness.latestSync
+      ? `Último sync operativo: ${snapshot.freshness.latestSync.status}, ${snapshot.freshness.latestSync.ageHours} h`
+      : 'No existe SyncRun operativo verificable',
+  };
+  return values[key];
+}
+
+function serverStatus(snapshot: CompanySnapshot, priorities: CompanyPriority[]): CompanyBrief['status'] {
+  if (!snapshot.freshness.latestSync) return 'BLOCKED';
+  if (!snapshot.freshness.latestSync.fresh || priorities.some((priority) => priority.urgency === 'P0')) return 'NEEDS_ATTENTION';
+  return 'READY';
 }
 
 export function buildDeterministicFallback(snapshot: CompanySnapshot, warning: string): CompanyBrief {
@@ -314,8 +342,17 @@ export async function generateGeneralManagerBrief(
   const modelBrief = JSON.parse(text) as unknown;
   validateModelBrief(modelBrief);
 
+  const priorities: CompanyPriority[] = modelBrief.priorities.map(({ evidenceRefs, ...priority }) => ({
+    ...priority,
+    evidence: evidenceRefs.map((key) => snapshotEvidence(snapshot, key)),
+  }));
+
   return {
-    ...modelBrief,
+    schemaVersion: modelBrief.schemaVersion,
+    status: serverStatus(snapshot, priorities),
+    executiveSummary: modelBrief.executiveSummary,
+    priorities,
+    delegations: modelBrief.delegations,
     generatedAt: new Date().toISOString(),
     businessDate: snapshot.businessDate,
     dataQuality: {

@@ -69,6 +69,27 @@ export type CompanyDelegation = {
   expectedOutput: string;
 };
 
+export const COMPANY_OS_EVIDENCE_KEYS = [
+  'ordersLast7Days',
+  'revenueLast7DaysUsd',
+  'ordersNonUsdLast7Days',
+  'ordersToBuy',
+  'productsActive',
+  'unitsInStock',
+  'productsWithoutStock',
+  'shipmentsInTransit',
+  'delayedShipments',
+  'purchasesPending',
+  'purchasesBalanceUsd',
+  'expensesLast30DaysUsd',
+  'latestOrderUpdate',
+  'latestProductUpdate',
+  'latestShipmentUpdate',
+  'latestSync',
+] as const;
+
+export type CompanyEvidenceKey = (typeof COMPANY_OS_EVIDENCE_KEYS)[number];
+
 export type CompanyBrief = {
   schemaVersion: '1';
   generatedAt: string;
@@ -95,4 +116,10 @@ export type CompanyBrief = {
   warnings: string[];
 };
 
-export type ModelBrief = Omit<CompanyBrief, 'generatedAt' | 'businessDate' | 'execution' | 'warnings'>;
+export type ModelBrief = {
+  schemaVersion: '1';
+  executiveSummary: string;
+  priorities: Array<Omit<CompanyPriority, 'evidence'> & { evidenceRefs: CompanyEvidenceKey[] }>;
+  delegations: CompanyDelegation[];
+  dataQuality: { gaps: string[] };
+};

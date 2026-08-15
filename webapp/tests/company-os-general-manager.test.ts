@@ -48,7 +48,6 @@ const snapshot: CompanySnapshot = {
 
 const modelOutput = {
   schemaVersion: '1',
-  status: 'NEEDS_ATTENTION',
   executiveSummary: 'Hay dos frentes operativos prioritarios.',
   priorities: [
     {
@@ -56,7 +55,7 @@ const modelOutput = {
       title: 'Revisar envíos demorados',
       area: 'LOGISTICA',
       urgency: 'P0',
-      evidence: ['1 envío supera 14 días'],
+      evidenceRefs: ['delayedShipments'],
       recommendedAction: 'Preparar excepción con evidencia.',
       owner: 'Logística',
       dueWindow: '24 horas',
@@ -72,11 +71,8 @@ const modelOutput = {
     },
   ],
   dataQuality: {
-    cutoff: snapshot.generatedAt,
-    coverage: ['Pedidos', 'Envíos'],
     gaps: [],
   },
-  guardrails: ['Solo lectura'],
 };
 
 test('fallback conserva read-only y limita prioridades', () => {
@@ -122,6 +118,8 @@ test('Responses API usa salida estructurada, no usa tools y enlaza snapshot', as
     assert.equal(brief.execution.responseId, 'resp_test_001');
     assert.equal(brief.execution.snapshotId, snapshot.snapshotId);
     assert.equal(brief.priorities.length, 1);
+    assert.deepEqual(brief.priorities[0].evidence, ['1 envío(s) en tránsito por más de 14 días']);
+    assert.equal(brief.status, 'NEEDS_ATTENTION');
   } finally {
     if (previousKey == null) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previousKey;
@@ -197,7 +195,7 @@ test('rechaza campos anidados fuera de política aunque el proveedor responda 20
       ...modelOutput.priorities[0],
       area: 'PAGOS',
       urgency: 'NOW',
-      evidence: 'sin evidencia',
+      evidenceRefs: ['inventedMetric'],
       recommendedAction: 'Pagar ahora',
       requiresHumanApproval: false,
     }],
@@ -209,6 +207,53 @@ test('rechaza campos anidados fuera de política aunque el proveedor responda 20
   }), { status: 200, headers: { 'Content-Type': 'application/json' } });
   try {
     await assert.rejects(() => generateGeneralManagerBrief(snapshot, '', mockFetch), /inválida/);
+  } finally {
+    if (previousKey == null) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test('rechaza autorización de transferencia aunque declare que no requiere aprobación', async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = 'test-key-never-sent';
+  const unsafe = {
+    ...modelOutput,
+    priorities: [{
+      ...modelOutput.priorities[0],
+      recommendedAction: 'Autorizar transferencia bancaria hoy',
+      requiresHumanApproval: false,
+    }],
+  };
+  const mockFetch: typeof fetch = async () => new Response(JSON.stringify({
+    id: 'resp_transfer',
+    status: 'completed',
+    output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(unsafe) }] }],
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  try {
+    await assert.rejects(() => generateGeneralManagerBrief(snapshot, '', mockFetch), /acción prohibida/);
+  } finally {
+    if (previousKey == null) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = previousKey;
+  }
+});
+
+test('calcula BLOCKED server-side y materializa evidencia solo desde el snapshot', async () => {
+  const previousKey = process.env.OPENAI_API_KEY;
+  process.env.OPENAI_API_KEY = 'test-key-never-sent';
+  const noSyncSnapshot: CompanySnapshot = {
+    ...snapshot,
+    freshness: { ...snapshot.freshness, latestSync: null },
+  };
+  const mockFetch: typeof fetch = async () => new Response(JSON.stringify({
+    id: 'resp_no_sync',
+    status: 'completed',
+    output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(modelOutput) }] }],
+  }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  try {
+    const brief = await generateGeneralManagerBrief(noSyncSnapshot, '', mockFetch);
+    assert.equal(brief.status, 'BLOCKED');
+    assert.deepEqual(brief.priorities[0].evidence, ['1 envío(s) en tránsito por más de 14 días']);
+    assert.equal(JSON.stringify(brief).includes('9999'), false);
   } finally {
     if (previousKey == null) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previousKey;

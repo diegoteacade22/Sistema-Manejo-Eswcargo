@@ -7,9 +7,9 @@ Estado: primer agente AI productivo, autenticado y **read-only**.
 - lee un snapshot agregado de pedidos, productos, compras, envíos, gastos y última sincronización;
 - llama OpenAI Responses API con salida JSON Schema estricta;
 - concentra un máximo de cinco prioridades;
-- organiza misiones para Data Quality, Finanzas, Compras, Comercial, Logística y Tecnología;
+- organiza planes de misión para Data Quality, Finanzas, Compras, Comercial, Logística y Tecnología, sin afirmar que ya fueron ejecutados;
 - expone evidencia, fecha de corte, modelo, response ID y hash del snapshot;
-- guarda cada ciclo en una bitácora append-only e idempotente y verifica el readback;
+- reserva cada intento en una transacción corta, llama OpenAI fuera de la transacción y guarda el ciclo en una bitácora append-only e idempotente con readback;
 - entrega un fallback determinístico identificado si OpenAI no responde.
 
 ## Qué no hace
@@ -26,7 +26,7 @@ Estado: primer agente AI productivo, autenticado y **read-only**.
 2. Opcionalmente declara el objetivo del ciclo.
 3. `POST /api/company-os/brief` autentica una sesión ADMIN revalidada o `COMPANY_OS_API_KEY` exclusiva server-side.
 4. El servidor consulta únicamente agregados operativos sin PII.
-5. OpenAI sintetiza un brief estructurado y delegaciones.
+5. OpenAI sintetiza un brief estructurado y planes de delegación; evidencia, estado, cobertura y guardrails se calculan server-side.
 6. Guarda el ciclo, relee el mismo registro y devuelve su ID en `X-Company-OS-Run`.
 7. La UI muestra el provider real, el modelo, la fecha de corte y el snapshot.
 

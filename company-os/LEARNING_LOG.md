@@ -31,3 +31,19 @@
 - Corrección: persistir `CompanyAgentRun` con clave idempotente y readback inmediato.
 - Prueba: migración, hash estable y header `X-Company-OS-Run`.
 - Reutilización: todo agente coordinador necesita estado auditable sin alterar datos de negocio.
+
+## LEARN-005 — El texto del modelo no es evidencia
+
+- Síntoma: un JSON válido podía incluir cifras inventadas o marcar `READY` sin una fuente fresca.
+- Causa: evidencia y estado pertenecían al modelo.
+- Corrección: el modelo solo selecciona referencias cerradas; el servidor materializa valores y calcula el estado.
+- Prueba: tests adversariales de evidencia y ausencia de `SyncRun`.
+- Reutilización: campos de control y evidencia deben ser propiedad del servidor.
+
+## LEARN-006 — La llamada AI no debe vivir dentro de una transacción
+
+- Síntoma: una llamada de hasta 120 segundos retenía conexión y advisory lock.
+- Causa: idempotencia y generación estaban acopladas en una misma transacción.
+- Corrección: reservar con lease, confirmar, llamar OpenAI fuera y persistir/readback en otra transacción corta.
+- Prueba: `CompanyAgentRequest` registra intentos y serializa el rate limit por actor.
+- Reutilización: separar reserva, trabajo remoto y commit durable.

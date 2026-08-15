@@ -13,7 +13,6 @@ import { sanitizeCompanyObjective } from '@/lib/company-os/objective';
 import {
   companyActorRef,
   companyAgentRequestKey,
-  enforceCompanyAgentRateLimit,
   executeCompanyAgentCycle,
   listCompanyAgentRuns,
 } from '@/lib/company-os/run-store';
@@ -70,7 +69,7 @@ export async function GET(request: Request) {
     sourceConfigured: Boolean((process.env.COMPANY_OS_DATABASE_URL ?? '').trim()),
     authConfigured: Boolean((process.env.COMPANY_OS_API_KEY ?? '').trim()),
     authMode: identity.authMode,
-    effects: { businessWrites: 0, auditWrites: 'one CompanyAgentRun plus queued missions per new cycle' },
+    effects: { businessWrites: 0, auditWrites: 'one CompanyAgentRun plus planned missions per new cycle' },
     retention: { classification: 'internal-operational', reviewAfterDays: 365, enforcement: 'manual-review' },
     runs,
   });
@@ -98,7 +97,6 @@ export async function POST(request: Request) {
   }
 
   try {
-    await enforceCompanyAgentRateLimit(identity.actorRef);
     const objective = sanitizeCompanyObjective(rawObjective);
     const snapshot = await buildCompanySnapshot();
     const model = companyOsModel();
@@ -143,10 +141,11 @@ export async function POST(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
     const rateLimited = message.includes('Límite de 10 ciclos');
-    console.error('[Company OS] Run failed', { rateLimited, message });
+    const inProgress = message.includes('Ciclo equivalente en progreso');
+    console.error('[Company OS] Run failed', { rateLimited, inProgress, message });
     return NextResponse.json(
-      { error: rateLimited ? message : 'No se pudo completar y verificar el ciclo del agente' },
-      { status: rateLimited ? 429 : 503 },
+      { error: rateLimited || inProgress ? message : 'No se pudo completar y verificar el ciclo del agente' },
+      { status: rateLimited ? 429 : inProgress ? 409 : 503 },
     );
   }
 }
