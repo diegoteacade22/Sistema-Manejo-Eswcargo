@@ -1,0 +1,23 @@
+[Unit]
+Description=Company OS V3 webhook worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=company-os
+Group=company-os
+WorkingDirectory=/opt/company-os-v3-worker
+EnvironmentFile=/etc/company-os-v3-worker.env
+ExecStart=/usr/bin/node /opt/company-os-v3-worker/src/server.mjs serve
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

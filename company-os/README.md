@@ -1,49 +1,49 @@
-# Company OS — Gerente General AI V2
+# Company OS — Gerente General AI V3
 
-Estado: primer agente AI productivo, autenticado y **read-only**.
+Estado objetivo: producción, advisory-only, datos empresariales estrictamente read-only.
 
-## Qué hace
+## Arquitectura operativa
 
-- lee un snapshot agregado de pedidos, productos, compras, envíos, gastos y última sincronización;
-- perfila cobertura, frescura, moneda y confianza por métrica antes de consultar al modelo;
-- trata gastos cero sin evidencia como brecha de cobertura, no como hecho;
-- separa el conteo bruto sin stock del ranking accionable, que exige demanda, margen y disponibilidad verificables;
-- construye expedientes `BLOCKED`/`REVIEW` para envíos candidatos con más de 14 días;
-- llama OpenAI Responses API con salida JSON Schema estricta;
-- concentra un máximo de cinco prioridades;
-- organiza planes de misión para Data Quality, Finanzas, Compras, Comercial, Logística y Tecnología, sin afirmar que ya fueron ejecutados;
-- expone evidencia, fecha de corte, modelo, response ID y hash del snapshot;
-- reserva cada intento en una transacción corta, llama OpenAI fuera de la transacción y guarda el ciclo en una bitácora append-only e idempotente con readback;
-- entrega un fallback determinístico identificado si OpenAI no responde.
-- permite a un ADMIN aprobar, rechazar, editar, posponer o marcar información incorrecta mediante eventos append-only.
+1. `POST /api/company-os/v3/cases` autentica un ADMIN, materializa evidencia y persiste caso, orden y evento `QUEUED`.
+2. Recién después intenta el webhook HMAC a Hostinger. El resultado de entrega se registra aun cuando falle.
+3. El worker reclama por `requestId`; un timer systemd ejecuta recovery cada 60 segundos sin `requestId` y recibe `204` si no hay trabajo.
+4. La API sólo entrega casos `QUEUED` o `ANALYZING` con lease vencido. Lock, lease, heartbeat y constraints evitan doble procesamiento.
+5. El worker llama Responses API con `store=false`, `gpt-5.6-sol`, reasoning low, timeout 120 s, `max_output_tokens=3000` y un único reintento.
+6. La API valida referencias cerradas, persiste resultado, consumo y misiones `PLANNED`, y mueve la solicitud a `AWAITING_REVIEW` o `COMPLETED`.
+7. OpenClaw entrega Telegram al único chat autorizado y la API registra el readback de la entrega.
 
-## Qué no hace
+## Estados separados
 
-- no escribe datos empresariales; solo crea auditoría `CompanyAgentRun`, misiones y decisiones `CompanyAgentMissionEvent`;
-- no compra, paga, cambia precios o estados;
-- no envía mensajes;
-- no despliega ni cambia secretos;
-- no presenta una recomendación como acción ejecutada.
-- `APPROVED` no ejecuta nada; `RUNNING` y `DONE` son inalcanzables en V2.
+- Solicitudes: `QUEUED`, `ANALYZING`, `AWAITING_REVIEW`, `BLOCKED`, `FAILED`, `CANCELLED`, `COMPLETED`.
+- Misiones: `PLANNED`, `APPROVED`, `REJECTED`, `REVIEW`, `BLOCKED`, `RUNNING`, `DONE`.
 
-## Camino operativo
+V3 no expone transición alguna a `RUNNING` o `DONE`. Aprobar una misión conserva `executionAuthorized=false`.
 
-1. Un administrador abre `/company-os`.
-2. Opcionalmente declara el objetivo del ciclo.
-3. `POST /api/company-os/brief` autentica una sesión ADMIN revalidada o `COMPANY_OS_API_KEY` exclusiva server-side.
-4. El servidor consulta únicamente agregados operativos sin PII.
-5. OpenAI sintetiza un brief estructurado y planes de delegación; evidencia, estado, cobertura y guardrails se calculan server-side.
-6. Guarda el ciclo, relee el mismo registro y devuelve su ID en `X-Company-OS-Run`.
-7. La UI muestra el provider real, perfiles de calidad y misiones persistidas.
-8. Las decisiones humanas usan sesión ADMIN, origen same-origin, lock, idempotencia, cadena hash y readback; la clave de máquina recibe `403`.
+## Presupuesto
+
+- concurrencia: 1;
+- reintentos del modelo: 1;
+- timeout: 120 segundos;
+- salida máxima: 3.000 tokens;
+- objetivo total por solicitud: 12.000 tokens;
+- presupuesto estimado de entrada: 9.000 tokens;
+- alertas: 70 %, 85 % y 100 %.
+
+Se guardan por separado entrada, cacheados, cache-write, salida, razonamiento, total, costo estimado y acumulado diario. Si el snapshot excede el presupuesto, se selecciona evidencia de forma determinística conservando métricas, gaps y frescura; si aun así no entra, el caso se bloquea antes de OpenAI.
+
+## Escrituras permitidas
+
+Sólo en tablas internas de Company OS: casos, mensajes, eventos, decisiones, auditoría, consumo, locks, leases, heartbeats, intentos de ejecución, entregas de notificaciones, misiones y referencias de evidencia. Ninguna tabla operativa empresarial recibe `INSERT`, `UPDATE` o `DELETE`.
+
+El rol de permisos `company_os_v3` nace `NOLOGIN` en la migración. Producción lo habilita con una credencial generada fuera del repositorio, guardada como `COMPANY_OS_V3_DATABASE_URL`; el gate exige readback de `current_user=company_os_v3`, DML interno permitido y DML empresarial denegado.
 
 ## Verificación
 
 ```bash
 cd webapp
 npm run test:company-os
-npx tsc --noEmit
 npm run build
+cd company-os-worker && npm test
 ```
 
-La prueba productiva exige sesión ADMIN o `COMPANY_OS_API_KEY` y debe demostrar `execution.provider=openai`, `execution.businessDataReadOnly=true`, un `responseId` real, el mismo `snapshotId` del header `X-Company-OS-Snapshot` y readback del ID `X-Company-OS-Run`.
+La prueba productiva canónica y única está documentada en `PRODUCTION_TEST_V3.md`. El rollback está en `V3_ROLLBACK.md`.

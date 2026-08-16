@@ -10,33 +10,33 @@ datasource db {
 }
 
 model Client {
-  id           Int           @id @default(autoincrement())
-  old_id       Int?          @unique
-  name         String
-  document_id  String?
-  email        String?
-  phone        String?
-  instagram    String?
-  webpage      String?
-  address      String?
-  type         String?
-  notes        String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  city         String?
-  country      String?
-  state        String?
-  zipCode      String?
-  userId       String?       @unique
-  segment      String?
-  canAccess    Boolean       @default(true)
-  active       Boolean       @default(true)
-  phone2       String?
-  user         User?         @relation(fields: [userId], references: [id])
-  orders       Order[]
-  shipments    Shipment[]
-  transactions Transaction[]
-  allocations  PurchaseAllocation[]
+  id              Int                  @id @default(autoincrement())
+  old_id          Int?                 @unique
+  name            String
+  document_id     String?
+  email           String?
+  phone           String?
+  instagram       String?
+  webpage         String?
+  address         String?
+  type            String?
+  notes           String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  city            String?
+  country         String?
+  state           String?
+  zipCode         String?
+  userId          String?              @unique
+  segment         String?
+  canAccess       Boolean              @default(true)
+  active          Boolean              @default(true)
+  phone2          String?
+  user            User?                @relation(fields: [userId], references: [id])
+  orders          Order[]
+  shipments       Shipment[]
+  transactions    Transaction[]
+  allocations     PurchaseAllocation[]
   accountEvidence AccountEvidence[]
 }
 
@@ -111,25 +111,25 @@ model Supplier {
 }
 
 model Order {
-  id              Int         @id @default(autoincrement())
-  order_number    Int?        @unique
+  id              Int                   @id @default(autoincrement())
+  order_number    Int?                  @unique
   clientId        Int
   date            DateTime
   status          String
   total_amount    Float
-  currency        String      @default("USD")
+  currency        String                @default("USD")
   notes           String?
   forwarder       String?
   tracking_number String?
   shipmentId      Int?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
   type            String?
   paymentMethod   String?
   email_sent_at   DateTime?
   source          String?
-  client          Client      @relation(fields: [clientId], references: [id])
-  shipment        Shipment?   @relation(fields: [shipmentId], references: [id])
+  client          Client                @relation(fields: [clientId], references: [id])
+  shipment        Shipment?             @relation(fields: [shipmentId], references: [id])
   items           OrderItem[]
   allocations     PurchaseAllocation[]
   submissionGuard OrderSubmissionGuard?
@@ -144,7 +144,7 @@ model OrderSubmissionGuard {
 }
 
 model OrderItem {
-  id               Int       @id @default(autoincrement())
+  id               Int                  @id @default(autoincrement())
   orderId          Int
   productId        Int?
   productName      String
@@ -153,58 +153,58 @@ model OrderItem {
   unit_cost        Float
   shipping_cost    Float?
   subtotal         Float
-  profit           Float     @default(0)
+  profit           Float                @default(0)
   supplierId       Int?
   purchase_invoice String?
   shipmentId       Int?
   status           String?
-  order            Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product          Product?  @relation(fields: [productId], references: [id])
-  shipment         Shipment? @relation(fields: [shipmentId], references: [id])
-  supplier         Supplier? @relation(fields: [supplierId], references: [id])
+  order            Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product          Product?             @relation(fields: [productId], references: [id])
+  shipment         Shipment?            @relation(fields: [shipmentId], references: [id])
+  supplier         Supplier?            @relation(fields: [supplierId], references: [id])
   allocations      PurchaseAllocation[]
 }
 
 model Transaction {
-  id            Int       @id @default(autoincrement())
-  clientId      Int?
-  date          DateTime
-  type          String
-  amount        Float
-  description   String?
-  reference     String?
-  createdAt     DateTime  @default(now())
-  paymentMethod String?
-  supplierId    Int?
-  client        Client?   @relation(fields: [clientId], references: [id])
-  supplier      Supplier? @relation(fields: [supplierId], references: [id])
-  receipt       PaymentReceipt?
-  paymentGuard  ClientPaymentGuard?
+  id              Int                 @id @default(autoincrement())
+  clientId        Int?
+  date            DateTime
+  type            String
+  amount          Float
+  description     String?
+  reference       String?
+  createdAt       DateTime            @default(now())
+  paymentMethod   String?
+  supplierId      Int?
+  client          Client?             @relation(fields: [clientId], references: [id])
+  supplier        Supplier?           @relation(fields: [supplierId], references: [id])
+  receipt         PaymentReceipt?
+  paymentGuard    ClientPaymentGuard?
   accountEvidence AccountEvidence[]
 }
 
 model ClientPaymentGuard {
-  id           Int         @id @default(autoincrement())
-  clientId     Int
-  paymentDate  DateTime    @db.Date
-  amount       Float
-  referenceKey String
-  transactionId Int        @unique
-  transaction  Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  createdAt    DateTime    @default(now())
+  id            Int         @id @default(autoincrement())
+  clientId      Int
+  paymentDate   DateTime    @db.Date
+  amount        Float
+  referenceKey  String
+  transactionId Int         @unique
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
 
   @@unique([clientId, paymentDate, amount, referenceKey])
 }
 
 model SyncRun {
-  id        Int      @id @default(autoincrement())
-  scope     String
-  status    String
-  startedAt DateTime @default(now())
+  id         Int          @id @default(autoincrement())
+  scope      String
+  status     String
+  startedAt  DateTime     @default(now())
   finishedAt DateTime?
-  summary   Json?
-  error     String?
-  changes   SyncChange[]
+  summary    Json?
+  error      String?
+  changes    SyncChange[]
 
   @@index([startedAt])
   @@index([status])
@@ -243,24 +243,24 @@ model PaymentReceipt {
 }
 
 model AccountEvidence {
-  id            Int          @id @default(autoincrement())
-  clientId      Int
-  transactionId Int?
+  id                   Int          @id @default(autoincrement())
+  clientId             Int
+  transactionId        Int?
   transactionReference String?
-  transactionDate DateTime?  @db.Date
-  transactionType String?
-  transactionAmount Float?
-  category      String
-  note          String?
-  source        String?
-  fileName      String?
-  mimeType      String?
-  size          Int?
-  sha256        String?
-  data          Bytes?
-  createdAt     DateTime     @default(now())
-  client        Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  transactionDate      DateTime?    @db.Date
+  transactionType      String?
+  transactionAmount    Float?
+  category             String
+  note                 String?
+  source               String?
+  fileName             String?
+  mimeType             String?
+  size                 Int?
+  sha256               String?
+  data                 Bytes?
+  createdAt            DateTime     @default(now())
+  client               Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  transaction          Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
 
   @@index([clientId, createdAt])
   @@index([transactionId])
@@ -268,29 +268,29 @@ model AccountEvidence {
 }
 
 model Shipment {
-  id              Int         @id @default(autoincrement())
-  shipment_number Int?        @unique
-  clientId        Int?
-  forwarder       String?
-  date_shipped    DateTime?
-  date_arrived    DateTime?
-  weight_fw       Float?
-  weight_cli      Float?
-  type_load       String?
-  item_count      Int?
-  cost_total      Float?
-  price_total     Float?
-  profit          Float?
-  invoice         String?
-  status          String
-  notes           String?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  email_sent_at   DateTime?
+  id                Int         @id @default(autoincrement())
+  shipment_number   Int?        @unique
+  clientId          Int?
+  forwarder         String?
+  date_shipped      DateTime?
+  date_arrived      DateTime?
+  weight_fw         Float?
+  weight_cli        Float?
+  type_load         String?
+  item_count        Int?
+  cost_total        Float?
+  price_total       Float?
+  profit            Float?
+  invoice           String?
+  status            String
+  notes             String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  email_sent_at     DateTime?
   cargo_description String?
-  orders          Order[]
-  items           OrderItem[]
-  client          Client?     @relation(fields: [clientId], references: [id])
+  orders            Order[]
+  items             OrderItem[]
+  client            Client?     @relation(fields: [clientId], references: [id])
 }
 
 model Purchase {
@@ -315,17 +315,17 @@ model Purchase {
 }
 
 model PurchasePayment {
-  id             Int      @id @default(autoincrement())
-  purchaseId      Int
-  supplierId      Int
-  date            DateTime @default(now())
-  amount          Float
-  payment_method  String?
-  reference       String?
-  notes           String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  paymentGuard    PurchasePaymentGuard?
+  id             Int                   @id @default(autoincrement())
+  purchaseId     Int
+  supplierId     Int
+  date           DateTime              @default(now())
+  amount         Float
+  payment_method String?
+  reference      String?
+  notes          String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  paymentGuard   PurchasePaymentGuard?
 
   @@index([purchaseId, date])
   @@index([supplierId, date])
@@ -345,17 +345,17 @@ model PurchasePaymentGuard {
 }
 
 model PurchaseItem {
-  id          Int      @id @default(autoincrement())
-  purchaseId  Int
-  sku         String?
-  productName String
-  quantity    Int
-  allocated_quantity Int @default(0)
-  unit_cost   Float
-  subtotal    Float
-  purchase    Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
-  product     Product? @relation(fields: [sku], references: [sku])
-  allocations PurchaseAllocation[]
+  id                 Int                  @id @default(autoincrement())
+  purchaseId         Int
+  sku                String?
+  productName        String
+  quantity           Int
+  allocated_quantity Int                  @default(0)
+  unit_cost          Float
+  subtotal           Float
+  purchase           Purchase             @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  product            Product?             @relation(fields: [sku], references: [sku])
+  allocations        PurchaseAllocation[]
 }
 
 model PurchaseAllocation {
@@ -420,21 +420,21 @@ model SupplierProduct {
 }
 
 model CompanyAgentRun {
-  id           String   @id @default(cuid())
-  requestKey   String   @unique
-  businessDate String
+  id            String                @id @default(cuid())
+  requestKey    String                @unique
+  businessDate  String
   objectiveHash String
-  snapshotId   String
-  provider     String
-  model        String
-  responseId   String?
-  status       String
-  authMode     String
-  actorRef     String
-  snapshot     Json
-  brief        Json
-  createdAt    DateTime @default(now())
-  missions     CompanyAgentMission[]
+  snapshotId    String
+  provider      String
+  model         String
+  responseId    String?
+  status        String
+  authMode      String
+  actorRef      String
+  snapshot      Json
+  brief         Json
+  createdAt     DateTime              @default(now())
+  missions      CompanyAgentMission[]
 
   @@index([createdAt])
   @@index([businessDate])
@@ -443,15 +443,15 @@ model CompanyAgentRun {
 }
 
 model CompanyAgentMission {
-  id             String          @id @default(cuid())
+  id             String                     @id @default(cuid())
   runId          String
   agent          String
   mission        String
   why            String
   expectedOutput String
-  status         String          @default("PLANNED")
-  createdAt      DateTime        @default(now())
-  run            CompanyAgentRun @relation(fields: [runId], references: [id], onDelete: Restrict)
+  status         String                     @default("PLANNED")
+  createdAt      DateTime                   @default(now())
+  run            CompanyAgentRun            @relation(fields: [runId], references: [id], onDelete: Restrict)
   events         CompanyAgentMissionEvent[]
 
   @@index([runId])
@@ -459,25 +459,25 @@ model CompanyAgentMission {
 }
 
 model CompanyAgentMissionEvent {
-  id               String              @id @default(cuid())
-  missionId        String
-  sequence         Int
-  action           String
-  fromStatus       String
-  toStatus         String
-  actorRef         String
-  authMode         String
-  reason           String?
-  deferUntil       DateTime?
-  revisionPayload  Json?
-  incorrectData    Json?
-  expectedHead     Int
-  idempotencyKey   String
-  requestHash      String
-  previousHash     String?
-  eventHash        String
-  createdAt        DateTime            @default(now())
-  mission          CompanyAgentMission @relation(fields: [missionId], references: [id], onDelete: Restrict)
+  id              String              @id @default(cuid())
+  missionId       String
+  sequence        Int
+  action          String
+  fromStatus      String
+  toStatus        String
+  actorRef        String
+  authMode        String
+  reason          String?
+  deferUntil      DateTime?
+  revisionPayload Json?
+  incorrectData   Json?
+  expectedHead    Int
+  idempotencyKey  String
+  requestHash     String
+  previousHash    String?
+  eventHash       String
+  createdAt       DateTime            @default(now())
+  mission         CompanyAgentMission @relation(fields: [missionId], references: [id], onDelete: Restrict)
 
   @@unique([missionId, sequence])
   @@unique([missionId, idempotencyKey])
@@ -498,4 +498,226 @@ model CompanyAgentRequest {
 
   @@index([requestKey, createdAt])
   @@index([actorRef, createdAt])
+}
+
+model CompanyOsCase {
+  id                    String                          @id @default(cuid())
+  requestId             String                          @unique
+  objective             String
+  objectiveHash         String
+  status                String                          @default("QUEUED")
+  actorRef              String
+  authMode              String
+  relatedCaseId         String?
+  inputBudgetEstimate   Int
+  maxOutputTokens       Int                             @default(3000)
+  targetTotalTokens     Int                             @default(12000)
+  webhookDeliveryStatus String                          @default("PENDING")
+  cancellationReason    String?
+  completedAt           DateTime?
+  createdAt             DateTime                        @default(now())
+  updatedAt             DateTime                        @updatedAt
+  messages              CompanyOsMessage[]
+  events                CompanyOsCaseEvent[]
+  evidence              CompanyOsEvidenceRef[]
+  missions              CompanyOsMission[]
+  decisions             CompanyOsDecision[]
+  usage                 CompanyOsUsage[]
+  leases                CompanyOsLease[]
+  heartbeats            CompanyOsHeartbeat[]
+  attempts              CompanyOsExecutionAttempt[]
+  deliveries            CompanyOsNotificationDelivery[]
+
+  @@index([status, createdAt])
+  @@index([relatedCaseId])
+}
+
+model CompanyOsMessage {
+  id        String        @id @default(cuid())
+  caseId    String
+  role      String
+  kind      String
+  content   String
+  actorRef  String
+  createdAt DateTime      @default(now())
+  case      CompanyOsCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+
+  @@index([caseId, createdAt])
+}
+
+model CompanyOsCaseEvent {
+  id             String        @id @default(cuid())
+  caseId         String
+  sequence       Int
+  eventType      String
+  fromStatus     String?
+  toStatus       String?
+  payload        Json
+  idempotencyKey String
+  previousHash   String?
+  eventHash      String
+  createdAt      DateTime      @default(now())
+  case           CompanyOsCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+
+  @@unique([caseId, sequence])
+  @@unique([caseId, idempotencyKey])
+  @@index([caseId, createdAt])
+}
+
+model CompanyOsEvidenceRef {
+  id          String        @id @default(cuid())
+  caseId      String
+  evidenceKey String
+  sourceRef   String
+  value       Json
+  critical    Boolean       @default(false)
+  observedAt  DateTime?
+  createdAt   DateTime      @default(now())
+  case        CompanyOsCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+
+  @@unique([caseId, evidenceKey])
+  @@index([caseId, createdAt])
+}
+
+model CompanyOsMission {
+  id             String              @id @default(cuid())
+  caseId         String
+  title          String
+  rationale      String
+  expectedOutput String
+  status         String              @default("PLANNED")
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  case           CompanyOsCase       @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  decisions      CompanyOsDecision[]
+
+  @@unique([id, caseId])
+  @@index([caseId, status])
+}
+
+model CompanyOsDecision {
+  id             String            @id @default(cuid())
+  caseId         String
+  missionId      String?
+  decision       String
+  reason         String?
+  actorRef       String
+  idempotencyKey String            @unique
+  createdAt      DateTime          @default(now())
+  case           CompanyOsCase     @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  mission        CompanyOsMission? @relation(fields: [missionId, caseId], references: [id, caseId], onDelete: Restrict)
+
+  @@index([caseId, createdAt])
+}
+
+model CompanyOsAuditEvent {
+  id             String   @id @default(cuid())
+  requestId      String
+  action         String
+  actorRef       String
+  metadata       Json
+  idempotencyKey String   @unique
+  createdAt      DateTime @default(now())
+
+  @@index([requestId, createdAt])
+}
+
+model CompanyOsUsage {
+  id               String        @id @default(cuid())
+  caseId           String
+  provider         String
+  model            String
+  inputTokens      Int
+  cachedTokens     Int
+  cacheWriteTokens Int           @default(0)
+  outputTokens     Int
+  reasoningTokens  Int
+  totalTokens      Int
+  estimatedCostUsd Decimal       @db.Decimal(12, 6)
+  dailyTotalTokens Int
+  dailyCostUsd     Decimal       @db.Decimal(12, 6)
+  alertLevel       Int?
+  createdAt        DateTime      @default(now())
+  case             CompanyOsCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+
+  @@index([caseId, createdAt])
+  @@index([createdAt])
+}
+
+model CompanyOsLock {
+  requestId  String   @id
+  ownerToken String   @unique
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([expiresAt])
+}
+
+model CompanyOsLease {
+  id         String                      @id @default(cuid())
+  caseId     String
+  requestId  String
+  leaseToken String                      @unique
+  ownerRef   String
+  status     String                      @default("ACTIVE")
+  expiresAt  DateTime
+  releasedAt DateTime?
+  createdAt  DateTime                    @default(now())
+  case       CompanyOsCase               @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  heartbeats CompanyOsHeartbeat[]
+  attempts   CompanyOsExecutionAttempt[]
+
+  @@unique([requestId, leaseToken, caseId])
+  @@index([requestId, status, expiresAt])
+  @@index([caseId, createdAt])
+}
+
+model CompanyOsHeartbeat {
+  id         String         @id @default(cuid())
+  caseId     String
+  requestId  String
+  leaseToken String
+  workerRef  String
+  phase      String
+  createdAt  DateTime       @default(now())
+  case       CompanyOsCase  @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  lease      CompanyOsLease @relation(fields: [requestId, leaseToken, caseId], references: [requestId, leaseToken, caseId], onDelete: Restrict)
+
+  @@index([requestId, createdAt])
+}
+
+model CompanyOsExecutionAttempt {
+  id         String         @id @default(cuid())
+  caseId     String
+  requestId  String
+  leaseToken String
+  attempt    Int
+  outcome    String
+  errorCode  String?
+  detail     String?
+  startedAt  DateTime       @default(now())
+  finishedAt DateTime?
+  case       CompanyOsCase  @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  lease      CompanyOsLease @relation(fields: [requestId, leaseToken, caseId], references: [requestId, leaseToken, caseId], onDelete: Restrict)
+
+  @@unique([requestId, attempt])
+  @@index([caseId, startedAt])
+}
+
+model CompanyOsNotificationDelivery {
+  id             String        @id @default(cuid())
+  caseId         String
+  requestId      String
+  channel        String
+  eventType      String
+  status         String
+  attempt        Int
+  responseCode   Int?
+  errorDetail    String?
+  idempotencyKey String        @unique
+  createdAt      DateTime      @default(now())
+  case           CompanyOsCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+
+  @@index([requestId, channel, createdAt])
 }
