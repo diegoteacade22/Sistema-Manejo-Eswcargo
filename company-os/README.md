@@ -35,6 +35,8 @@ Se guardan por separado entrada, cacheados, cache-write, salida, razonamiento, t
 
 Sólo en tablas internas de Company OS: casos, mensajes, eventos, decisiones, auditoría, consumo, locks, leases, heartbeats, intentos de ejecución, entregas de notificaciones, misiones y referencias de evidencia. Ninguna tabla operativa empresarial recibe `INSERT`, `UPDATE` o `DELETE`.
 
+El rol de permisos `company_os_v3` nace `NOLOGIN` en la migración. Producción lo habilita con una credencial generada fuera del repositorio, guardada como `COMPANY_OS_V3_DATABASE_URL`; el gate exige readback de `current_user=company_os_v3`, DML interno permitido y DML empresarial denegado.
+
 ## Verificación
 
 ```bash
