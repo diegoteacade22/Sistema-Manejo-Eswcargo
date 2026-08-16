@@ -18,3 +18,9 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.company-os-v3.entrypoints: websecure
+      traefik.http.routers.company-os-v3.rule: Host(`company-os-v3.srv1594596.hstgr.cloud`)
+      traefik.http.routers.company-os-v3.tls.certresolver: letsencrypt
+      traefik.http.services.company-os-v3.loadbalancer.server.port: "8787"
