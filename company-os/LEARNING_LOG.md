@@ -87,3 +87,11 @@
 - Corrección: persist-before-deliver, registro del fallo, recovery periódico sólo sobre `QUEUED` o lease vencido y claim idempotente por `requestId`.
 - Prueba: webhook fallido recuperado sin llamada OpenAI cuando la cola está vacía y sin doble procesamiento.
 - Reutilización: todo trabajo remoto durable necesita cola persistente, lease y recuperación independiente del canal rápido.
+
+## LEARN-012 — El cierre exige readback del camino real
+
+- Síntoma: el pooler y la primera notificación parecían configurados, pero el cluster Supavisor incorrecto rechazaba el rol y OpenClaw agotó el timeout de entrega.
+- Causa: presencia de variables y endpoints no demuestra conectividad ni recepción.
+- Corrección: validar el cluster con autenticación real, conservar reintentos append-only y exigir readback de estado, consumo, Telegram, RLS y contadores DML.
+- Prueba: caso `f22a12f2-61d5-4e0c-b169-9482bdd95068`, Telegram `messageId=3316`, intento 2 `DELIVERED`, cero locks/leases activos y cero cambios DML empresariales.
+- Reutilización: ningún frente de agentes se congela por configuración; se congela sólo por evidencia del recorrido productivo completo.
