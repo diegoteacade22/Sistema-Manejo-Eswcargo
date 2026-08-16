@@ -47,7 +47,7 @@ Todas las llamadas del worker a `/api/company-os/v3/worker/*` se firman sobre el
 4. Mientras OpenAI procesa, se envían heartbeats periódicos.
 5. Responses API usa `store:false`, reasoning `low`, máximo 3000 tokens, timeout 120 s y un único reintento para errores transitorios.
 6. Éxito envía output advisory estricto y el objeto `usage` completo a `complete`. Error envía código/mensaje seguro y `retryable` a `fail`.
-7. Tras persistir el resultado, notifica al chat Telegram autorizado mediante OpenClaw; si su pipeline TTS falla, usa el mismo bot como fallback directo y registra la entrega. Un fallo de Telegram no revierte el análisis.
+7. Tras persistir el resultado, reserva primero una intención durable en PostgreSQL y realiza un único efecto externo mediante el bot de Telegram autorizado. El resultado de entrega se persiste por separado; una intención incierta queda pendiente y no se reenvía automáticamente. Un fallo definitivo de Telegram no revierte el análisis.
 
 El worker no consulta bases de datos ni selecciona evidencia. Las misiones generadas sólo pueden quedar `PLANNED`.
 
