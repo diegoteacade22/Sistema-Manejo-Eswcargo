@@ -17,35 +17,14 @@ export class OpenClawTelegramClient {
       systemsManager ? `Gap de cobertura: ${output.primaryCoverageGap}` : `Próximo paso: ${output.recommendedNextStep}`,
       `Estado: ${requestStatus} · ninguna acción fue ejecutada.`,
     ].join('\n');
-    let response;
-    let gatewayError;
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
-      try {
-        response = await this.fetchImpl(`${this.gatewayUrl}/tools/invoke`, {
+    const response = await this.fetchImpl(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
       method: 'POST',
-      headers: {
-        authorization: `Bearer ${this.gatewayToken}`,
-        'content-type': 'application/json',
-        'x-openclaw-scopes': 'operator.write',
-        'x-openclaw-message-channel': 'telegram',
-        'x-openclaw-message-to': this.target,
-      },
-      body: JSON.stringify({
-        tool: 'message', action: 'send',
-        args: { channel: 'telegram', to: this.target, message, idempotencyKey: `company-os-v3:${claim.agentId || 'general-manager-ai-v3'}:${claim.requestId}:completed` },
-      }),
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chat_id: this.target, text: message }),
       signal: AbortSignal.timeout(15_000),
-        });
-        const raw = await response.text();
-        let payload = {};
-        try { payload = raw ? JSON.parse(raw) : {}; } catch { payload = {}; }
-        if (response.ok && payload.ok === true) return { status: 'DELIVERED', responseCode: response.status };
-        gatewayError = new Error(`OpenClaw notification HTTP ${response.status}`);
-      } catch (error) {
-        gatewayError = error;
-      }
-    }
-
-    throw Object.assign(new Error(gatewayError?.message || 'OpenClaw notification failed'), { code: 'TELEGRAM_DELIVERY_FAILED' });
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok !== true) throw Object.assign(new Error(`Telegram notification HTTP ${response.status}`), { code: 'TELEGRAM_DELIVERY_FAILED' });
+    return { status: 'DELIVERED', responseCode: response.status };
   }
 }

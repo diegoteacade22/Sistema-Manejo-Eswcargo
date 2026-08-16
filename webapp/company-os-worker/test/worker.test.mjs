@@ -217,7 +217,7 @@ test('notifica Telegram después de persistir complete y registra la entrega', a
   assert.deepEqual(calls, ['complete', 'reserve', 'telegram', 'notification:DELIVERED']);
 });
 
-test('cliente OpenClaw usa tools/invoke con Telegram y clave idempotente', async () => {
+test('cliente Telegram usa el canal existente después de la reserva durable', async () => {
   let request;
   const notifier = new OpenClawTelegramClient({
     gatewayUrl: 'http://openclaw.local', gatewayToken: 'gateway-secret', target: '12345', botToken: 'bot-secret',
@@ -225,12 +225,9 @@ test('cliente OpenClaw usa tools/invoke con Telegram y clave idempotente', async
   });
   await notifier.send(claim, advisory);
   const body = JSON.parse(request.init.body);
-  assert.equal(request.url, 'http://openclaw.local/tools/invoke');
-  assert.equal(body.tool, 'message');
-  assert.equal(body.action, 'send');
-  assert.equal(body.args.channel, 'telegram');
-  assert.equal(body.args.to, '12345');
-  assert.equal(body.args.idempotencyKey, 'company-os-v3:general-manager-ai-v3:request-1:completed');
+  assert.equal(request.url, 'https://api.telegram.org/botbot-secret/sendMessage');
+  assert.equal(body.chat_id, '12345');
+  assert.match(body.text, /request-1/);
 });
 
 test('Gerente de Sistemas usa IDs materializados y máximo cinco riesgos', async () => {
@@ -272,7 +269,7 @@ test('agenda genérica usa API HMAC firmada', async () => {
   assert.ok(request.init.headers['x-company-os-signature']);
 });
 
-test('Telegram falla cerrado sin bypass directo si OpenClaw falla', async () => {
+test('Telegram falla cerrado si el proveedor rechaza el envío', async () => {
   const calls = [];
   const notifier = new OpenClawTelegramClient({
     gatewayUrl: 'http://openclaw.local', gatewayToken: 'gateway-secret', target: '12345', botToken: 'bot-secret',
@@ -281,7 +278,6 @@ test('Telegram falla cerrado sin bypass directo si OpenClaw falla', async () => 
       return jsonResponse({ ok: false }, 500);
     },
   });
-  await assert.rejects(() => notifier.send(claim, advisory), /OpenClaw notification HTTP 500/);
-  assert.equal(calls.filter((url) => url.includes('/tools/invoke')).length, 2);
-  assert.equal(calls.some((url) => url.includes('api.telegram.org')), false);
+  await assert.rejects(() => notifier.send(claim, advisory), /Telegram notification HTTP 500/);
+  assert.equal(calls.filter((url) => url.includes('api.telegram.org')).length, 1);
 });
