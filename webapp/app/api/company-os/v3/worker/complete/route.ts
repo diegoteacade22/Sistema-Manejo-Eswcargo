@@ -19,6 +19,11 @@ function normalizeUsage(raw: Record<string, unknown>): CompanyOsWorkerUsage {
     outputTokens: integer(raw.output_tokens),
     reasoningTokens: integer(outputDetails.reasoning_tokens),
     totalTokens: integer(raw.total_tokens),
+    responseId: typeof raw.response_id === 'string' ? raw.response_id.slice(0, 200) : null,
+    durationMs: integer(raw.duration_ms),
+    retries: integer(raw.retry_count),
+    snapshotBytes: integer(raw.snapshot_bytes),
+    rulesApplied: Array.isArray(raw.rules_applied) ? raw.rules_applied.filter((item): item is string => typeof item === 'string').slice(0, 20) : [],
   };
 }
 

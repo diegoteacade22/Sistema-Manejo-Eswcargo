@@ -1,18 +1,24 @@
 import { NextResponse } from 'next/server';
-import { recordCompanyOsNotification } from '@/lib/company-os/v3-store';
+import { prepareCompanyOsNotification, recordCompanyOsNotification } from '@/lib/company-os/v3-store';
 import { verifiedWorkerJson } from '../_request';
 
 export async function POST(request: Request) {
   const verified = await verifiedWorkerJson(request);
   if ('error' in verified) return verified.error;
   const { requestId, leaseToken } = verified.input;
-  const delivery = (verified.input.delivery ?? {}) as Record<string, unknown>;
-  if (typeof requestId !== 'string' || typeof leaseToken !== 'string' || !['DELIVERED', 'FAILED'].includes(String(delivery.status))) {
+  const phase = String(verified.input.phase ?? 'COMPLETE');
+  if (typeof requestId !== 'string' || typeof leaseToken !== 'string') {
     return NextResponse.json({ error: 'Entrega inválida' }, { status: 400 });
   }
   try {
+    if (phase === 'PREPARE') return NextResponse.json(await prepareCompanyOsNotification({ requestId, leaseToken }));
+    const delivery = (verified.input.delivery ?? {}) as Record<string, unknown>;
+    const reservationId = verified.input.reservationId;
+    if (typeof reservationId !== 'string' || !['DELIVERED', 'FAILED'].includes(String(delivery.status))) {
+      return NextResponse.json({ error: 'Resultado de entrega inválido' }, { status: 400 });
+    }
     const result = await recordCompanyOsNotification({
-      requestId, leaseToken, status: String(delivery.status) as 'DELIVERED' | 'FAILED',
+      requestId, leaseToken, reservationId, status: String(delivery.status) as 'DELIVERED' | 'FAILED',
       responseCode: typeof delivery.responseCode === 'number' ? delivery.responseCode : null,
       errorDetail: typeof delivery.error === 'object' && delivery.error
         ? String((delivery.error as Record<string, unknown>).message ?? '')

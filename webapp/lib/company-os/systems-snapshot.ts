@@ -5,16 +5,19 @@ const nowIso = () => new Date().toISOString();
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 export type SystemsAsset = {
-  assetId: string; name: string; category: string; provider: string; environment: string; owner: string;
+  assetId: string; name: string; category: string; provider: string; companyOrBusinessUnit: string; environment: string; owner: string;
+  repository: string | null; projectOrService: string | null;
   runtime: string | null; region: string | null; safeReference: string | null;
   lifecycleStatus: 'ACTIVE'|'ARCHIVED'|'DEPRECATED'|'PLANNED'|'FUTURE'|'UNKNOWN';
   healthStatus: 'HEALTHY'|'DEGRADED'|'OFFLINE_CONFIRMED'|'UNKNOWN'|'UNOBSERVED'|'NOT_APPLICABLE';
   criticality: 'CRITICAL'|'HIGH'|'MEDIUM'|'LOW'; coverageStatus: string; confidence: number;
-  observedAt: string; warnings: string[]; evidenceRefs: string[];
+  observedAt: string; maxSourceUpdatedAt: string | null; freshnessStatus: 'CURRENT'|'STALE'|'UNKNOWN';
+  warnings: string[]; evidenceRefs: string[]; tags: string[]; ruleVersion: string;
 };
 export type SystemsDependency = {
   dependencyId: string; sourceAssetId: string; targetAssetId: string; dependencyType: string;
-  criticality: string; direction: 'OUTBOUND'; inferenceStatus: 'CONFIRMED'|'INFERRED'; observedAt: string;
+  criticality: string; direction: 'OUTBOUND'; environment: string; evidenceRefs: string[]; confidence: number;
+  estimatedFailureImpact: string; knownFallback: string | null; inferenceStatus: 'CONFIRMED'|'INFERRED'; observedAt: string;
 };
 export type SystemsRisk = {
   riskId: string; assetId: string; classification: 'ACTION_REQUIRED'|'OPPORTUNITY'|'REVIEW'|'INFORMATIONAL'|'IGNORE';
@@ -24,14 +27,30 @@ export type SystemsRisk = {
   missingEvidence: string[]; reasonCodes: string[]; evidenceRefs: string[]; evidenceFingerprint: string; ruleVersion: string;
 };
 
+export function deterministicRiskScore(input: {
+  impact: number; probability: number; urgency: number; assetCriticality: number; blastRadius: number;
+  fallbackCoverage: number; age: number; confidence: number; evidenceQuality: number; solutionReversibility: number;
+}) {
+  const bounded = (value: number) => Math.max(0, Math.min(1, value));
+  return Math.round(
+    bounded(input.impact) * 20 + bounded(input.probability) * 15 + bounded(input.urgency) * 10
+    + bounded(input.assetCriticality) * 15 + bounded(input.blastRadius) * 10
+    + (1 - bounded(input.fallbackCoverage)) * 10 + bounded(input.age) * 5
+    + bounded(input.confidence) * 5 + bounded(input.evidenceQuality) * 5 + bounded(input.solutionReversibility) * 5,
+  );
+}
+
 async function workerObservation() {
   let origin: string | null = null;
   try { origin = process.env.COMPANY_OS_V3_WORKER_URL ? new URL(process.env.COMPANY_OS_V3_WORKER_URL).origin : null; } catch {}
   if (!origin) return { healthStatus: 'UNOBSERVED' as const, coverageStatus: 'SOURCE_UNAVAILABLE', safeReference: null, warning: 'Worker URL no observable' };
   try {
-    const response = await fetch(`${origin}/webhook`, { method: 'GET', cache: 'no-store', signal: AbortSignal.timeout(5000) });
-    if (response.status === 404) return { healthStatus: 'HEALTHY' as const, coverageStatus: 'CONFIRMED', safeReference: origin, warning: '' };
-    return { healthStatus: 'DEGRADED' as const, coverageStatus: 'CONFIRMED', safeReference: origin, warning: `Respuesta HTTP inesperada ${response.status}` };
+    const response = await fetch(`${origin}/health`, { method: 'GET', cache: 'no-store', signal: AbortSignal.timeout(5000) });
+    const body = response.ok ? await response.json().catch(() => null) : null;
+    if (response.status === 200 && body?.ok === true && body?.service === 'company-os-v3-worker' && body?.contract === 'systems-manager-ai-v1') {
+      return { healthStatus: 'HEALTHY' as const, coverageStatus: 'CONFIRMED', safeReference: origin, warning: '' };
+    }
+    return { healthStatus: 'DEGRADED' as const, coverageStatus: 'CONFIRMED', safeReference: origin, warning: `Identidad o respuesta de health inválida (${response.status})` };
   } catch {
     return { healthStatus: 'UNKNOWN' as const, coverageStatus: 'SOURCE_UNAVAILABLE', safeReference: origin, warning: 'Health check puntual no disponible; no implica OFFLINE' };
   }
@@ -40,8 +59,11 @@ async function workerObservation() {
 export async function buildSystemsSnapshot() {
   const generatedAt = nowIso();
   const worker = await workerObservation();
-  const asset = (input: Omit<SystemsAsset,'environment'|'owner'|'observedAt'|'evidenceRefs'>): SystemsAsset => ({
-    environment: 'production', owner: 'Diego / Company OS', observedAt: generatedAt, evidenceRefs: ['assets'], ...input,
+  const asset = (input: Omit<SystemsAsset,'companyOrBusinessUnit'|'environment'|'owner'|'repository'|'projectOrService'|'observedAt'|'maxSourceUpdatedAt'|'freshnessStatus'|'evidenceRefs'|'tags'|'ruleVersion'>): SystemsAsset => ({
+    companyOrBusinessUnit: 'Company OS / ESWCARGO', environment: 'production', owner: 'Diego / Company OS',
+    repository: input.assetId === 'github-repository' ? 'diegoteacade22/Sistema-Manejo-Eswcargo' : null,
+    projectOrService: input.name, observedAt: generatedAt, maxSourceUpdatedAt: generatedAt, freshnessStatus: 'CURRENT',
+    evidenceRefs: ['assets'], tags: [input.category.toLowerCase(), input.provider.toLowerCase()], ruleVersion: RULE_VERSION, ...input,
   });
   const assets: SystemsAsset[] = [
     asset({ assetId:'company-os-webapp', name:'Company OS Webapp', category:'APPLICATION', provider:'Vercel', runtime:'Next.js / Node.js', region:null, safeReference:process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null, lifecycleStatus:'ACTIVE', healthStatus:'HEALTHY', criticality:'CRITICAL', coverageStatus:'CONFIRMED', confidence:1, warnings:[] }),
@@ -57,7 +79,11 @@ export async function buildSystemsSnapshot() {
     asset({ assetId:'mac-mini-future', name:'Mac mini Node', category:'FUTURE_DEVICE', provider:'Apple', runtime:null, region:'Miami', safeReference:null, lifecycleStatus:'FUTURE', healthStatus:'NOT_APPLICABLE', criticality:'LOW', coverageStatus:'CONFIRMED', confidence:1, warnings:['No es dependencia activa'] }),
     asset({ assetId:'backup-coverage', name:'Company OS Backup Coverage', category:'BACKUP', provider:'UNKNOWN', runtime:null, region:null, safeReference:null, lifecycleStatus:'UNKNOWN', healthStatus:'UNOBSERVED', criticality:'HIGH', coverageStatus:'UNOBSERVED', confidence:1, warnings:['No verificado no significa inexistente'] }),
   ];
-  const dep = (dependencyId:string, sourceAssetId:string, targetAssetId:string, dependencyType:string, criticality:string):SystemsDependency => ({ dependencyId, sourceAssetId, targetAssetId, dependencyType, criticality, direction:'OUTBOUND', inferenceStatus:'CONFIRMED', observedAt:generatedAt });
+  const dep = (dependencyId:string, sourceAssetId:string, targetAssetId:string, dependencyType:string, criticality:string):SystemsDependency => ({
+    dependencyId, sourceAssetId, targetAssetId, dependencyType, criticality, direction:'OUTBOUND', environment:'production',
+    evidenceRefs:['dependencies'], confidence:.95, estimatedFailureImpact:criticality === 'CRITICAL' ? 'Interrumpe el procesamiento de Company OS' : 'Degrada una capacidad técnica',
+    knownFallback:null, inferenceStatus:'CONFIRMED', observedAt:generatedAt,
+  });
   const dependencies = [
     dep('dep-web-db','company-os-webapp','company-os-database','DATABASE','CRITICAL'),
     dep('dep-web-worker','company-os-webapp','company-os-worker','SIGNED_WEBHOOK','CRITICAL'),
@@ -73,7 +99,8 @@ export async function buildSystemsSnapshot() {
     impact:'Las solicitudes persisten pero no avanzan durante una caída total del host.', confidence:.95,
     cause:'Instancia única confirmada en el mapa de dependencias.', affectedDependencies:['dep-web-worker','dep-worker-ai','dep-worker-openclaw'],
     recommendedAction:'Documentar y validar un procedimiento humano de recuperación fuera del host.', estimatedEffort:'LOW', changeRisk:'LOW',
-    suggestedRollback:'Retirar el procedimiento externo sin modificar el worker.', proposedOwner:'Gerente General / Diego', priority:78,
+    suggestedRollback:'Retirar el procedimiento externo sin modificar el worker.', proposedOwner:'Gerente General / Diego',
+    priority:deterministicRiskScore({ impact:.8, probability:.6, urgency:.7, assetCriticality:1, blastRadius:.8, fallbackCoverage:.2, age:.5, confidence:.95, evidenceQuality:.95, solutionReversibility:.9 }),
     suggestedTargetDate:null, missingEvidence:['Tiempo de recuperación probado'], reasonCodes:riskBase.reasonCodes,
     evidenceRefs:riskBase.evidence, evidenceFingerprint:digest(riskBase), ruleVersion:RULE_VERSION,
   },{

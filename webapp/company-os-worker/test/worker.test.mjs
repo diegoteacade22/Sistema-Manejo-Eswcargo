@@ -4,6 +4,7 @@ import test from 'node:test';
 import { CompanyOsApiClient } from '../src/api-client.mjs';
 import { OpenAiAdvisoryClient } from '../src/openai-client.mjs';
 import { OpenClawTelegramClient } from '../src/notification-client.mjs';
+import { redactExternalValue } from '../src/redaction.mjs';
 import { createWebhookServer } from '../src/server.mjs';
 import { signatureFor, signedHeaders, verifySignedBody } from '../src/signing.mjs';
 import { CompanyOsWorker, SerialWebhookQueue } from '../src/worker.mjs';
@@ -38,6 +39,12 @@ test('recover 204 termina sin llamar OpenAI', async () => {
 
   assert.deepEqual(await worker.runOnce(undefined), { status: 'NO_CONTENT' });
   assert.equal(openAiCalls, 0);
+});
+
+test('redacción externa cubre credenciales conocidas antes de Telegram', () => {
+  const value = redactExternalValue({ summary: 'ghp_abcdefghijklmnopqrstuvwxyz123456 AKIAABCDEFGHIJKLMNOP 123456789:abcdefghijklmnopqrstuvwxyzABCDE eyJabcdefghijk.eyJabcdefghijk.abcdefghijklmno' });
+  assert.doesNotMatch(value.summary, /ghp_|AKIA|123456789:|eyJ/);
+  assert.match(value.summary, /REDACTED/);
 });
 
 test('firma exacta timestamp.rawBody, rechaza firma alterada y timestamp viejo', () => {
@@ -104,7 +111,11 @@ test('Responses API usa el contrato V3 estricto y advisory', async () => {
   assert.equal(requestBody.text.format.schema.properties.missions.items.properties.status.enum[0], 'PLANNED');
   assert.deepEqual(requestBody.text.format.schema.properties.evidenceRefs.items.enum, ['refs']);
   assert.deepEqual(requestBody.text.format.schema.properties.missions.items.properties.evidenceRefs.items.enum, ['refs']);
-  assert.deepEqual(result, { output: advisory, usage });
+  assert.deepEqual(result.output, advisory);
+  assert.equal(result.usage.input_tokens, 1);
+  assert.equal(result.usage.retry_count, 0);
+  assert.ok(result.usage.snapshot_bytes > 0);
+  assert.deepEqual(result.usage.rules_applied, ['general-manager-ai-v3','closed-evidence-only','advisory-only']);
 });
 
 test('cliente API conserva el motivo seguro de un rechazo', async () => {
@@ -135,6 +146,17 @@ test('webhook válido deduplica requestId en memoria y llama claim una sola vez'
   assert.equal((await second.json()).deduped, true);
   await queue.idle();
   assert.equal(claims, 1);
+});
+
+test('health identifica servicio y contrato exactos', async (t) => {
+  const server = createWebhookServer({ queue: { enqueue() {} }, hmacSecret: 'secret' });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  t.after(() => server.close());
+  const address = server.address();
+  const response = await fetch(`http://127.0.0.1:${address.port}/health`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, service: 'company-os-v3-worker', contract: 'systems-manager-ai-v1', version: 1 });
 });
 
 test('webhook rechaza firma inválida sin encolar', async (t) => {
@@ -184,14 +206,15 @@ test('notifica Telegram después de persistir complete y registra la entrega', a
       claim: async () => claim,
       heartbeat: async () => ({}),
       complete: async () => { calls.push('complete'); },
-      notification: async (_claim, delivery) => { calls.push(`notification:${delivery.status}`); },
+      prepareNotification: async () => { calls.push('reserve'); return { send: true, reservationId: 'notification-1' }; },
+      notification: async (_claim, reservationId, delivery) => { assert.equal(reservationId, 'notification-1'); calls.push(`notification:${delivery.status}`); },
       fail: async () => { throw new Error('fail should not be called'); },
     },
     openai: { generate: async () => ({ output: advisory, usage: { total_tokens: 3 } }) },
     notifier: { send: async () => { calls.push('telegram'); return { status: 'DELIVERED', responseCode: 200 }; } },
   });
   assert.equal((await worker.runOnce(claim.requestId)).status, 'COMPLETED');
-  assert.deepEqual(calls, ['complete', 'telegram', 'notification:DELIVERED']);
+  assert.deepEqual(calls, ['complete', 'reserve', 'telegram', 'notification:DELIVERED']);
 });
 
 test('cliente OpenClaw usa tools/invoke con Telegram y clave idempotente', async () => {
@@ -249,17 +272,16 @@ test('agenda genérica usa API HMAC firmada', async () => {
   assert.ok(request.init.headers['x-company-os-signature']);
 });
 
-test('Telegram usa fallback directo si OpenClaw falla', async () => {
+test('Telegram falla cerrado sin bypass directo si OpenClaw falla', async () => {
   const calls = [];
   const notifier = new OpenClawTelegramClient({
     gatewayUrl: 'http://openclaw.local', gatewayToken: 'gateway-secret', target: '12345', botToken: 'bot-secret',
     fetchImpl: async (url) => {
       calls.push(url);
-      if (url.includes('/tools/invoke')) return jsonResponse({ ok: false }, 500);
-      return jsonResponse({ ok: true, result: { message_id: 9 } });
+      return jsonResponse({ ok: false }, 500);
     },
   });
-  assert.deepEqual(await notifier.send(claim, advisory), { status: 'DELIVERED', responseCode: 200 });
+  await assert.rejects(() => notifier.send(claim, advisory), /OpenClaw notification HTTP 500/);
   assert.equal(calls.filter((url) => url.includes('/tools/invoke')).length, 2);
-  assert.match(calls.at(-1), /^https:\/\/api\.telegram\.org\/botbot-secret\/sendMessage$/);
+  assert.equal(calls.some((url) => url.includes('api.telegram.org')), false);
 });

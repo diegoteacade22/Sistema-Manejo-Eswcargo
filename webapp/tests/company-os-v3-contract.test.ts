@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { signCompanyOsWorkerPayload, verifyCompanyOsWorkerRequest } from '../lib/company-os/v3-auth';
-import { estimateCompanyOsCost } from '../lib/company-os/v3-store';
+import { estimateCompanyOsCost, startOfCompanyOsDay } from '../lib/company-os/v3-store';
+import { deterministicRiskScore } from '../lib/company-os/systems-snapshot';
 import {
   COMPANY_OS_MISSION_STATUSES,
   COMPANY_OS_REQUEST_STATUSES,
@@ -11,6 +12,7 @@ import {
   COMPANY_OS_V3_TARGET_TOTAL_TOKENS,
   COMPANY_OS_AGENT_CONTRACTS,
   COMPANY_OS_AGENT_IDS,
+  companyOsDailyTokenLimit,
 } from '../lib/company-os/v3-types';
 
 test('solicitudes y misiones conservan ciclos tipados independientes', () => {
@@ -62,6 +64,23 @@ test('costo separa input ordinario, cache read y cache write sin doble conteo', 
   assert.equal(cost, (700 * 5 + 200 * 0.5 + 100 * 6.25 + 50 * 30) / 1_000_000);
 });
 
+test('acumulado diario respeta medianoche America/New_York con DST', () => {
+  assert.equal(startOfCompanyOsDay(new Date('2026-08-16T18:00:00Z')).toISOString(), '2026-08-16T04:00:00.000Z');
+  assert.equal(startOfCompanyOsDay(new Date('2026-01-16T18:00:00Z')).toISOString(), '2026-01-16T05:00:00.000Z');
+});
+
+test('límite diario es independiente por agente y bloquea antes del modelo', () => {
+  process.env.COMPANY_OS_SYSTEMS_DAILY_TOKEN_LIMIT = '36000';
+  process.env.COMPANY_OS_GENERAL_DAILY_TOKEN_LIMIT = '60000';
+  assert.equal(companyOsDailyTokenLimit('systems-manager-ai-v1'), 36000);
+  assert.equal(companyOsDailyTokenLimit('general-manager-ai-v3'), 60000);
+  const source = readFileSync('lib/company-os/v3-store.ts', 'utf8');
+  assert.match(source, /CASE_BLOCKED_DAILY_BUDGET/);
+  assert.match(source, /dailyUsed \+ companyCase\.targetTotalTokens > dailyLimit/);
+  delete process.env.COMPANY_OS_SYSTEMS_DAILY_TOKEN_LIMIT;
+  delete process.env.COMPANY_OS_GENERAL_DAILY_TOKEN_LIMIT;
+});
+
 test('el claim permite un único reintento de FAILED y marca recuperación del webhook', () => {
   const source = readFileSync('lib/company-os/v3-store.ts', 'utf8');
   assert.match(source, /c\.status = 'FAILED'/);
@@ -71,9 +90,10 @@ test('el claim permite un único reintento de FAILED y marca recuperación del w
 
 test('Telegram conserva intentos append-only y permite una sola reentrega', () => {
   const source = readFileSync('lib/company-os/v3-store.ts', 'utf8');
-  assert.match(source, /const attempt = \(previous\[0\]\?\.attempt \?\? 0\) \+ 1/);
+  assert.match(source, /status: 'PENDING'/);
+  assert.match(source, /completed:intent:\$\{attempt\}/);
+  assert.match(source, /completed:result:\$\{reservation\.attempt\}/);
   assert.match(source, /if \(attempt > 2\)/);
-  assert.match(source, /telegram:\$\{companyCase\.agentId\}:\$\{input\.requestId\}:completed:\$\{attempt\}/);
 });
 
 test('registro cerrado integra Gerente de Sistemas y línea de reporte', () => {
@@ -99,6 +119,19 @@ test('migración Sistemas es aditiva, RLS forzado, agenda NY y sin DML empresari
   assert.doesNotMatch(sql, /(?:INSERT INTO|UPDATE|DELETE FROM)\s+public\."?(?:Order|Product|Shipment|Purchase|Expense)/i);
 });
 
+test('hardening agrega rol aislado, revisión humana y consumo completo', () => {
+  const sql = readFileSync('../supabase/migrations/20260816192500_systems_manager_ai_v1_hardening.sql', 'utf8');
+  assert.match(sql, /CREATE ROLE systems_manager_ai_v1 NOLOGIN/);
+  assert.match(sql, /NOBYPASSRLS/);
+  assert.match(sql, /MARK_INCORRECT/);
+  assert.match(sql, /CompanyOsSystemRiskHistory/);
+  assert.match(sql, /responseId/);
+  assert.match(sql, /durationMs/);
+  assert.match(sql, /snapshotBytes/);
+  assert.match(sql, /REVOKE ALL ON ALL TABLES IN SCHEMA public FROM systems_manager_ai_v1/);
+  assert.doesNotMatch(sql, /GRANT (?:SELECT|INSERT|UPDATE|DELETE)[^;]*\"Order\"/i);
+});
+
 test('store selecciona agente persistido, materializa snapshot y no tiene DML empresarial', () => {
   const source = readFileSync('lib/company-os/v3-store.ts', 'utf8');
   assert.match(source, /agentId === 'systems-manager-ai-v1'/);
@@ -115,4 +148,12 @@ test('inventario declara AWS archivado, Mac mini futura y no materializa secreto
   assert.match(source, /assetId:'mac-mini-future'[\s\S]*lifecycleStatus:'FUTURE'/);
   assert.match(source, /valueIncluded:false/);
   assert.doesNotMatch(source, /process\.env\.COMPANY_OS_V3_HMAC_SECRET\s*[),]/);
+});
+
+test('score técnico es determinístico y responde a todos los factores requeridos', () => {
+  const base = { impact:.8, probability:.6, urgency:.7, assetCriticality:1, blastRadius:.8, fallbackCoverage:.2, age:.5, confidence:.95, evidenceQuality:.95, solutionReversibility:.9 };
+  const score = deterministicRiskScore(base);
+  assert.equal(score, deterministicRiskScore(base));
+  assert.ok(score >= 75 && score <= 100);
+  assert.ok(deterministicRiskScore({ ...base, fallbackCoverage: 1, impact: .2 }) < score);
 });

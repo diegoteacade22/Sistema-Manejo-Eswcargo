@@ -1,0 +1,19 @@
+import { NextResponse } from 'next/server';
+import { hasTrustedHumanRequestOrigin, requireHumanCompanyAdmin } from '@/lib/company-os/human-admin';
+import { decideCompanyOsRisk } from '@/lib/company-os/v3-store';
+
+export async function POST(request: Request) {
+  const authorization = await requireHumanCompanyAdmin(request);
+  if (!authorization.ok) return NextResponse.json({ error: authorization.error }, { status: authorization.status });
+  if (!hasTrustedHumanRequestOrigin(request)) return NextResponse.json({ error: 'Origen no permitido' }, { status: 403 });
+  let input: Parameters<typeof decideCompanyOsRisk>[0];
+  try { input = await request.json(); } catch { return NextResponse.json({ error: 'JSON inválido' }, { status: 400 }); }
+  if (!input?.requestId || !input?.riskId || !input?.idempotencyKey || !input?.reason || !['ACKNOWLEDGE','POSTPONE','MARK_INCORRECT','COMMENT'].includes(input.decision)) {
+    return NextResponse.json({ error: 'Decisión de riesgo inválida' }, { status: 400 });
+  }
+  try {
+    return NextResponse.json({ ...(await decideCompanyOsRisk(input, authorization.identity)), businessWrites: 0, infrastructureWrites: 0 });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'No se pudo registrar la revisión' }, { status: 409 });
+  }
+}

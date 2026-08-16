@@ -23,6 +23,11 @@ async function rawRequestBody(request) {
 export function createWebhookServer({ queue, hmacSecret, signatureToleranceMs = 300_000, now = Date.now }) {
   return createServer(async (request, response) => {
     response.setHeader('content-type', 'application/json');
+    if (request.method === 'GET' && request.url === '/health') {
+      response.statusCode = 200;
+      response.end(JSON.stringify({ ok: true, service: 'company-os-v3-worker', contract: 'systems-manager-ai-v1', version: 1 }));
+      return;
+    }
     if (request.method !== 'POST' || request.url !== '/webhook') {
       response.statusCode = 404;
       response.end(JSON.stringify({ error: 'Not found' }));

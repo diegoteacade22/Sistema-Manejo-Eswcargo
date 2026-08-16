@@ -46,16 +46,6 @@ export class OpenClawTelegramClient {
       }
     }
 
-    const direct = await this.fetchImpl(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ chat_id: this.target, text: message }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    const directPayload = await direct.json().catch(() => ({}));
-    if (!direct.ok || directPayload.ok !== true) {
-      throw Object.assign(new Error(gatewayError?.message || `Telegram notification HTTP ${direct.status}`), { code: 'TELEGRAM_DELIVERY_FAILED' });
-    }
-    return { status: 'DELIVERED', responseCode: direct.status };
+    throw Object.assign(new Error(gatewayError?.message || 'OpenClaw notification failed'), { code: 'TELEGRAM_DELIVERY_FAILED' });
   }
 }

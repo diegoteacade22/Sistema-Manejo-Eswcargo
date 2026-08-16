@@ -197,6 +197,7 @@ export class OpenAiAdvisoryClient {
 
   async generate(claim) {
     let lastError;
+    const startedAt = Date.now();
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -228,7 +229,19 @@ export class OpenAiAdvisoryClient {
         if (!raw.usage || typeof raw.usage !== 'object' || Array.isArray(raw.usage)) {
           throw new OpenAiWorkerError('OpenAI response omitted usage', { code: 'OPENAI_MISSING_USAGE' });
         }
-        return { output: claim.agentId === 'systems-manager-ai-v1' ? validateSystemsAdvisoryOutput(parsed) : validateAdvisoryOutput(parsed), usage: raw.usage };
+        return {
+          output: claim.agentId === 'systems-manager-ai-v1' ? validateSystemsAdvisoryOutput(parsed) : validateAdvisoryOutput(parsed),
+          usage: {
+            ...raw.usage,
+            response_id: typeof raw.id === 'string' ? raw.id : null,
+            duration_ms: Date.now() - startedAt,
+            retry_count: attempt - 1,
+            snapshot_bytes: Buffer.byteLength(JSON.stringify(claim.evidencePayload ?? {}), 'utf8'),
+            rules_applied: claim.agentId === 'systems-manager-ai-v1'
+              ? ['systems-manager-ai-v1.0.0','closed-evidence-only','advisory-only','max-five-action-required']
+              : ['general-manager-ai-v3','closed-evidence-only','advisory-only'],
+          },
+        };
       } catch (error) {
         const normalized = error?.name === 'AbortError'
           ? new OpenAiWorkerError('OpenAI request timed out', { retryable: true, code: 'OPENAI_TIMEOUT' })
