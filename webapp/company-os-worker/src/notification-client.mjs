@@ -1,8 +1,9 @@
 export class OpenClawTelegramClient {
-  constructor({ gatewayUrl, gatewayToken, target, fetchImpl = globalThis.fetch }) {
+  constructor({ gatewayUrl, gatewayToken, target, botToken, fetchImpl = globalThis.fetch }) {
     this.gatewayUrl = gatewayUrl.replace(/\/$/, '');
     this.gatewayToken = gatewayToken;
     this.target = target;
+    this.botToken = botToken;
     this.fetchImpl = fetchImpl;
   }
 
@@ -16,8 +17,10 @@ export class OpenClawTelegramClient {
       `Estado: ${requestStatus} · ninguna acción fue ejecutada.`,
     ].join('\n');
     let response;
+    let gatewayError;
     for (let attempt = 1; attempt <= 2; attempt += 1) {
-      response = await this.fetchImpl(`${this.gatewayUrl}/tools/invoke`, {
+      try {
+        response = await this.fetchImpl(`${this.gatewayUrl}/tools/invoke`, {
       method: 'POST',
       headers: {
         authorization: `Bearer ${this.gatewayToken}`,
@@ -31,15 +34,27 @@ export class OpenClawTelegramClient {
         args: { channel: 'telegram', to: this.target, message, idempotencyKey: `company-os-v3:${claim.requestId}:completed` },
       }),
       signal: AbortSignal.timeout(15_000),
-      });
-      if (response.ok || attempt === 2) break;
+        });
+        const raw = await response.text();
+        let payload = {};
+        try { payload = raw ? JSON.parse(raw) : {}; } catch { payload = {}; }
+        if (response.ok && payload.ok === true) return { status: 'DELIVERED', responseCode: response.status };
+        gatewayError = new Error(`OpenClaw notification HTTP ${response.status}`);
+      } catch (error) {
+        gatewayError = error;
+      }
     }
-    const raw = await response.text();
-    let payload = {};
-    try { payload = raw ? JSON.parse(raw) : {}; } catch { payload = {}; }
-    if (!response.ok || payload.ok !== true) {
-      throw Object.assign(new Error(`OpenClaw notification HTTP ${response.status}`), { code: 'TELEGRAM_DELIVERY_FAILED' });
+
+    const direct = await this.fetchImpl(`https://api.telegram.org/bot${this.botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ chat_id: this.target, text: message }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const directPayload = await direct.json().catch(() => ({}));
+    if (!direct.ok || directPayload.ok !== true) {
+      throw Object.assign(new Error(gatewayError?.message || `Telegram notification HTTP ${direct.status}`), { code: 'TELEGRAM_DELIVERY_FAILED' });
     }
-    return { status: 'DELIVERED', responseCode: response.status };
+    return { status: 'DELIVERED', responseCode: direct.status };
   }
 }
