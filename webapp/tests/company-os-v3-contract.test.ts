@@ -144,7 +144,7 @@ test('misiones con decisión terminal no aceptan decisiones redundantes', () => 
   const dashboard = readFileSync('components/company-os-dashboard.tsx', 'utf8');
   assert.match(store, /La misión ya tiene una decisión humana terminal/);
   assert.match(store, /if \(mission\.status === target\) return \{ reused: true/);
-  assert.match(dashboard, /const terminal = \['APPROVED','REJECTED','BLOCKED'\]\.includes\(mission\.status\)/);
+  assert.match(dashboard, /const terminal = \[\s*['"]APPROVED['"]\s*,\s*['"]REJECTED['"]\s*,\s*['"]BLOCKED['"]\s*,?\s*\]\.includes\(mission\.status\)/);
 });
 
 test('store selecciona agente persistido, materializa snapshot y no tiene DML empresarial', () => {

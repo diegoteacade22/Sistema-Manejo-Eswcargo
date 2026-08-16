@@ -793,21 +793,37 @@ export async function recordCompanyOsNotification(input: {
 }
 
 export async function getCompanyOsCase(requestId: string) {
-  return companyOsV3Prisma().companyOsCase.findUnique({ where: { requestId }, include: {
+  const db = companyOsV3Prisma();
+  const companyCase = await db.companyOsCase.findUnique({ where: { requestId }, include: {
     messages: { orderBy: { createdAt: 'asc' } }, events: { orderBy: { sequence: 'asc' } },
     evidence: { orderBy: { evidenceKey: 'asc' } }, missions: { orderBy: { createdAt: 'asc' } },
     decisions: { orderBy: { createdAt: 'asc' } }, usage: { orderBy: { createdAt: 'asc' } },
     heartbeats: { orderBy: { createdAt: 'asc' } }, attempts: { orderBy: { attempt: 'asc' } },
     deliveries: { orderBy: { createdAt: 'asc' } }, leases: { orderBy: { createdAt: 'asc' } },
   } });
+  if (!companyCase) return null;
+  const auditEvents = await db.companyOsAuditEvent.findMany({ where: { requestId }, orderBy: { createdAt: 'asc' } });
+  return { ...companyCase, auditEvents };
 }
 
 export async function listCompanyOsCases(limit = 30, agentId?: CompanyOsAgentId) {
-  return companyOsV3Prisma().companyOsCase.findMany({
+  const db = companyOsV3Prisma();
+  const cases = await db.companyOsCase.findMany({
     where: agentId ? { agentId } : undefined,
     take: Math.min(Math.max(limit, 1), 100), orderBy: { createdAt: 'desc' },
     include: { messages: { orderBy: { createdAt: 'asc' } }, events: { orderBy: { sequence: 'asc' } }, evidence: { orderBy: { evidenceKey: 'asc' } }, usage: true, missions: true, heartbeats: { take: 1, orderBy: { createdAt: 'desc' } } },
   });
+  const auditEvents = cases.length === 0 ? [] : await db.companyOsAuditEvent.findMany({
+    where: { requestId: { in: cases.map((companyCase) => companyCase.requestId) } },
+    orderBy: { createdAt: 'asc' },
+  });
+  const auditsByRequest = new Map<string, typeof auditEvents>();
+  for (const audit of auditEvents) {
+    const group = auditsByRequest.get(audit.requestId) ?? [];
+    group.push(audit);
+    auditsByRequest.set(audit.requestId, group);
+  }
+  return cases.map((companyCase) => ({ ...companyCase, auditEvents: auditsByRequest.get(companyCase.requestId) ?? [] }));
 }
 
 export async function appendCompanyOsContext(requestId: string, content: string, identity: Identity) {
@@ -824,6 +840,11 @@ export async function appendCompanyOsContext(requestId: string, content: string,
       caseId: companyCase.id, requestId, eventType: 'CONTEXT_APPENDED', payload: { messageId: message.id },
       idempotencyKey: `case:${requestId}:context:${message.id}`,
     });
+    await tx.companyOsAuditEvent.create({ data: {
+      requestId, action: 'CONTEXT_APPENDED', actorRef: identity.actorRef,
+      metadata: jsonValue({ businessWrites: 0, infrastructureWrites: 0, messageId: message.id }),
+      idempotencyKey: `audit:${requestId}:context:${message.id}`,
+    } });
     return message;
   });
 }
@@ -842,8 +863,65 @@ export async function cancelCompanyOsCase(requestId: string, reason: string, ide
       caseId: companyCase.id, requestId, eventType: 'CASE_CANCELLED', fromStatus, toStatus: 'CANCELLED',
       payload: { reason: reason.slice(0, 500), actorRef: identity.actorRef }, idempotencyKey: `case:${requestId}:cancelled`,
     });
+    await tx.companyOsAuditEvent.create({ data: {
+      requestId, action: 'CASE_CANCELLED', actorRef: identity.actorRef,
+      metadata: jsonValue({ businessWrites: 0, infrastructureWrites: 0, fromStatus, toStatus: 'CANCELLED' }),
+      idempotencyKey: `audit:${requestId}:cancelled`,
+    } });
     return { reused: false, status: 'CANCELLED' as const };
   });
+}
+
+type AtomicMissionDecisionOps<TMission extends { status: string }, TResult> = {
+  findExisting: () => Promise<TResult | null>;
+  lockMission: () => Promise<TMission>;
+  targetStatus: string;
+  readCurrent: (mission: TMission) => Promise<TResult> | TResult;
+  persist: (mission: TMission) => Promise<TResult>;
+};
+
+export async function resolveAtomicMissionDecision<TMission extends { status: string }, TResult>(
+  ops: AtomicMissionDecisionOps<TMission, TResult>,
+) {
+  const existing = await ops.findExisting();
+  if (existing) return { reused: true, value: existing } as const;
+
+  const mission = await ops.lockMission();
+  const existingAfterLock = await ops.findExisting();
+  if (existingAfterLock) return { reused: true, value: existingAfterLock } as const;
+
+  if (mission.status === 'RUNNING' || mission.status === 'DONE') {
+    throw new Error('V3 no autoriza modificar misiones en ejecución o ejecutadas');
+  }
+  if (['APPROVED', 'REJECTED', 'BLOCKED'].includes(mission.status)) {
+    const target = ops.targetStatus;
+    if (mission.status === target) return { reused: true, value: await ops.readCurrent(mission) } as const;
+    throw new Error('La misión ya tiene una decisión humana terminal');
+  }
+  return { reused: false, value: await ops.persist(mission) } as const;
+}
+
+type LockedMissionRow = {
+  id: string;
+  caseId: string;
+  title: string;
+  rationale: string;
+  expectedOutput: string;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+  caseStatus: string;
+};
+
+type PersistedMissionDecision = {
+  requestHash?: string;
+  detail?: Record<string, unknown>;
+  result?: { mission: LockedMissionRow; caseStatus: string; executionAuthorized: false };
+};
+
+function parsePersistedMissionDecision(value: string | null) {
+  if (!value) return null;
+  try { return JSON.parse(value) as PersistedMissionDecision; } catch { return null; }
 }
 
 export async function decideCompanyOsMission(input: {
@@ -856,52 +934,98 @@ export async function decideCompanyOsMission(input: {
   };
   const target = transitions[input.decision];
   if (!COMPANY_OS_MISSION_STATUSES.includes(target) || target === 'RUNNING' || target === 'DONE') throw new Error('V3 no autoriza ejecución de misiones');
+  const requestHash = hash(JSON.stringify({
+    requestId: input.requestId,
+    missionId: input.missionId,
+    decision: input.decision,
+    reason: input.reason ?? null,
+    revision: input.revision ?? null,
+    deferUntil: input.deferUntil ?? null,
+  }));
   const db = companyOsV3Prisma();
   return db.$transaction(async (tx) => {
-    const companyCase = await tx.companyOsCase.findUniqueOrThrow({ where: { requestId: input.requestId } });
-    const mission = await tx.companyOsMission.findFirstOrThrow({ where: { id: input.missionId, caseId: companyCase.id } });
-    if (['APPROVED','REJECTED','BLOCKED'].includes(mission.status)) {
-      if (mission.status === target) return { reused: true, mission, caseStatus: companyCase.status, executionAuthorized: false };
-      throw new Error('La misión ya tiene una decisión humana terminal');
-    }
-    const existing = await tx.companyOsDecision.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
-    if (existing) return { reused: true, mission };
-    let decisionDetail: Record<string, unknown> = { reason: sanitizeCompanyText(input.reason ?? '', 1000).safeText || null };
-    let missionUpdate: { status: CompanyOsMissionStatus; title?: string; rationale?: string; expectedOutput?: string } = { status: target };
-    if (input.decision === 'EDIT') {
-      const title = sanitizeCompanyText(input.revision?.title ?? '', 1000).safeText;
-      const rationale = sanitizeCompanyText(input.revision?.rationale ?? '', 1000).safeText;
-      const expectedOutput = sanitizeCompanyText(input.revision?.expectedOutput ?? '', 1000).safeText;
-      if (!title || !rationale || !expectedOutput) throw new Error('La edición requiere título, motivo y entregable');
-      missionUpdate = { status: target, title, rationale, expectedOutput };
-      decisionDetail = { ...decisionDetail, revision: { title, rationale, expectedOutput } };
-    }
-    if (input.decision === 'POSTPONE') {
-      const deferUntil = new Date(input.deferUntil ?? '');
-      if (!Number.isFinite(deferUntil.getTime())) throw new Error('Fecha de postergación inválida');
-      decisionDetail = { ...decisionDetail, deferUntil: deferUntil.toISOString() };
-    }
-    if (input.decision === 'MARK_INCORRECT' && !decisionDetail.reason) throw new Error('Debe indicar qué información es incorrecta');
-    await tx.companyOsDecision.create({ data: {
-      caseId: companyCase.id, missionId: mission.id, decision: input.decision, reason: JSON.stringify(decisionDetail),
-      actorRef: identity.actorRef, idempotencyKey: input.idempotencyKey,
-    } });
-    const updated = await tx.companyOsMission.update({ where: { id: mission.id }, data: missionUpdate });
-    await appendCaseEvent(tx, {
-      caseId: companyCase.id, requestId: input.requestId, eventType: 'MISSION_DECIDED',
-      payload: { missionId: mission.id, decision: input.decision, fromMissionStatus: mission.status, toMissionStatus: target, executionAuthorized: false, detail: decisionDetail },
-      idempotencyKey: `case:${input.requestId}:mission:${input.idempotencyKey}`,
-    });
-    const openReviews = await tx.companyOsMission.count({ where: { caseId: companyCase.id, status: { in: ['PLANNED', 'REVIEW'] } } });
-    if (openReviews === 0 && companyCase.status === 'AWAITING_REVIEW') {
-      await tx.companyOsCase.update({ where: { id: companyCase.id }, data: { status: 'COMPLETED', completedAt: new Date() } });
-      await appendCaseEvent(tx, {
-        caseId: companyCase.id, requestId: input.requestId, eventType: 'CASE_COMPLETED',
-        fromStatus: 'AWAITING_REVIEW', toStatus: 'COMPLETED', payload: { reason: 'HUMAN_REVIEW_CLOSED', executionAuthorized: false },
-        idempotencyKey: `case:${input.requestId}:human-review-completed`,
+    const findExisting = async () => {
+      const existing = await tx.companyOsDecision.findUnique({
+        where: { idempotencyKey: input.idempotencyKey },
+        include: { case: { select: { requestId: true, status: true } }, mission: true },
       });
-    }
-    return { reused: false, mission: updated, caseStatus: openReviews === 0 ? 'COMPLETED' : companyCase.status, executionAuthorized: false };
+      if (!existing) return null;
+      if (existing.case.requestId !== input.requestId || existing.missionId !== input.missionId || !existing.mission) {
+        throw new Error('La idempotencyKey ya pertenece a otra decisión');
+      }
+      const persisted = parsePersistedMissionDecision(existing.reason);
+      if (existing.decision !== input.decision || (persisted?.requestHash && persisted.requestHash !== requestHash)) {
+        throw new Error('La idempotencyKey fue reutilizada con otro contenido');
+      }
+      if (persisted?.result) return persisted.result;
+      return { mission: existing.mission, caseStatus: existing.case.status, executionAuthorized: false };
+    };
+
+    const resolved = await resolveAtomicMissionDecision({
+      findExisting,
+      targetStatus: target,
+      readCurrent: (mission) => ({ mission, caseStatus: mission.caseStatus, executionAuthorized: false }),
+      lockMission: async () => {
+        const rows = await tx.$queryRaw<LockedMissionRow[]>(Prisma.sql`
+          SELECT m.id, m."caseId", m.title, m.rationale, m."expectedOutput", m.status,
+            m."createdAt", m."updatedAt", c.status AS "caseStatus"
+          FROM public."CompanyOsMission" m
+          JOIN public."CompanyOsCase" c ON c.id = m."caseId"
+          WHERE c."requestId" = ${input.requestId} AND m.id = ${input.missionId}
+          LIMIT 1
+          FOR UPDATE OF c, m
+        `);
+        if (!rows[0]) throw new Error('Misión Company OS inexistente');
+        return rows[0];
+      },
+      persist: async (mission) => {
+        let decisionDetail: Record<string, unknown> = { reason: sanitizeCompanyText(input.reason ?? '', 1000).safeText || null };
+        if (input.decision !== 'APPROVE' && !decisionDetail.reason) throw new Error('La decisión requiere un motivo auditable');
+        let missionUpdate: { status: CompanyOsMissionStatus; title?: string; rationale?: string; expectedOutput?: string } = { status: target };
+        if (input.decision === 'EDIT') {
+          const title = sanitizeCompanyText(input.revision?.title ?? '', 1000).safeText;
+          const rationale = sanitizeCompanyText(input.revision?.rationale ?? '', 1000).safeText;
+          const expectedOutput = sanitizeCompanyText(input.revision?.expectedOutput ?? '', 1000).safeText;
+          if (!title || !rationale || !expectedOutput) throw new Error('La edición requiere título, motivo y entregable');
+          missionUpdate = { status: target, title, rationale, expectedOutput };
+          decisionDetail = { ...decisionDetail, revision: { title, rationale, expectedOutput } };
+        }
+        if (input.decision === 'POSTPONE') {
+          const deferUntil = new Date(input.deferUntil ?? '');
+          if (!Number.isFinite(deferUntil.getTime())) throw new Error('Fecha de postergación inválida');
+          decisionDetail = { ...decisionDetail, deferUntil: deferUntil.toISOString() };
+        }
+        if (input.decision === 'MARK_INCORRECT' && !decisionDetail.reason) throw new Error('Debe indicar qué información es incorrecta');
+        const updated = await tx.companyOsMission.update({ where: { id: mission.id }, data: missionUpdate });
+        await appendCaseEvent(tx, {
+          caseId: mission.caseId, requestId: input.requestId, eventType: 'MISSION_DECIDED',
+          payload: { missionId: mission.id, decision: input.decision, fromMissionStatus: mission.status, toMissionStatus: target, executionAuthorized: false, detail: decisionDetail },
+          idempotencyKey: `case:${input.requestId}:mission:${input.idempotencyKey}`,
+        });
+        await tx.companyOsAuditEvent.create({ data: {
+          requestId: input.requestId, action: 'MISSION_DECIDED', actorRef: identity.actorRef,
+          metadata: jsonValue({ businessWrites: 0, infrastructureWrites: 0, missionId: mission.id, decision: input.decision, executionAuthorized: false }),
+          idempotencyKey: `audit:${input.requestId}:mission:${input.idempotencyKey}`,
+        } });
+        const openReviews = await tx.companyOsMission.count({ where: { caseId: mission.caseId, status: { in: ['PLANNED', 'REVIEW'] } } });
+        if (openReviews === 0 && mission.caseStatus === 'AWAITING_REVIEW') {
+          await tx.companyOsCase.update({ where: { id: mission.caseId }, data: { status: 'COMPLETED', completedAt: new Date() } });
+          await appendCaseEvent(tx, {
+            caseId: mission.caseId, requestId: input.requestId, eventType: 'CASE_COMPLETED',
+            fromStatus: 'AWAITING_REVIEW', toStatus: 'COMPLETED', payload: { reason: 'HUMAN_REVIEW_CLOSED', executionAuthorized: false },
+            idempotencyKey: `case:${input.requestId}:human-review-completed`,
+          });
+        }
+        const result = { mission: updated, caseStatus: openReviews === 0 ? 'COMPLETED' : mission.caseStatus, executionAuthorized: false as const };
+        await tx.companyOsDecision.create({ data: {
+          caseId: mission.caseId, missionId: mission.id, decision: input.decision,
+          reason: JSON.stringify({ requestHash, detail: decisionDetail, result }),
+          actorRef: identity.actorRef, idempotencyKey: input.idempotencyKey,
+        } });
+        return result;
+      },
+    });
+    return { reused: resolved.reused, ...resolved.value };
   });
 }
 
@@ -946,6 +1070,11 @@ export async function decideCompanyOsRisk(input: {
       payload: { riskId: input.riskId, decision: input.decision, fromStatus: risk.currentStatus, toStatus, deferUntil, executionAuthorized: false },
       idempotencyKey: `case:${input.requestId}:risk:${input.idempotencyKey}`,
     });
+    await tx.companyOsAuditEvent.create({ data: {
+      requestId: input.requestId, action: 'RISK_REVIEWED', actorRef: identity.actorRef,
+      metadata: jsonValue({ businessWrites: 0, infrastructureWrites: 0, riskId: input.riskId, decision: input.decision, executionAuthorized: false }),
+      idempotencyKey: `audit:${input.requestId}:risk:${input.idempotencyKey}`,
+    } });
     return { reused: false, riskId: input.riskId, status: toStatus, executionAuthorized: false };
   });
 }

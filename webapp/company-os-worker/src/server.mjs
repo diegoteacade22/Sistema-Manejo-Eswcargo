@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { loadConfig } from './config.mjs';
 import { CompanyOsApiClient } from './api-client.mjs';
 import { OpenAiAdvisoryClient } from './openai-client.mjs';
-import { OpenClawTelegramClient } from './notification-client.mjs';
+import { TelegramNotificationClient } from './notification-client.mjs';
 import { SIGNATURE_HEADER, TIMESTAMP_HEADER, verifySignedBody } from './signing.mjs';
 import { CompanyOsWorker, SerialWebhookQueue } from './worker.mjs';
 
@@ -90,9 +90,7 @@ export function buildRuntime(config, overrides = {}) {
   const worker = new CompanyOsWorker({
     api,
     openai,
-    notifier: overrides.notifier || new OpenClawTelegramClient({
-      gatewayUrl: config.openClawGatewayUrl,
-      gatewayToken: config.openClawGatewayToken,
+    notifier: overrides.notifier || new TelegramNotificationClient({
       target: config.telegramTarget,
       botToken: config.telegramBotToken,
       fetchImpl: overrides.fetchImpl,

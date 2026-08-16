@@ -1,7 +1,5 @@
-export class OpenClawTelegramClient {
-  constructor({ gatewayUrl, gatewayToken, target, botToken, fetchImpl = globalThis.fetch }) {
-    this.gatewayUrl = gatewayUrl.replace(/\/$/, '');
-    this.gatewayToken = gatewayToken;
+export class TelegramNotificationClient {
+  constructor({ target, botToken, fetchImpl = globalThis.fetch }) {
     this.target = target;
     this.botToken = botToken;
     this.fetchImpl = fetchImpl;

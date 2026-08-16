@@ -27,8 +27,6 @@ export function loadConfig(env = process.env) {
     openAiTimeoutMs: positiveInteger(env.COMPANY_OS_V3_OPENAI_TIMEOUT_MS, 120_000, 'COMPANY_OS_V3_OPENAI_TIMEOUT_MS'),
     heartbeatIntervalMs: positiveInteger(env.COMPANY_OS_V3_HEARTBEAT_INTERVAL_MS, 30_000, 'COMPANY_OS_V3_HEARTBEAT_INTERVAL_MS'),
     dedupeTtlMs: positiveInteger(env.COMPANY_OS_V3_DEDUPE_TTL_MS, 3_600_000, 'COMPANY_OS_V3_DEDUPE_TTL_MS'),
-    openClawGatewayUrl: required('COMPANY_OS_V3_OPENCLAW_GATEWAY_URL', env).replace(/\/$/, ''),
-    openClawGatewayToken: required('COMPANY_OS_V3_OPENCLAW_GATEWAY_TOKEN', env),
     telegramTarget: required('COMPANY_OS_V3_TELEGRAM_TARGET', env),
     telegramBotToken: required('COMPANY_OS_V3_TELEGRAM_BOT_TOKEN', env),
   });

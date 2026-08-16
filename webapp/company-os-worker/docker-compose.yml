@@ -7,7 +7,6 @@ services:
       - /etc/company-os-v3-worker.env
     environment:
       COMPANY_OS_V3_HOST: 0.0.0.0
-      COMPANY_OS_V3_OPENCLAW_GATEWAY_URL: http://openclaw-4eiw-openclaw-1:42691
     networks:
       - default
       - openclaw
