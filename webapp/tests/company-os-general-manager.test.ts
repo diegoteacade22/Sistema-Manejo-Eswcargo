@@ -19,7 +19,8 @@ const snapshot: CompanySnapshot = {
     ordersToBuy: 4,
     productsActive: 100,
     unitsInStock: 25,
-    productsWithoutStock: 60,
+    productsWithoutStockRaw: 60,
+    actionableProductsWithoutStock: 2,
     shipmentsInTransit: 3,
     delayedShipments: 1,
     purchasesPending: 2,
@@ -29,6 +30,47 @@ const snapshot: CompanySnapshot = {
   distributions: {
     orderStatus: [{ status: 'COMPRAR', count: 4 }],
     shipmentStatus: [{ status: 'EN TRANSITO', count: 3 }],
+  },
+  calibration: {
+    actionableProducts: [{
+      productId: 10,
+      sku: 'TEST-SKU',
+      pendingUnits: 2,
+      soldUnits90Days: 0,
+      soldOrders90Days: 0,
+      recentInquiryCount: 1,
+      grossMarginPct: 15,
+      availableUnits: 5,
+      supplierOfferAt: '2026-08-15T15:00:00.000Z',
+    }],
+    delayedShipmentDossiers: [{
+      shipmentNumber: 631,
+      status: 'LLEGANDO',
+      dateShipped: '2026-07-01T12:00:00.000Z',
+      ageDays: 45,
+      updatedAt: '2026-08-15T15:00:00.000Z',
+      linkedOrders: 1,
+      linkedItems: 0,
+      trackingReferences: 0,
+      classification: 'REVIEW',
+      gaps: ['NO_LINKED_ITEMS', 'NO_TRACKING_REFERENCE'],
+    }],
+  },
+  quality: {
+    metrics: Object.fromEntries([
+      'ordersLast7Days', 'revenueLast7DaysUsd', 'ordersNonUsdLast7Days', 'ordersToBuy',
+      'productsActive', 'unitsInStock', 'productsWithoutStockRaw', 'actionableProductsWithoutStock',
+      'shipmentsInTransit', 'delayedShipments', 'purchasesPending', 'purchasesBalanceUsd',
+      'expensesLast30DaysUsd',
+    ].map((key) => [key, {
+      count: 1,
+      maxDateOrUpdate: '2026-08-15T15:00:00.000Z',
+      freshness: 'FRESH',
+      coverage: 'COMPLETE',
+      currency: key.includes('Usd') ? 'USD' : 'COUNT',
+      confidence: 'HIGH',
+    }])) as CompanySnapshot['quality']['metrics'],
+    gaps: [],
   },
   freshness: {
     latestOrderUpdate: '2026-08-15T15:00:00.000Z',
@@ -256,7 +298,7 @@ test('no declara READY si el snapshot tiene una excepción aunque el modelo no p
     const brief = await generateGeneralManagerBrief(snapshot, '', mockFetch);
     assert.equal(brief.status, 'NEEDS_ATTENTION');
     assert.ok(brief.priorities.some((priority) => priority.id === 'LOG-DELAY'));
-    assert.match(brief.executiveSummary, /1 envío\(s\) demorado/);
+    assert.match(brief.executiveSummary, /1 expediente\(s\) candidato\(s\)/);
   } finally {
     if (previousKey == null) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = previousKey;

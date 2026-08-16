@@ -63,7 +63,7 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     agent: 'Gerente General AI',
-    version: '1',
+    version: '2',
     mode: 'business_data_read_only_with_append_only_audit',
     modelConfigured: Boolean((process.env.OPENAI_API_KEY ?? '').trim()),
     sourceConfigured: Boolean((process.env.COMPANY_OS_DATABASE_URL ?? '').trim()),

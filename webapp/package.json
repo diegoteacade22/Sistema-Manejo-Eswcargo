@@ -42,7 +42,7 @@
     "test:sync-source": "tsx scripts/test-sync-source-normalization.ts",
     "test:sync-operational": "tsx --test tests/direct-sheet-sync.test.ts",
     "test:agent-order": "tsx scripts/test-agent-order-invariants.ts",
-    "test:company-os": "tsx --test tests/company-os-general-manager.test.ts",
+    "test:company-os": "tsx --test tests/company-os-general-manager.test.ts tests/company-os-calibration.test.ts tests/company-os-mission-events.test.ts",
     "test:cashflow-export": "python3 scripts/test-export-cash-flow-raw-transactions.py",
     "test:cashflow-reconciliation": "node scripts/test-cashflow-reconciliation.mjs",
     "revert:ledger-batch:20260718": "node scripts/revert-duplicate-ledger-batch-20260718.mjs",

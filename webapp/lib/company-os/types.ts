@@ -10,6 +10,58 @@ export const COMPANY_OS_AREAS = [
 
 export type CompanyOsArea = (typeof COMPANY_OS_AREAS)[number];
 
+export const COMPANY_OS_METRIC_KEYS = [
+  'ordersLast7Days',
+  'revenueLast7DaysUsd',
+  'ordersNonUsdLast7Days',
+  'ordersToBuy',
+  'productsActive',
+  'unitsInStock',
+  'productsWithoutStockRaw',
+  'actionableProductsWithoutStock',
+  'shipmentsInTransit',
+  'delayedShipments',
+  'purchasesPending',
+  'purchasesBalanceUsd',
+  'expensesLast30DaysUsd',
+] as const;
+
+export type CompanyMetricKey = (typeof COMPANY_OS_METRIC_KEYS)[number];
+
+export type MetricQualityProfile = {
+  count: number;
+  maxDateOrUpdate: string | null;
+  freshness: 'FRESH' | 'STALE' | 'UNKNOWN';
+  coverage: 'COMPLETE' | 'PARTIAL' | 'UNKNOWN';
+  currency: 'USD' | 'COUNT' | 'MIXED' | 'UNKNOWN';
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+};
+
+export type ActionableProduct = {
+  productId: number;
+  sku: string;
+  pendingUnits: number;
+  soldUnits90Days: number;
+  soldOrders90Days: number;
+  recentInquiryCount: number;
+  grossMarginPct: number;
+  availableUnits: number;
+  supplierOfferAt: string;
+};
+
+export type DelayedShipmentDossier = {
+  shipmentNumber: number;
+  status: 'SALIENDO' | 'LLEGANDO';
+  dateShipped: string;
+  ageDays: number;
+  updatedAt: string;
+  linkedOrders: number;
+  linkedItems: number;
+  trackingReferences: number;
+  classification: 'BLOCKED' | 'REVIEW';
+  gaps: string[];
+};
+
 export type CompanySnapshot = {
   snapshotId: string;
   generatedAt: string;
@@ -23,7 +75,8 @@ export type CompanySnapshot = {
     ordersToBuy: number;
     productsActive: number;
     unitsInStock: number;
-    productsWithoutStock: number;
+    productsWithoutStockRaw: number;
+    actionableProductsWithoutStock: number;
     shipmentsInTransit: number;
     delayedShipments: number;
     purchasesPending: number;
@@ -33,6 +86,14 @@ export type CompanySnapshot = {
   distributions: {
     orderStatus: Array<{ status: string; count: number }>;
     shipmentStatus: Array<{ status: string; count: number }>;
+  };
+  calibration: {
+    actionableProducts: ActionableProduct[];
+    delayedShipmentDossiers: DelayedShipmentDossier[];
+  };
+  quality: {
+    metrics: Record<CompanyMetricKey, MetricQualityProfile>;
+    gaps: string[];
   };
   freshness: {
     latestOrderUpdate: string | null;
@@ -77,7 +138,7 @@ export const COMPANY_OS_EVIDENCE_KEYS = [
   'ordersToBuy',
   'productsActive',
   'unitsInStock',
-  'productsWithoutStock',
+  'actionableProductsWithoutStock',
   'shipmentsInTransit',
   'delayedShipments',
   'purchasesPending',
@@ -92,7 +153,7 @@ export const COMPANY_OS_EVIDENCE_KEYS = [
 export type CompanyEvidenceKey = (typeof COMPANY_OS_EVIDENCE_KEYS)[number];
 
 export type CompanyBrief = {
-  schemaVersion: '1';
+  schemaVersion: '2';
   generatedAt: string;
   businessDate: string;
   status: 'READY' | 'NEEDS_ATTENTION' | 'BLOCKED';
@@ -103,6 +164,7 @@ export type CompanyBrief = {
     cutoff: string;
     coverage: string[];
     gaps: string[];
+    profiles: Record<CompanyMetricKey, MetricQualityProfile>;
   };
   guardrails: string[];
   execution: {
