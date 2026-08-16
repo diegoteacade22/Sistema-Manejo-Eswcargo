@@ -411,19 +411,25 @@ export async function recordCompanyOsNotification(input: {
     const companyCase = await tx.companyOsCase.findUniqueOrThrow({ where: { requestId: input.requestId } });
     const lease = await tx.companyOsLease.findFirst({ where: { requestId: input.requestId, leaseToken: input.leaseToken } });
     if (!lease || lease.caseId !== companyCase.id) throw new Error('Lease de notificación inválido');
-    const idempotencyKey = `telegram:${input.requestId}:completed`;
-    const existing = await tx.companyOsNotificationDelivery.findUnique({ where: { idempotencyKey } });
-    if (existing) return { reused: true, delivery: existing };
+    const previous = await tx.companyOsNotificationDelivery.findMany({
+      where: { requestId: input.requestId, channel: 'TELEGRAM', eventType: 'ANALYSIS_COMPLETED' },
+      orderBy: { attempt: 'desc' },
+    });
+    const delivered = previous.find((item) => item.status === 'DELIVERED');
+    if (delivered) return { reused: true, delivery: delivered };
+    const attempt = (previous[0]?.attempt ?? 0) + 1;
+    if (attempt > 2) throw new Error('Telegram agotó el único reintento permitido');
+    const idempotencyKey = `telegram:${input.requestId}:completed:${attempt}`;
     const delivery = await tx.companyOsNotificationDelivery.create({ data: {
       caseId: companyCase.id, requestId: input.requestId, channel: 'TELEGRAM', eventType: 'ANALYSIS_COMPLETED',
-      status: input.status, attempt: 1, responseCode: input.responseCode ?? null,
+      status: input.status, attempt, responseCode: input.responseCode ?? null,
       errorDetail: input.errorDetail?.slice(0, 500) ?? null, idempotencyKey,
     } });
     await appendCaseEvent(tx, {
       caseId: companyCase.id, requestId: input.requestId,
       eventType: input.status === 'DELIVERED' ? 'TELEGRAM_DELIVERED' : 'TELEGRAM_DELIVERY_FAILED',
       payload: { responseCode: input.responseCode ?? null, errorDetail: input.errorDetail?.slice(0, 200) ?? null },
-      idempotencyKey: `case:${input.requestId}:telegram:completed`,
+      idempotencyKey: `case:${input.requestId}:telegram:completed:${attempt}`,
     });
     return { reused: false, delivery };
   });
