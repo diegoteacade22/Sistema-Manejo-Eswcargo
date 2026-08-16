@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { completeCompanyOsCase } from '@/lib/company-os/v3-store';
-import type { CompanyOsWorkerResult, CompanyOsWorkerUsage } from '@/lib/company-os/v3-types';
+import type { CompanyOsSystemsWorkerResult, CompanyOsWorkerResult, CompanyOsWorkerUsage } from '@/lib/company-os/v3-types';
 import { verifiedWorkerJson } from '../_request';
 
 function integer(value: unknown) {
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
   }
   try {
     const result = await completeCompanyOsCase({
-      requestId, leaseToken, result: output as CompanyOsWorkerResult,
+      requestId, leaseToken, result: output as CompanyOsWorkerResult | CompanyOsSystemsWorkerResult,
       usage: normalizeUsage(usage as Record<string, unknown>),
     });
     return NextResponse.json({ ...result, businessWrites: 0 });
@@ -39,4 +39,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Resultado rechazado' }, { status: 409 });
   }
 }
-

@@ -1,0 +1,12 @@
+[Unit]
+Description=Poll generic Company OS agent schedules
+
+[Timer]
+OnBootSec=45s
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+Unit=company-os-agent-schedule.service
+
+[Install]
+WantedBy=timers.target

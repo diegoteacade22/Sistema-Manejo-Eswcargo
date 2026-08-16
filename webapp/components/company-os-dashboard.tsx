@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, Ban, BrainCircuit, CheckCircle2, Clock3, Loader2, MessageSquarePlus, RefreshCw, Send, ShieldCheck } from 'lucide-react';
+import { Activity, Ban, BrainCircuit, CheckCircle2, Clock3, Database, GitBranch, Loader2, MessageSquarePlus, RefreshCw, Send, ServerCog, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,12 +11,14 @@ import { Input } from '@/components/ui/input';
 type RequestStatus = 'QUEUED' | 'ANALYZING' | 'AWAITING_REVIEW' | 'BLOCKED' | 'FAILED' | 'CANCELLED' | 'COMPLETED';
 type MissionStatus = 'PLANNED' | 'APPROVED' | 'REJECTED' | 'REVIEW' | 'BLOCKED' | 'RUNNING' | 'DONE';
 type CaseSummary = {
-  id: string; requestId: string; objective: string; status: RequestStatus; relatedCaseId?: string | null;
+  id: string; requestId: string; agentId: 'general-manager-ai-v3' | 'systems-manager-ai-v1'; area: string; caseType: string; objective: string; status: RequestStatus; relatedCaseId?: string | null;
   webhookDeliveryStatus: string; createdAt: string; updatedAt: string;
   messages: Array<{ id: string; role: string; kind: string; content: string; createdAt: string }>;
   missions: Array<{ id: string; title: string; rationale: string; expectedOutput: string; status: MissionStatus }>;
   usage: Array<{ inputTokens: number; cachedTokens: number; cacheWriteTokens: number; outputTokens: number; reasoningTokens: number; totalTokens: number; estimatedCostUsd: string; dailyTotalTokens: number; dailyCostUsd: string; alertLevel?: number | null }>;
   heartbeats: Array<{ createdAt: string; phase: string }>;
+  events: Array<{ id: string; sequence: number; eventType: string; createdAt: string }>;
+  evidence: Array<{ evidenceKey: string; value: unknown; observedAt?: string | null }>;
 };
 
 const activeStatuses = new Set<RequestStatus>(['QUEUED', 'ANALYZING']);
@@ -27,11 +29,28 @@ const statusColor: Record<RequestStatus, string> = {
 };
 
 function resultContent(content: string) {
-  try { return JSON.parse(content) as { summary?: string; primaryDataQualityProblem?: string; recommendedNextStep?: string; evidenceRefs?: string[] }; }
+  try { return JSON.parse(content) as { summary?: string; primaryDataQualityProblem?: string; recommendedNextStep?: string; primaryConfirmedRisk?: string; primaryCoverageGap?: string; confirmedRiskNextStep?: string; coverageGapNextStep?: string; evidenceRefs?: string[] }; }
   catch { return { summary: content }; }
 }
 
+function SystemsEvidence({ companyCase }: { companyCase: CaseSummary }) {
+  const evidence = Object.fromEntries(companyCase.evidence.map((item) => [item.evidenceKey, item.value])) as {
+    assets?: Array<{assetId:string;name:string;provider:string;category:string;lifecycleStatus:string;healthStatus:string;criticality:string;coverageStatus:string;warnings:string[]}>;
+    dependencies?: Array<{dependencyId:string;sourceAssetId:string;targetAssetId:string;dependencyType:string;criticality:string;inferenceStatus:string}>;
+    risks?: Array<{riskId:string;title:string;classification:string;priority:number;description:string;recommendedAction:string;missingEvidence:string[]}>;
+    metadata?: {coverage?: {observed:string[];unobserved:string[]}};
+  };
+  return <div className="space-y-5">
+    <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><CardTitle className="flex gap-2"><Database className="text-cyan-300" />Inventario técnico · {evidence.assets?.length ?? 0}</CardTitle></CardHeader><CardContent className="grid gap-3 md:grid-cols-2">{evidence.assets?.map((asset) => <div key={asset.assetId} className="rounded-xl border border-white/10 p-3"><div className="flex justify-between gap-2"><div><p className="font-semibold">{asset.name}</p><p className="text-xs text-slate-500">{asset.provider} · {asset.category}</p></div><Badge variant="outline">{asset.criticality}</Badge></div><div className="mt-2 flex flex-wrap gap-1"><Badge variant="outline">{asset.lifecycleStatus}</Badge><Badge variant="outline">{asset.healthStatus}</Badge><Badge variant="outline">{asset.coverageStatus}</Badge></div>{asset.warnings.map((warning) => <p key={warning} className="mt-2 text-xs text-amber-300">{warning}</p>)}</div>)}</CardContent></Card>
+    <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><CardTitle className="flex gap-2"><GitBranch className="text-violet-300" />Dependencias · {evidence.dependencies?.length ?? 0}</CardTitle></CardHeader><CardContent className="space-y-2">{evidence.dependencies?.map((item) => <div key={item.dependencyId} className="rounded-lg border border-white/10 p-3 text-xs"><span className="text-cyan-300">{item.sourceAssetId}</span> → <span className="text-violet-300">{item.targetAssetId}</span> · {item.dependencyType} · {item.criticality} · {item.inferenceStatus}</div>)}</CardContent></Card>
+    <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><CardTitle className="flex gap-2"><TriangleAlert className="text-amber-300" />Riesgos por clasificación</CardTitle><CardDescription className="text-slate-400">ACTION_REQUIRED y REVIEW no se mezclan.</CardDescription></CardHeader><CardContent className="space-y-3">{evidence.risks?.map((risk) => <div key={risk.riskId} className="rounded-xl border border-white/10 p-4"><div className="flex justify-between gap-2"><p className="font-semibold">{risk.title}</p><Badge variant="outline">{risk.classification}{risk.classification === 'ACTION_REQUIRED' ? ` · ${risk.priority}` : ''}</Badge></div><p className="mt-2 text-sm text-slate-400">{risk.description}</p><p className="mt-2 text-sm text-cyan-300">{risk.recommendedAction}</p>{risk.missingEvidence.length > 0 && <p className="mt-2 text-xs text-amber-300">Falta: {risk.missingEvidence.join(' · ')}</p>}</div>)}</CardContent></Card>
+    <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><CardTitle>Cobertura</CardTitle></CardHeader><CardContent className="grid gap-4 md:grid-cols-2"><div><p className="text-emerald-300">Observadas</p>{evidence.metadata?.coverage?.observed.map((item) => <p key={item} className="text-sm text-slate-400">✓ {item}</p>)}</div><div><p className="text-amber-300">UNOBSERVED</p>{evidence.metadata?.coverage?.unobserved.map((item) => <p key={item} className="text-sm text-slate-400">— {item}</p>)}</div></CardContent></Card>
+    <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><CardTitle>Eventos append-only</CardTitle></CardHeader><CardContent className="flex flex-wrap gap-2">{companyCase.events.map((event) => <Badge key={event.id} variant="outline">#{event.sequence} {event.eventType}</Badge>)}</CardContent></Card>
+  </div>;
+}
+
 export function CompanyOsDashboard() {
+  const [agentId, setAgentId] = useState<'general-manager-ai-v3' | 'systems-manager-ai-v1'>('systems-manager-ai-v1');
   const [cases, setCases] = useState<CaseSummary[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [objective, setObjective] = useState('');
@@ -43,11 +62,11 @@ export function CompanyOsDashboard() {
   const activeCount = cases.filter((entry) => activeStatuses.has(entry.status)).length;
 
   const refresh = useCallback(async () => {
-    const response = await fetch('/api/company-os/v3/cases?limit=50', { cache: 'no-store' });
+    const response = await fetch(`/api/company-os/v3/cases?limit=50&agentId=${agentId}`, { cache: 'no-store' });
     if (!response.ok) throw new Error('No se pudo leer el inbox');
     const payload = await response.json();
     setCases(payload.cases ?? []);
-  }, []);
+  }, [agentId]);
 
   useEffect(() => { void refresh().catch((caught) => setError(caught.message)); }, [refresh]);
   useEffect(() => {
@@ -68,7 +87,7 @@ export function CompanyOsDashboard() {
     try {
       const response = await fetch('/api/company-os/v3/cases', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ objective, relatedRequestId: relatedRequestId || undefined }),
+        body: JSON.stringify({ objective, relatedRequestId: relatedRequestId || undefined, agentId }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'No se pudo crear el caso');
@@ -120,7 +139,7 @@ export function CompanyOsDashboard() {
       <div className="mx-auto max-w-7xl space-y-6">
         <section className="rounded-3xl border border-cyan-500/20 bg-gradient-to-br from-slate-950 via-indigo-950/50 to-slate-950 p-6 shadow-2xl">
           <div className="flex flex-wrap items-start justify-between gap-5">
-            <div><Badge className="mb-3 border-emerald-500/30 bg-emerald-500/10 text-emerald-300">general-manager-ai-v3 · ADVISORY ONLY</Badge><h1 className="flex items-center gap-3 text-3xl font-black"><BrainCircuit className="text-cyan-300" /> Company OS</h1><p className="mt-3 max-w-3xl text-sm text-slate-300">Casos persistentes, análisis empresarial sólo lectura y aprobación humana. Aprobar una misión no autoriza su ejecución.</p></div>
+            <div><Badge className="mb-3 border-emerald-500/30 bg-emerald-500/10 text-emerald-300">{agentId} · ADVISORY ONLY</Badge><h1 className="flex items-center gap-3 text-3xl font-black"><BrainCircuit className="text-cyan-300" /> Company OS</h1><p className="mt-3 max-w-3xl text-sm text-slate-300">{agentId === 'systems-manager-ai-v1' ? 'Gerente de Sistemas AI · reporta a general-manager-ai-v3 · sin cambios autónomos de infraestructura.' : 'Gerente General AI · análisis empresarial sólo lectura.'}</p></div>
             <div className="grid gap-2 text-xs sm:grid-cols-3">
               <Badge variant="outline" className="p-3"><Activity className="mr-2 h-4 w-4" /> {activeCount} activos</Badge>
               <Badge variant="outline" className="p-3"><ShieldCheck className="mr-2 h-4 w-4 text-emerald-300" /> Contrato: 0 escrituras empresariales</Badge>
@@ -131,13 +150,17 @@ export function CompanyOsDashboard() {
 
         {error && <p className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">{error}</p>}
 
-        <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><CardTitle>Nueva orden</CardTitle><CardDescription className="text-slate-400">El caso se persiste antes del webhook y queda recuperable si la entrega inmediata falla.</CardDescription></CardHeader><CardContent className="space-y-3"><Textarea value={objective} onChange={(event) => setObjective(event.target.value)} maxLength={600} className="min-h-24 border-white/10 bg-black/30" placeholder="¿Qué debe analizar el Gerente General?" /><Input value={relatedRequestId} onChange={(event) => setRelatedRequestId(event.target.value)} className="border-white/10 bg-black/30" placeholder="Request ID relacionado (opcional)" /><Button onClick={createCase} disabled={busy || !objective.trim()} className="bg-cyan-400 font-bold text-slate-950 hover:bg-cyan-300">{busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}Encolar análisis</Button></CardContent></Card>
+        <div className="flex flex-wrap gap-2"><Button variant={agentId === 'systems-manager-ai-v1' ? 'default' : 'outline'} onClick={() => { setAgentId('systems-manager-ai-v1'); setSelectedId(''); }}><ServerCog className="mr-2 h-4 w-4" />Gerente de Sistemas</Button><Button variant={agentId === 'general-manager-ai-v3' ? 'default' : 'outline'} onClick={() => { setAgentId('general-manager-ai-v3'); setSelectedId(''); }}><BrainCircuit className="mr-2 h-4 w-4" />Gerente General</Button></div>
+
+        <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><CardTitle>Nueva orden · {agentId === 'systems-manager-ai-v1' ? 'Gerente de Sistemas' : 'Gerente General'}</CardTitle><CardDescription className="text-slate-400">El caso se persiste antes del webhook y queda recuperable si la entrega inmediata falla.</CardDescription></CardHeader><CardContent className="space-y-3"><Textarea value={objective} onChange={(event) => setObjective(event.target.value)} maxLength={600} className="min-h-24 border-white/10 bg-black/30" placeholder={agentId === 'systems-manager-ai-v1' ? '¿Qué debe analizar el Gerente de Sistemas?' : '¿Qué debe analizar el Gerente General?'} /><Input value={relatedRequestId} onChange={(event) => setRelatedRequestId(event.target.value)} className="border-white/10 bg-black/30" placeholder="Request ID relacionado (opcional)" /><Button onClick={createCase} disabled={busy || !objective.trim()} className="bg-cyan-400 font-bold text-slate-950 hover:bg-cyan-300">{busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}Encolar análisis</Button></CardContent></Card>
 
         <div className="grid gap-5 lg:grid-cols-[360px_1fr]">
           <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><div className="flex items-center justify-between"><CardTitle>Inbox</CardTitle><Button size="sm" variant="outline" onClick={() => void refresh()}><RefreshCw className="h-4 w-4" /></Button></div></CardHeader><CardContent className="max-h-[760px] space-y-2 overflow-auto">{cases.map((companyCase) => <button key={companyCase.requestId} onClick={() => setSelectedId(companyCase.requestId)} className={`w-full rounded-xl border p-3 text-left ${selected?.requestId === companyCase.requestId ? 'border-cyan-400/50 bg-cyan-500/10' : 'border-white/10 bg-white/5'}`}><div className="flex items-center justify-between gap-2"><Badge variant="outline" className={statusColor[companyCase.status]}>{companyCase.status}</Badge><span className="text-[10px] text-slate-500">{new Date(companyCase.createdAt).toLocaleString('es-AR')}</span></div><p className="mt-2 line-clamp-2 text-sm">{companyCase.objective}</p><p className="mt-2 font-mono text-[10px] text-slate-600">{companyCase.requestId}</p></button>)}</CardContent></Card>
 
           <div className="space-y-5">{selected ? <>
-            <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><div className="flex flex-wrap items-center justify-between gap-3"><CardTitle>Hilo del caso</CardTitle><Badge variant="outline" className={statusColor[selected.status]}>{selected.status}</Badge></div><CardDescription className="text-slate-500">{selected.requestId} · webhook {selected.webhookDeliveryStatus}{selected.heartbeats[0] ? ` · heartbeat ${new Date(selected.heartbeats[0].createdAt).toLocaleTimeString('es-AR')}` : ''}</CardDescription></CardHeader><CardContent className="space-y-3">{selected.messages.map((message) => { const parsed = message.kind === 'RESULT' ? resultContent(message.content) : null; return <div key={message.id} className="rounded-xl border border-white/10 bg-white/5 p-4"><div className="mb-2 flex justify-between text-[10px] uppercase text-slate-500"><span>{message.role} · {message.kind}</span><span>{new Date(message.createdAt).toLocaleString('es-AR')}</span></div>{parsed ? <div className="space-y-2 text-sm"><p>{parsed.summary}</p><p><b className="text-amber-300">Problema principal:</b> {parsed.primaryDataQualityProblem}</p><p><b className="text-cyan-300">Próximo paso:</b> {parsed.recommendedNextStep}</p><p className="text-xs text-slate-500">Evidencia: {parsed.evidenceRefs?.join(', ')}</p></div> : <p className="whitespace-pre-wrap text-sm">{message.content}</p>}</div>; })}<div className="flex gap-2"><Textarea value={context} onChange={(event) => setContext(event.target.value)} maxLength={4000} className="border-white/10 bg-black/30" placeholder="Respuesta o contexto adicional append-only" /><Button onClick={appendContext} disabled={busy || !context.trim()}><MessageSquarePlus className="h-4 w-4" /></Button></div>{!['FAILED','CANCELLED','COMPLETED'].includes(selected.status) && <Button variant="outline" onClick={cancelCase} disabled={busy} className="border-red-500/30 text-red-300"><Ban className="mr-2 h-4 w-4" />Cancelar caso</Button>}</CardContent></Card>
+            <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><div className="flex flex-wrap items-center justify-between gap-3"><CardTitle>Hilo del caso</CardTitle><Badge variant="outline" className={statusColor[selected.status]}>{selected.status}</Badge></div><CardDescription className="text-slate-500">{selected.agentId} · {selected.requestId} · webhook {selected.webhookDeliveryStatus}{selected.heartbeats[0] ? ` · heartbeat ${new Date(selected.heartbeats[0].createdAt).toLocaleTimeString('es-AR')}` : ''}</CardDescription></CardHeader><CardContent className="space-y-3">{selected.messages.map((message) => { const parsed = message.kind === 'RESULT' ? resultContent(message.content) : null; return <div key={message.id} className="rounded-xl border border-white/10 bg-white/5 p-4"><div className="mb-2 flex justify-between text-[10px] uppercase text-slate-500"><span>{message.role} · {message.kind}</span><span>{new Date(message.createdAt).toLocaleString('es-AR')}</span></div>{parsed ? <div className="space-y-2 text-sm"><p>{parsed.summary}</p>{parsed.primaryConfirmedRisk ? <><p><b className="text-red-300">Riesgo confirmado:</b> {parsed.primaryConfirmedRisk}</p><p><b className="text-amber-300">Gap de cobertura:</b> {parsed.primaryCoverageGap}</p><p><b className="text-cyan-300">Próximos pasos:</b> {parsed.confirmedRiskNextStep} · {parsed.coverageGapNextStep}</p></> : <><p><b className="text-amber-300">Problema principal:</b> {parsed.primaryDataQualityProblem}</p><p><b className="text-cyan-300">Próximo paso:</b> {parsed.recommendedNextStep}</p></>}<p className="text-xs text-slate-500">Evidencia: {parsed.evidenceRefs?.join(', ')}</p></div> : <p className="whitespace-pre-wrap text-sm">{message.content}</p>}</div>; })}<div className="flex gap-2"><Textarea value={context} onChange={(event) => setContext(event.target.value)} maxLength={4000} className="border-white/10 bg-black/30" placeholder="Respuesta o contexto adicional append-only" /><Button onClick={appendContext} disabled={busy || !context.trim()}><MessageSquarePlus className="h-4 w-4" /></Button></div>{!['FAILED','CANCELLED','COMPLETED'].includes(selected.status) && <Button variant="outline" onClick={cancelCase} disabled={busy} className="border-red-500/30 text-red-300"><Ban className="mr-2 h-4 w-4" />Cancelar caso</Button>}</CardContent></Card>
+
+            {selected.agentId === 'systems-manager-ai-v1' && <SystemsEvidence companyCase={selected} />}
 
             {selected.missions.length > 0 && <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><CardTitle>Misiones · ciclo independiente</CardTitle><CardDescription className="text-amber-300">V3 nunca cambia una misión a RUNNING o DONE.</CardDescription></CardHeader><CardContent className="space-y-3">{selected.missions.map((mission) => <div key={mission.id} className="rounded-xl border border-white/10 p-4"><div className="flex justify-between gap-3"><p className="font-bold">{mission.title}</p><Badge variant="outline">{mission.status}</Badge></div><p className="mt-2 text-sm text-slate-400">{mission.expectedOutput}</p><p className="mt-1 text-xs text-slate-600">{mission.rationale}</p><div className="mt-3 flex flex-wrap gap-2"><Button size="sm" onClick={() => decideMission(mission.id, 'APPROVE')}>Aprobar plan</Button><Button size="sm" variant="outline" onClick={() => decideMission(mission.id, 'REQUEST_REVIEW')}>Revisar</Button><Button size="sm" variant="outline" onClick={() => decideMission(mission.id, 'REJECT')}>Rechazar</Button><Button size="sm" variant="outline" onClick={() => decideMission(mission.id, 'BLOCK')}>Bloquear</Button></div></div>)}</CardContent></Card>}
 

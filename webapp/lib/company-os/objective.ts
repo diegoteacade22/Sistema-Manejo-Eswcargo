@@ -9,7 +9,12 @@ const REDACTIONS: Array<[RegExp, string]> = [
 ];
 
 export function sanitizeCompanyObjective(raw: string) {
-  let safeObjective = raw.trim().slice(0, 1200);
+  const sanitized = sanitizeCompanyText(raw, 600);
+  return { safeObjective: sanitized.safeText, objectiveHash: createHash('sha256').update(sanitized.safeText).digest('hex'), redactions: sanitized.redactions };
+}
+
+export function sanitizeCompanyText(raw: string, maxLength = 4000) {
+  let safeObjective = raw.trim().slice(0, Math.max(maxLength * 2, maxLength));
   let redactions = 0;
   for (const [pattern, replacement] of REDACTIONS) {
     safeObjective = safeObjective.replace(pattern, () => {
@@ -17,7 +22,6 @@ export function sanitizeCompanyObjective(raw: string) {
       return replacement;
     });
   }
-  safeObjective = safeObjective.slice(0, 600);
-  const objectiveHash = createHash('sha256').update(safeObjective).digest('hex');
-  return { safeObjective, objectiveHash, redactions };
+  safeObjective = safeObjective.slice(0, maxLength);
+  return { safeText: safeObjective, redactions };
 }

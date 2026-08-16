@@ -9,6 +9,8 @@ import {
   COMPANY_OS_V3_INPUT_BUDGET,
   COMPANY_OS_V3_MAX_OUTPUT_TOKENS,
   COMPANY_OS_V3_TARGET_TOTAL_TOKENS,
+  COMPANY_OS_AGENT_CONTRACTS,
+  COMPANY_OS_AGENT_IDS,
 } from '../lib/company-os/v3-types';
 
 test('solicitudes y misiones conservan ciclos tipados independientes', () => {
@@ -71,5 +73,46 @@ test('Telegram conserva intentos append-only y permite una sola reentrega', () =
   const source = readFileSync('lib/company-os/v3-store.ts', 'utf8');
   assert.match(source, /const attempt = \(previous\[0\]\?\.attempt \?\? 0\) \+ 1/);
   assert.match(source, /if \(attempt > 2\)/);
-  assert.match(source, /telegram:\$\{input\.requestId\}:completed:\$\{attempt\}/);
+  assert.match(source, /telegram:\$\{companyCase\.agentId\}:\$\{input\.requestId\}:completed:\$\{attempt\}/);
+});
+
+test('registro cerrado integra Gerente de Sistemas y línea de reporte', () => {
+  assert.deepEqual(COMPANY_OS_AGENT_IDS, ['general-manager-ai-v3', 'systems-manager-ai-v1']);
+  assert.equal(COMPANY_OS_AGENT_CONTRACTS['systems-manager-ai-v1'].displayName, 'Gerente de Sistemas AI');
+  assert.equal(COMPANY_OS_AGENT_CONTRACTS['systems-manager-ai-v1'].reportsToAgentId, 'general-manager-ai-v3');
+  assert.equal(COMPANY_OS_AGENT_CONTRACTS['systems-manager-ai-v1'].area, 'SYSTEMS');
+});
+
+test('migración Sistemas es aditiva, RLS forzado, agenda NY y sin DML empresarial', () => {
+  const sql = readFileSync('../supabase/migrations/20260816184500_systems_manager_ai_v1.sql', 'utf8');
+  assert.match(sql, /CompanyOsSystemSnapshot/);
+  assert.match(sql, /CompanyOsSystemAsset/);
+  assert.match(sql, /CompanyOsSystemDependency/);
+  assert.match(sql, /CompanyOsSystemHealthObservation/);
+  assert.match(sql, /CompanyOsSystemCoverageObservation/);
+  assert.match(sql, /CompanyOsSystemRiskHistory/);
+  assert.match(sql, /FORCE ROW LEVEL SECURITY/);
+  assert.match(sql, /America\/New_York/);
+  assert.match(sql, /time '08:00:00'/);
+  assert.match(sql, /scheduleRunKey/);
+  assert.match(sql, /permits at most five ACTION_REQUIRED/);
+  assert.doesNotMatch(sql, /(?:INSERT INTO|UPDATE|DELETE FROM)\s+public\."?(?:Order|Product|Shipment|Purchase|Expense)/i);
+});
+
+test('store selecciona agente persistido, materializa snapshot y no tiene DML empresarial', () => {
+  const source = readFileSync('lib/company-os/v3-store.ts', 'utf8');
+  assert.match(source, /agentId === 'systems-manager-ai-v1'/);
+  assert.match(source, /buildSystemsSnapshot/);
+  assert.match(source, /persistSystemsSnapshot/);
+  assert.match(source, /c\."agentId"/);
+  assert.match(source, /case: \{ agentId: existing\.agentId \}/);
+  assert.doesNotMatch(source, /(?:INSERT INTO|UPDATE|DELETE FROM)\s+public\."?(?:Order|Product|Shipment|Purchase|Expense)/i);
+});
+
+test('inventario declara AWS archivado, Mac mini futura y no materializa secretos', () => {
+  const source = readFileSync('lib/company-os/systems-snapshot.ts', 'utf8');
+  assert.match(source, /assetId:'aws-archive'[\s\S]*lifecycleStatus:'ARCHIVED'/);
+  assert.match(source, /assetId:'mac-mini-future'[\s\S]*lifecycleStatus:'FUTURE'/);
+  assert.match(source, /valueIncluded:false/);
+  assert.doesNotMatch(source, /process\.env\.COMPANY_OS_V3_HMAC_SECRET\s*[),]/);
 });

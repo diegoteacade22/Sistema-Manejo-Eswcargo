@@ -8,12 +8,13 @@ export class OpenClawTelegramClient {
   }
 
   async send(claim, output, requestStatus = 'AWAITING_REVIEW') {
+    const systemsManager = claim.agentId === 'systems-manager-ai-v1';
     const message = [
-      'Company OS V3 · análisis listo',
+      systemsManager ? 'Gerente de Sistemas AI · análisis listo' : 'Company OS V3 · análisis listo',
       `Caso: ${claim.requestId}`,
       `Resumen: ${output.summary}`,
-      `Problema principal: ${output.primaryDataQualityProblem}`,
-      `Próximo paso: ${output.recommendedNextStep}`,
+      systemsManager ? `Riesgo confirmado: ${output.primaryConfirmedRisk}` : `Problema principal: ${output.primaryDataQualityProblem}`,
+      systemsManager ? `Gap de cobertura: ${output.primaryCoverageGap}` : `Próximo paso: ${output.recommendedNextStep}`,
       `Estado: ${requestStatus} · ninguna acción fue ejecutada.`,
     ].join('\n');
     let response;
@@ -31,7 +32,7 @@ export class OpenClawTelegramClient {
       },
       body: JSON.stringify({
         tool: 'message', action: 'send',
-        args: { channel: 'telegram', to: this.target, message, idempotencyKey: `company-os-v3:${claim.requestId}:completed` },
+        args: { channel: 'telegram', to: this.target, message, idempotencyKey: `company-os-v3:${claim.agentId || 'general-manager-ai-v3'}:${claim.requestId}:completed` },
       }),
       signal: AbortSignal.timeout(15_000),
         });

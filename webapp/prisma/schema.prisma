@@ -503,6 +503,10 @@ model CompanyAgentRequest {
 model CompanyOsCase {
   id                    String                          @id @default(cuid())
   requestId             String                          @unique
+  agentId               String                          @default("general-manager-ai-v3")
+  area                  String                          @default("GENERAL_MANAGEMENT")
+  caseType              String                          @default("ADVISORY")
+  scheduleRunKey        String?                         @unique
   objective             String
   objectiveHash         String
   status                String                          @default("QUEUED")
@@ -529,6 +533,8 @@ model CompanyOsCase {
   deliveries            CompanyOsNotificationDelivery[]
 
   @@index([status, createdAt])
+  @@index([agentId, status, createdAt])
+  @@index([agentId, caseType, createdAt])
   @@index([relatedCaseId])
 }
 
@@ -709,6 +715,9 @@ model CompanyOsNotificationDelivery {
   id             String        @id @default(cuid())
   caseId         String
   requestId      String
+  agentId        String        @default("general-manager-ai-v3")
+  evidenceFingerprint String?
+  assetId        String?
   channel        String
   eventType      String
   status         String

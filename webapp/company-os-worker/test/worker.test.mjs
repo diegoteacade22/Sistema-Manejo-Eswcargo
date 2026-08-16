@@ -12,6 +12,7 @@ const claim = {
   leaseToken: 'lease-1',
   requestId: 'request-1',
   caseId: 'case-1',
+  agentId: 'general-manager-ai-v3',
   objective: 'Identify the primary data quality problem',
   evidencePayload: { refs: [{ id: 'E-1', fact: 'Missing source owner' }] },
 };
@@ -206,7 +207,46 @@ test('cliente OpenClaw usa tools/invoke con Telegram y clave idempotente', async
   assert.equal(body.action, 'send');
   assert.equal(body.args.channel, 'telegram');
   assert.equal(body.args.to, '12345');
-  assert.equal(body.args.idempotencyKey, 'company-os-v3:request-1:completed');
+  assert.equal(body.args.idempotencyKey, 'company-os-v3:general-manager-ai-v3:request-1:completed');
+});
+
+test('Gerente de Sistemas usa IDs materializados y máximo cinco riesgos', async () => {
+  let body;
+  const systemsClaim = { ...claim, agentId: 'systems-manager-ai-v1', evidencePayload: {
+    assets: [{ assetId: 'worker-1' }],
+    risks: [{ riskId: 'risk-1', classification: 'ACTION_REQUIRED' }],
+    coverage: { unobserved: ['backups'] },
+  } };
+  const output = {
+    summary: 'Inventario listo.',
+    primaryConfirmedRisk: 'Worker único.',
+    primaryCoverageGap: 'Backups sin observar.',
+    confirmedRiskNextStep: 'Validar recuperación.',
+    coverageGapNextStep: 'Conectar metadatos read-only.',
+    evidenceRefs: ['assets','risks','coverage'],
+    actionableRisks: [{ riskId: 'risk-1', title: 'Worker único', assetId: 'worker-1', classification: 'ACTION_REQUIRED', priority: 78, evidenceRefs: ['risks'] }],
+    missions: [{ title: 'Validar recuperación', objective: 'Prueba humana sin cambios.', evidenceRefs: ['risks'], status: 'PLANNED' }],
+  };
+  const openai = new OpenAiAdvisoryClient({ apiKey: 'test-key', fetchImpl: async (_url, init) => {
+    body = JSON.parse(init.body);
+    return jsonResponse({ output_text: JSON.stringify(output), usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 } });
+  }});
+  assert.deepEqual((await openai.generate(systemsClaim)).output, output);
+  assert.deepEqual(body.text.format.schema.properties.actionableRisks.items.properties.assetId.enum, ['worker-1']);
+  assert.deepEqual(body.text.format.schema.properties.actionableRisks.items.properties.riskId.enum, ['risk-1']);
+  assert.equal(body.text.format.schema.properties.actionableRisks.maxItems, 5);
+  assert.match(body.input[0].content, /systems-manager-ai-v1/);
+});
+
+test('agenda genérica usa API HMAC firmada', async () => {
+  let request;
+  const api = new CompanyOsApiClient({ baseUrl: 'https://manager.example', hmacSecret: 'secret', fetchImpl: async (url, init) => {
+    request = { url, init }; return jsonResponse({ accepted: true, runs: [] });
+  }});
+  await api.schedule();
+  assert.match(request.url, /\/worker\/schedule$/);
+  assert.equal(request.init.body, '{}');
+  assert.ok(request.init.headers['x-company-os-signature']);
 });
 
 test('Telegram usa fallback directo si OpenClaw falla', async () => {
