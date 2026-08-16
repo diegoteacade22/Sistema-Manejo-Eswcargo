@@ -7,6 +7,10 @@ services:
       - /etc/company-os-v3-worker.env
     environment:
       COMPANY_OS_V3_HOST: 0.0.0.0
+      COMPANY_OS_V3_OPENCLAW_GATEWAY_URL: http://openclaw-4eiw-openclaw-1:42691
+    networks:
+      - default
+      - openclaw
     ports:
       - "127.0.0.1:8787:8787"
     extra_hosts:
@@ -24,3 +28,8 @@ services:
       traefik.http.routers.company-os-v3.rule: Host(`company-os-v3.srv1594596.hstgr.cloud`)
       traefik.http.routers.company-os-v3.tls.certresolver: letsencrypt
       traefik.http.services.company-os-v3.loadbalancer.server.port: "8787"
+
+networks:
+  openclaw:
+    external: true
+    name: openclaw-4eiw_default
