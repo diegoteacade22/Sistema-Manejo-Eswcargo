@@ -1,13 +1,14 @@
 # Company OS — Gerente General AI V3
 
-Estado objetivo: producción, advisory-only, datos empresariales estrictamente read-only.
+Estado: **FROZEN / CLOSED** desde 2026-08-16. Producción advisory-only, datos
+empresariales estrictamente read-only. No se abre una V4 desde este frente.
 
 ## Arquitectura operativa
 
 1. `POST /api/company-os/v3/cases` autentica un ADMIN, materializa evidencia y persiste caso, orden y evento `QUEUED`.
 2. Recién después intenta el webhook HMAC a Hostinger. El resultado de entrega se registra aun cuando falle.
 3. El worker reclama por `requestId`; un timer systemd ejecuta recovery cada 60 segundos sin `requestId` y recibe `204` si no hay trabajo.
-4. La API sólo entrega casos `QUEUED` o `ANALYZING` con lease vencido. Lock, lease, heartbeat y constraints evitan doble procesamiento.
+4. La API entrega casos `QUEUED`, `ANALYZING` con lease vencido o `FAILED` con un único reintento disponible. Lock, lease, heartbeat y constraints evitan doble procesamiento.
 5. El worker llama Responses API con `store=false`, `gpt-5.6-sol`, reasoning low, timeout 120 s, `max_output_tokens=3000` y un único reintento.
 6. La API valida referencias cerradas, persiste resultado, consumo y misiones `PLANNED`, y mueve la solicitud a `AWAITING_REVIEW` o `COMPLETED`.
 7. OpenClaw entrega Telegram al único chat autorizado y la API registra el readback de la entrega.
@@ -47,3 +48,8 @@ cd company-os-worker && npm test
 ```
 
 La prueba productiva canónica y única está documentada en `PRODUCTION_TEST_V3.md`. El rollback está en `V3_ROLLBACK.md`.
+
+Cierre verificado: recorrido `QUEUED → ANALYZING → AWAITING_REVIEW`, webhook
+fallido recuperado, dos intentos máximos, Telegram entregado, RLS forzado,
+permisos empresariales de escritura en cero y contadores DML empresariales sin
+cambios respecto del baseline.
