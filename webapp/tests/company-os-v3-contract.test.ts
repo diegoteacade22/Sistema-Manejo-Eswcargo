@@ -132,6 +132,14 @@ test('hardening agrega rol aislado, revisión humana y consumo completo', () => 
   assert.doesNotMatch(sql, /GRANT (?:SELECT|INSERT|UPDATE|DELETE)[^;]*\"Order\"/i);
 });
 
+test('misiones con decisión terminal no aceptan decisiones redundantes', () => {
+  const store = readFileSync('lib/company-os/v3-store.ts', 'utf8');
+  const dashboard = readFileSync('components/company-os-dashboard.tsx', 'utf8');
+  assert.match(store, /La misión ya tiene una decisión humana terminal/);
+  assert.match(store, /if \(mission\.status === target\) return \{ reused: true/);
+  assert.match(dashboard, /const terminal = \['APPROVED','REJECTED','BLOCKED'\]\.includes\(mission\.status\)/);
+});
+
 test('store selecciona agente persistido, materializa snapshot y no tiene DML empresarial', () => {
   const source = readFileSync('lib/company-os/v3-store.ts', 'utf8');
   assert.match(source, /agentId === 'systems-manager-ai-v1'/);

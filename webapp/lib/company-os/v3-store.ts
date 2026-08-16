@@ -848,6 +848,10 @@ export async function decideCompanyOsMission(input: {
   return db.$transaction(async (tx) => {
     const companyCase = await tx.companyOsCase.findUniqueOrThrow({ where: { requestId: input.requestId } });
     const mission = await tx.companyOsMission.findFirstOrThrow({ where: { id: input.missionId, caseId: companyCase.id } });
+    if (['APPROVED','REJECTED','BLOCKED'].includes(mission.status)) {
+      if (mission.status === target) return { reused: true, mission, caseStatus: companyCase.status, executionAuthorized: false };
+      throw new Error('La misión ya tiene una decisión humana terminal');
+    }
     const existing = await tx.companyOsDecision.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
     if (existing) return { reused: true, mission };
     let decisionDetail: Record<string, unknown> = { reason: sanitizeCompanyText(input.reason ?? '', 1000).safeText || null };
