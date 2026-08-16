@@ -88,6 +88,13 @@ test('el claim permite un único reintento de FAILED y marca recuperación del w
   assert.match(source, /webhookDeliveryStatus === 'FAILED' \? 'RECOVERED'/);
 });
 
+test('lease vencido cierra el intento previo antes de reclamar nuevamente', () => {
+  const source = readFileSync('lib/company-os/v3-store.ts', 'utf8');
+  assert.match(source, /outcome: 'TIMED_OUT', errorCode: 'LEASE_EXPIRED'/);
+  assert.match(source, /eventType: 'LEASE_EXPIRED'/);
+  assert.match(source, /timedOutAttempts: timedOutAttempts\.count/);
+});
+
 test('Telegram conserva intentos append-only y permite una sola reentrega', () => {
   const source = readFileSync('lib/company-os/v3-store.ts', 'utf8');
   assert.match(source, /status: 'PENDING'/);
@@ -130,6 +137,14 @@ test('hardening agrega rol aislado, revisión humana y consumo completo', () => 
   assert.match(sql, /snapshotBytes/);
   assert.match(sql, /REVOKE ALL ON ALL TABLES IN SCHEMA public FROM systems_manager_ai_v1/);
   assert.doesNotMatch(sql, /GRANT (?:SELECT|INSERT|UPDATE|DELETE)[^;]*\"Order\"/i);
+});
+
+test('misiones con decisión terminal no aceptan decisiones redundantes', () => {
+  const store = readFileSync('lib/company-os/v3-store.ts', 'utf8');
+  const dashboard = readFileSync('components/company-os-dashboard.tsx', 'utf8');
+  assert.match(store, /La misión ya tiene una decisión humana terminal/);
+  assert.match(store, /if \(mission\.status === target\) return \{ reused: true/);
+  assert.match(dashboard, /const terminal = \['APPROVED','REJECTED','BLOCKED'\]\.includes\(mission\.status\)/);
 });
 
 test('store selecciona agente persistido, materializa snapshot y no tiene DML empresarial', () => {

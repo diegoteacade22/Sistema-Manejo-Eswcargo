@@ -485,10 +485,22 @@ export async function claimCompanyOsCase(requestId?: string) {
     const now = new Date();
     const leaseToken = randomUUID();
     const expiresAt = new Date(now.getTime() + LEASE_MS);
-    await tx.companyOsLease.updateMany({
+    const expiredLeases = await tx.companyOsLease.updateMany({
       where: { caseId: companyCase.id, status: 'ACTIVE', expiresAt: { lte: now } },
       data: { status: 'EXPIRED', releasedAt: now },
     });
+    if (expiredLeases.count > 0) {
+      const timedOutAttempts = await tx.companyOsExecutionAttempt.updateMany({
+        where: { caseId: companyCase.id, outcome: 'STARTED', finishedAt: null },
+        data: { outcome: 'TIMED_OUT', errorCode: 'LEASE_EXPIRED', detail: 'Lease expired before completion', finishedAt: now },
+      });
+      await appendCaseEvent(tx, {
+        caseId: companyCase.id, requestId: companyCase.requestId, eventType: 'LEASE_EXPIRED',
+        fromStatus: companyCase.status, toStatus: companyCase.status,
+        payload: { expiredLeases: expiredLeases.count, timedOutAttempts: timedOutAttempts.count },
+        idempotencyKey: `case:${companyCase.requestId}:lease-expired:${await tx.companyOsExecutionAttempt.count({ where: { caseId: companyCase.id } })}`,
+      });
+    }
     await tx.companyOsLock.upsert({
       where: { requestId: companyCase.requestId },
       create: { requestId: companyCase.requestId, ownerToken: leaseToken, expiresAt },
@@ -848,6 +860,10 @@ export async function decideCompanyOsMission(input: {
   return db.$transaction(async (tx) => {
     const companyCase = await tx.companyOsCase.findUniqueOrThrow({ where: { requestId: input.requestId } });
     const mission = await tx.companyOsMission.findFirstOrThrow({ where: { id: input.missionId, caseId: companyCase.id } });
+    if (['APPROVED','REJECTED','BLOCKED'].includes(mission.status)) {
+      if (mission.status === target) return { reused: true, mission, caseStatus: companyCase.status, executionAuthorized: false };
+      throw new Error('La misión ya tiene una decisión humana terminal');
+    }
     const existing = await tx.companyOsDecision.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
     if (existing) return { reused: true, mission };
     let decisionDetail: Record<string, unknown> = { reason: sanitizeCompanyText(input.reason ?? '', 1000).safeText || null };
