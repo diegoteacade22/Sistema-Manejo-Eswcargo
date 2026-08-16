@@ -47,6 +47,9 @@ test('migración aplica RLS, rol dedicado y sólo tablas internas V3', () => {
   assert.doesNotMatch(sql, /(?:INSERT INTO|UPDATE|DELETE FROM)\s+public\."?(?:Order|Product|Shipment|Purchase|Expense)/i);
   assert.match(sql, /Company OS V3 cannot execute missions/);
   assert.match(sql, /FOREIGN KEY \("requestId", "leaseToken", "caseId"\)/);
+  const hardening = readFileSync('../supabase/migrations/20260816174230_company_os_v3_function_search_path.sql', 'utf8');
+  assert.match(hardening, /company_os_v3_reject_mutation\(\) SET search_path = ''/);
+  assert.match(hardening, /company_os_v3_guard_mission_status\(\) SET search_path = ''/);
 });
 
 test('costo separa input ordinario, cache read y cache write sin doble conteo', () => {
