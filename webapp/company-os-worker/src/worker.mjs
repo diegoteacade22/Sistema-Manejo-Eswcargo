@@ -1,9 +1,9 @@
 function assertClaim(claim) {
-  const required = ['leaseToken', 'requestId', 'caseId', 'objective', 'evidencePayload'];
+  const required = ['leaseToken', 'requestId', 'caseId', 'agentId', 'objective', 'evidencePayload'];
   if (!claim || typeof claim !== 'object' || required.some((key) => !(key in claim))) {
     throw Object.assign(new Error('Claim payload is invalid'), { code: 'INVALID_CLAIM', retryable: false });
   }
-  for (const key of ['leaseToken', 'requestId', 'caseId', 'objective']) {
+  for (const key of ['leaseToken', 'requestId', 'caseId', 'agentId', 'objective']) {
     if (typeof claim[key] !== 'string' || !claim[key]) throw Object.assign(new Error('Claim payload is invalid'), { code: 'INVALID_CLAIM', retryable: false });
   }
   return claim;

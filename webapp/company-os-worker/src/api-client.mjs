@@ -92,4 +92,8 @@ export class CompanyOsApiClient {
       delivery,
     });
   }
+
+  schedule() {
+    return this.post('/api/company-os/v3/worker/schedule', {});
+  }
 }

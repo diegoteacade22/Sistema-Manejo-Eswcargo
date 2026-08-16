@@ -1,0 +1,16 @@
+[Unit]
+Description=Company OS generic agent schedule poller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=company-os
+Group=company-os
+WorkingDirectory=/opt/company-os-v3-worker
+EnvironmentFile=/etc/company-os-v3-worker.env
+ExecStart=/usr/bin/node /opt/company-os-v3-worker/src/server.mjs schedule
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true

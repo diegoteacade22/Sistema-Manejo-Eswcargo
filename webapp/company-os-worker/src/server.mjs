@@ -108,6 +108,11 @@ export async function main(argv = process.argv.slice(2), env = process.env) {
     process.stdout.write(`${JSON.stringify(result)}\n`);
     return;
   }
+  if (mode === 'schedule') {
+    const result = await runtime.worker.api.schedule();
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
   if (mode !== 'serve') throw new Error(`Unknown mode: ${mode}`);
 
   const server = createWebhookServer({

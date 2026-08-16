@@ -1,13 +1,19 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma, type CompanyOsCase } from '@prisma/client';
 import { buildCompanySnapshot } from './live-snapshot';
-import { sanitizeCompanyObjective } from './objective';
+import { sanitizeCompanyObjective, sanitizeCompanyText } from './objective';
+import { buildSystemsSnapshot } from './systems-snapshot';
 import { signCompanyOsWorkerPayload } from './v3-auth';
 import { companyOsV3Prisma } from './v3-prisma';
 import {
   COMPANY_OS_MISSION_STATUSES,
   COMPANY_OS_REQUEST_STATUSES,
+  COMPANY_OS_AGENT_CONTRACTS,
+  COMPANY_OS_AGENT_IDS,
+  COMPANY_OS_V3_IDENTITY,
   companyOsV3BudgetConfig,
+  type CompanyOsAgentId,
+  type CompanyOsSystemsWorkerResult,
   type CompanyOsMissionStatus,
   type CompanyOsRequestStatus,
   type CompanyOsWorkerResult,
@@ -28,6 +34,13 @@ function hash(value: string) {
 
 function jsonValue(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+}
+
+function redactResult(value: unknown): unknown {
+  if (typeof value === 'string') return sanitizeCompanyText(value, 4000).safeText;
+  if (Array.isArray(value)) return value.map(redactResult);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, redactResult(nested)]));
+  return value;
 }
 
 function estimateTokens(value: unknown) {
@@ -55,6 +68,19 @@ function materializeSnapshot(snapshot: Awaited<ReturnType<typeof buildCompanySna
       delayedShipmentDossiers: snapshot.calibration.delayedShipmentDossiers.slice(0, 25),
       selectionNotice: 'Evidence was deterministically selected to fit the input budget; critical metrics, gaps and freshness were retained.',
     },
+  };
+  return { payload: selected, selected: true, blocked: estimateTokens(selected) > inputBudget };
+}
+
+function materializeSystemsSnapshot(snapshot: Awaited<ReturnType<typeof buildSystemsSnapshot>>, inputBudget: number) {
+  const { assets, dependencies, risks, ...metadata } = snapshot;
+  const payload = { metadata, assets, dependencies, risks };
+  if (estimateTokens(payload) <= inputBudget) return { payload, selected: false, blocked: false };
+  const selected = {
+    metadata,
+    assets: assets.filter((item) => item.criticality === 'CRITICAL' || item.coverageStatus !== 'CONFIRMED'),
+    dependencies: dependencies.filter((item) => item.criticality === 'CRITICAL'),
+    risks,
   };
   return { payload: selected, selected: true, blocked: estimateTokens(selected) > inputBudget };
 }
@@ -97,13 +123,155 @@ async function appendCaseEvent(tx: Tx, input: {
   } });
 }
 
-export async function createCompanyOsCase(rawObjective: string, identity: Identity, relatedRequestId?: string) {
+function environmentForDatabase(value: string) {
+  const normalized = value.toUpperCase();
+  return ['PRODUCTION','PREVIEW','STAGING','DEVELOPMENT','LOCAL','UNKNOWN'].includes(normalized) ? normalized : 'UNKNOWN';
+}
+
+function priorityBand(score: number) {
+  if (score >= 90) return 'P0';
+  if (score >= 75) return 'P1';
+  if (score >= 50) return 'P2';
+  if (score >= 25) return 'P3';
+  return 'P4';
+}
+
+async function persistSystemsSnapshot(
+  tx: Tx,
+  companyCase: { id: string; requestId: string; caseType: string },
+  snapshot: Awaited<ReturnType<typeof buildSystemsSnapshot>>,
+) {
+  const refs = await tx.companyOsEvidenceRef.findMany({ where: { caseId: companyCase.id }, select: { id: true, evidenceKey: true } });
+  const refByKey = new Map(refs.map((ref) => [ref.evidenceKey, ref.id]));
+  const evidenceId = refByKey.get('metadata');
+  const assetEvidenceId = refByKey.get('assets');
+  const dependencyEvidenceId = refByKey.get('dependencies');
+  const riskEvidenceId = refByKey.get('risks');
+  if (!evidenceId || !assetEvidenceId || !dependencyEvidenceId || !riskEvidenceId) throw new Error('Evidencia técnica incompleta');
+  const snapshotRecordId = `systems-snapshot:${companyCase.id}`;
+  const inventoryHash = hash(JSON.stringify({ assets: snapshot.assets, dependencies: snapshot.dependencies, risks: snapshot.risks }));
+  const scope = companyCase.caseType === 'SYSTEMS_BASELINE' ? 'DAILY' : companyCase.caseType === 'SYSTEMS_DEEP_REVIEW' ? 'WEEKLY' : 'ON_DEMAND';
+  await tx.$executeRaw(Prisma.sql`
+    INSERT INTO public."CompanyOsSystemSnapshot"
+      (id, "caseId", "agentId", "snapshotKey", scope, status, "schemaVersion", "inventoryHash", "evidenceId",
+       "observedAt", "completedAt", "assetCount", "dependencyCount", "healthCheckCount", "riskCount",
+       "qualityScore", "coverageScore", "idempotencyKey")
+    VALUES
+      (${snapshotRecordId}, ${companyCase.id}, 'systems-manager-ai-v1', ${companyCase.requestId}, ${scope},
+       'COMPLETE', 1, ${inventoryHash}, ${evidenceId}, ${new Date(snapshot.generatedAt)}, ${new Date(snapshot.generatedAt)},
+       ${snapshot.assets.length}, ${snapshot.dependencies.length}, ${snapshot.assets.length}, ${snapshot.risks.length},
+       95, 33.33, ${`systems-snapshot:${companyCase.requestId}`})
+  `);
+  for (const asset of snapshot.assets) {
+    const assetRecordId = `systems-asset:${companyCase.id}:${asset.assetId}`;
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO public."CompanyOsSystemAsset"
+        (id, "snapshotId", "caseId", "assetKey", name, category, provider, environment, "lifecycleStatus",
+         "healthStatus", criticality, "ownerRef", region, version, "safeLocator", "safeAttributes", "evidenceId",
+         "observedAt", "idempotencyKey")
+      VALUES
+        (${assetRecordId}, ${snapshotRecordId}, ${companyCase.id}, ${asset.assetId}, ${asset.name}, ${asset.category},
+         ${asset.provider}, ${environmentForDatabase(asset.environment)}, ${asset.lifecycleStatus}, ${asset.healthStatus},
+         ${asset.criticality}, ${asset.owner}, ${asset.region}, ${asset.runtime}, ${asset.safeReference},
+         ${jsonValue(asset)}, ${assetEvidenceId}, ${new Date(asset.observedAt)}, ${`systems-asset:${companyCase.requestId}:${asset.assetId}`})
+    `);
+    const healthStatus = asset.healthStatus === 'HEALTHY' ? 'PASS'
+      : asset.healthStatus === 'DEGRADED' ? 'WARN'
+        : asset.healthStatus === 'OFFLINE_CONFIRMED' ? 'FAIL'
+          : asset.healthStatus === 'UNOBSERVED' ? 'UNOBSERVED' : 'UNKNOWN';
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO public."CompanyOsSystemHealthObservation"
+        (id, "snapshotId", "caseId", "assetKey", "checkKey", status, "signalType", summary, "qualityScore",
+         "evidenceId", "observedAt", "idempotencyKey")
+      VALUES
+        (${`systems-health:${companyCase.id}:${asset.assetId}`}, ${snapshotRecordId}, ${companyCase.id}, ${asset.assetId},
+         'snapshot-health', ${healthStatus}, 'AVAILABILITY', ${asset.warnings[0] ?? asset.healthStatus},
+         ${Math.round(asset.confidence * 100)}, ${assetEvidenceId}, ${new Date(asset.observedAt)},
+         ${`systems-health:${companyCase.requestId}:${asset.assetId}`})
+    `);
+  }
+  for (const dependency of snapshot.dependencies) {
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO public."CompanyOsSystemDependency"
+        (id, "snapshotId", "caseId", "dependencyKey", "fromAssetKey", "toAssetKey", "dependencyType",
+         criticality, status, direction, "evidenceId", "observedAt", "idempotencyKey")
+      VALUES
+        (${`systems-dependency:${companyCase.id}:${dependency.dependencyId}`}, ${snapshotRecordId}, ${companyCase.id},
+         ${dependency.dependencyId}, ${dependency.sourceAssetId}, ${dependency.targetAssetId}, ${dependency.dependencyType},
+         ${dependency.criticality}, ${dependency.inferenceStatus}, ${dependency.direction}, ${dependencyEvidenceId},
+         ${new Date(dependency.observedAt)}, ${`systems-dependency:${companyCase.requestId}:${dependency.dependencyId}`})
+    `);
+  }
+  const observedSources = snapshot.coverage.observed;
+  const unobservedSources = snapshot.coverage.unobserved;
+  for (const [index, source] of [...observedSources, ...unobservedSources].entries()) {
+    const observed = index < observedSources.length;
+    const sourceKey = source.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80);
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO public."CompanyOsSystemCoverageObservation"
+        (id, "snapshotId", "caseId", "sourceKey", "sourceType", status, "expectedSignals", "observedSignals",
+         "qualityScore", "gapReason", "evidenceId", "observedAt", "idempotencyKey")
+      VALUES
+        (${`systems-coverage:${companyCase.id}:${sourceKey}`}, ${snapshotRecordId}, ${companyCase.id}, ${sourceKey},
+         'OTHER', ${observed ? 'OBSERVED' : 'UNOBSERVED'}, 1, ${observed ? 1 : 0}, ${observed ? 100 : 0},
+         ${observed ? null : 'Fuente no conectada; no se interpreta como falla del sistema'}, ${evidenceId},
+         ${new Date(snapshot.generatedAt)}, ${`systems-coverage:${companyCase.requestId}:${sourceKey}`})
+    `);
+  }
+  for (const risk of snapshot.risks) {
+    const score = risk.classification === 'ACTION_REQUIRED' ? risk.priority : 0;
+    const riskRecordId = `systems-risk:${companyCase.id}:${risk.riskId}`;
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO public."CompanyOsSystemRisk"
+        (id, "snapshotId", "caseId", "riskKey", "assetKey", classification, severity, likelihood, status,
+         title, finding, impact, "nextStep", score, priority, confidence, cause, hypothesis,
+         "affectedDependencies", "recommendedAction", effort, "changeRisk", rollback, owner, "targetDate",
+         "missingEvidence", "reasonCodes", "evidenceFingerprint", "ruleVersion", confirmed, "coverageGap",
+         "qualityScore", "evidenceId", "observedAt", "idempotencyKey")
+      VALUES
+        (${riskRecordId}, ${snapshotRecordId}, ${companyCase.id}, ${risk.riskId}, ${risk.assetId},
+         ${risk.classification}, ${score >= 75 ? 'HIGH' : risk.classification === 'REVIEW' ? 'MEDIUM' : 'INFO'},
+         ${risk.classification === 'ACTION_REQUIRED' ? 'LIKELY' : 'UNKNOWN'}, 'OPEN', ${risk.title}, ${risk.description},
+         ${risk.impact}, ${risk.recommendedAction}, ${score}, ${priorityBand(score)}, ${risk.confidence},
+         ${risk.cause}, ${risk.classification === 'REVIEW' ? risk.cause : ''}, ${risk.affectedDependencies},
+         ${risk.recommendedAction}, ${risk.estimatedEffort === 'LOW' ? 'S' : risk.estimatedEffort === 'MEDIUM' ? 'M' : 'UNKNOWN'},
+         ${risk.changeRisk}, ${risk.suggestedRollback}, ${risk.proposedOwner}, ${risk.suggestedTargetDate},
+         ${risk.missingEvidence}, ${risk.reasonCodes}, ${risk.evidenceFingerprint}, ${risk.ruleVersion},
+         ${risk.classification === 'ACTION_REQUIRED'}, ${risk.classification === 'REVIEW'}, ${Math.round(risk.confidence * 100)},
+         ${riskEvidenceId}, ${new Date(snapshot.generatedAt)}, ${`systems-risk:${companyCase.requestId}:${risk.riskId}`})
+    `);
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO public."CompanyOsSystemRiskHistory"
+        (id, "riskId", "snapshotId", "caseId", "eventType", "fromStatus", "toStatus", "actorRef", rationale,
+         "evidenceId", "idempotencyKey")
+      VALUES
+        (${`systems-risk-history:${companyCase.id}:${risk.riskId}`}, ${riskRecordId}, ${snapshotRecordId},
+         ${companyCase.id}, 'DETECTED', NULL, 'OPEN', 'systems-manager-ai-v1', ${risk.description},
+         ${riskEvidenceId}, ${`systems-risk-history:${companyCase.requestId}:${risk.riskId}`})
+    `);
+  }
+}
+
+export async function createCompanyOsCase(
+  rawObjective: string,
+  identity: Identity,
+  relatedRequestId?: string,
+  agentId: CompanyOsAgentId = COMPANY_OS_V3_IDENTITY,
+  caseType = 'ADVISORY',
+  scheduleRunKey?: string,
+) {
   if (rawObjective.trim().length > 600) throw new Error('La orden supera 600 caracteres y no será truncada silenciosamente');
   const sanitized = sanitizeCompanyObjective(rawObjective);
   const budgets = companyOsV3BudgetConfig();
   if (!sanitized.safeObjective) throw new Error('La orden no puede quedar vacía');
-  const snapshot = await buildCompanySnapshot();
-  const evidence = materializeSnapshot(snapshot, budgets.inputBudget);
+  if (!COMPANY_OS_AGENT_IDS.includes(agentId)) throw new Error('Agente Company OS inválido');
+  if (!/^[A-Z][A-Z0-9_]{1,63}$/.test(caseType)) throw new Error('caseType inválido');
+  const systemsManager = agentId === 'systems-manager-ai-v1';
+  const contract = COMPANY_OS_AGENT_CONTRACTS[agentId];
+  const snapshot = systemsManager ? await buildSystemsSnapshot() : await buildCompanySnapshot();
+  const evidence = systemsManager
+    ? materializeSystemsSnapshot(snapshot as Awaited<ReturnType<typeof buildSystemsSnapshot>>, budgets.inputBudget)
+    : materializeSnapshot(snapshot as Awaited<ReturnType<typeof buildCompanySnapshot>>, budgets.inputBudget);
   const inputBudgetEstimate = estimateTokens({ objective: sanitized.safeObjective, evidence: evidence.payload }) + 300;
   const blocked = evidence.blocked || inputBudgetEstimate > budgets.inputBudget;
   const requestId = randomUUID();
@@ -116,6 +284,10 @@ export async function createCompanyOsCase(rawObjective: string, identity: Identi
     if (relatedRequestId && !relatedCase) throw new Error('El caso relacionado no existe');
     const companyCase = await tx.companyOsCase.create({ data: {
       requestId,
+      agentId,
+      area: contract.area,
+      caseType,
+      scheduleRunKey,
       objective: sanitized.safeObjective,
       objectiveHash: sanitized.objectiveHash,
       status: blocked ? 'BLOCKED' : 'QUEUED',
@@ -135,10 +307,17 @@ export async function createCompanyOsCase(rawObjective: string, identity: Identi
       evidenceKey,
       sourceRef: `company-os-snapshot:${snapshot.snapshotId}#${evidenceKey}`,
       value: jsonValue(value),
-      critical: ['metrics', 'quality', 'freshness'].includes(evidenceKey),
+      critical: systemsManager ? ['assets','dependencies','risks'].includes(evidenceKey) : ['metrics', 'quality', 'freshness'].includes(evidenceKey),
       observedAt: new Date(snapshot.generatedAt),
     }));
     await tx.companyOsEvidenceRef.createMany({ data: refs });
+    if (systemsManager) {
+      await persistSystemsSnapshot(
+        tx,
+        { id: companyCase.id, requestId, caseType },
+        snapshot as Awaited<ReturnType<typeof buildSystemsSnapshot>>,
+      );
+    }
     await appendCaseEvent(tx, {
       caseId: companyCase.id, requestId, eventType: blocked ? 'CASE_BLOCKED_INPUT_BUDGET' : 'CASE_QUEUED', toStatus: blocked ? 'BLOCKED' : 'QUEUED',
       payload: { snapshotId: snapshot.snapshotId, inputBudgetEstimate, inputBudget: budgets.inputBudget, evidenceSelected: evidence.selected, redactions: sanitized.redactions },
@@ -146,7 +325,7 @@ export async function createCompanyOsCase(rawObjective: string, identity: Identi
     });
     await tx.companyOsAuditEvent.create({ data: {
       requestId, action: 'CASE_CREATED', actorRef: identity.actorRef,
-      metadata: jsonValue({ businessWrites: 0, identity: 'general-manager-ai-v3' }),
+      metadata: jsonValue({ businessWrites: 0, infrastructureWrites: 0, identity: agentId, reportsToAgentId: contract.reportsToAgentId }),
       idempotencyKey: `audit:${requestId}:created`,
     } });
     return companyCase;
@@ -155,7 +334,7 @@ export async function createCompanyOsCase(rawObjective: string, identity: Identi
   return { ...created, redactions: sanitized.redactions };
 }
 
-export async function dispatchCompanyOsWebhook(companyCase: Pick<CompanyOsCase, 'id' | 'requestId'>) {
+export async function dispatchCompanyOsWebhook(companyCase: Pick<CompanyOsCase, 'id' | 'requestId' | 'agentId'>) {
   const db = companyOsV3Prisma();
   const baseUrl = (process.env.COMPANY_OS_V3_WORKER_URL ?? '').trim().replace(/\/$/, '');
   const body = JSON.stringify({ requestId: companyCase.requestId });
@@ -181,7 +360,7 @@ export async function dispatchCompanyOsWebhook(companyCase: Pick<CompanyOsCase, 
   }
   await db.$transaction(async (tx) => {
     await tx.companyOsNotificationDelivery.create({ data: {
-      caseId: companyCase.id, requestId: companyCase.requestId, channel: 'WEBHOOK', eventType: 'CASE_QUEUED',
+      caseId: companyCase.id, requestId: companyCase.requestId, agentId: companyCase.agentId, channel: 'WEBHOOK', eventType: 'CASE_QUEUED',
       status, attempt: 1, responseCode, errorDetail, idempotencyKey: `webhook:${companyCase.requestId}:1`,
     } });
     await tx.companyOsCase.update({ where: { id: companyCase.id }, data: { webhookDeliveryStatus: status } });
@@ -194,7 +373,59 @@ export async function dispatchCompanyOsWebhook(companyCase: Pick<CompanyOsCase, 
   return { status, responseCode, errorDetail };
 }
 
-type ClaimedRow = { id: string; requestId: string; objective: string; status: string; webhookDeliveryStatus: string; maxOutputTokens: number; targetTotalTokens: number };
+type DueSchedule = { id: string; agentId: string; scheduleKey: string; cadence: string; caseType: string; timeZone: string };
+
+function dateInTimeZone(timeZone: string) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+
+export async function runDueCompanyOsSchedules() {
+  const db = companyOsV3Prisma();
+  const due = await db.$queryRaw<DueSchedule[]>(Prisma.sql`
+    SELECT id, "agentId", "scheduleKey", cadence, "caseType", "timeZone"
+    FROM public."CompanyOsAgentSchedule"
+    WHERE enabled = true AND "nextRunAt" <= now()
+    ORDER BY "nextRunAt" ASC
+    LIMIT 10
+  `);
+  const results = [];
+  for (const schedule of due) {
+    if (!COMPANY_OS_AGENT_IDS.includes(schedule.agentId as CompanyOsAgentId)) continue;
+    const runDate = dateInTimeZone(schedule.timeZone);
+    const scheduleRunKey = `${schedule.agentId}:${schedule.cadence}:${runDate}`;
+    let companyCase: CompanyOsCase;
+    let reused = false;
+    try {
+      companyCase = await createCompanyOsCase(
+        'Actualizá determinísticamente el inventario técnico, la salud, la cobertura y los riesgos observables. No ejecutes cambios ni reveles secretos.',
+        { authMode: 'hmac-worker-schedule', actorRef: WORKER_REF },
+        undefined,
+        schedule.agentId as CompanyOsAgentId,
+        schedule.caseType,
+        scheduleRunKey,
+      );
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
+      companyCase = await db.companyOsCase.findUniqueOrThrow({ where: { scheduleRunKey } });
+      reused = true;
+    }
+    const delivery = reused ? null : await dispatchCompanyOsWebhook(companyCase);
+    await db.$executeRaw(Prisma.sql`
+      UPDATE public."CompanyOsAgentSchedule"
+      SET "lastRunAt" = now(),
+          "nextRunAt" = CASE
+            WHEN cadence = 'DAILY' THEN ((((now() AT TIME ZONE "timeZone")::date + 1) + "localTime") AT TIME ZONE "timeZone")
+            ELSE ((((now() AT TIME ZONE "timeZone")::date + 7) + "localTime") AT TIME ZONE "timeZone")
+          END,
+          "updatedAt" = now()
+      WHERE id = ${schedule.id}
+    `);
+    results.push({ scheduleId: schedule.id, requestId: companyCase.requestId, reused, delivery });
+  }
+  return results;
+}
+
+type ClaimedRow = { id: string; requestId: string; agentId: string; objective: string; status: string; webhookDeliveryStatus: string; maxOutputTokens: number; targetTotalTokens: number };
 
 export async function claimCompanyOsCase(requestId?: string) {
   const db = companyOsV3Prisma();
@@ -203,7 +434,7 @@ export async function claimCompanyOsCase(requestId?: string) {
     const globalLock = await tx.companyOsLock.findUnique({ where: { requestId: GLOBAL_LOCK_ID } });
     if (globalLock && globalLock.expiresAt > new Date()) return null;
     const rows = await tx.$queryRaw<ClaimedRow[]>(Prisma.sql`
-      SELECT c.id, c."requestId", c.objective, c.status, c."webhookDeliveryStatus", c."maxOutputTokens", c."targetTotalTokens"
+      SELECT c.id, c."requestId", c."agentId", c.objective, c.status, c."webhookDeliveryStatus", c."maxOutputTokens", c."targetTotalTokens"
       FROM public."CompanyOsCase" c
       WHERE (${requested}::text IS NULL OR c."requestId" = ${requested})
         AND (
@@ -269,7 +500,7 @@ export async function claimCompanyOsCase(requestId?: string) {
       idempotencyKey: `case:${companyCase.requestId}:claim:${attempt}`,
     });
     return {
-      caseId: companyCase.id, requestId: companyCase.requestId, objective: companyCase.objective,
+      caseId: companyCase.id, requestId: companyCase.requestId, agentId: companyCase.agentId, objective: companyCase.objective,
       leaseToken, leaseExpiresAt: expiresAt.toISOString(), attempt,
       evidencePayload, contextMessages,
       budgets: { input: inputBudget, maxOutputTokens: companyCase.maxOutputTokens, targetTotal: companyCase.targetTotalTokens },
@@ -312,13 +543,37 @@ function validateWorkerResult(result: CompanyOsWorkerResult, knownRefs: Set<stri
   }
 }
 
+function validateSystemsWorkerResult(
+  result: CompanyOsSystemsWorkerResult,
+  evidence: Array<{ evidenceKey: string; value: Prisma.JsonValue }>,
+) {
+  const knownRefs = new Set(evidence.map((entry) => entry.evidenceKey));
+  if (!result || typeof result.summary !== 'string' || typeof result.primaryConfirmedRisk !== 'string'
+    || typeof result.primaryCoverageGap !== 'string' || typeof result.confirmedRiskNextStep !== 'string'
+    || typeof result.coverageGapNextStep !== 'string' || !Array.isArray(result.evidenceRefs)
+    || !Array.isArray(result.actionableRisks) || result.actionableRisks.length > 5 || !Array.isArray(result.missions)) {
+    throw new Error('Resultado del Gerente de Sistemas inválido');
+  }
+  const allRefs = [...result.evidenceRefs, ...result.actionableRisks.flatMap((risk) => risk.evidenceRefs), ...result.missions.flatMap((mission) => mission.evidenceRefs)];
+  if (allRefs.some((ref) => !knownRefs.has(ref))) throw new Error('El resultado contiene evidencia inventada');
+  const assetsEntry = evidence.find((entry) => entry.evidenceKey === 'assets')?.value;
+  const risksEntry = evidence.find((entry) => entry.evidenceKey === 'risks')?.value;
+  const assets = Array.isArray(assetsEntry) ? assetsEntry as Array<Record<string, unknown>> : [];
+  const risks = Array.isArray(risksEntry) ? risksEntry as Array<Record<string, unknown>> : [];
+  const assetIds = new Set(assets.map((asset) => String(asset.assetId)));
+  const actionableRiskIds = new Set(risks.filter((risk) => risk.classification === 'ACTION_REQUIRED').map((risk) => String(risk.riskId)));
+  if (result.actionableRisks.some((risk) => !assetIds.has(risk.assetId) || !actionableRiskIds.has(risk.riskId))) throw new Error('El resultado inventó un activo o riesgo no materializado');
+  if (result.actionableRisks.some((risk) => risk.classification !== 'ACTION_REQUIRED' || !Number.isInteger(risk.priority) || risk.priority < 0 || risk.priority > 100)) throw new Error('Ranking técnico inválido');
+  if (result.missions.some((mission) => mission.status !== 'PLANNED')) throw new Error('Sólo se aceptan misiones PLANNED');
+}
+
 export function estimateCompanyOsCost(usage: CompanyOsWorkerUsage) {
   const nonCachedInput = Math.max(0, usage.inputTokens - usage.cachedTokens - usage.cacheWriteTokens);
   return (nonCachedInput * 5 + usage.cachedTokens * 0.5 + usage.cacheWriteTokens * 6.25 + usage.outputTokens * 30) / 1_000_000;
 }
 
 export async function completeCompanyOsCase(input: {
-  requestId: string; leaseToken: string; result: CompanyOsWorkerResult; usage: CompanyOsWorkerUsage;
+  requestId: string; leaseToken: string; result: CompanyOsWorkerResult | CompanyOsSystemsWorkerResult; usage: CompanyOsWorkerUsage;
 }) {
   const db = companyOsV3Prisma();
   return db.$transaction(async (tx) => {
@@ -327,13 +582,15 @@ export async function completeCompanyOsCase(input: {
     if (existing.status === 'AWAITING_REVIEW' || existing.status === 'COMPLETED') return { reused: true, status: existing.status };
     if (existing.status === 'CANCELLED') throw new Error('El caso fue cancelado y no acepta resultados');
     const lease = await activeLease(tx, input.requestId, input.leaseToken);
-    const refs = await tx.companyOsEvidenceRef.findMany({ where: { caseId: existing.id }, select: { evidenceKey: true } });
-    validateWorkerResult(input.result, new Set(refs.map((ref) => ref.evidenceKey)));
+    const refs = await tx.companyOsEvidenceRef.findMany({ where: { caseId: existing.id }, select: { evidenceKey: true, value: true } });
+    const knownRefs = new Set(refs.map((ref) => ref.evidenceKey));
+    if (existing.agentId === 'systems-manager-ai-v1') validateSystemsWorkerResult(input.result as CompanyOsSystemsWorkerResult, refs);
+    else validateWorkerResult(input.result as CompanyOsWorkerResult, knownRefs);
     if (input.usage.totalTokens > existing.targetTotalTokens) throw new Error('Consumo total excede el presupuesto autorizado');
 
     await tx.companyOsMessage.create({ data: {
       caseId: existing.id, role: 'ASSISTANT', kind: 'RESULT', actorRef: WORKER_REF,
-      content: JSON.stringify(input.result),
+      content: JSON.stringify(redactResult(input.result)),
     } });
     if (input.result.missions.length) {
       await tx.companyOsMission.createMany({ data: input.result.missions.map((mission) => ({
@@ -344,7 +601,7 @@ export async function completeCompanyOsCase(input: {
     }
     const start = new Date(); start.setUTCHours(0, 0, 0, 0);
     const daily = await tx.companyOsUsage.aggregate({
-      where: { createdAt: { gte: start } }, _sum: { totalTokens: true, estimatedCostUsd: true },
+      where: { createdAt: { gte: start }, case: { agentId: existing.agentId } }, _sum: { totalTokens: true, estimatedCostUsd: true },
     });
     const estimatedCostUsd = estimateCompanyOsCost(input.usage);
     const dailyTotalTokens = (daily._sum.totalTokens ?? 0) + input.usage.totalTokens;
@@ -376,7 +633,7 @@ export async function completeCompanyOsCase(input: {
     });
     await tx.companyOsAuditEvent.create({ data: {
       requestId: input.requestId, action: 'ANALYSIS_COMPLETED', actorRef: WORKER_REF,
-      metadata: jsonValue({ businessWrites: 0, requestStatus: toStatus, missionsCreated: input.result.missions.length }),
+      metadata: jsonValue({ businessWrites: 0, infrastructureWrites: 0, agentId: existing.agentId, requestStatus: toStatus, missionsCreated: input.result.missions.length }),
       idempotencyKey: `audit:${input.requestId}:completed`,
     } });
     return { reused: false, status: toStatus, estimatedCostUsd, dailyTotalTokens, alertLevel };
@@ -417,11 +674,28 @@ export async function recordCompanyOsNotification(input: {
     });
     const delivered = previous.find((item) => item.status === 'DELIVERED');
     if (delivered) return { reused: true, delivery: delivered };
+    const riskEvidence = await tx.companyOsEvidenceRef.findUnique({
+      where: { caseId_evidenceKey: { caseId: companyCase.id, evidenceKey: 'risks' } },
+      select: { value: true },
+    });
+    const evidenceFingerprint = riskEvidence ? hash(JSON.stringify(riskEvidence.value)) : hash(input.requestId);
+    const contractDuplicate = await tx.companyOsNotificationDelivery.findFirst({
+      where: {
+        agentId: companyCase.agentId,
+        channel: 'TELEGRAM',
+        eventType: 'ANALYSIS_COMPLETED',
+        evidenceFingerprint,
+        assetId: null,
+        status: 'DELIVERED',
+      },
+    });
+    if (contractDuplicate) return { reused: true, delivery: contractDuplicate };
     const attempt = (previous[0]?.attempt ?? 0) + 1;
     if (attempt > 2) throw new Error('Telegram agotó el único reintento permitido');
-    const idempotencyKey = `telegram:${input.requestId}:completed:${attempt}`;
+    const idempotencyKey = `telegram:${companyCase.agentId}:${input.requestId}:completed:${attempt}`;
     const delivery = await tx.companyOsNotificationDelivery.create({ data: {
-      caseId: companyCase.id, requestId: input.requestId, channel: 'TELEGRAM', eventType: 'ANALYSIS_COMPLETED',
+      caseId: companyCase.id, requestId: input.requestId, agentId: companyCase.agentId,
+      evidenceFingerprint, channel: 'TELEGRAM', eventType: 'ANALYSIS_COMPLETED',
       status: input.status, attempt, responseCode: input.responseCode ?? null,
       errorDetail: input.errorDetail?.slice(0, 500) ?? null, idempotencyKey,
     } });
@@ -445,15 +719,16 @@ export async function getCompanyOsCase(requestId: string) {
   } });
 }
 
-export async function listCompanyOsCases(limit = 30) {
+export async function listCompanyOsCases(limit = 30, agentId?: CompanyOsAgentId) {
   return companyOsV3Prisma().companyOsCase.findMany({
+    where: agentId ? { agentId } : undefined,
     take: Math.min(Math.max(limit, 1), 100), orderBy: { createdAt: 'desc' },
-    include: { messages: { orderBy: { createdAt: 'asc' } }, usage: true, missions: true, heartbeats: { take: 1, orderBy: { createdAt: 'desc' } } },
+    include: { messages: { orderBy: { createdAt: 'asc' } }, events: { orderBy: { sequence: 'asc' } }, evidence: { orderBy: { evidenceKey: 'asc' } }, usage: true, missions: true, heartbeats: { take: 1, orderBy: { createdAt: 'desc' } } },
   });
 }
 
 export async function appendCompanyOsContext(requestId: string, content: string, identity: Identity) {
-  const trimmed = content.trim();
+  const trimmed = sanitizeCompanyText(content, 4000).safeText;
   if (!trimmed || trimmed.length > 4000) throw new Error('El contexto debe tener entre 1 y 4000 caracteres');
   const db = companyOsV3Prisma();
   return db.$transaction(async (tx) => {

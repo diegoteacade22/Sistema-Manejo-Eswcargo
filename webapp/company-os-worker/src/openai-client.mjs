@@ -24,10 +24,55 @@ export const ADVISORY_OUTPUT_SCHEMA = Object.freeze({
   },
 });
 
+export const SYSTEMS_ADVISORY_OUTPUT_SCHEMA = Object.freeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['summary', 'primaryConfirmedRisk', 'primaryCoverageGap', 'confirmedRiskNextStep', 'coverageGapNextStep', 'evidenceRefs', 'actionableRisks', 'missions'],
+  properties: {
+    summary: { type: 'string' },
+    primaryConfirmedRisk: { type: 'string' },
+    primaryCoverageGap: { type: 'string' },
+    confirmedRiskNextStep: { type: 'string' },
+    coverageGapNextStep: { type: 'string' },
+    evidenceRefs: { type: 'array', items: { type: 'string' } },
+    actionableRisks: {
+      type: 'array',
+      maxItems: 5,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['riskId', 'title', 'assetId', 'classification', 'priority', 'evidenceRefs'],
+        properties: {
+          riskId: { type: 'string' },
+          title: { type: 'string' },
+          assetId: { type: 'string' },
+          classification: { type: 'string', enum: ['ACTION_REQUIRED'] },
+          priority: { type: 'integer', minimum: 0, maximum: 100 },
+          evidenceRefs: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
+    missions: ADVISORY_OUTPUT_SCHEMA.properties.missions,
+  },
+});
+
 export function advisoryOutputSchemaFor(evidencePayload) {
   const keys = Object.keys(evidencePayload || {}).filter((key) => typeof key === 'string' && key.length > 0);
   const schema = structuredClone(ADVISORY_OUTPUT_SCHEMA);
   schema.properties.evidenceRefs.items = { type: 'string', enum: keys };
+  schema.properties.missions.items.properties.evidenceRefs.items = { type: 'string', enum: keys };
+  return schema;
+}
+
+export function systemsAdvisoryOutputSchemaFor(evidencePayload) {
+  const keys = Object.keys(evidencePayload || {}).filter((key) => typeof key === 'string' && key.length > 0);
+  const schema = structuredClone(SYSTEMS_ADVISORY_OUTPUT_SCHEMA);
+  schema.properties.evidenceRefs.items = { type: 'string', enum: keys };
+  const assetIds = Array.isArray(evidencePayload?.assets) ? evidencePayload.assets.map((item) => item?.assetId).filter(Boolean) : [];
+  const riskIds = Array.isArray(evidencePayload?.risks) ? evidencePayload.risks.filter((item) => item?.classification === 'ACTION_REQUIRED').map((item) => item?.riskId).filter(Boolean) : [];
+  schema.properties.actionableRisks.items.properties.assetId = { type: 'string', enum: assetIds };
+  schema.properties.actionableRisks.items.properties.riskId = { type: 'string', enum: riskIds };
+  schema.properties.actionableRisks.items.properties.evidenceRefs.items = { type: 'string', enum: keys };
   schema.properties.missions.items.properties.evidenceRefs.items = { type: 'string', enum: keys };
   return schema;
 }
@@ -73,6 +118,33 @@ export function validateAdvisoryOutput(value) {
   return value;
 }
 
+export function validateSystemsAdvisoryOutput(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new OpenAiWorkerError('OpenAI systems output is not an object', { code: 'OPENAI_INVALID_OUTPUT' });
+  const allowed = ['summary', 'primaryConfirmedRisk', 'primaryCoverageGap', 'confirmedRiskNextStep', 'coverageGapNextStep', 'evidenceRefs', 'actionableRisks', 'missions'];
+  if (Object.keys(value).some((key) => !allowed.includes(key))) throw new OpenAiWorkerError('OpenAI systems output contains unsupported fields', { code: 'OPENAI_INVALID_OUTPUT' });
+  const textFields = allowed.slice(0, 5);
+  if (!textFields.every((key) => typeof value[key] === 'string' && value[key].length > 0)) throw new OpenAiWorkerError('OpenAI systems output is missing advisory text', { code: 'OPENAI_INVALID_OUTPUT' });
+  if (!isStringArray(value.evidenceRefs) || !Array.isArray(value.actionableRisks) || value.actionableRisks.length > 5 || !Array.isArray(value.missions)) {
+    throw new OpenAiWorkerError('OpenAI systems output has invalid collections', { code: 'OPENAI_INVALID_OUTPUT' });
+  }
+  for (const risk of value.actionableRisks) {
+    if (!risk || typeof risk !== 'object' || Array.isArray(risk)
+      || Object.keys(risk).some((key) => !['riskId', 'title', 'assetId', 'classification', 'priority', 'evidenceRefs'].includes(key))
+      || typeof risk.riskId !== 'string' || typeof risk.title !== 'string' || typeof risk.assetId !== 'string' || risk.classification !== 'ACTION_REQUIRED'
+      || !Number.isInteger(risk.priority) || risk.priority < 0 || risk.priority > 100 || !isStringArray(risk.evidenceRefs)) {
+      throw new OpenAiWorkerError('OpenAI systems risk violates policy', { code: 'OPENAI_INVALID_OUTPUT' });
+    }
+  }
+  for (const mission of value.missions) {
+    if (!mission || typeof mission !== 'object' || Array.isArray(mission)
+      || Object.keys(mission).some((key) => !['title', 'objective', 'evidenceRefs', 'status'].includes(key))
+      || mission.status !== 'PLANNED' || typeof mission.title !== 'string' || typeof mission.objective !== 'string' || !isStringArray(mission.evidenceRefs)) {
+      throw new OpenAiWorkerError('OpenAI mission violates advisory policy', { code: 'OPENAI_INVALID_OUTPUT' });
+    }
+  }
+  return value;
+}
+
 function retryableStatus(status) {
   return status === 408 || status === 409 || status === 429 || status >= 500;
 }
@@ -88,6 +160,7 @@ export class OpenAiAdvisoryClient {
   }
 
   requestBody(claim) {
+    const systemsManager = claim.agentId === 'systems-manager-ai-v1';
     return {
       model: this.model,
       store: false,
@@ -96,12 +169,15 @@ export class OpenAiAdvisoryClient {
       input: [
         {
           role: 'system',
-          content: 'You are Company OS V3. Produce advisory analysis only. Never execute, claim execution, change business data, send messages, buy, pay, price, deploy, or expose secrets. Use only supplied evidence references. Every mission must remain PLANNED.',
+          content: systemsManager
+            ? 'You are Gerente de Sistemas AI (systems-manager-ai-v1), reporting to general-manager-ai-v3 inside Company OS. Analyze only the supplied closed technical evidence. Distinguish a confirmed risk from a coverage gap. Never execute, claim execution, mutate business or infrastructure data, deploy, rotate credentials, expose secrets, or infer OFFLINE from missing telemetry. Deterministic risk classifications and scores in evidence are authoritative. Return at most five ACTION_REQUIRED risks. Every mission must remain PLANNED.'
+            : 'You are Company OS V3. Produce advisory analysis only. Never execute, claim execution, change business data, send messages, buy, pay, price, deploy, or expose secrets. Use only supplied evidence references. Every mission must remain PLANNED.',
         },
         {
           role: 'user',
           content: JSON.stringify({
             caseId: claim.caseId,
+            agentId: claim.agentId || 'general-manager-ai-v3',
             objective: claim.objective,
             evidencePayload: claim.evidencePayload,
             contextMessages: claim.contextMessages || [],
@@ -113,7 +189,7 @@ export class OpenAiAdvisoryClient {
           type: 'json_schema',
           name: 'company_os_v3_advisory',
           strict: true,
-          schema: advisoryOutputSchemaFor(claim.evidencePayload),
+          schema: systemsManager ? systemsAdvisoryOutputSchemaFor(claim.evidencePayload) : advisoryOutputSchemaFor(claim.evidencePayload),
         },
       },
     };
@@ -152,7 +228,7 @@ export class OpenAiAdvisoryClient {
         if (!raw.usage || typeof raw.usage !== 'object' || Array.isArray(raw.usage)) {
           throw new OpenAiWorkerError('OpenAI response omitted usage', { code: 'OPENAI_MISSING_USAGE' });
         }
-        return { output: validateAdvisoryOutput(parsed), usage: raw.usage };
+        return { output: claim.agentId === 'systems-manager-ai-v1' ? validateSystemsAdvisoryOutput(parsed) : validateAdvisoryOutput(parsed), usage: raw.usage };
       } catch (error) {
         const normalized = error?.name === 'AbortError'
           ? new OpenAiWorkerError('OpenAI request timed out', { retryable: true, code: 'OPENAI_TIMEOUT' })

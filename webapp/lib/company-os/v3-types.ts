@@ -11,6 +11,29 @@ export const COMPANY_OS_MISSION_STATUSES = [
 export type CompanyOsMissionStatus = (typeof COMPANY_OS_MISSION_STATUSES)[number];
 
 export const COMPANY_OS_V3_IDENTITY = 'general-manager-ai-v3' as const;
+export const COMPANY_OS_SYSTEMS_MANAGER_IDENTITY = 'systems-manager-ai-v1' as const;
+export const COMPANY_OS_AGENT_IDS = [
+  COMPANY_OS_V3_IDENTITY,
+  COMPANY_OS_SYSTEMS_MANAGER_IDENTITY,
+] as const;
+export type CompanyOsAgentId = (typeof COMPANY_OS_AGENT_IDS)[number];
+
+export const COMPANY_OS_AGENT_CONTRACTS: Record<CompanyOsAgentId, {
+  displayName: string;
+  area: string;
+  reportsToAgentId: string | null;
+}> = {
+  [COMPANY_OS_V3_IDENTITY]: {
+    displayName: 'Gerente General AI',
+    area: 'GENERAL_MANAGEMENT',
+    reportsToAgentId: null,
+  },
+  [COMPANY_OS_SYSTEMS_MANAGER_IDENTITY]: {
+    displayName: 'Gerente de Sistemas AI',
+    area: 'SYSTEMS',
+    reportsToAgentId: COMPANY_OS_V3_IDENTITY,
+  },
+};
 export const COMPANY_OS_V3_MODEL = 'gpt-5.6-sol' as const;
 export const COMPANY_OS_V3_MAX_OUTPUT_TOKENS = 3000;
 export const COMPANY_OS_V3_TARGET_TOTAL_TOKENS = 12000;
@@ -35,6 +58,29 @@ export type CompanyOsWorkerResult = {
   primaryDataQualityProblem: string;
   evidenceRefs: string[];
   recommendedNextStep: string;
+  missions: Array<{
+    title: string;
+    objective: string;
+    evidenceRefs: string[];
+    status: 'PLANNED';
+  }>;
+};
+
+export type CompanyOsSystemsWorkerResult = {
+  summary: string;
+  primaryConfirmedRisk: string;
+  primaryCoverageGap: string;
+  confirmedRiskNextStep: string;
+  coverageGapNextStep: string;
+  evidenceRefs: string[];
+  actionableRisks: Array<{
+    riskId: string;
+    title: string;
+    assetId: string;
+    classification: 'ACTION_REQUIRED';
+    priority: number;
+    evidenceRefs: string[];
+  }>;
   missions: Array<{
     title: string;
     objective: string;
