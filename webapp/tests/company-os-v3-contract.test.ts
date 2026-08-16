@@ -88,6 +88,13 @@ test('el claim permite un único reintento de FAILED y marca recuperación del w
   assert.match(source, /webhookDeliveryStatus === 'FAILED' \? 'RECOVERED'/);
 });
 
+test('lease vencido cierra el intento previo antes de reclamar nuevamente', () => {
+  const source = readFileSync('lib/company-os/v3-store.ts', 'utf8');
+  assert.match(source, /outcome: 'TIMED_OUT', errorCode: 'LEASE_EXPIRED'/);
+  assert.match(source, /eventType: 'LEASE_EXPIRED'/);
+  assert.match(source, /timedOutAttempts: timedOutAttempts\.count/);
+});
+
 test('Telegram conserva intentos append-only y permite una sola reentrega', () => {
   const source = readFileSync('lib/company-os/v3-store.ts', 'utf8');
   assert.match(source, /status: 'PENDING'/);
