@@ -79,3 +79,11 @@
 - Corrección: un trigger con advisory lock valida secuencia, expectedHead, previousHash y fromStatus contra la proyección persistida.
 - Prueba: PostgreSQL rechazó una bifurcación con SQLSTATE 23514 y no dejó filas residuales.
 - Reutilización: concurrencia e integridad de auditoría deben tener una barrera en la base además del readback de aplicación.
+
+## LEARN-011 — Persistir antes de entregar elimina el webhook como punto único de falla
+
+- Síntoma: una indisponibilidad entre Vercel y Hostinger podía dejar una orden sin procesar.
+- Causa: la activación inmediata se trataba como garantía de entrega.
+- Corrección: persist-before-deliver, registro del fallo, recovery periódico sólo sobre `QUEUED` o lease vencido y claim idempotente por `requestId`.
+- Prueba: webhook fallido recuperado sin llamada OpenAI cuando la cola está vacía y sin doble procesamiento.
+- Reutilización: todo trabajo remoto durable necesita cola persistente, lease y recuperación independiente del canal rápido.

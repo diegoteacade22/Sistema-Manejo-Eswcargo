@@ -1,0 +1,12 @@
+[Unit]
+Description=Poll Company OS V3 for one recoverable case
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+Persistent=false
+Unit=company-os-v3-recover.service
+
+[Install]
+WantedBy=timers.target

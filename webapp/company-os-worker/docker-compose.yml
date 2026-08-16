@@ -1,0 +1,20 @@
+services:
+  company-os-v3-worker:
+    build: .
+    restart: unless-stopped
+    init: true
+    env_file:
+      - /etc/company-os-v3-worker.env
+    environment:
+      COMPANY_OS_V3_HOST: 0.0.0.0
+    ports:
+      - "127.0.0.1:8787:8787"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

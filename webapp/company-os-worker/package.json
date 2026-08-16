@@ -1,0 +1,14 @@
+{
+  "name": "company-os-v3-worker",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.mjs serve",
+    "recover": "node src/server.mjs recover",
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

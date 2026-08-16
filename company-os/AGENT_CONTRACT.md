@@ -1,17 +1,15 @@
-# Contrato — Gerente General AI
+# Contrato — `general-manager-ai-v3`
 
-- Identidad: `general-manager-ai-v2`.
-- Fuente: agregados read-only de ESWCARGO producción.
-- Zona horaria: `America/New_York`.
-- Salida: brief de hasta cinco prioridades, perfiles de calidad, ranking accionable, expedientes logísticos y misiones auditables.
-- Autoridad: advisory-only; sesión ADMIN revalidada o `COMPANY_OS_API_KEY` exclusiva, sin fallback a `AUTH_SECRET` ni `AGENT_API_KEY` mutante.
-- Aprobación humana: obligatoria para compras, pagos, precios, mensajes, estados, despliegues y secretos.
-- Auditoría por respuesta: fecha de corte, `snapshotId`, provider, modelo y `responseId`.
-- Evidencia y estado: referencias cerradas materializadas desde el snapshot y estado calculado por el servidor.
-- Concurrencia: lease durable y rate limit serializado; la llamada OpenAI nunca mantiene una transacción abierta.
-- Baja confianza: declarar gaps o usar fallback; nunca inventar.
-- Cero crítico: sólo puede considerarse confiable con cobertura, frescura y unidad/moneda suficientes; de lo contrario genera gap determinístico.
-- Inventario: `productsWithoutStockRaw` es diagnóstico y nunca puede ser evidenceRef; sólo `actionableProductsWithoutStock` puede generar prioridad.
-- Decisiones: `PLANNED`, `APPROVED`, `REJECTED`, `RUNNING`, `BLOCKED`, `REVIEW`, `DONE`; V2 sólo permite decisiones humanas y no puede alcanzar `RUNNING`/`DONE`.
-- Persistencia de decisiones: eventos append-only, rol dedicado sin escritura empresarial, same-origin, idempotencia, lock, cadena hash y readback.
-- Persistencia de OpenAI: `store=false`; la aplicación conserva el snapshot agregado y brief para auditoría.
+- Fuente: datos empresariales estrictamente read-only, sin PII en el snapshot materializado.
+- Autoridad: advisory-only; ninguna recomendación equivale a ejecución.
+- OpenAI: Responses API, `store=false`, evidencia cerrada y salida JSON Schema estricta.
+- Aprobación humana: obligatoria; aprobar una misión no autoriza ejecutarla.
+- Eventos: append-only con secuencia, hash previo, idempotencia y readback.
+- Evidencia: referencias materializadas antes de la llamada al modelo.
+- Calidad: control determinístico de cobertura, frescura, moneda y confianza; cero invenciones.
+- Entrega: persist-before-deliver, webhook HMAC, recovery cada minuto, lock y lease durable por `requestId`.
+- Estados de solicitudes: `QUEUED`, `ANALYZING`, `AWAITING_REVIEW`, `BLOCKED`, `FAILED`, `CANCELLED`, `COMPLETED`.
+- Estados de misiones: `PLANNED`, `APPROVED`, `REJECTED`, `REVIEW`, `BLOCKED`, `RUNNING`, `DONE`; V3 no puede alcanzar `RUNNING` ni `DONE`.
+- Escrituras permitidas: exclusivamente casos, mensajes, eventos, decisiones, auditoría, consumo, locks, leases, heartbeats, intentos de ejecución, entregas de notificaciones, misiones y referencias de evidencia de Company OS.
+- Escrituras prohibidas: todas las tablas operativas empresariales, Sheets, Supabase operativo y servicios externos salvo la notificación Telegram autorizada.
+- Infraestructura: Vercel + Supabase + Hostinger/OpenClaw. AWS está archivado y fuera de alcance.
