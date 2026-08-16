@@ -996,12 +996,17 @@ export async function decideCompanyOsMission(input: {
           decisionDetail = { ...decisionDetail, deferUntil: deferUntil.toISOString() };
         }
         if (input.decision === 'MARK_INCORRECT' && !decisionDetail.reason) throw new Error('Debe indicar qué información es incorrecta');
-        const persistedDecision = await tx.companyOsDecision.create({ data: {
+        const openReviewsBefore = await tx.companyOsMission.count({ where: { caseId: mission.caseId, status: { in: ['PLANNED', 'REVIEW'] } } });
+        const openReviewsAfter = ['PLANNED', 'REVIEW'].includes(target) ? openReviewsBefore : Math.max(0, openReviewsBefore - 1);
+        const resultingCaseStatus = openReviewsAfter === 0 && mission.caseStatus === 'AWAITING_REVIEW' ? 'COMPLETED' : mission.caseStatus;
+        const lockedMission = { id: mission.id, caseId: mission.caseId, title: mission.title, rationale: mission.rationale, expectedOutput: mission.expectedOutput, status: mission.status, createdAt: mission.createdAt, updatedAt: mission.updatedAt };
+        const result = { mission: { ...lockedMission, ...missionUpdate }, caseStatus: resultingCaseStatus, executionAuthorized: false as const };
+        await tx.companyOsDecision.create({ data: {
           caseId: mission.caseId, missionId: mission.id, decision: input.decision,
-          reason: JSON.stringify({ requestHash, detail: decisionDetail }),
+          reason: JSON.stringify({ requestHash, detail: decisionDetail, result }),
           actorRef: identity.actorRef, idempotencyKey: input.idempotencyKey,
         } });
-        const updated = await tx.companyOsMission.update({ where: { id: mission.id }, data: missionUpdate });
+        await tx.companyOsMission.update({ where: { id: mission.id }, data: missionUpdate });
         await appendCaseEvent(tx, {
           caseId: mission.caseId, requestId: input.requestId, eventType: 'MISSION_DECIDED',
           payload: { missionId: mission.id, decision: input.decision, fromMissionStatus: mission.status, toMissionStatus: target, executionAuthorized: false, detail: decisionDetail },
@@ -1021,10 +1026,6 @@ export async function decideCompanyOsMission(input: {
             idempotencyKey: `case:${input.requestId}:human-review-completed`,
           });
         }
-        const result = { mission: updated, caseStatus: openReviews === 0 ? 'COMPLETED' : mission.caseStatus, executionAuthorized: false as const };
-        await tx.companyOsDecision.update({ where: { id: persistedDecision.id }, data: {
-          reason: JSON.stringify({ requestHash, detail: decisionDetail, result }),
-        } });
         return result;
       },
     });

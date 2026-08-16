@@ -100,5 +100,6 @@ test('la implementación bloquea caso y misión y nunca proyecta RUNNING/DONE', 
   assert.match(source, /La decisión requiere un motivo auditable/);
   assert.match(source, /target === 'RUNNING' \|\| target === 'DONE'/);
   assert.doesNotMatch(source, /APPROVE:\s*'RUNNING'|REJECT:\s*'DONE'/);
-  assert.ok(source.indexOf('const persistedDecision = await tx.companyOsDecision.create') < source.indexOf('const updated = await tx.companyOsMission.update'));
+  assert.ok(source.indexOf('await tx.companyOsDecision.create') < source.indexOf('await tx.companyOsMission.update'));
+  assert.doesNotMatch(source, /companyOsDecision\.update/);
 });
