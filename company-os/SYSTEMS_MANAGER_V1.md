@@ -4,14 +4,14 @@
 - Área: `SYSTEMS`.
 - Reporta a: `general-manager-ai-v3`.
 - Autoridad: advisory-only. No ejecuta misiones, deploys, rollbacks, cambios de infraestructura, rotaciones, compras ni escrituras empresariales.
-- Runtime: Company OS V3 común; Vercel API/UI, PostgreSQL Supabase, worker Hostinger, HMAC, locks, leases, heartbeat, recovery y Telegram/OpenClaw existentes.
+- Runtime: Company OS V3 común; Vercel API/UI, PostgreSQL Supabase, worker Hostinger, HMAC, locks, leases, heartbeat, recovery y bot de Telegram existentes.
 - Modelo: Responses API, `store:false`, razonamiento low, timeout 120 s, un reintento, máximo 3000 tokens de salida y objetivo total 12000.
 - Inventario: snapshots append-only con activos, salud, cobertura, dependencias, riesgos e historial. AWS permanece `ARCHIVED`; Mac mini permanece `FUTURE`.
 - Evidencia: cerrada por caso, sin secretos. Falta de telemetría produce `UNOBSERVED` o `UNKNOWN`, nunca `OFFLINE_CONFIRMED`.
 - Riesgos: clasificación determinística; máximo cinco `ACTION_REQUIRED`. El modelo sólo sintetiza IDs materializados.
 - Agenda: registro genérico por `agentId`; baseline diario 08:00 `America/New_York`; semanal deshabilitado hasta que una revisión humana confirme valor.
-- Notificación: sólo por el canal existente; solicitudes completadas/bloqueadas y eventos contractuales. Dedupe por agente, evento y fingerprint de evidencia.
-- Seguridad: ADMIN revalidado para humanos, HMAC para worker, rol `company_os_v3` sin BYPASSRLS, RLS forzado, mínimo privilegio y auditoría append-only.
+- Notificación: intención durable antes del efecto externo, una única entrega por el bot de Telegram existente y resultado persistido por separado. Dedupe por agente, evento y fingerprint de evidencia; una entrega incierta no se reintenta automáticamente.
+- Seguridad: ADMIN revalidado para humanos, HMAC para worker, rol dedicado `systems_manager_ai_v1` NOLOGIN y sin BYPASSRLS para lectura técnica/revisión de riesgos, RLS forzado, mínimo privilegio y auditoría append-only.
 
 ## Fuentes
 
