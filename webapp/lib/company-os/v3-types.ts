@@ -53,6 +53,13 @@ export function companyOsV3BudgetConfig() {
   return { maxOutputTokens, targetTotalTokens, inputBudget: targetTotalTokens - maxOutputTokens, alerts };
 }
 
+export function companyOsDailyTokenLimit(agentId: CompanyOsAgentId) {
+  const specific = agentId === COMPANY_OS_SYSTEMS_MANAGER_IDENTITY
+    ? process.env.COMPANY_OS_SYSTEMS_DAILY_TOKEN_LIMIT
+    : process.env.COMPANY_OS_GENERAL_DAILY_TOKEN_LIMIT;
+  return positiveInteger(specific ?? process.env.COMPANY_OS_V3_DAILY_TOKEN_LIMIT, 48_000);
+}
+
 export type CompanyOsWorkerResult = {
   summary: string;
   primaryDataQualityProblem: string;
@@ -98,4 +105,9 @@ export type CompanyOsWorkerUsage = {
   outputTokens: number;
   reasoningTokens: number;
   totalTokens: number;
+  responseId?: string | null;
+  durationMs?: number;
+  retries?: number;
+  snapshotBytes?: number;
+  rulesApplied?: string[];
 };

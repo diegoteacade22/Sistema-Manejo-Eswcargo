@@ -1,3 +1,5 @@
+import { redactExternalText, redactExternalValue } from './redaction.mjs';
+
 function assertClaim(claim) {
   const required = ['leaseToken', 'requestId', 'caseId', 'agentId', 'objective', 'evidencePayload'];
   if (!claim || typeof claim !== 'object' || required.some((key) => !(key in claim))) {
@@ -12,7 +14,7 @@ function assertClaim(claim) {
 export function safeFailure(error) {
   const code = typeof error?.code === 'string' && /^[A-Z0-9_]{1,80}$/.test(error.code) ? error.code : 'WORKER_FAILURE';
   const message = typeof error?.message === 'string'
-    ? error.message.replace(/(?:sk-|Bearer\s+)[A-Za-z0-9._-]+/gi, '[REDACTED]').slice(0, 500)
+    ? redactExternalText(error.message, 500)
     : 'Worker failed';
   return { code, message, retryable: error?.retryable === true };
 }
@@ -49,14 +51,19 @@ export class CompanyOsWorker {
     try {
       await heartbeat();
       const { output, usage } = await this.openai.generate(claim);
-      const completion = await this.api.complete(claim, output, usage);
+      const safeOutput = redactExternalValue(output);
+      const completion = await this.api.complete(claim, safeOutput, usage);
       if (this.notifier) {
+        let reservation = null;
         try {
-          const delivery = await this.notifier.send(claim, output, completion?.status);
-          await this.api.notification(claim, delivery);
+          reservation = await this.api.prepareNotification(claim);
+          if (reservation?.send) {
+            const delivery = await this.notifier.send(claim, safeOutput, completion?.status);
+            await this.api.notification(claim, reservation.reservationId, delivery);
+          }
         } catch (notificationError) {
           const delivery = { status: 'FAILED', responseCode: null, error: safeFailure(notificationError) };
-          try { await this.api.notification(claim, delivery); } catch (reportError) { this.onError(reportError); }
+          try { if (reservation?.reservationId) await this.api.notification(claim, reservation.reservationId, delivery); } catch (reportError) { this.onError(reportError); }
           this.onError(notificationError);
         }
       }

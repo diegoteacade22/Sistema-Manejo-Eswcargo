@@ -11,6 +11,7 @@ import {
   COMPANY_OS_AGENT_CONTRACTS,
   COMPANY_OS_AGENT_IDS,
   COMPANY_OS_V3_IDENTITY,
+  companyOsDailyTokenLimit,
   companyOsV3BudgetConfig,
   type CompanyOsAgentId,
   type CompanyOsSystemsWorkerResult,
@@ -465,6 +466,21 @@ export async function claimCompanyOsCase(requestId?: string) {
       await appendCaseEvent(tx, { caseId: companyCase.id, requestId: companyCase.requestId, eventType: 'CASE_BLOCKED_INPUT_BUDGET', fromStatus: companyCase.status, toStatus: 'BLOCKED', payload: { inputEstimate, inputBudget }, idempotencyKey: `case:${companyCase.requestId}:blocked:context-budget` });
       return null;
     }
+    const dailyStart = startOfCompanyOsDay();
+    const dailyUsage = await tx.companyOsUsage.aggregate({
+      where: { createdAt: { gte: dailyStart }, case: { agentId: companyCase.agentId } }, _sum: { totalTokens: true },
+    });
+    const dailyUsed = dailyUsage._sum.totalTokens ?? 0;
+    const dailyLimit = companyOsDailyTokenLimit(companyCase.agentId as CompanyOsAgentId);
+    if (dailyUsed + companyCase.targetTotalTokens > dailyLimit) {
+      await tx.companyOsCase.update({ where: { id: companyCase.id }, data: { status: 'BLOCKED' } });
+      await appendCaseEvent(tx, {
+        caseId: companyCase.id, requestId: companyCase.requestId, eventType: 'CASE_BLOCKED_DAILY_BUDGET',
+        fromStatus: companyCase.status, toStatus: 'BLOCKED', payload: { dailyUsed, dailyLimit, reservedTokens: companyCase.targetTotalTokens },
+        idempotencyKey: `case:${companyCase.requestId}:blocked:daily-budget`,
+      });
+      return null;
+    }
 
     const now = new Date();
     const leaseToken = randomUUID();
@@ -572,6 +588,25 @@ export function estimateCompanyOsCost(usage: CompanyOsWorkerUsage) {
   return (nonCachedInput * 5 + usage.cachedTokens * 0.5 + usage.cacheWriteTokens * 6.25 + usage.outputTokens * 30) / 1_000_000;
 }
 
+export function startOfCompanyOsDay(now = new Date()) {
+  const dateParts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(now).filter((part) => part.type !== 'literal').map((part) => [part.type, Number(part.value)]));
+  const desiredWallTime = Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day, 0, 0, 0);
+  let candidate = desiredWallTime;
+  const wallClock = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  });
+  for (let iteration = 0; iteration < 2; iteration += 1) {
+    const parts = Object.fromEntries(wallClock.formatToParts(new Date(candidate))
+      .filter((part) => part.type !== 'literal').map((part) => [part.type, Number(part.value)]));
+    const representedWallTime = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+    candidate += desiredWallTime - representedWallTime;
+  }
+  return new Date(candidate);
+}
+
 export async function completeCompanyOsCase(input: {
   requestId: string; leaseToken: string; result: CompanyOsWorkerResult | CompanyOsSystemsWorkerResult; usage: CompanyOsWorkerUsage;
 }) {
@@ -599,14 +634,15 @@ export async function completeCompanyOsCase(input: {
         expectedOutput: mission.objective, status: 'PLANNED',
       })) });
     }
-    const start = new Date(); start.setUTCHours(0, 0, 0, 0);
+    const start = startOfCompanyOsDay();
     const daily = await tx.companyOsUsage.aggregate({
       where: { createdAt: { gte: start }, case: { agentId: existing.agentId } }, _sum: { totalTokens: true, estimatedCostUsd: true },
     });
     const estimatedCostUsd = estimateCompanyOsCost(input.usage);
     const dailyTotalTokens = (daily._sum.totalTokens ?? 0) + input.usage.totalTokens;
     const dailyCostUsd = Number(daily._sum.estimatedCostUsd ?? 0) + estimatedCostUsd;
-    const pct = Math.round(input.usage.totalTokens / existing.targetTotalTokens * 100);
+    const dailyLimit = companyOsDailyTokenLimit(existing.agentId as CompanyOsAgentId);
+    const pct = Math.round(dailyTotalTokens / dailyLimit * 100);
     const configuredAlerts = companyOsV3BudgetConfig().alerts;
     const alertLevel = configuredAlerts.filter((level) => pct >= level).sort((a, b) => b - a)[0] ?? null;
     await tx.companyOsUsage.create({ data: {
@@ -615,6 +651,8 @@ export async function completeCompanyOsCase(input: {
       cacheWriteTokens: input.usage.cacheWriteTokens, outputTokens: input.usage.outputTokens,
       reasoningTokens: input.usage.reasoningTokens, totalTokens: input.usage.totalTokens,
       estimatedCostUsd, dailyTotalTokens, dailyCostUsd, alertLevel,
+      responseId: input.usage.responseId ?? null, durationMs: input.usage.durationMs ?? null, retries: input.usage.retries ?? 0,
+      snapshotBytes: input.usage.snapshotBytes ?? null, rulesApplied: jsonValue(input.usage.rulesApplied ?? []),
     } });
     const toStatus: CompanyOsRequestStatus = input.result.missions.length ? 'AWAITING_REVIEW' : 'COMPLETED';
     await tx.companyOsCase.update({ where: { id: existing.id }, data: {
@@ -631,6 +669,13 @@ export async function completeCompanyOsCase(input: {
       fromStatus: 'ANALYZING', toStatus, payload: { evidenceRefs: input.result.evidenceRefs, totalTokens: input.usage.totalTokens, alertLevel },
       idempotencyKey: `case:${input.requestId}:completed`,
     });
+    if (existing.agentId === 'systems-manager-ai-v1') {
+      await appendCaseEvent(tx, {
+        caseId: existing.id, requestId: input.requestId, eventType: 'HANDOFF_TO_GENERAL_MANAGER',
+        fromStatus: toStatus, toStatus, payload: { fromAgentId: existing.agentId, toAgentId: COMPANY_OS_V3_IDENTITY, executionAuthorized: false },
+        idempotencyKey: `case:${input.requestId}:handoff:${COMPANY_OS_V3_IDENTITY}`,
+      });
+    }
     await tx.companyOsAuditEvent.create({ data: {
       requestId: input.requestId, action: 'ANALYSIS_COMPLETED', actorRef: WORKER_REF,
       metadata: jsonValue({ businessWrites: 0, infrastructureWrites: 0, agentId: existing.agentId, requestStatus: toStatus, missionsCreated: input.result.missions.length }),
@@ -660,25 +705,28 @@ export async function failCompanyOsCase(requestId: string, leaseToken: string, e
   });
 }
 
-export async function recordCompanyOsNotification(input: {
-  requestId: string; leaseToken: string; status: 'DELIVERED' | 'FAILED'; responseCode?: number | null; errorDetail?: string | null;
-}) {
+async function notificationContext(tx: Tx, requestId: string, leaseToken: string) {
+  const companyCase = await tx.companyOsCase.findUniqueOrThrow({ where: { requestId } });
+  const lease = await tx.companyOsLease.findFirst({ where: { requestId, leaseToken } });
+  if (!lease || lease.caseId !== companyCase.id) throw new Error('Lease de notificación inválido');
+  const riskEvidence = await tx.companyOsEvidenceRef.findUnique({
+    where: { caseId_evidenceKey: { caseId: companyCase.id, evidenceKey: 'risks' } }, select: { value: true },
+  });
+  return { companyCase, evidenceFingerprint: riskEvidence ? hash(JSON.stringify(riskEvidence.value)) : hash(requestId) };
+}
+
+export async function prepareCompanyOsNotification(input: { requestId: string; leaseToken: string }) {
   const db = companyOsV3Prisma();
   return db.$transaction(async (tx) => {
-    const companyCase = await tx.companyOsCase.findUniqueOrThrow({ where: { requestId: input.requestId } });
-    const lease = await tx.companyOsLease.findFirst({ where: { requestId: input.requestId, leaseToken: input.leaseToken } });
-    if (!lease || lease.caseId !== companyCase.id) throw new Error('Lease de notificación inválido');
+    const { companyCase, evidenceFingerprint } = await notificationContext(tx, input.requestId, input.leaseToken);
     const previous = await tx.companyOsNotificationDelivery.findMany({
       where: { requestId: input.requestId, channel: 'TELEGRAM', eventType: 'ANALYSIS_COMPLETED' },
       orderBy: { attempt: 'desc' },
     });
     const delivered = previous.find((item) => item.status === 'DELIVERED');
-    if (delivered) return { reused: true, delivery: delivered };
-    const riskEvidence = await tx.companyOsEvidenceRef.findUnique({
-      where: { caseId_evidenceKey: { caseId: companyCase.id, evidenceKey: 'risks' } },
-      select: { value: true },
-    });
-    const evidenceFingerprint = riskEvidence ? hash(JSON.stringify(riskEvidence.value)) : hash(input.requestId);
+    if (delivered) return { send: false, reused: true, delivery: delivered };
+    const pending = previous.find((item) => item.status === 'PENDING' && !previous.some((candidate) => candidate.attempt === item.attempt && ['DELIVERED','FAILED'].includes(candidate.status)));
+    if (pending) return { send: false, reused: true, delivery: pending, uncertain: true };
     const contractDuplicate = await tx.companyOsNotificationDelivery.findFirst({
       where: {
         agentId: companyCase.agentId,
@@ -689,21 +737,44 @@ export async function recordCompanyOsNotification(input: {
         status: 'DELIVERED',
       },
     });
-    if (contractDuplicate) return { reused: true, delivery: contractDuplicate };
-    const attempt = (previous[0]?.attempt ?? 0) + 1;
+    if (contractDuplicate) return { send: false, reused: true, delivery: contractDuplicate };
+    const attempt = Math.max(0, ...previous.map((item) => item.attempt)) + 1;
     if (attempt > 2) throw new Error('Telegram agotó el único reintento permitido');
-    const idempotencyKey = `telegram:${companyCase.agentId}:${input.requestId}:completed:${attempt}`;
-    const delivery = await tx.companyOsNotificationDelivery.create({ data: {
+    const reservation = await tx.companyOsNotificationDelivery.create({ data: {
       caseId: companyCase.id, requestId: input.requestId, agentId: companyCase.agentId,
       evidenceFingerprint, channel: 'TELEGRAM', eventType: 'ANALYSIS_COMPLETED',
-      status: input.status, attempt, responseCode: input.responseCode ?? null,
-      errorDetail: input.errorDetail?.slice(0, 500) ?? null, idempotencyKey,
+      status: 'PENDING', attempt, responseCode: null, errorDetail: null,
+      idempotencyKey: `telegram:${companyCase.agentId}:${input.requestId}:completed:intent:${attempt}`,
+    } });
+    return { send: true, reused: false, reservationId: reservation.id, attempt };
+  });
+}
+
+export async function recordCompanyOsNotification(input: {
+  requestId: string; leaseToken: string; reservationId: string; status: 'DELIVERED' | 'FAILED'; responseCode?: number | null; errorDetail?: string | null;
+}) {
+  const db = companyOsV3Prisma();
+  return db.$transaction(async (tx) => {
+    const { companyCase, evidenceFingerprint } = await notificationContext(tx, input.requestId, input.leaseToken);
+    const reservation = await tx.companyOsNotificationDelivery.findFirst({ where: {
+      id: input.reservationId, caseId: companyCase.id, requestId: input.requestId, channel: 'TELEGRAM', status: 'PENDING',
+    } });
+    if (!reservation) throw new Error('Reserva de notificación inválida');
+    const existing = await tx.companyOsNotificationDelivery.findUnique({ where: {
+      idempotencyKey: `telegram:${companyCase.agentId}:${input.requestId}:completed:result:${reservation.attempt}`,
+    } });
+    if (existing) return { reused: true, delivery: existing };
+    const delivery = await tx.companyOsNotificationDelivery.create({ data: {
+      caseId: companyCase.id, requestId: input.requestId, agentId: companyCase.agentId,
+      evidenceFingerprint, channel: 'TELEGRAM', eventType: 'ANALYSIS_COMPLETED', status: input.status,
+      attempt: reservation.attempt, responseCode: input.responseCode ?? null, errorDetail: input.errorDetail?.slice(0, 500) ?? null,
+      idempotencyKey: `telegram:${companyCase.agentId}:${input.requestId}:completed:result:${reservation.attempt}`,
     } });
     await appendCaseEvent(tx, {
       caseId: companyCase.id, requestId: input.requestId,
       eventType: input.status === 'DELIVERED' ? 'TELEGRAM_DELIVERED' : 'TELEGRAM_DELIVERY_FAILED',
       payload: { responseCode: input.responseCode ?? null, errorDetail: input.errorDetail?.slice(0, 200) ?? null },
-      idempotencyKey: `case:${input.requestId}:telegram:completed:${attempt}`,
+      idempotencyKey: `case:${input.requestId}:telegram:completed:${reservation.attempt}`,
     });
     return { reused: false, delivery };
   });
@@ -764,10 +835,12 @@ export async function cancelCompanyOsCase(requestId: string, reason: string, ide
 }
 
 export async function decideCompanyOsMission(input: {
-  requestId: string; missionId: string; decision: 'APPROVE' | 'REJECT' | 'REQUEST_REVIEW' | 'BLOCK'; reason?: string; idempotencyKey: string;
+  requestId: string; missionId: string; decision: 'APPROVE' | 'REJECT' | 'REQUEST_REVIEW' | 'BLOCK' | 'EDIT' | 'POSTPONE' | 'MARK_INCORRECT';
+  reason?: string; revision?: { title?: string; rationale?: string; expectedOutput?: string }; deferUntil?: string; idempotencyKey: string;
 }, identity: Identity) {
   const transitions: Record<typeof input.decision, CompanyOsMissionStatus> = {
     APPROVE: 'APPROVED', REJECT: 'REJECTED', REQUEST_REVIEW: 'REVIEW', BLOCK: 'BLOCKED',
+    EDIT: 'REVIEW', POSTPONE: 'REVIEW', MARK_INCORRECT: 'BLOCKED',
   };
   const target = transitions[input.decision];
   if (!COMPANY_OS_MISSION_STATUSES.includes(target) || target === 'RUNNING' || target === 'DONE') throw new Error('V3 no autoriza ejecución de misiones');
@@ -777,17 +850,87 @@ export async function decideCompanyOsMission(input: {
     const mission = await tx.companyOsMission.findFirstOrThrow({ where: { id: input.missionId, caseId: companyCase.id } });
     const existing = await tx.companyOsDecision.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
     if (existing) return { reused: true, mission };
+    let decisionDetail: Record<string, unknown> = { reason: sanitizeCompanyText(input.reason ?? '', 1000).safeText || null };
+    let missionUpdate: { status: CompanyOsMissionStatus; title?: string; rationale?: string; expectedOutput?: string } = { status: target };
+    if (input.decision === 'EDIT') {
+      const title = sanitizeCompanyText(input.revision?.title ?? '', 1000).safeText;
+      const rationale = sanitizeCompanyText(input.revision?.rationale ?? '', 1000).safeText;
+      const expectedOutput = sanitizeCompanyText(input.revision?.expectedOutput ?? '', 1000).safeText;
+      if (!title || !rationale || !expectedOutput) throw new Error('La edición requiere título, motivo y entregable');
+      missionUpdate = { status: target, title, rationale, expectedOutput };
+      decisionDetail = { ...decisionDetail, revision: { title, rationale, expectedOutput } };
+    }
+    if (input.decision === 'POSTPONE') {
+      const deferUntil = new Date(input.deferUntil ?? '');
+      if (!Number.isFinite(deferUntil.getTime())) throw new Error('Fecha de postergación inválida');
+      decisionDetail = { ...decisionDetail, deferUntil: deferUntil.toISOString() };
+    }
+    if (input.decision === 'MARK_INCORRECT' && !decisionDetail.reason) throw new Error('Debe indicar qué información es incorrecta');
     await tx.companyOsDecision.create({ data: {
-      caseId: companyCase.id, missionId: mission.id, decision: input.decision, reason: input.reason,
+      caseId: companyCase.id, missionId: mission.id, decision: input.decision, reason: JSON.stringify(decisionDetail),
       actorRef: identity.actorRef, idempotencyKey: input.idempotencyKey,
     } });
-    const updated = await tx.companyOsMission.update({ where: { id: mission.id }, data: { status: target } });
+    const updated = await tx.companyOsMission.update({ where: { id: mission.id }, data: missionUpdate });
     await appendCaseEvent(tx, {
       caseId: companyCase.id, requestId: input.requestId, eventType: 'MISSION_DECIDED',
-      payload: { missionId: mission.id, fromMissionStatus: mission.status, toMissionStatus: target, executionAuthorized: false },
+      payload: { missionId: mission.id, decision: input.decision, fromMissionStatus: mission.status, toMissionStatus: target, executionAuthorized: false, detail: decisionDetail },
       idempotencyKey: `case:${input.requestId}:mission:${input.idempotencyKey}`,
     });
-    return { reused: false, mission: updated, executionAuthorized: false };
+    const openReviews = await tx.companyOsMission.count({ where: { caseId: companyCase.id, status: { in: ['PLANNED', 'REVIEW'] } } });
+    if (openReviews === 0 && companyCase.status === 'AWAITING_REVIEW') {
+      await tx.companyOsCase.update({ where: { id: companyCase.id }, data: { status: 'COMPLETED', completedAt: new Date() } });
+      await appendCaseEvent(tx, {
+        caseId: companyCase.id, requestId: input.requestId, eventType: 'CASE_COMPLETED',
+        fromStatus: 'AWAITING_REVIEW', toStatus: 'COMPLETED', payload: { reason: 'HUMAN_REVIEW_CLOSED', executionAuthorized: false },
+        idempotencyKey: `case:${input.requestId}:human-review-completed`,
+      });
+    }
+    return { reused: false, mission: updated, caseStatus: openReviews === 0 ? 'COMPLETED' : companyCase.status, executionAuthorized: false };
+  });
+}
+
+type RiskReviewRow = { id: string; snapshotId: string; caseId: string; evidenceId: string; currentStatus: string };
+
+export async function decideCompanyOsRisk(input: {
+  requestId: string; riskId: string; decision: 'ACKNOWLEDGE'|'POSTPONE'|'MARK_INCORRECT'|'COMMENT';
+  reason: string; deferUntil?: string; idempotencyKey: string;
+}, identity: Identity) {
+  const rationale = sanitizeCompanyText(input.reason, 1000).safeText;
+  if (!rationale) throw new Error('La decisión de riesgo requiere motivo');
+  const eventType = { ACKNOWLEDGE: 'ACKNOWLEDGED', POSTPONE: 'POSTPONED', MARK_INCORRECT: 'MARKED_INCORRECT', COMMENT: 'COMMENTED' }[input.decision];
+  const toStatus = { ACKNOWLEDGE: 'ACKNOWLEDGED', POSTPONE: 'POSTPONED', MARK_INCORRECT: 'MARKED_INCORRECT', COMMENT: 'OPEN' }[input.decision];
+  let deferUntil: string | null = null;
+  if (input.decision === 'POSTPONE') {
+    const parsed = new Date(input.deferUntil ?? '');
+    if (!Number.isFinite(parsed.getTime())) throw new Error('Fecha de postergación inválida');
+    deferUntil = parsed.toISOString();
+  }
+  const db = companyOsV3Prisma();
+  return db.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<RiskReviewRow[]>(Prisma.sql`
+      SELECT r.id, r."snapshotId", r."caseId", r."evidenceId",
+        COALESCE((SELECT h."toStatus" FROM public."CompanyOsSystemRiskHistory" h WHERE h."riskId" = r.id ORDER BY h."createdAt" DESC LIMIT 1), r.status) AS "currentStatus"
+      FROM public."CompanyOsSystemRisk" r
+      JOIN public."CompanyOsCase" c ON c.id = r."caseId"
+      WHERE c."requestId" = ${input.requestId} AND c."agentId" = 'systems-manager-ai-v1' AND r."riskKey" = ${input.riskId}
+      LIMIT 1
+    `);
+    const risk = rows[0];
+    if (!risk) throw new Error('Riesgo técnico inexistente');
+    const inserted = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      INSERT INTO public."CompanyOsSystemRiskHistory"
+        (id, "riskId", "snapshotId", "caseId", "eventType", "fromStatus", "toStatus", "actorRef", rationale, "evidenceId", "idempotencyKey")
+      VALUES (${randomUUID()}, ${risk.id}, ${risk.snapshotId}, ${risk.caseId}, ${eventType}, ${risk.currentStatus}, ${toStatus},
+        ${identity.actorRef}, ${deferUntil ? `${rationale} · revisar después de ${deferUntil}` : rationale}, ${risk.evidenceId}, ${input.idempotencyKey})
+      ON CONFLICT ("idempotencyKey") DO NOTHING RETURNING id
+    `);
+    if (inserted.length === 0) return { reused: true, riskId: input.riskId, status: toStatus };
+    await appendCaseEvent(tx, {
+      caseId: risk.caseId, requestId: input.requestId, eventType: 'RISK_REVIEWED',
+      payload: { riskId: input.riskId, decision: input.decision, fromStatus: risk.currentStatus, toStatus, deferUntil, executionAuthorized: false },
+      idempotencyKey: `case:${input.requestId}:risk:${input.idempotencyKey}`,
+    });
+    return { reused: false, riskId: input.riskId, status: toStatus, executionAuthorized: false };
   });
 }
 

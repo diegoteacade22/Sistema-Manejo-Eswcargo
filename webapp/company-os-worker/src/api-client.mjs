@@ -84,11 +84,19 @@ export class CompanyOsApiClient {
     });
   }
 
-  notification(claim, delivery) {
+  prepareNotification(claim) {
+    return this.post('/api/company-os/v3/worker/notification', {
+      leaseToken: claim.leaseToken, requestId: claim.requestId, caseId: claim.caseId, phase: 'PREPARE',
+    });
+  }
+
+  notification(claim, reservationId, delivery) {
     return this.post('/api/company-os/v3/worker/notification', {
       leaseToken: claim.leaseToken,
       requestId: claim.requestId,
       caseId: claim.caseId,
+      phase: 'COMPLETE',
+      reservationId,
       delivery,
     });
   }
