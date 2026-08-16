@@ -6,12 +6,20 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
+import { CompanyOsMissionControls } from '@/components/company-os-mission-controls';
 import type { CompanyBrief } from '@/lib/company-os/types';
 
 const urgencyStyle = {
   P0: 'border-red-500/40 bg-red-500/10 text-red-300',
   P1: 'border-amber-500/40 bg-amber-500/10 text-amber-300',
   P2: 'border-cyan-500/40 bg-cyan-500/10 text-cyan-300',
+};
+
+const metricLabels: Record<string, string> = {
+  productsWithoutStockRaw: 'Sin stock (bruto, no accionable)',
+  actionableProductsWithoutStock: 'Sin stock accionables',
+  delayedShipments: 'Expedientes de envío >14 días',
+  expensesLast30DaysUsd: 'Gastos 30 días',
 };
 
 export function CompanyOsDashboard() {
@@ -141,30 +149,32 @@ export function CompanyOsDashboard() {
 
             <section>
               <h2 className="mb-1 text-xl font-black">Planes de misión</h2>
-              <p className="mb-3 text-sm text-slate-400">Planificados para coordinación; todavía no ejecutados.</p>
-              <div className="space-y-3">
-                {brief.delegations.map((delegation, index) => (
-                  <div key={`${delegation.agent}-${index}`} className="grid gap-2 rounded-2xl border border-white/10 bg-slate-950/80 p-4 md:grid-cols-[180px_1fr]">
-                    <div>
-                      <div className="font-bold text-violet-300">{delegation.agent}</div>
-                      <Badge variant="outline" className="mt-2 border-amber-500/30 text-amber-300">{delegation.status}</Badge>
-                    </div>
-                    <div>
-                      <p className="font-semibold text-slate-100">{delegation.mission}</p>
-                      <p className="mt-1 text-sm text-slate-400">{delegation.why}</p>
-                      <p className="mt-2 text-xs text-cyan-300">Entregable: {delegation.expectedOutput}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <p className="mb-3 text-sm text-slate-400">Decisiones humanas auditadas; ninguna acción inicia ejecución.</p>
+              {brief.execution.auditRunId && <CompanyOsMissionControls runId={brief.execution.auditRunId} />}
             </section>
 
             <Card className="border-white/10 bg-slate-950/80 text-slate-100">
               <CardHeader><CardTitle>Calidad y límites</CardTitle></CardHeader>
-              <CardContent className="grid gap-6 md:grid-cols-3">
-                <div><p className="mb-2 font-bold text-emerald-300">Cobertura</p><ul className="space-y-1 text-sm text-slate-400">{brief.dataQuality.coverage.map((item) => <li key={item}>• {item}</li>)}</ul></div>
-                <div><p className="mb-2 font-bold text-amber-300">Brechas</p><ul className="space-y-1 text-sm text-slate-400">{brief.dataQuality.gaps.map((item) => <li key={item}>• {item}</li>)}</ul></div>
-                <div><p className="mb-2 font-bold text-cyan-300">Guardrails</p><ul className="space-y-1 text-sm text-slate-400">{brief.guardrails.map((item) => <li key={item}>• {item}</li>)}</ul></div>
+              <CardContent className="space-y-6">
+                <div className="grid gap-6 md:grid-cols-3">
+                  <div><p className="mb-2 font-bold text-emerald-300">Cobertura</p><ul className="space-y-1 text-sm text-slate-400">{brief.dataQuality.coverage.map((item) => <li key={item}>• {item}</li>)}</ul></div>
+                  <div><p className="mb-2 font-bold text-amber-300">Brechas</p><ul className="space-y-1 text-sm text-slate-400">{brief.dataQuality.gaps.length ? brief.dataQuality.gaps.map((item) => <li key={item}>• {item}</li>) : <li>• Sin brechas detectadas</li>}</ul></div>
+                  <div><p className="mb-2 font-bold text-cyan-300">Guardrails</p><ul className="space-y-1 text-sm text-slate-400">{brief.guardrails.map((item) => <li key={item}>• {item}</li>)}</ul></div>
+                </div>
+                <div>
+                  <p className="mb-3 font-bold text-violet-300">Perfiles de métricas críticas</p>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {Object.entries(brief.dataQuality.profiles)
+                      .filter(([key]) => key === 'productsWithoutStockRaw' || key === 'actionableProductsWithoutStock' || key === 'delayedShipments' || key === 'expensesLast30DaysUsd')
+                      .map(([key, profile]) => (
+                        <div key={key} className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs">
+                          <div className="flex items-center justify-between gap-3"><span className="font-semibold text-slate-200">{metricLabels[key] || key}</span><span className="font-mono text-slate-100">{profile.count}</span></div>
+                          <p className="mt-2 text-slate-500">Cobertura {profile.coverage} · frescura {profile.freshness} · moneda {profile.currency} · confianza {profile.confidence}</p>
+                          <p className="mt-1 text-slate-600">Última evidencia: {profile.maxDateOrUpdate ? new Date(profile.maxDateOrUpdate).toLocaleString('es-AR', { timeZone: 'America/New_York' }) : 'sin evidencia'}</p>
+                        </div>
+                      ))}
+                  </div>
+                </div>
               </CardContent>
             </Card>
 

@@ -452,9 +452,37 @@ model CompanyAgentMission {
   status         String          @default("PLANNED")
   createdAt      DateTime        @default(now())
   run            CompanyAgentRun @relation(fields: [runId], references: [id], onDelete: Restrict)
+  events         CompanyAgentMissionEvent[]
 
   @@index([runId])
   @@index([status, createdAt])
+}
+
+model CompanyAgentMissionEvent {
+  id               String              @id @default(cuid())
+  missionId        String
+  sequence         Int
+  action           String
+  fromStatus       String
+  toStatus         String
+  actorRef         String
+  authMode         String
+  reason           String?
+  deferUntil       DateTime?
+  revisionPayload  Json?
+  incorrectData    Json?
+  expectedHead     Int
+  idempotencyKey   String
+  requestHash      String
+  previousHash     String?
+  eventHash        String
+  createdAt        DateTime            @default(now())
+  mission          CompanyAgentMission @relation(fields: [missionId], references: [id], onDelete: Restrict)
+
+  @@unique([missionId, sequence])
+  @@unique([missionId, idempotencyKey])
+  @@index([missionId, createdAt])
+  @@index([toStatus, createdAt])
 }
 
 model CompanyAgentRequest {

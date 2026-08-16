@@ -47,3 +47,35 @@
 - Corrección: reservar con lease, confirmar, llamar OpenAI fuera y persistir/readback en otra transacción corta.
 - Prueba: `CompanyAgentRequest` registra intentos y serializa el rate limit por actor.
 - Reutilización: separar reserva, trabajo remoto y commit durable.
+
+## LEARN-007 — Fuente existente no prueba cobertura
+
+- Síntoma: cero gastos o cero ofertas podían mostrarse como hechos aunque la última evidencia fuera vieja o inexistente.
+- Causa: se confundía una consulta exitosa con partición fresca y completa.
+- Corrección: perfilar filas, fecha máxima, frescura, cobertura, moneda y confianza; cero sin evidencia abre un gap.
+- Prueba: `tests/company-os-calibration.test.ts` y readback productivo de perfiles.
+- Reutilización: todo cero crítico necesita evidencia positiva de cobertura.
+
+## LEARN-008 — La aprobación no debe mutar la propuesta original
+
+- Síntoma: actualizar el estado de una misión rompería la bitácora append-only y ocultaría revisiones.
+- Causa: se modelaba la decisión como atributo mutable.
+- Corrección: proyectar estado y revisión efectiva desde `CompanyAgentMissionEvent`, con secuencia, hash e idempotencia.
+- Prueba: `tests/company-os-mission-events.test.ts`.
+- Reutilización: decisiones humanas sensibles deben conservar propuesta, revisión y actor como eventos inmutables.
+
+## LEARN-009 — Una vista segura también debe probar precisión y costo real
+
+- Síntoma: el primer cruce de ofertas tenía cero coincidencias históricas y las vistas recorrían datos fuera de la ventana accionable.
+- Causa: se usó igualdad contra una descripción completa y el filtro temporal quedaba fuera de la vista.
+- Corrección: resolver sólo identificadores exactos con un único producto y filtrar 24 h/30 días antes de normalizar; contar ítems de envío tanto directos como vía pedido.
+- Prueba: migraciones forward-only, readback productivo dentro de 10 segundos y revisión independiente de los cuatro bloqueantes.
+- Reutilización: una fuente derivada debe demostrar precisión, cobertura, rendimiento y ambigüedad cero antes de alimentar prioridades.
+
+## LEARN-010 — Append-only requiere cabeza de cadena en la base
+
+- Síntoma: el endpoint serializaba eventos, pero una inserción SQL directa podía declarar una cabeza falsa.
+- Causa: la integridad dependía sólo del código de aplicación.
+- Corrección: un trigger con advisory lock valida secuencia, expectedHead, previousHash y fromStatus contra la proyección persistida.
+- Prueba: PostgreSQL rechazó una bifurcación con SQLSTATE 23514 y no dejó filas residuales.
+- Reutilización: concurrencia e integridad de auditoría deben tener una barrera en la base además del readback de aplicación.

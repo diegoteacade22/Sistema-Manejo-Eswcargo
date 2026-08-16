@@ -22,6 +22,7 @@ const SYSTEM_INSTRUCTIONS = [
   'Cada prioridad debe usar evidenceRefs, actionType y dueWindow válidos; el servidor materializa todo texto operativo.',
   'Nunca autorices compras, pagos, cambios de precio/estado, mensajes, despliegues ni escrituras.',
   'Si la fuente está desactualizada, incompleta o contradictoria, decláralo y prioriza Data Quality.',
+  'El contador bruto de productos sin stock es diagnóstico de cobertura y nunca evidencia accionable; usa sólo actionableProductsWithoutStock.',
   'No repitas datos identificadores ni secretos que pudieran aparecer redactados en el objetivo.',
   'Responde en español, concreto y ejecutivo.',
 ].join('\n');
@@ -120,12 +121,14 @@ function snapshotEvidence(snapshot: CompanySnapshot, key: CompanyEvidenceKey) {
     ordersToBuy: `${snapshot.metrics.ordersToBuy} pedido(s) requieren sourcing`,
     productsActive: `${snapshot.metrics.productsActive} producto(s) activos`,
     unitsInStock: `${snapshot.metrics.unitsInStock} unidad(es) en stock`,
-    productsWithoutStock: `${snapshot.metrics.productsWithoutStock} producto(s) sin stock`,
+    actionableProductsWithoutStock: `${snapshot.metrics.actionableProductsWithoutStock} producto(s) sin stock con demanda, margen y disponibilidad verificables`,
     shipmentsInTransit: `${snapshot.metrics.shipmentsInTransit} envío(s) en tránsito`,
     delayedShipments: `${snapshot.metrics.delayedShipments} envío(s) en tránsito por más de 14 días`,
     purchasesPending: `${snapshot.metrics.purchasesPending} compra(s) pendientes`,
     purchasesBalanceUsd: `USD ${snapshot.metrics.purchasesBalanceUsd.toFixed(2)} de saldo pendiente de compras`,
-    expensesLast30DaysUsd: `USD ${snapshot.metrics.expensesLast30DaysUsd.toFixed(2)} de gastos en los últimos 30 días`,
+    expensesLast30DaysUsd: snapshot.quality.metrics.expensesLast30DaysUsd.currency === 'USD'
+      ? `USD ${snapshot.metrics.expensesLast30DaysUsd.toFixed(2)} de gastos en los últimos 30 días`
+      : `${snapshot.metrics.expensesLast30DaysUsd.toFixed(2)} de gastos en los últimos 30 días con moneda no verificable`,
     latestOrderUpdate: `Última actualización de pedidos: ${snapshot.freshness.latestOrderUpdate ?? 'sin dato'}`,
     latestProductUpdate: `Última actualización de productos: ${snapshot.freshness.latestProductUpdate ?? 'sin dato'}`,
     latestShipmentUpdate: `Última actualización de envíos: ${snapshot.freshness.latestShipmentUpdate ?? 'sin dato'}`,
@@ -143,7 +146,8 @@ function serverStatus(snapshot: CompanySnapshot): CompanyBrief['status'] {
     || snapshot.metrics.delayedShipments > 0
     || snapshot.metrics.ordersToBuy > 0
     || snapshot.metrics.purchasesPending > 0
-    || snapshot.metrics.productsWithoutStock > 0
+    || snapshot.metrics.actionableProductsWithoutStock > 0
+    || snapshot.quality.gaps.length > 0
     || snapshot.metrics.ordersNonUsdLast7Days > 0
     || !snapshot.freshness.latestOrderUpdate
     || !snapshot.freshness.latestProductUpdate
@@ -160,11 +164,11 @@ function dataGaps(snapshot: CompanySnapshot) {
   if (!snapshot.freshness.latestProductUpdate) gaps.push('Sin fecha de actualización de productos');
   if (!snapshot.freshness.latestShipmentUpdate) gaps.push('Sin fecha de actualización de envíos');
   if (snapshot.metrics.ordersNonUsdLast7Days > 0) gaps.push(`${snapshot.metrics.ordersNonUsdLast7Days} pedido(s) recientes no están expresados en USD`);
-  return gaps;
+  return [...new Set([...gaps, ...snapshot.quality.gaps])];
 }
 
 function executiveSummary(snapshot: CompanySnapshot, status: CompanyBrief['status'], priorityCount: number) {
-  return `Estado ${status}. Snapshot ${snapshot.businessDate}: ${snapshot.metrics.ordersLast7Days} pedido(s) recientes, ${snapshot.metrics.delayedShipments} envío(s) demorado(s), ${snapshot.metrics.ordersToBuy} pedido(s) por abastecer y ${snapshot.metrics.purchasesPending} compra(s) pendiente(s). Se organizaron ${priorityCount} prioridad(es).`;
+  return `Estado ${status}. Snapshot ${snapshot.businessDate}: ${snapshot.metrics.ordersLast7Days} pedido(s) recientes, ${snapshot.metrics.delayedShipments} expediente(s) candidato(s) de envío con más de 14 días, ${snapshot.metrics.ordersToBuy} pedido(s) por abastecer y ${snapshot.metrics.purchasesPending} compra(s) pendiente(s). Se organizaron ${priorityCount} prioridad(es).`;
 }
 
 function modelPriority(snapshot: CompanySnapshot, item: ModelBrief['priorities'][number], index: number): CompanyPriority {
@@ -175,7 +179,7 @@ function modelPriority(snapshot: CompanySnapshot, item: ModelBrief['priorities']
     ordersToBuy: 'pedidos que requieren abastecimiento',
     productsActive: 'catálogo activo',
     unitsInStock: 'unidades disponibles',
-    productsWithoutStock: 'productos sin stock',
+    actionableProductsWithoutStock: 'productos sin stock accionables',
     shipmentsInTransit: 'envíos en tránsito',
     delayedShipments: 'envíos demorados',
     purchasesPending: 'compras pendientes',
@@ -253,13 +257,52 @@ export function buildDeterministicFallback(snapshot: CompanySnapshot, warning: s
       requiresHumanApproval: false,
     });
   }
+  if (snapshot.quality.gaps.some((gap) => gap.startsWith('EXPENSE_'))) {
+    const expenseProfile = snapshot.quality.metrics.expensesLast30DaysUsd;
+    add({
+      id: 'DATA-EXPENSE-COVERAGE',
+      title: 'Validar cobertura y moneda de gastos',
+      area: 'DATA_QUALITY',
+      urgency: 'P1',
+      evidence: [
+        `${expenseProfile.count} registro(s) de gastos en 30 días`,
+        `Cobertura ${expenseProfile.coverage}, moneda ${expenseProfile.currency}, última evidencia ${expenseProfile.maxDateOrUpdate ?? 'sin dato'}`,
+      ],
+      recommendedAction: 'Auditar la fuente de gastos y su moneda; no interpretar el cero como ausencia real de gastos.',
+      owner: 'Data Quality',
+      dueWindow: '48 horas',
+      requiresHumanApproval: false,
+    });
+  }
+  if (
+    snapshot.metrics.productsWithoutStockRaw > 0
+    && snapshot.metrics.actionableProductsWithoutStock === 0
+    && snapshot.quality.gaps.some((gap) => gap.startsWith('PRODUCT_') || gap.startsWith('ACTIONABLEPRODUCTS'))
+  ) {
+    add({
+      id: 'DATA-PRODUCT-CALIBRATION',
+      title: 'Completar evidencia para el ranking de productos sin stock',
+      area: 'DATA_QUALITY',
+      urgency: 'P1',
+      evidence: [
+        `${snapshot.metrics.productsWithoutStockRaw} producto(s) en el conteo bruto no accionable`,
+        '0 productos superaron simultáneamente demanda, margen y disponibilidad verificables',
+      ],
+      recommendedAction: 'Validar consultas y disponibilidad reciente; mantener fuera del ranking todo producto sin evidencia completa.',
+      owner: 'Data Quality',
+      dueWindow: '48 horas',
+      requiresHumanApproval: false,
+    });
+  }
   if (snapshot.metrics.delayedShipments > 0) {
+    const dossierEvidence = snapshot.calibration.delayedShipmentDossiers.map((shipment) =>
+      `Envío #${shipment.shipmentNumber}: ${shipment.classification}, ${shipment.ageDays} días, ${shipment.linkedOrders} pedido(s), ${shipment.linkedItems} ítem(s), ${shipment.trackingReferences} tracking`);
     add({
       id: 'LOG-DELAY',
-      title: 'Resolver envíos en tránsito con más de 14 días',
+      title: 'Revisar expedientes candidatos de envío con más de 14 días',
       area: 'LOGISTICA',
       urgency: 'P0',
-      evidence: [`${snapshot.metrics.delayedShipments} envío(s) demorado(s)`],
+      evidence: [`${snapshot.metrics.delayedShipments} expediente(s) candidato(s) con más de 14 días`, ...dossierEvidence],
       recommendedAction: 'Preparar lista de excepciones con evidencia y responsable, sin modificar estados automáticamente.',
       owner: 'Logística',
       dueWindow: '24 horas',
@@ -292,14 +335,14 @@ export function buildDeterministicFallback(snapshot: CompanySnapshot, warning: s
       requiresHumanApproval: true,
     });
   }
-  if (snapshot.metrics.productsWithoutStock > 0) {
+  if (snapshot.metrics.actionableProductsWithoutStock > 0) {
     add({
       id: 'STOCK-GAPS',
-      title: 'Revisar productos activos sin stock',
+      title: 'Revisar productos sin stock accionables',
       area: 'COMPRAS',
       urgency: 'P1',
-      evidence: [`${snapshot.metrics.productsWithoutStock} producto(s) sin stock`],
-      recommendedAction: 'Preparar un informe read-only de brechas de inventario y elevar opciones a decisión humana.',
+      evidence: [`${snapshot.metrics.actionableProductsWithoutStock} producto(s) con demanda, margen y disponibilidad verificables`],
+      recommendedAction: 'Preparar un informe read-only del ranking calibrado y elevar opciones a decisión humana.',
       owner: 'Compras y Sourcing',
       dueWindow: '48 horas',
       requiresHumanApproval: true,
@@ -320,7 +363,7 @@ export function buildDeterministicFallback(snapshot: CompanySnapshot, warning: s
   }
 
   return {
-    schemaVersion: '1',
+    schemaVersion: '2',
     generatedAt: new Date().toISOString(),
     businessDate: snapshot.businessDate,
     status: serverStatus(snapshot),
@@ -331,6 +374,7 @@ export function buildDeterministicFallback(snapshot: CompanySnapshot, warning: s
       cutoff: snapshot.generatedAt,
       coverage: ['Pedidos', 'Productos', 'Compras', 'Envíos', 'Gastos', 'SyncRun'],
       gaps: [...dataGaps(snapshot), 'No se obtuvo síntesis del modelo OpenAI'],
+      profiles: snapshot.quality.metrics,
     },
     guardrails: SERVER_GUARDRAILS,
     execution: {
@@ -366,7 +410,7 @@ export async function generateGeneralManagerBrief(
       store: false,
       reasoning: { effort: 'low' },
       max_output_tokens: 2400,
-      metadata: { system: 'esw-company-os', version: '1' },
+      metadata: { system: 'esw-company-os', version: '2' },
       instructions: SYSTEM_INSTRUCTIONS,
       input: [
         {
@@ -417,7 +461,7 @@ export async function generateGeneralManagerBrief(
   if (snapshot.metrics.delayedShipments > 0) requiredEvidence.add('delayedShipments');
   if (snapshot.metrics.ordersToBuy > 0) requiredEvidence.add('ordersToBuy');
   if (snapshot.metrics.purchasesPending > 0) requiredEvidence.add('purchasesPending');
-  if (snapshot.metrics.productsWithoutStock > 0) requiredEvidence.add('productsWithoutStock');
+  if (snapshot.metrics.actionableProductsWithoutStock > 0) requiredEvidence.add('actionableProductsWithoutStock');
   if (snapshot.metrics.ordersNonUsdLast7Days > 0) requiredEvidence.add('ordersNonUsdLast7Days');
   const modelPriorities = modelBrief.priorities
     .filter((item) => !item.evidenceRefs.some((key) => requiredEvidence.has(key)))
@@ -426,7 +470,7 @@ export async function generateGeneralManagerBrief(
   const status = serverStatus(snapshot);
 
   return {
-    schemaVersion: modelBrief.schemaVersion,
+    schemaVersion: '2',
     status,
     executiveSummary: executiveSummary(snapshot, status, priorities.length),
     priorities,
@@ -437,6 +481,7 @@ export async function generateGeneralManagerBrief(
       cutoff: snapshot.generatedAt,
       coverage: SERVER_COVERAGE,
       gaps: dataGaps(snapshot),
+      profiles: snapshot.quality.metrics,
     },
     guardrails: SERVER_GUARDRAILS,
     execution: {
