@@ -56,3 +56,10 @@ test('costo separa input ordinario, cache read y cache write sin doble conteo', 
   });
   assert.equal(cost, (700 * 5 + 200 * 0.5 + 100 * 6.25 + 50 * 30) / 1_000_000);
 });
+
+test('el claim permite un único reintento de FAILED y marca recuperación del webhook', () => {
+  const source = readFileSync('lib/company-os/v3-store.ts', 'utf8');
+  assert.match(source, /c\.status = 'FAILED'/);
+  assert.match(source, /CompanyOsExecutionAttempt[\s\S]*< 2/);
+  assert.match(source, /webhookDeliveryStatus === 'FAILED' \? 'RECOVERED'/);
+});

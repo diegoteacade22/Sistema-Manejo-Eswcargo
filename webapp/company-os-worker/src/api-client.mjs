@@ -31,7 +31,12 @@ export class CompanyOsApiClient {
 
     if (response.status === 204) return null;
     if (!response.ok) {
-      throw new WorkerApiError(`Company OS API returned HTTP ${response.status}`, {
+      let detail = '';
+      try {
+        const body = await response.json();
+        detail = typeof body?.error === 'string' ? `: ${body.error.slice(0, 300)}` : '';
+      } catch {}
+      throw new WorkerApiError(`Company OS API returned HTTP ${response.status}${detail}`, {
         status: response.status,
         retryable: response.status === 429 || response.status >= 500,
         code: 'COMPANY_OS_API_HTTP_ERROR',

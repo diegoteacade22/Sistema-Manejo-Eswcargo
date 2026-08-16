@@ -101,7 +101,17 @@ test('Responses API usa el contrato V3 estricto y advisory', async () => {
   assert.equal(requestBody.text.format.type, 'json_schema');
   assert.equal(requestBody.text.format.strict, true);
   assert.equal(requestBody.text.format.schema.properties.missions.items.properties.status.enum[0], 'PLANNED');
+  assert.deepEqual(requestBody.text.format.schema.properties.evidenceRefs.items.enum, ['refs']);
+  assert.deepEqual(requestBody.text.format.schema.properties.missions.items.properties.evidenceRefs.items.enum, ['refs']);
   assert.deepEqual(result, { output: advisory, usage });
+});
+
+test('cliente API conserva el motivo seguro de un rechazo', async () => {
+  const api = new CompanyOsApiClient({
+    baseUrl: 'https://manager.example', hmacSecret: 'secret',
+    fetchImpl: async () => jsonResponse({ error: 'referencia no materializada' }, 409),
+  });
+  await assert.rejects(() => api.complete(claim, advisory, { total_tokens: 3 }), /referencia no materializada/);
 });
 
 test('webhook válido deduplica requestId en memoria y llama claim una sola vez', async (t) => {
