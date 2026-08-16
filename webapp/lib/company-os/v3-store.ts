@@ -194,7 +194,7 @@ export async function dispatchCompanyOsWebhook(companyCase: Pick<CompanyOsCase, 
   return { status, responseCode, errorDetail };
 }
 
-type ClaimedRow = { id: string; requestId: string; objective: string; status: string; maxOutputTokens: number; targetTotalTokens: number };
+type ClaimedRow = { id: string; requestId: string; objective: string; status: string; webhookDeliveryStatus: string; maxOutputTokens: number; targetTotalTokens: number };
 
 export async function claimCompanyOsCase(requestId?: string) {
   const db = companyOsV3Prisma();
@@ -203,7 +203,7 @@ export async function claimCompanyOsCase(requestId?: string) {
     const globalLock = await tx.companyOsLock.findUnique({ where: { requestId: GLOBAL_LOCK_ID } });
     if (globalLock && globalLock.expiresAt > new Date()) return null;
     const rows = await tx.$queryRaw<ClaimedRow[]>(Prisma.sql`
-      SELECT c.id, c."requestId", c.objective, c.status, c."maxOutputTokens", c."targetTotalTokens"
+      SELECT c.id, c."requestId", c.objective, c.status, c."webhookDeliveryStatus", c."maxOutputTokens", c."targetTotalTokens"
       FROM public."CompanyOsCase" c
       WHERE (${requested}::text IS NULL OR c."requestId" = ${requested})
         AND (
@@ -212,6 +212,10 @@ export async function claimCompanyOsCase(requestId?: string) {
             SELECT 1 FROM public."CompanyOsLease" l
             WHERE l."caseId" = c.id AND l.status = 'ACTIVE' AND l."expiresAt" > now()
           ))
+          OR (c.status = 'FAILED' AND (
+            SELECT count(*) FROM public."CompanyOsExecutionAttempt" a
+            WHERE a."caseId" = c.id
+          ) < 2)
         )
       ORDER BY c."createdAt" ASC
       FOR UPDATE SKIP LOCKED
@@ -257,7 +261,7 @@ export async function claimCompanyOsCase(requestId?: string) {
     } });
     await tx.companyOsCase.update({ where: { id: companyCase.id }, data: {
       status: 'ANALYZING',
-      webhookDeliveryStatus: companyCase.status === 'QUEUED' && attempt > 1 ? 'RECOVERED' : undefined,
+      webhookDeliveryStatus: companyCase.webhookDeliveryStatus === 'FAILED' ? 'RECOVERED' : undefined,
     } });
     await appendCaseEvent(tx, {
       caseId: companyCase.id, requestId: companyCase.requestId, eventType: 'CASE_CLAIMED',

@@ -24,6 +24,14 @@ export const ADVISORY_OUTPUT_SCHEMA = Object.freeze({
   },
 });
 
+export function advisoryOutputSchemaFor(evidencePayload) {
+  const keys = Object.keys(evidencePayload || {}).filter((key) => typeof key === 'string' && key.length > 0);
+  const schema = structuredClone(ADVISORY_OUTPUT_SCHEMA);
+  schema.properties.evidenceRefs.items = { type: 'string', enum: keys };
+  schema.properties.missions.items.properties.evidenceRefs.items = { type: 'string', enum: keys };
+  return schema;
+}
+
 export class OpenAiWorkerError extends Error {
   constructor(message, { retryable = false, code = 'OPENAI_ERROR' } = {}) {
     super(message);
@@ -105,7 +113,7 @@ export class OpenAiAdvisoryClient {
           type: 'json_schema',
           name: 'company_os_v3_advisory',
           strict: true,
-          schema: ADVISORY_OUTPUT_SCHEMA,
+          schema: advisoryOutputSchemaFor(claim.evidencePayload),
         },
       },
     };
