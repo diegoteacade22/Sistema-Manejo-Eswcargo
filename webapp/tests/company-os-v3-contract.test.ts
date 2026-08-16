@@ -63,3 +63,10 @@ test('el claim permite un único reintento de FAILED y marca recuperación del w
   assert.match(source, /CompanyOsExecutionAttempt[\s\S]*< 2/);
   assert.match(source, /webhookDeliveryStatus === 'FAILED' \? 'RECOVERED'/);
 });
+
+test('Telegram conserva intentos append-only y permite una sola reentrega', () => {
+  const source = readFileSync('lib/company-os/v3-store.ts', 'utf8');
+  assert.match(source, /const attempt = \(previous\[0\]\?\.attempt \?\? 0\) \+ 1/);
+  assert.match(source, /if \(attempt > 2\)/);
+  assert.match(source, /telegram:\$\{input\.requestId\}:completed:\$\{attempt\}/);
+});
