@@ -18,6 +18,7 @@ import {
     type ShipmentStatusAuditEntry,
     type ShipmentStatusAuditEvent,
 } from '@/lib/shipment-status-audit';
+import { resolveAppBaseUrl } from '@/lib/app-base-url';
 import {
     applyShipmentSheetPlan,
     canonicalizeShipmentStatus,
@@ -42,15 +43,6 @@ type DeliveryResult = {
 function isEnabledEnv(value: string | undefined, defaultValue: boolean): boolean {
     if (value === undefined) return defaultValue;
     return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
-}
-
-function getAppBaseUrl() {
-    const raw =
-        process.env.NEXT_PUBLIC_APP_URL ||
-        process.env.AUTH_URL ||
-        process.env.NEXTAUTH_URL ||
-        'https://app.eswtech.net';
-    return raw.replace(/\/+$/, '');
 }
 
 async function notifyOrderInvoiceDelivery(orderId: number): Promise<DeliveryResult> {
@@ -95,7 +87,7 @@ async function notifyOrderInvoiceDelivery(orderId: number): Promise<DeliveryResu
         };
     }
 
-    const invoiceUrl = `${getAppBaseUrl()}/orders/${order.id}/invoice`;
+    const invoiceUrl = `${resolveAppBaseUrl()}/orders/${order.id}/invoice`;
     const needsEmailReminder = !email;
     const message = [
         `Hola ${order.client?.name || 'cliente'},`,
@@ -207,7 +199,7 @@ async function notifyShipmentPackingListDelivery(
         };
     }
 
-    const packingUrl = `${getAppBaseUrl()}/shipments/${shipment.id}/packing-list`;
+    const packingUrl = `${resolveAppBaseUrl()}/shipments/${shipment.id}/packing-list`;
     const needsEmailReminder = !email;
     const message = [
         `Hola ${shipment.client?.name || 'cliente'},`,

@@ -1,222 +1,1410 @@
-'use client';
+"use client";
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, Ban, BrainCircuit, CheckCircle2, Clock3, Database, GitBranch, Loader2, MessageSquarePlus, RefreshCw, Send, ServerCog, ShieldCheck, TriangleAlert } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
-import { Input } from '@/components/ui/input';
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Activity,
+  Ban,
+  BrainCircuit,
+  CheckCircle2,
+  Database,
+  GitBranch,
+  Loader2,
+  MessageSquarePlus,
+  RefreshCw,
+  Send,
+  ServerCog,
+  ShieldCheck,
+  TriangleAlert,
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 
-type RequestStatus = 'QUEUED' | 'ANALYZING' | 'AWAITING_REVIEW' | 'BLOCKED' | 'FAILED' | 'CANCELLED' | 'COMPLETED';
-type MissionStatus = 'PLANNED' | 'APPROVED' | 'REJECTED' | 'REVIEW' | 'BLOCKED' | 'RUNNING' | 'DONE';
+type RequestStatus =
+  | "QUEUED"
+  | "ANALYZING"
+  | "AWAITING_REVIEW"
+  | "BLOCKED"
+  | "FAILED"
+  | "CANCELLED"
+  | "COMPLETED";
+type MissionStatus =
+  | "PLANNED"
+  | "APPROVED"
+  | "REJECTED"
+  | "REVIEW"
+  | "BLOCKED"
+  | "RUNNING"
+  | "DONE";
+type ObservationMode =
+  "LIVE_OBSERVED" | "DECLARED_FROM_CONFIG" | "INFERRED" | "UNOBSERVED";
+type View = "Resumen" | "Inbox" | "Caso" | "Sistemas";
+type GlobalState =
+  "IDLE" | "WORKING" | "WAITING_FOR_DIEGO" | "DEGRADED" | "OFFLINE";
+type Asset = {
+  assetId: string;
+  name: string;
+  provider: string;
+  category: string;
+  environment: string;
+  lifecycleStatus: string;
+  healthStatus: string;
+  criticality: string;
+  coverageStatus: string;
+  observationMode: ObservationMode;
+  observationLabel: string;
+  warnings: string[];
+};
+type Dependency = {
+  dependencyId: string;
+  sourceAssetId: string;
+  targetAssetId: string;
+  dependencyType: string;
+  criticality: string;
+  inferenceStatus: string;
+  observationMode: ObservationMode;
+};
+type Risk = {
+  riskId: string;
+  title: string;
+  classification: string;
+  priority: number;
+  description: string;
+  recommendedAction: string;
+  missingEvidence: string[];
+};
 type CaseSummary = {
-  id: string; requestId: string; agentId: 'general-manager-ai-v3' | 'systems-manager-ai-v1'; area: string; caseType: string; objective: string; status: RequestStatus; relatedCaseId?: string | null;
-  webhookDeliveryStatus: string; createdAt: string; updatedAt: string;
-  messages: Array<{ id: string; role: string; kind: string; content: string; createdAt: string }>;
-  missions: Array<{ id: string; title: string; rationale: string; expectedOutput: string; status: MissionStatus }>;
-  usage: Array<{ inputTokens: number; cachedTokens: number; cacheWriteTokens: number; outputTokens: number; reasoningTokens: number; totalTokens: number; estimatedCostUsd: string; dailyTotalTokens: number; dailyCostUsd: string; alertLevel?: number | null; responseId?: string | null; durationMs?: number | null; retries?: number; snapshotBytes?: number | null; rulesApplied?: string[] }>;
+  id: string;
+  requestId: string;
+  agentId: "general-manager-ai-v3" | "systems-manager-ai-v1";
+  area: string;
+  caseType: string;
+  objective: string;
+  status: RequestStatus;
+  relatedCaseId?: string | null;
+  webhookDeliveryStatus: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: Array<{
+    id: string;
+    role: string;
+    kind: string;
+    content: string;
+    createdAt: string;
+  }>;
+  missions: Array<{
+    id: string;
+    title: string;
+    rationale: string;
+    expectedOutput: string;
+    status: MissionStatus;
+  }>;
+  usage: Array<{
+    inputTokens: number;
+    cachedTokens: number;
+    cacheWriteTokens: number;
+    outputTokens: number;
+    reasoningTokens: number;
+    totalTokens: number;
+    estimatedCostUsd: string;
+    dailyTotalTokens: number;
+    dailyCostUsd: string;
+    alertLevel?: number | null;
+    responseId?: string | null;
+    durationMs?: number | null;
+    retries?: number;
+    snapshotBytes?: number | null;
+    rulesApplied?: string[];
+  }>;
   heartbeats: Array<{ createdAt: string; phase: string }>;
-  events: Array<{ id: string; sequence: number; eventType: string; createdAt: string }>;
-  evidence: Array<{ evidenceKey: string; value: unknown; observedAt?: string | null }>;
+  events: Array<{
+    id: string;
+    sequence: number;
+    eventType: string;
+    createdAt: string;
+    payload?: Record<string, unknown>;
+  }>;
+  evidence: Array<{
+    evidenceKey: string;
+    value: unknown;
+    observedAt?: string | null;
+  }>;
+  auditEvents: Array<{
+    id: string;
+    action: string;
+    metadata: Record<string, unknown>;
+    createdAt: string;
+  }>;
 };
 
-const activeStatuses = new Set<RequestStatus>(['QUEUED', 'ANALYZING']);
+const activeStatuses = new Set<RequestStatus>(["QUEUED", "ANALYZING"]);
+const reviewMissionStatuses = new Set<MissionStatus>(["PLANNED", "REVIEW"]);
 const statusColor: Record<RequestStatus, string> = {
-  QUEUED: 'border-sky-500/40 text-sky-300', ANALYZING: 'border-violet-500/40 text-violet-300',
-  AWAITING_REVIEW: 'border-amber-500/40 text-amber-300', BLOCKED: 'border-orange-500/40 text-orange-300',
-  FAILED: 'border-red-500/40 text-red-300', CANCELLED: 'border-slate-500/40 text-slate-400', COMPLETED: 'border-emerald-500/40 text-emerald-300',
+  QUEUED: "border-sky-500/40 text-sky-300",
+  ANALYZING: "border-violet-500/40 text-violet-300",
+  AWAITING_REVIEW: "border-amber-500/40 text-amber-300",
+  BLOCKED: "border-orange-500/40 text-orange-300",
+  FAILED: "border-red-500/40 text-red-300",
+  CANCELLED: "border-slate-500/40 text-slate-400",
+  COMPLETED: "border-emerald-500/40 text-emerald-300",
+};
+const observationLabels: Record<ObservationMode, string> = {
+  LIVE_OBSERVED: "Observado en vivo",
+  DECLARED_FROM_CONFIG: "Declarado por configuración",
+  INFERRED: "Inferido",
+  UNOBSERVED: "No observado",
 };
 
-function resultContent(content: string) {
-  try { return JSON.parse(content) as { summary?: string; primaryDataQualityProblem?: string; recommendedNextStep?: string; primaryConfirmedRisk?: string; primaryCoverageGap?: string; confirmedRiskNextStep?: string; coverageGapNextStep?: string; evidenceRefs?: string[] }; }
-  catch { return { summary: content }; }
+function evidenceOf(companyCase: CaseSummary) {
+  return Object.fromEntries(
+    companyCase.evidence.map((item) => [item.evidenceKey, item.value]),
+  ) as {
+    assets?: Asset[];
+    dependencies?: Dependency[];
+    risks?: Risk[];
+    metadata?: {
+      coverage?: {
+        observed?: string[];
+        declared?: string[];
+        inferred?: string[];
+        unobserved?: string[];
+      };
+    };
+  };
 }
 
-function SystemsEvidence({ companyCase, decideRisk }: { companyCase: CaseSummary; decideRisk: (riskId: string, decision: 'ACKNOWLEDGE'|'POSTPONE'|'MARK_INCORRECT'|'COMMENT') => Promise<void> }) {
-  const [filters, setFilters] = useState({ company: 'Company OS', environment: '', provider: '', category: '', criticality: '', status: '' });
-  const evidence = Object.fromEntries(companyCase.evidence.map((item) => [item.evidenceKey, item.value])) as {
-    assets?: Array<{assetId:string;name:string;provider:string;category:string;environment:string;lifecycleStatus:string;healthStatus:string;criticality:string;coverageStatus:string;warnings:string[]}>;
-    dependencies?: Array<{dependencyId:string;sourceAssetId:string;targetAssetId:string;dependencyType:string;criticality:string;inferenceStatus:string}>;
-    risks?: Array<{riskId:string;title:string;classification:string;priority:number;description:string;recommendedAction:string;missingEvidence:string[]}>;
-    metadata?: {coverage?: {observed:string[];unobserved:string[]}};
+export function deriveCompanyOsGlobalState(
+  cases: CaseSummary[],
+  now = Date.now(),
+) {
+  const active = cases.filter((item) => activeStatuses.has(item.status));
+  const reviews = cases.filter((item) =>
+    item.missions.some((mission) => reviewMissionStatuses.has(mission.status)),
+  );
+  const heartbeatDates = cases
+    .flatMap((item) =>
+      item.heartbeats.map((heartbeat) =>
+        new Date(heartbeat.createdAt).getTime(),
+      ),
+    )
+    .filter(Number.isFinite);
+  const lastHeartbeatMs = heartbeatDates.length
+    ? Math.max(...heartbeatDates)
+    : null;
+  const lastHeartbeat = lastHeartbeatMs
+    ? new Date(lastHeartbeatMs).toISOString()
+    : null;
+  const successDates = cases
+    .flatMap((item) =>
+      item.events
+        .filter((event) => event.eventType === "ANALYSIS_COMPLETED")
+        .map((event) => new Date(event.createdAt).getTime()),
+    )
+    .filter(Number.isFinite);
+  const lastSuccessMs = successDates.length ? Math.max(...successDates) : null;
+  const lastSuccessfulCycle = lastSuccessMs
+    ? new Date(lastSuccessMs).toISOString()
+    : null;
+  const failureDates = cases
+    .filter((item) => ["FAILED", "BLOCKED"].includes(item.status))
+    .map((item) => new Date(item.updatedAt).getTime())
+    .filter(Number.isFinite);
+  const lastFailureMs = failureDates.length ? Math.max(...failureDates) : null;
+  const latestSystemsCase = cases.find(
+    (item) => item.agentId === "systems-manager-ai-v1",
+  );
+  const worker = latestSystemsCase
+    ? evidenceOf(latestSystemsCase).assets?.find(
+        (asset) => asset.assetId === "company-os-worker",
+      )
+    : undefined;
+  const activeActivityAges = active.map((item) => {
+    const ownHeartbeats = item.heartbeats
+      .map((heartbeat) => new Date(heartbeat.createdAt).getTime())
+      .filter(Number.isFinite);
+    const updatedAt = new Date(item.updatedAt).getTime();
+    const latestOwnHeartbeat = ownHeartbeats.length
+      ? Math.max(...ownHeartbeats)
+      : null;
+    return now - (latestOwnHeartbeat ?? (Number.isFinite(updatedAt) ? updatedAt : 0));
+  });
+  const worstActiveAge = activeActivityAges.length
+    ? Math.max(...activeActivityAges)
+    : 0;
+  const unresolvedFailure =
+    lastFailureMs != null &&
+    (lastSuccessMs == null || lastFailureMs > lastSuccessMs);
+  let state: GlobalState = "IDLE";
+  if (
+    worker?.observationMode === "LIVE_OBSERVED" &&
+    worker.healthStatus === "OFFLINE_CONFIRMED"
+  )
+    state = "OFFLINE";
+  else if (active.length > 0 && worstActiveAge > 15 * 60_000) state = "OFFLINE";
+  else if (
+    (active.length > 0 && worstActiveAge > 5 * 60_000) ||
+    worker?.healthStatus === "DEGRADED" ||
+    unresolvedFailure
+  )
+    state = "DEGRADED";
+  else if (active.length > 0) state = "WORKING";
+  else if (reviews.length > 0) state = "WAITING_FOR_DIEGO";
+  return {
+    state,
+    lastSuccessfulCycle,
+    lastHeartbeat,
+    queued: cases.filter((item) => item.status === "QUEUED").length,
+    active: active.length,
+    reviews: reviews.length,
   };
+}
+
+export function deriveAuditSummary(cases: CaseSummary[]) {
+  const events = cases.reduce((sum, item) => sum + item.events.length, 0);
+  const executionStates = cases.reduce(
+    (sum, item) =>
+      sum +
+      item.missions.filter((mission) =>
+        ["RUNNING", "DONE"].includes(mission.status),
+      ).length,
+    0,
+  );
+  const auditEvents = cases.flatMap((item) => item.auditEvents ?? []);
+  const numeric = (value: unknown) =>
+    typeof value === "number" && Number.isFinite(value) ? value : 0;
+  const businessWrites = auditEvents.reduce(
+    (sum, event) => sum + numeric(event.metadata?.businessWrites),
+    0,
+  );
+  const infrastructureWrites = auditEvents.reduce(
+    (sum, event) => sum + numeric(event.metadata?.infrastructureWrites),
+    0,
+  );
+  const expectedAuditActions: Record<string, string> = {
+    CASE_QUEUED: "CASE_CREATED",
+    CASE_BLOCKED_INPUT_BUDGET: "CASE_CREATED",
+    ANALYSIS_COMPLETED: "ANALYSIS_COMPLETED",
+    CONTEXT_APPENDED: "CONTEXT_APPENDED",
+    CASE_CANCELLED: "CASE_CANCELLED",
+    MISSION_DECIDED: "MISSION_DECIDED",
+    RISK_REVIEWED: "RISK_REVIEWED",
+  };
+  const auditCoverageComplete =
+    cases.length > 0 &&
+    cases.every((item) => {
+      const actions = new Set(
+        (item.auditEvents ?? []).map((event) => event.action),
+      );
+      return item.events.every(
+        (event) =>
+          !expectedAuditActions[event.eventType] ||
+          actions.has(expectedAuditActions[event.eventType]),
+      );
+    });
+  return {
+    events,
+    executionStates,
+    advisoryOnly: executionStates === 0,
+    auditEvents: auditEvents.length,
+    businessWrites,
+    infrastructureWrites,
+    auditCoverageComplete,
+  };
+}
+
+function priorityBand(score: number) {
+  return score >= 90
+    ? "P0"
+    : score >= 75
+      ? "P1"
+      : score >= 50
+        ? "P2"
+        : score >= 25
+          ? "P3"
+          : "P4";
+}
+function formatDate(value: string | null) {
+  return value ? new Date(value).toLocaleString("es-AR") : "Sin registro";
+}
+function resultContent(content: string) {
+  try {
+    return JSON.parse(content) as {
+      summary?: string;
+      primaryDataQualityProblem?: string;
+      recommendedNextStep?: string;
+      primaryConfirmedRisk?: string;
+      primaryCoverageGap?: string;
+      confirmedRiskNextStep?: string;
+      coverageGapNextStep?: string;
+      evidenceRefs?: string[];
+    };
+  } catch {
+    return { summary: content };
+  }
+}
+
+type ActionDialog = {
+  kind: "mission" | "risk";
+  id: string;
+  decision: string;
+  title: string;
+  reason: string;
+  deferUntil: string;
+  mission?: CaseSummary["missions"][number];
+  editTitle: string;
+  editOutput: string;
+} | null;
+
+function SystemsEvidence({
+  companyCase,
+  onRiskAction,
+}: {
+  companyCase: CaseSummary;
+  onRiskAction: (
+    risk: Risk,
+    decision: "ACKNOWLEDGE" | "POSTPONE" | "MARK_INCORRECT" | "COMMENT",
+  ) => void;
+}) {
+  const [filters, setFilters] = useState({
+    environment: "",
+    provider: "",
+    category: "",
+    criticality: "",
+    status: "",
+    observationMode: "",
+  });
+  const evidence = evidenceOf(companyCase);
   const assets = evidence.assets ?? [];
-  const options = (key: 'environment'|'provider'|'category'|'criticality') => [...new Set(assets.map((asset) => asset[key]))].sort();
-  const statusOptions = [...new Set(assets.flatMap((asset) => [asset.lifecycleStatus, asset.healthStatus, asset.coverageStatus]))].sort();
-  const filteredAssets = assets.filter((asset) => filters.company === 'Company OS'
-    && (!filters.environment || asset.environment === filters.environment)
-    && (!filters.provider || asset.provider === filters.provider)
-    && (!filters.category || asset.category === filters.category)
-    && (!filters.criticality || asset.criticality === filters.criticality)
-    && (!filters.status || [asset.lifecycleStatus, asset.healthStatus, asset.coverageStatus].includes(filters.status)));
-  const filterControl = (key: keyof typeof filters, label: string, values: string[]) => <select aria-label={label} value={filters[key]} onChange={(event) => setFilters((current) => ({ ...current, [key]: event.target.value }))} className="rounded-md border border-white/10 bg-slate-950 px-3 py-2 text-xs text-slate-200"><option value="">{label}: todos</option>{values.map((value) => <option key={value} value={value}>{value}</option>)}</select>;
-  return <div className="space-y-5">
-    <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><CardTitle className="flex gap-2"><Database className="text-cyan-300" />Inventario técnico · {filteredAssets.length}/{assets.length}</CardTitle><CardDescription className="text-slate-400">Filtros de cobertura técnica; no cambian el inventario persistido.</CardDescription></CardHeader><CardContent><div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3"><select aria-label="Filtrar por empresa" value={filters.company} onChange={(event) => setFilters((current) => ({ ...current, company: event.target.value }))} className="rounded-md border border-white/10 bg-slate-950 px-3 py-2 text-xs text-slate-200"><option value="Company OS">Empresa: Company OS</option></select>{filterControl('environment','Entorno',options('environment'))}{filterControl('provider','Proveedor',options('provider'))}{filterControl('category','Categoría',options('category'))}{filterControl('criticality','Criticidad',options('criticality'))}{filterControl('status','Estado',statusOptions)}</div><div className="grid gap-3 md:grid-cols-2">{filteredAssets.map((asset) => <div key={asset.assetId} className="rounded-xl border border-white/10 p-3"><div className="flex justify-between gap-2"><div><p className="font-semibold">{asset.name}</p><p className="text-xs text-slate-500">{asset.provider} · {asset.category} · {asset.environment}</p></div><Badge variant="outline">{asset.criticality}</Badge></div><div className="mt-2 flex flex-wrap gap-1"><Badge variant="outline">{asset.lifecycleStatus}</Badge><Badge variant="outline">{asset.healthStatus}</Badge><Badge variant="outline">{asset.coverageStatus}</Badge></div>{asset.warnings.map((warning) => <p key={warning} className="mt-2 text-xs text-amber-300">{warning}</p>)}</div>)}</div></CardContent></Card>
-    <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><CardTitle className="flex gap-2"><GitBranch className="text-violet-300" />Dependencias · {evidence.dependencies?.length ?? 0}</CardTitle></CardHeader><CardContent className="space-y-2">{evidence.dependencies?.map((item) => <div key={item.dependencyId} className="rounded-lg border border-white/10 p-3 text-xs"><span className="text-cyan-300">{item.sourceAssetId}</span> → <span className="text-violet-300">{item.targetAssetId}</span> · {item.dependencyType} · {item.criticality} · {item.inferenceStatus}</div>)}</CardContent></Card>
-    <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><CardTitle className="flex gap-2"><TriangleAlert className="text-amber-300" />Riesgos por clasificación</CardTitle><CardDescription className="text-slate-400">ACTION_REQUIRED y REVIEW no se mezclan. Las correcciones se agregan al historial sin mutar el hallazgo original.</CardDescription></CardHeader><CardContent className="space-y-3">{evidence.risks?.map((risk) => <div key={risk.riskId} className="rounded-xl border border-white/10 p-4"><div className="flex justify-between gap-2"><p className="font-semibold">{risk.title}</p><Badge variant="outline">{risk.classification}{risk.classification === 'ACTION_REQUIRED' ? ` · ${risk.priority}` : ''}</Badge></div><p className="mt-2 text-sm text-slate-400">{risk.description}</p><p className="mt-2 text-sm text-cyan-300">{risk.recommendedAction}</p>{risk.missingEvidence.length > 0 && <p className="mt-2 text-xs text-amber-300">Falta: {risk.missingEvidence.join(' · ')}</p>}<div className="mt-3 flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => void decideRisk(risk.riskId, 'ACKNOWLEDGE')}>Reconocer</Button><Button size="sm" variant="outline" onClick={() => void decideRisk(risk.riskId, 'COMMENT')}>Agregar corrección</Button><Button size="sm" variant="outline" onClick={() => void decideRisk(risk.riskId, 'POSTPONE')}>Posponer</Button><Button size="sm" variant="outline" className="border-orange-500/30 text-orange-300" onClick={() => void decideRisk(risk.riskId, 'MARK_INCORRECT')}>Marcar incorrecto</Button></div></div>)}</CardContent></Card>
-    <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><CardTitle>Cobertura</CardTitle></CardHeader><CardContent className="grid gap-4 md:grid-cols-2"><div><p className="text-emerald-300">Observadas</p>{evidence.metadata?.coverage?.observed.map((item) => <p key={item} className="text-sm text-slate-400">✓ {item}</p>)}</div><div><p className="text-amber-300">UNOBSERVED</p>{evidence.metadata?.coverage?.unobserved.map((item) => <p key={item} className="text-sm text-slate-400">— {item}</p>)}</div></CardContent></Card>
-    <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><CardTitle>Eventos append-only</CardTitle></CardHeader><CardContent className="flex flex-wrap gap-2">{companyCase.events.map((event) => <Badge key={event.id} variant="outline">#{event.sequence} {event.eventType}</Badge>)}</CardContent></Card>
-  </div>;
+  const dependencies = evidence.dependencies ?? [];
+  const risks = evidence.risks ?? [];
+  const names = new Map(assets.map((asset) => [asset.assetId, asset.name]));
+  const options = (
+    key: keyof Pick<
+      Asset,
+      | "environment"
+      | "provider"
+      | "category"
+      | "criticality"
+      | "observationMode"
+    >,
+  ) => [...new Set(assets.map((asset) => asset[key]))].sort();
+  const statusOptions = [
+    ...new Set(
+      assets.flatMap((asset) => [
+        asset.lifecycleStatus,
+        asset.healthStatus,
+        asset.coverageStatus,
+      ]),
+    ),
+  ].sort();
+  const filtered = assets.filter(
+    (asset) =>
+      (!filters.environment || asset.environment === filters.environment) &&
+      (!filters.provider || asset.provider === filters.provider) &&
+      (!filters.category || asset.category === filters.category) &&
+      (!filters.criticality || asset.criticality === filters.criticality) &&
+      (!filters.observationMode ||
+        asset.observationMode === filters.observationMode) &&
+      (!filters.status ||
+        [
+          asset.lifecycleStatus,
+          asset.healthStatus,
+          asset.coverageStatus,
+        ].includes(filters.status)),
+  );
+  const control = (
+    key: keyof typeof filters,
+    label: string,
+    values: string[],
+  ) => (
+    <select
+      aria-label={label}
+      value={filters[key]}
+      onChange={(event) =>
+        setFilters((current) => ({ ...current, [key]: event.target.value }))
+      }
+      className="rounded-md border border-white/10 bg-slate-950 px-3 py-2 text-xs text-slate-200"
+    >
+      <option value="">{label}: todos</option>
+      {values.map((value) => (
+        <option key={value}>{value}</option>
+      ))}
+    </select>
+  );
+  return (
+    <div className="space-y-5">
+      <Card className="border-amber-500/20 bg-slate-950/80 text-slate-100">
+        <CardHeader>
+          <CardTitle className="flex gap-2">
+            <TriangleAlert className="text-amber-300" />
+            Riesgos y gaps
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-2">
+          {risks.map((risk) => (
+            <div
+              key={risk.riskId}
+              className="rounded-xl border border-white/10 p-4"
+            >
+              <div className="flex justify-between gap-2">
+                <p className="font-semibold">{risk.title}</p>
+                <Badge variant="outline">
+                  {risk.classification === "ACTION_REQUIRED"
+                    ? `${priorityBand(risk.priority)} · Score ${risk.priority}`
+                    : risk.classification}
+                </Badge>
+              </div>
+              <p className="mt-2 text-sm text-slate-400">{risk.description}</p>
+              <p className="mt-2 text-sm text-cyan-300">
+                {risk.recommendedAction}
+              </p>
+              {risk.missingEvidence.length > 0 && (
+                <p className="mt-2 text-xs text-amber-300">
+                  Falta: {risk.missingEvidence.join(" · ")}
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onRiskAction(risk, "ACKNOWLEDGE")}
+                >
+                  Reconocer
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onRiskAction(risk, "COMMENT")}
+                >
+                  Corregir
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onRiskAction(risk, "POSTPONE")}
+                >
+                  Posponer
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-orange-500/30 text-orange-300"
+                  onClick={() => onRiskAction(risk, "MARK_INCORRECT")}
+                >
+                  Incorrecto
+                </Button>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+      <details className="rounded-2xl border border-white/10 bg-slate-950/80 p-4">
+        <summary className="cursor-pointer font-semibold text-cyan-200">
+          Detalles técnicos · inventario, dependencias y cobertura
+        </summary>
+        <div className="mt-5 space-y-5">
+          <Card className="border-white/10 bg-black/20 text-slate-100">
+            <CardHeader>
+              <CardTitle className="flex gap-2">
+                <Database className="text-cyan-300" />
+                Inventario · {filtered.length}/{assets.length}
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                La procedencia indica qué es monitoreo real y qué es sólo mapa
+                contractual.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {control(
+                  "observationMode",
+                  "Procedencia",
+                  options("observationMode"),
+                )}
+                {control("environment", "Entorno", options("environment"))}
+                {control("provider", "Proveedor", options("provider"))}
+                {control("category", "Categoría", options("category"))}
+                {control("criticality", "Criticidad", options("criticality"))}
+                {control("status", "Estado", statusOptions)}
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {filtered.map((asset) => (
+                  <div
+                    key={asset.assetId}
+                    className="rounded-xl border border-white/10 p-3"
+                  >
+                    <div className="flex justify-between gap-2">
+                      <div>
+                        <p className="font-semibold">{asset.name}</p>
+                        <p className="text-xs text-slate-500">
+                          {asset.provider} · {asset.category} ·{" "}
+                          {asset.environment}
+                        </p>
+                      </div>
+                      <Badge variant="outline">{asset.criticality}</Badge>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      <Badge
+                        variant="outline"
+                        className={
+                          asset.observationMode === "LIVE_OBSERVED"
+                            ? "border-emerald-500/40 text-emerald-300"
+                            : "border-amber-500/30 text-amber-200"
+                        }
+                      >
+                        {observationLabels[asset.observationMode]}
+                      </Badge>
+                      <Badge variant="outline">{asset.healthStatus}</Badge>
+                      <Badge variant="outline">{asset.coverageStatus}</Badge>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-400">
+                      {asset.observationLabel}
+                    </p>
+                    {asset.warnings.map((warning) => (
+                      <p key={warning} className="mt-1 text-xs text-amber-300">
+                        {warning}
+                      </p>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-white/10 bg-black/20 text-slate-100">
+            <CardHeader>
+              <CardTitle className="flex gap-2">
+                <GitBranch className="text-violet-300" />
+                Dependencias · {dependencies.length}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {dependencies.map((item) => (
+                <div
+                  key={item.dependencyId}
+                  className="rounded-lg border border-white/10 p-3 text-xs"
+                >
+                  <span className="text-cyan-300">
+                    {names.get(item.sourceAssetId) ?? item.sourceAssetId}
+                  </span>{" "}
+                  →{" "}
+                  <span className="text-violet-300">
+                    {names.get(item.targetAssetId) ?? item.targetAssetId}
+                  </span>{" "}
+                  · {item.dependencyType} · {item.criticality} ·{" "}
+                  {observationLabels[item.observationMode]}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+          <Card className="border-white/10 bg-black/20 text-slate-100">
+            <CardHeader>
+              <CardTitle>Cobertura por procedencia</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              {(
+                [
+                  ["LIVE_OBSERVED", "observed"],
+                  ["DECLARED_FROM_CONFIG", "declared"],
+                  ["INFERRED", "inferred"],
+                  ["UNOBSERVED", "unobserved"],
+                ] as const
+              ).map(([mode, key]) => (
+                <div key={mode}>
+                  <p className="font-semibold text-cyan-200">
+                    {observationLabels[mode]}
+                  </p>
+                  {(evidence.metadata?.coverage?.[key] ?? []).map((item) => (
+                    <p key={item} className="text-sm text-slate-400">
+                      {mode === "LIVE_OBSERVED" ? "✓" : "—"} {item}
+                    </p>
+                  ))}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+      </details>
+    </div>
+  );
 }
 
 export function CompanyOsDashboard() {
-  const [agentId, setAgentId] = useState<'general-manager-ai-v3' | 'systems-manager-ai-v1'>('systems-manager-ai-v1');
+  const [agentId, setAgentId] = useState<
+    "general-manager-ai-v3" | "systems-manager-ai-v1"
+  >("systems-manager-ai-v1");
+  const [allCases, setAllCases] = useState<CaseSummary[]>([]);
   const [cases, setCases] = useState<CaseSummary[]>([]);
   const [reports, setReports] = useState<CaseSummary[]>([]);
-  const [selectedId, setSelectedId] = useState('');
-  const [objective, setObjective] = useState('');
-  const [relatedRequestId, setRelatedRequestId] = useState('');
-  const [context, setContext] = useState('');
+  const [selectedId, setSelectedId] = useState("");
+  const [objective, setObjective] = useState("");
+  const [relatedRequestId, setRelatedRequestId] = useState("");
+  const [context, setContext] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const selected = cases.find((entry) => entry.requestId === selectedId) ?? cases[0];
-  const activeCount = cases.filter((entry) => activeStatuses.has(entry.status)).length;
-
+  const [error, setError] = useState("");
+  const [view, setView] = useState<View>("Resumen");
+  const [action, setAction] = useState<ActionDialog>(null);
+  const selected =
+    cases.find((entry) => entry.requestId === selectedId) ?? cases[0];
   const refresh = useCallback(async () => {
-    const response = await fetch(agentId === 'general-manager-ai-v3' ? '/api/company-os/v3/cases?limit=100' : `/api/company-os/v3/cases?limit=50&agentId=${agentId}`, { cache: 'no-store' });
-    if (!response.ok) throw new Error('No se pudo leer el inbox');
+    const response = await fetch("/api/company-os/v3/cases?limit=100", {
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error("No se pudo leer el inbox");
     const payload = await response.json();
     const received = (payload.cases ?? []) as CaseSummary[];
+    setAllCases(received);
     setCases(received.filter((entry) => entry.agentId === agentId));
-    setReports(agentId === 'general-manager-ai-v3' ? received.filter((entry) => entry.agentId === 'systems-manager-ai-v1') : []);
+    setReports(
+      agentId === "general-manager-ai-v3"
+        ? received.filter((entry) => entry.agentId === "systems-manager-ai-v1")
+        : [],
+    );
   }, [agentId]);
-
-  useEffect(() => { void refresh().catch((caught) => setError(caught.message)); }, [refresh]);
   useEffect(() => {
-    if (!activeCount) return;
-    const timer = setInterval(() => void refresh().catch(() => undefined), 5000);
+    void refresh().catch((caught) => setError(caught.message));
+  }, [refresh]);
+  useEffect(() => {
+    const timer = setInterval(
+      () => void refresh().catch(() => undefined),
+      45_000,
+    );
     return () => clearInterval(timer);
-  }, [activeCount, refresh]);
+  }, [refresh]);
+  const operations = useMemo(
+    () => deriveCompanyOsGlobalState(allCases),
+    [allCases],
+  );
+  const audit = useMemo(() => deriveAuditSummary(allCases), [allCases]);
+  const totals = useMemo(
+    () =>
+      cases.reduce(
+        (acc, item) => {
+          for (const usage of item.usage) {
+            acc.tokens += usage.totalTokens;
+            acc.cost += Number(usage.estimatedCostUsd);
+          }
+          return acc;
+        },
+        { tokens: 0, cost: 0 },
+      ),
+    [cases],
+  );
+  const latestRisks = useMemo(() => {
+    const latest = allCases.find(
+      (item) => item.agentId === "systems-manager-ai-v1",
+    );
+    return latest ? (evidenceOf(latest).risks ?? []) : [];
+  }, [allCases]);
 
-  const totals = useMemo(() => cases.reduce((acc, companyCase) => {
-    for (const usage of companyCase.usage) {
-      acc.tokens += usage.totalTokens; acc.cost += Number(usage.estimatedCostUsd);
-    }
-    return acc;
-  }, { tokens: 0, cost: 0 }), [cases]);
-
-  async function createCase() {
-    setBusy(true); setError('');
+  async function post(url: string, body: Record<string, unknown>) {
+    setBusy(true);
+    setError("");
     try {
-      const response = await fetch('/api/company-os/v3/cases', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ objective, relatedRequestId: relatedRequestId || undefined, agentId }),
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'No se pudo crear el caso');
-      setObjective(''); setRelatedRequestId(''); setSelectedId(payload.requestId); await refresh();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Error inesperado'); }
-    finally { setBusy(false); }
+      if (!response.ok)
+        throw new Error(payload.error || "No se pudo completar la acción");
+      await refresh();
+      return payload;
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Error inesperado");
+    } finally {
+      setBusy(false);
+    }
   }
-
+  async function createCase() {
+    const payload = await post("/api/company-os/v3/cases", {
+      objective,
+      relatedRequestId: relatedRequestId || undefined,
+      agentId,
+    });
+    if (payload) {
+      setObjective("");
+      setRelatedRequestId("");
+      setSelectedId(payload.requestId);
+      setView("Caso");
+    }
+  }
   async function appendContext() {
     if (!selected || !context.trim()) return;
-    setBusy(true); setError('');
-    try {
-      const response = await fetch(`/api/company-os/v3/cases/${selected.requestId}/messages`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ content: context }),
-      });
-      const payload = await response.json(); if (!response.ok) throw new Error(payload.error);
-      setContext(''); await refresh();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Error inesperado'); }
-    finally { setBusy(false); }
+    const done = await post(
+      `/api/company-os/v3/cases/${selected.requestId}/messages`,
+      { content: context },
+    );
+    if (done) setContext("");
   }
-
-  async function cancelCase() {
+  async function decideMission(
+    missionId: string,
+    decision: string,
+    extra: Record<string, unknown> = {},
+  ) {
     if (!selected) return;
-    setBusy(true); setError('');
-    try {
-      const response = await fetch(`/api/company-os/v3/cases/${selected.requestId}/cancel`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ reason: 'Cancelado desde Company OS' }),
-      });
-      const payload = await response.json(); if (!response.ok) throw new Error(payload.error); await refresh();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Error inesperado'); }
-    finally { setBusy(false); }
+    return post("/api/company-os/v3/missions", {
+      requestId: selected.requestId,
+      missionId,
+      decision,
+      idempotencyKey: crypto.randomUUID(),
+      ...extra,
+    });
   }
-
-  async function decideMission(missionId: string, decision: 'APPROVE' | 'REJECT' | 'REQUEST_REVIEW' | 'BLOCK' | 'EDIT' | 'POSTPONE' | 'MARK_INCORRECT', extra: Record<string, unknown> = {}) {
-    if (!selected) return;
-    setBusy(true); setError('');
-    try {
-      const response = await fetch('/api/company-os/v3/missions', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ requestId: selected.requestId, missionId, decision, idempotencyKey: crypto.randomUUID(), ...extra }),
-      });
-      const payload = await response.json(); if (!response.ok) throw new Error(payload.error); await refresh();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Error inesperado'); }
-    finally { setBusy(false); }
+  async function submitAction() {
+    if (!action || !selected || !action.reason.trim()) return;
+    const deferUntil = action.deferUntil
+      ? new Date(action.deferUntil).toISOString()
+      : undefined;
+    const result =
+      action.kind === "risk"
+        ? await post("/api/company-os/v3/risks", {
+            requestId: selected.requestId,
+            riskId: action.id,
+            decision: action.decision,
+            reason: action.reason.trim(),
+            deferUntil,
+            idempotencyKey: crypto.randomUUID(),
+          })
+        : await decideMission(action.id, action.decision, {
+            reason: action.reason.trim(),
+            deferUntil,
+            revision:
+              action.decision === "EDIT"
+                ? {
+                    title: action.editTitle.trim(),
+                    expectedOutput: action.editOutput.trim(),
+                    rationale: action.reason.trim(),
+                  }
+                : undefined,
+          });
+    if (result) setAction(null);
   }
-
-  async function captureMissionDecision(mission: CaseSummary['missions'][number], decision: 'EDIT'|'POSTPONE'|'MARK_INCORRECT') {
-    if (decision === 'EDIT') {
-      const title = window.prompt('Título corregido', mission.title)?.trim();
-      if (!title) return;
-      const expectedOutput = window.prompt('Entregable corregido', mission.expectedOutput)?.trim();
-      if (!expectedOutput) return;
-      await decideMission(mission.id, decision, { revision: { title, expectedOutput, rationale: mission.rationale } });
-      return;
-    }
-    if (decision === 'POSTPONE') {
-      const deferUntil = window.prompt('Fecha ISO para revisar nuevamente (ej. 2026-08-20T14:00:00-04:00)')?.trim();
-      if (!deferUntil) return;
-      await decideMission(mission.id, decision, { deferUntil });
-      return;
-    }
-    const reason = window.prompt('Indique qué información es incorrecta')?.trim();
-    if (reason) await decideMission(mission.id, decision, { reason });
-  }
-
-  async function decideRisk(riskId: string, decision: 'ACKNOWLEDGE'|'POSTPONE'|'MARK_INCORRECT'|'COMMENT') {
-    if (!selected) return;
-    const reason = window.prompt(decision === 'MARK_INCORRECT' ? 'Indique por qué el riesgo es incorrecto' : 'Motivo o comentario auditable')?.trim();
-    if (!reason) return;
-    const deferUntil = decision === 'POSTPONE' ? window.prompt('Fecha ISO para revisar nuevamente (ej. 2026-08-20T14:00:00-04:00)')?.trim() : undefined;
-    if (decision === 'POSTPONE' && !deferUntil) return;
-    setBusy(true); setError('');
-    try {
-      const response = await fetch('/api/company-os/v3/risks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ requestId: selected.requestId, riskId, decision, reason, deferUntil, idempotencyKey: crypto.randomUUID() }) });
-      const payload = await response.json(); if (!response.ok) throw new Error(payload.error); await refresh();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Error inesperado'); }
-    finally { setBusy(false); }
-  }
+  const openMission = (
+    mission: CaseSummary["missions"][number],
+    decision: string,
+  ) =>
+    setAction({
+      kind: "mission",
+      id: mission.id,
+      decision,
+      title: `${decision}: ${mission.title}`,
+      reason: "",
+      deferUntil: "",
+      mission,
+      editTitle: mission.title,
+      editOutput: mission.expectedOutput,
+    });
+  const openRisk = (risk: Risk, decision: string) =>
+    setAction({
+      kind: "risk",
+      id: risk.riskId,
+      decision,
+      title: `${decision}: ${risk.title}`,
+      reason: "",
+      deferUntil: "",
+      editTitle: "",
+      editOutput: "",
+    });
+  const actionValid = Boolean(
+    action?.reason.trim() &&
+    (!action?.decision.includes("POSTPONE") || action.deferUntil) &&
+    (action?.decision !== "EDIT" ||
+      (action.editTitle.trim() && action.editOutput.trim())),
+  );
 
   return (
     <div className="min-h-screen bg-[#07090f] p-4 text-slate-100 md:p-8">
       <div className="mx-auto max-w-7xl space-y-6">
         <section className="rounded-3xl border border-cyan-500/20 bg-gradient-to-br from-slate-950 via-indigo-950/50 to-slate-950 p-6 shadow-2xl">
           <div className="flex flex-wrap items-start justify-between gap-5">
-            <div><Badge className="mb-3 border-emerald-500/30 bg-emerald-500/10 text-emerald-300">{agentId} · ADVISORY ONLY</Badge><h1 className="flex items-center gap-3 text-3xl font-black"><BrainCircuit className="text-cyan-300" /> Company OS</h1><p className="mt-3 max-w-3xl text-sm text-slate-300">{agentId === 'systems-manager-ai-v1' ? 'Gerente de Sistemas AI · reporta a general-manager-ai-v3 · sin cambios autónomos de infraestructura.' : 'Gerente General AI · análisis empresarial sólo lectura.'}</p></div>
-            <div className="grid gap-2 text-xs sm:grid-cols-3">
-              <Badge variant="outline" className="p-3"><Activity className="mr-2 h-4 w-4" /> {activeCount} activos</Badge>
-              <Badge variant="outline" className="p-3"><ShieldCheck className="mr-2 h-4 w-4 text-emerald-300" /> Contrato: 0 escrituras empresariales</Badge>
-              <Badge variant="outline" className="p-3">{totals.tokens.toLocaleString()} tokens · ${totals.cost.toFixed(4)}</Badge>
+            <div>
+              <Badge className="mb-3 border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                {agentId} · ADVISORY ONLY
+              </Badge>
+              <h1 className="flex items-center gap-3 text-3xl font-black">
+                <BrainCircuit className="text-cyan-300" />
+                Company OS
+              </h1>
+              <p className="mt-3 max-w-3xl text-sm text-slate-300">
+                {agentId === "systems-manager-ai-v1"
+                  ? "Gerente de Sistemas AI · reporta al Gerente General · sin ejecución autónoma."
+                  : "Gerente General AI · análisis empresarial de sólo lectura."}
+              </p>
             </div>
+            <Badge variant="outline" className="p-3 text-base">
+              <Activity className="mr-2 h-4 w-4" />
+              {operations.state}
+            </Badge>
           </div>
         </section>
-
-        {error && <p className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">{error}</p>}
-
-        <div className="flex flex-wrap gap-2"><Button variant={agentId === 'systems-manager-ai-v1' ? 'default' : 'outline'} onClick={() => { setAgentId('systems-manager-ai-v1'); setSelectedId(''); }}><ServerCog className="mr-2 h-4 w-4" />Gerente de Sistemas</Button><Button variant={agentId === 'general-manager-ai-v3' ? 'default' : 'outline'} onClick={() => { setAgentId('general-manager-ai-v3'); setSelectedId(''); }}><BrainCircuit className="mr-2 h-4 w-4" />Gerente General</Button></div>
-
-        {agentId === 'general-manager-ai-v3' && <Card className="border-violet-500/20 bg-slate-950/80 text-slate-100"><CardHeader><CardTitle>Handoff del Gerente de Sistemas</CardTitle><CardDescription className="text-slate-400">Resultados y misiones técnicas reportados a general-manager-ai-v3.</CardDescription></CardHeader><CardContent className="space-y-2">{reports.length === 0 ? <p className="text-sm text-slate-500">Sin reportes técnicos.</p> : reports.slice(0, 20).map((report) => { const result = report.messages.find((message) => message.kind === 'RESULT'); return <div key={report.requestId} className="rounded-xl border border-white/10 p-3"><div className="flex flex-wrap justify-between gap-2"><Badge variant="outline" className={statusColor[report.status]}>{report.status}</Badge><span className="font-mono text-[10px] text-slate-500">{report.requestId}</span></div><p className="mt-2 text-sm">{result ? resultContent(result.content).summary : report.objective}</p><p className="mt-2 text-xs text-violet-300">{report.missions.length} misiones creadas por systems-manager-ai-v1 · reporta a general-manager-ai-v3</p></div>; })}</CardContent></Card>}
-
-        <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><CardTitle>Nueva orden · {agentId === 'systems-manager-ai-v1' ? 'Gerente de Sistemas' : 'Gerente General'}</CardTitle><CardDescription className="text-slate-400">El caso se persiste antes del webhook y queda recuperable si la entrega inmediata falla.</CardDescription></CardHeader><CardContent className="space-y-3"><Textarea value={objective} onChange={(event) => setObjective(event.target.value)} maxLength={600} className="min-h-24 border-white/10 bg-black/30" placeholder={agentId === 'systems-manager-ai-v1' ? '¿Qué debe analizar el Gerente de Sistemas?' : '¿Qué debe analizar el Gerente General?'} /><Input value={relatedRequestId} onChange={(event) => setRelatedRequestId(event.target.value)} className="border-white/10 bg-black/30" placeholder="Request ID relacionado (opcional)" /><Button onClick={createCase} disabled={busy || !objective.trim()} className="bg-cyan-400 font-bold text-slate-950 hover:bg-cyan-300">{busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}Encolar análisis</Button></CardContent></Card>
-
-        <div className="grid gap-5 lg:grid-cols-[360px_1fr]">
-          <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><div className="flex items-center justify-between"><CardTitle>Inbox</CardTitle><Button size="sm" variant="outline" onClick={() => void refresh()}><RefreshCw className="h-4 w-4" /></Button></div></CardHeader><CardContent className="max-h-[760px] space-y-2 overflow-auto">{cases.map((companyCase) => <button key={companyCase.requestId} onClick={() => setSelectedId(companyCase.requestId)} className={`w-full rounded-xl border p-3 text-left ${selected?.requestId === companyCase.requestId ? 'border-cyan-400/50 bg-cyan-500/10' : 'border-white/10 bg-white/5'}`}><div className="flex items-center justify-between gap-2"><Badge variant="outline" className={statusColor[companyCase.status]}>{companyCase.status}</Badge><span className="text-[10px] text-slate-500">{new Date(companyCase.createdAt).toLocaleString('es-AR')}</span></div><p className="mt-2 line-clamp-2 text-sm">{companyCase.objective}</p><p className="mt-2 font-mono text-[10px] text-slate-600">{companyCase.requestId}</p></button>)}</CardContent></Card>
-
-          <div className="space-y-5">{selected ? <>
-            <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><div className="flex flex-wrap items-center justify-between gap-3"><CardTitle>Hilo del caso</CardTitle><Badge variant="outline" className={statusColor[selected.status]}>{selected.status}</Badge></div><CardDescription className="text-slate-500">{selected.agentId} · {selected.requestId} · webhook {selected.webhookDeliveryStatus}{selected.heartbeats[0] ? ` · heartbeat ${new Date(selected.heartbeats[0].createdAt).toLocaleTimeString('es-AR')}` : ''}</CardDescription></CardHeader><CardContent className="space-y-3">{selected.messages.map((message) => { const parsed = message.kind === 'RESULT' ? resultContent(message.content) : null; return <div key={message.id} className="rounded-xl border border-white/10 bg-white/5 p-4"><div className="mb-2 flex justify-between text-[10px] uppercase text-slate-500"><span>{message.role} · {message.kind}</span><span>{new Date(message.createdAt).toLocaleString('es-AR')}</span></div>{parsed ? <div className="space-y-2 text-sm"><p>{parsed.summary}</p>{parsed.primaryConfirmedRisk ? <><p><b className="text-red-300">Riesgo confirmado:</b> {parsed.primaryConfirmedRisk}</p><p><b className="text-amber-300">Gap de cobertura:</b> {parsed.primaryCoverageGap}</p><p><b className="text-cyan-300">Próximos pasos:</b> {parsed.confirmedRiskNextStep} · {parsed.coverageGapNextStep}</p></> : <><p><b className="text-amber-300">Problema principal:</b> {parsed.primaryDataQualityProblem}</p><p><b className="text-cyan-300">Próximo paso:</b> {parsed.recommendedNextStep}</p></>}<p className="text-xs text-slate-500">Evidencia: {parsed.evidenceRefs?.join(', ')}</p></div> : <p className="whitespace-pre-wrap text-sm">{message.content}</p>}</div>; })}<div className="flex gap-2"><Textarea value={context} onChange={(event) => setContext(event.target.value)} maxLength={4000} className="border-white/10 bg-black/30" placeholder="Respuesta o contexto adicional append-only" /><Button onClick={appendContext} disabled={busy || !context.trim()}><MessageSquarePlus className="h-4 w-4" /></Button></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => { setRelatedRequestId(selected.requestId); window.scrollTo({ top: 0, behavior: 'smooth' }); }}><GitBranch className="mr-2 h-4 w-4" />Crear caso relacionado</Button>{!['FAILED','CANCELLED','COMPLETED'].includes(selected.status) && <Button variant="outline" onClick={cancelCase} disabled={busy} className="border-red-500/30 text-red-300"><Ban className="mr-2 h-4 w-4" />Cancelar caso</Button>}</div></CardContent></Card>
-
-            {selected.agentId === 'systems-manager-ai-v1' && <SystemsEvidence companyCase={selected} decideRisk={decideRisk} />}
-
-            {selected.missions.length > 0 && <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><CardTitle>Misiones · ciclo independiente</CardTitle><CardDescription className="text-amber-300">Aprobar valida el análisis; RUNNING y DONE son inalcanzables y nunca ejecutan acciones.</CardDescription></CardHeader><CardContent className="space-y-3">{selected.missions.map((mission) => { const terminal = ['APPROVED','REJECTED','BLOCKED'].includes(mission.status); return <div key={mission.id} className="rounded-xl border border-white/10 p-4"><div className="flex justify-between gap-3"><p className="font-bold">{mission.title}</p><Badge variant="outline">{mission.status}</Badge></div><p className="mt-2 text-sm text-slate-400">{mission.expectedOutput}</p><p className="mt-1 text-xs text-slate-600">{mission.rationale}</p><p className="mt-2 text-xs text-violet-300">Creada por {selected.agentId} · reporta a {selected.agentId === 'systems-manager-ai-v1' ? 'general-manager-ai-v3' : 'Diego'}</p><div className="mt-3 flex flex-wrap gap-2"><Button size="sm" disabled={terminal} onClick={() => decideMission(mission.id, 'APPROVE')}>Aprobar análisis</Button><Button size="sm" variant="outline" disabled={terminal} onClick={() => decideMission(mission.id, 'REQUEST_REVIEW')}>Revisar</Button><Button size="sm" variant="outline" disabled={terminal} onClick={() => decideMission(mission.id, 'REJECT')}>Rechazar</Button><Button size="sm" variant="outline" disabled={terminal} onClick={() => void captureMissionDecision(mission, 'EDIT')}>Editar</Button><Button size="sm" variant="outline" disabled={terminal} onClick={() => void captureMissionDecision(mission, 'POSTPONE')}>Posponer</Button><Button size="sm" variant="outline" disabled={terminal} onClick={() => void captureMissionDecision(mission, 'MARK_INCORRECT')}>Información incorrecta</Button><Button size="sm" variant="outline" disabled={terminal} onClick={() => decideMission(mission.id, 'BLOCK')}>Bloquear</Button></div></div>; })}</CardContent></Card>}
-
-            {selected.usage.map((usage, index) => <Card key={index} className="border-white/10 bg-slate-950/80 text-slate-100"><CardHeader><CardTitle className="flex items-center gap-2"><Clock3 className="h-5 w-5 text-violet-300" /> Consumo verificado</CardTitle></CardHeader><CardContent className="grid gap-2 text-sm sm:grid-cols-3"><span>Entrada: {usage.inputTokens}</span><span>Cacheados: {usage.cachedTokens}</span><span>Cache write: {usage.cacheWriteTokens}</span><span>Salida: {usage.outputTokens}</span><span>Razonamiento: {usage.reasoningTokens}</span><span>Total: {usage.totalTokens}</span><span>Costo: ${Number(usage.estimatedCostUsd).toFixed(6)}</span><span>Acumulado diario: {usage.dailyTotalTokens}</span><span>Costo diario: ${Number(usage.dailyCostUsd).toFixed(6)}</span><span>Duración: {usage.durationMs ?? 0} ms</span><span>Reintentos: {usage.retries ?? 0}</span><span>Snapshot: {usage.snapshotBytes ?? 0} bytes</span>{usage.responseId && <span className="truncate font-mono text-xs">Response: {usage.responseId}</span>}{usage.rulesApplied && <span className="sm:col-span-2">Reglas: {usage.rulesApplied.join(' · ')}</span>}{usage.alertLevel && <Badge variant="outline" className="border-amber-500/30 text-amber-300">Alerta diaria {usage.alertLevel}%</Badge>}</CardContent></Card>)}
-          </> : <Card className="border-white/10 bg-slate-950/80 text-slate-100"><CardContent className="flex min-h-64 items-center justify-center text-slate-500"><CheckCircle2 className="mr-2 h-5 w-5" /> No hay casos todavía</CardContent></Card>}</div>
+        {error && (
+          <p className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-300">
+            {error}
+          </p>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant={
+              agentId === "systems-manager-ai-v1" ? "default" : "outline"
+            }
+            onClick={() => {
+              setAgentId("systems-manager-ai-v1");
+              setSelectedId("");
+              setView("Resumen");
+            }}
+          >
+            <ServerCog className="mr-2 h-4 w-4" />
+            Gerente de Sistemas
+          </Button>
+          <Button
+            variant={
+              agentId === "general-manager-ai-v3" ? "default" : "outline"
+            }
+            onClick={() => {
+              setAgentId("general-manager-ai-v3");
+              setSelectedId("");
+              setView("Resumen");
+            }}
+          >
+            <BrainCircuit className="mr-2 h-4 w-4" />
+            Gerente General
+          </Button>
         </div>
+        <nav
+          aria-label="Navegación Company OS"
+          className="sticky top-2 z-10 grid grid-cols-4 gap-1 rounded-xl border border-white/10 bg-slate-950/95 p-1 backdrop-blur md:flex"
+        >
+          {(["Resumen", "Inbox", "Caso", "Sistemas"] as View[]).map((item) => (
+            <Button
+              key={item}
+              size="sm"
+              variant={view === item ? "default" : "ghost"}
+              disabled={
+                item === "Sistemas" && agentId !== "systems-manager-ai-v1"
+              }
+              onClick={() => setView(item)}
+            >
+              {item}
+            </Button>
+          ))}
+        </nav>
+
+        {view === "Resumen" && (
+          <div className="space-y-5">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <Card className="border-white/10 bg-slate-950/80 text-slate-100">
+                <CardHeader>
+                  <CardDescription>Estado global</CardDescription>
+                  <CardTitle>{operations.state}</CardTitle>
+                </CardHeader>
+                <CardContent className="text-xs text-slate-400">
+                  Todos los agentes · refresco permanente cada 45 segundos.
+                </CardContent>
+              </Card>
+              <Card className="border-white/10 bg-slate-950/80 text-slate-100">
+                <CardHeader>
+                  <CardDescription>Operación</CardDescription>
+                  <CardTitle>
+                    {operations.queued} cola · {operations.active} activos
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="text-xs text-slate-400">
+                  {operations.reviews} revisiones pendientes
+                </CardContent>
+              </Card>
+              <Card className="border-white/10 bg-slate-950/80 text-slate-100">
+                <CardHeader>
+                  <CardDescription>Último ciclo exitoso</CardDescription>
+                  <CardTitle className="text-base">
+                    {formatDate(operations.lastSuccessfulCycle)}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="text-xs text-slate-400">
+                  Heartbeat: {formatDate(operations.lastHeartbeat)}
+                </CardContent>
+              </Card>
+              <Card className="border-white/10 bg-slate-950/80 text-slate-100">
+                <CardHeader>
+                  <CardDescription>Auditoría persistida</CardDescription>
+                  <CardTitle>
+                    {audit.businessWrites} escrituras empresariales
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="text-xs text-slate-400">
+                  {audit.infrastructureWrites} cambios de infraestructura ·{" "}
+                  {audit.auditEvents} eventos ·{" "}
+                  {audit.auditCoverageComplete
+                    ? "cobertura completa"
+                    : "cobertura incompleta"}
+                </CardContent>
+              </Card>
+            </div>
+            <Card className="border-white/10 bg-slate-950/80 text-slate-100">
+              <CardHeader>
+                <CardTitle>Prioridades ejecutivas</CardTitle>
+                <CardDescription className="text-slate-400">
+                  Riesgos, gaps, decisiones y costo; IDs y telemetría quedan en
+                  las vistas técnicas.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-2">
+                {latestRisks.length ? (
+                  latestRisks.map((risk) => (
+                    <div
+                      key={risk.riskId}
+                      className="rounded-xl border border-white/10 p-4"
+                    >
+                      <Badge variant="outline">
+                        {risk.classification === "ACTION_REQUIRED"
+                          ? `${priorityBand(risk.priority)} · Score ${risk.priority}`
+                          : risk.classification}
+                      </Badge>
+                      <p className="mt-2 font-semibold">{risk.title}</p>
+                      <p className="mt-2 text-sm text-slate-400">
+                        {risk.recommendedAction}
+                      </p>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-slate-500">
+                    Sin snapshot técnico cargado.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Badge variant="outline" className="justify-center p-3">
+                <ShieldCheck className="mr-2 h-4 w-4 text-emerald-300" />
+                {audit.auditCoverageComplete &&
+                audit.businessWrites === 0 &&
+                audit.infrastructureWrites === 0
+                  ? "Cero escrituras verificadas por auditoría"
+                  : "Revisar cobertura de auditoría"}
+              </Badge>
+              <Badge variant="outline" className="justify-center p-3">
+                {totals.tokens.toLocaleString()} tokens
+              </Badge>
+              <Badge variant="outline" className="justify-center p-3">
+                ${totals.cost.toFixed(4)} costo acumulado visible
+              </Badge>
+            </div>
+          </div>
+        )}
+
+        {view === "Inbox" && (
+          <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+            <Card className="border-white/10 bg-slate-950/80 text-slate-100">
+              <CardHeader>
+                <CardTitle>Nueva orden</CardTitle>
+                <CardDescription className="text-slate-400">
+                  Se persiste antes del webhook y conserva el contrato
+                  advisory-only.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Textarea
+                  value={objective}
+                  onChange={(event) => setObjective(event.target.value)}
+                  maxLength={600}
+                  className="min-h-24 border-white/10 bg-black/30"
+                  placeholder="¿Qué debe analizar el agente?"
+                />
+                <Input
+                  value={relatedRequestId}
+                  onChange={(event) => setRelatedRequestId(event.target.value)}
+                  className="border-white/10 bg-black/30"
+                  placeholder="Caso relacionado (opcional)"
+                />
+                <Button
+                  onClick={() => void createCase()}
+                  disabled={busy || !objective.trim()}
+                  className="bg-cyan-400 font-bold text-slate-950 hover:bg-cyan-300"
+                >
+                  {busy ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Send className="mr-2 h-4 w-4" />
+                  )}
+                  Encolar análisis
+                </Button>
+              </CardContent>
+            </Card>
+            <Card className="border-white/10 bg-slate-950/80 text-slate-100">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Inbox</CardTitle>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void refresh()}
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="max-h-[620px] space-y-2 overflow-auto">
+                {cases.map((item) => (
+                  <button
+                    key={item.requestId}
+                    onClick={() => {
+                      setSelectedId(item.requestId);
+                      setView("Caso");
+                    }}
+                    className={`w-full rounded-xl border p-3 text-left ${selected?.requestId === item.requestId ? "border-cyan-400/50 bg-cyan-500/10" : "border-white/10 bg-white/5"}`}
+                  >
+                    <div className="flex justify-between gap-2">
+                      <Badge
+                        variant="outline"
+                        className={statusColor[item.status]}
+                      >
+                        {item.status}
+                      </Badge>
+                      <span className="text-[10px] text-slate-500">
+                        {new Date(item.createdAt).toLocaleString("es-AR")}
+                      </span>
+                    </div>
+                    <p className="mt-2 line-clamp-2 text-sm">
+                      {item.objective}
+                    </p>
+                  </button>
+                ))}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {view === "Caso" &&
+          (selected ? (
+            <div className="space-y-5">
+              <Card className="border-white/10 bg-slate-950/80 text-slate-100">
+                <CardHeader>
+                  <div className="flex justify-between gap-3">
+                    <CardTitle>Caso seleccionado</CardTitle>
+                    <Badge
+                      variant="outline"
+                      className={statusColor[selected.status]}
+                    >
+                      {selected.status}
+                    </Badge>
+                  </div>
+                  <CardDescription className="text-slate-500">
+                    Creado{" "}
+                    {new Date(selected.createdAt).toLocaleString("es-AR")} ·
+                    webhook {selected.webhookDeliveryStatus}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {selected.messages.map((message) => {
+                    const parsed =
+                      message.kind === "RESULT"
+                        ? resultContent(message.content)
+                        : null;
+                    return (
+                      <div
+                        key={message.id}
+                        className="rounded-xl border border-white/10 bg-white/5 p-4"
+                      >
+                        <div className="mb-2 flex justify-between text-[10px] uppercase text-slate-500">
+                          <span>
+                            {message.role} · {message.kind}
+                          </span>
+                          <span>
+                            {new Date(message.createdAt).toLocaleString(
+                              "es-AR",
+                            )}
+                          </span>
+                        </div>
+                        {parsed ? (
+                          <div className="space-y-2 text-sm">
+                            <p>{parsed.summary}</p>
+                            {parsed.primaryConfirmedRisk && (
+                              <>
+                                <p>
+                                  <b className="text-red-300">Riesgo:</b>{" "}
+                                  {parsed.primaryConfirmedRisk}
+                                </p>
+                                <p>
+                                  <b className="text-amber-300">Gap:</b>{" "}
+                                  {parsed.primaryCoverageGap}
+                                </p>
+                              </>
+                            )}
+                            <p className="text-xs text-slate-500">
+                              Evidencia: {parsed.evidenceRefs?.join(", ")}
+                            </p>
+                          </div>
+                        ) : (
+                          <p className="whitespace-pre-wrap text-sm">
+                            {message.content}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                  <div className="flex gap-2">
+                    <Textarea
+                      value={context}
+                      onChange={(event) => setContext(event.target.value)}
+                      maxLength={4000}
+                      className="border-white/10 bg-black/30"
+                      placeholder="Contexto adicional append-only"
+                    />
+                    <Button
+                      onClick={() => void appendContext()}
+                      disabled={busy || !context.trim()}
+                    >
+                      <MessageSquarePlus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setRelatedRequestId(selected.requestId);
+                        setView("Inbox");
+                      }}
+                    >
+                      <GitBranch className="mr-2 h-4 w-4" />
+                      Crear caso relacionado
+                    </Button>
+                    {!["FAILED", "CANCELLED", "COMPLETED"].includes(
+                      selected.status,
+                    ) && (
+                      <Button
+                        variant="outline"
+                        onClick={() =>
+                          void post(
+                            `/api/company-os/v3/cases/${selected.requestId}/cancel`,
+                            { reason: "Cancelado desde Company OS" },
+                          )
+                        }
+                        disabled={busy}
+                        className="border-red-500/30 text-red-300"
+                      >
+                        <Ban className="mr-2 h-4 w-4" />
+                        Cancelar
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+              {selected.missions.length > 0 && (
+                <Card className="border-white/10 bg-slate-950/80 text-slate-100">
+                  <CardHeader>
+                    <CardTitle>Decisiones pendientes</CardTitle>
+                    <CardDescription className="text-amber-300">
+                      Aprobar valida el análisis; ninguna acción ejecuta
+                      infraestructura.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {selected.missions.map((mission) => {
+                      const terminal = [
+                        "APPROVED",
+                        "REJECTED",
+                        "BLOCKED",
+                      ].includes(mission.status);
+                      return (
+                        <div
+                          key={mission.id}
+                          className="rounded-xl border border-white/10 p-4"
+                        >
+                          <div className="flex justify-between gap-3">
+                            <p className="font-bold">{mission.title}</p>
+                            <Badge variant="outline">{mission.status}</Badge>
+                          </div>
+                          <p className="mt-2 text-sm text-slate-400">
+                            {mission.expectedOutput}
+                          </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Button
+                              size="sm"
+                              disabled={terminal}
+                              onClick={() =>
+                                void decideMission(mission.id, "APPROVE")
+                              }
+                            >
+                              Aprobar
+                            </Button>
+                            {[
+                              ["REQUEST_REVIEW", "Revisar"],
+                              ["REJECT", "Rechazar"],
+                              ["EDIT", "Editar"],
+                              ["POSTPONE", "Posponer"],
+                              ["MARK_INCORRECT", "Información incorrecta"],
+                              ["BLOCK", "Bloquear"],
+                            ].map(([decision, label]) => (
+                              <Button
+                                key={decision}
+                                size="sm"
+                                variant="outline"
+                                disabled={terminal}
+                                onClick={() => openMission(mission, decision)}
+                              >
+                                {label}
+                              </Button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </CardContent>
+                </Card>
+              )}
+              <details className="rounded-2xl border border-white/10 bg-slate-950/80 p-4">
+                <summary className="cursor-pointer font-semibold text-violet-200">
+                  Detalles técnicos del caso
+                </summary>
+                <div className="mt-4 space-y-4">
+                  <div className="flex flex-wrap gap-2">
+                    {selected.events.map((event) => (
+                      <Badge key={event.id} variant="outline">
+                        #{event.sequence} {event.eventType}
+                      </Badge>
+                    ))}
+                  </div>
+                  {selected.usage.map((usage, index) => (
+                    <div
+                      key={index}
+                      className="grid gap-2 rounded-xl border border-white/10 p-3 text-sm sm:grid-cols-3"
+                    >
+                      <span>Total: {usage.totalTokens}</span>
+                      <span>
+                        Costo: ${Number(usage.estimatedCostUsd).toFixed(6)}
+                      </span>
+                      <span>Duración: {usage.durationMs ?? 0} ms</span>
+                      <span>Reintentos: {usage.retries ?? 0}</span>
+                      <span>Snapshot: {usage.snapshotBytes ?? 0} bytes</span>
+                      <span>
+                        Heartbeat: {formatDate(operations.lastHeartbeat)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            </div>
+          ) : (
+            <Card className="border-white/10 bg-slate-950/80 text-slate-100">
+              <CardContent className="flex min-h-64 items-center justify-center text-slate-500">
+                <CheckCircle2 className="mr-2 h-5 w-5" />
+                No hay casos todavía
+              </CardContent>
+            </Card>
+          ))}
+
+        {view === "Sistemas" &&
+          selected?.agentId === "systems-manager-ai-v1" && (
+            <SystemsEvidence companyCase={selected} onRiskAction={openRisk} />
+          )}
+        {agentId === "general-manager-ai-v3" &&
+          view === "Resumen" &&
+          reports.length > 0 && (
+            <Card className="border-violet-500/20 bg-slate-950/80 text-slate-100">
+              <CardHeader>
+                <CardTitle>Handoff del Gerente de Sistemas</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {reports.slice(0, 10).map((report) => (
+                  <p
+                    key={report.requestId}
+                    className="border-b border-white/10 py-2 text-sm"
+                  >
+                    {report.objective}
+                  </p>
+                ))}
+              </CardContent>
+            </Card>
+          )}
       </div>
+      <Dialog
+        open={Boolean(action)}
+        onOpenChange={(open) => !open && setAction(null)}
+      >
+        <DialogContent className="max-h-[90dvh] overflow-y-auto border-white/10 bg-slate-950 text-slate-100">
+          <DialogHeader>
+            <DialogTitle>{action?.title}</DialogTitle>
+            <DialogDescription className="text-slate-400">
+              El motivo es obligatorio y quedará registrado en el historial
+              append-only.
+            </DialogDescription>
+          </DialogHeader>
+          {action?.decision === "EDIT" && (
+            <div className="space-y-2">
+              <Label htmlFor="edit-title">Título</Label>
+              <Input
+                id="edit-title"
+                value={action.editTitle}
+                onChange={(event) =>
+                  setAction({ ...action, editTitle: event.target.value })
+                }
+              />
+              <Label htmlFor="edit-output">Entregable</Label>
+              <Textarea
+                id="edit-output"
+                value={action.editOutput}
+                onChange={(event) =>
+                  setAction({ ...action, editOutput: event.target.value })
+                }
+              />
+            </div>
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="decision-reason">Motivo obligatorio</Label>
+            <Textarea
+              id="decision-reason"
+              required
+              value={action?.reason ?? ""}
+              onChange={(event) =>
+                action && setAction({ ...action, reason: event.target.value })
+              }
+            />
+          </div>
+          {action?.decision === "POSTPONE" && (
+            <div className="space-y-2">
+              <Label htmlFor="defer-until">Revisar nuevamente</Label>
+              <Input
+                id="defer-until"
+                type="datetime-local"
+                required
+                value={action.deferUntil}
+                onChange={(event) =>
+                  setAction({ ...action, deferUntil: event.target.value })
+                }
+              />
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAction(null)}>
+              Cancelar
+            </Button>
+            <Button
+              disabled={busy || !actionValid}
+              onClick={() => void submitAction()}
+            >
+              {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              Registrar decisión
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

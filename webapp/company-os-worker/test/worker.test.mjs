@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import test from 'node:test';
 import { CompanyOsApiClient } from '../src/api-client.mjs';
 import { OpenAiAdvisoryClient } from '../src/openai-client.mjs';
-import { OpenClawTelegramClient } from '../src/notification-client.mjs';
+import { TelegramNotificationClient } from '../src/notification-client.mjs';
 import { redactExternalValue } from '../src/redaction.mjs';
 import { createWebhookServer } from '../src/server.mjs';
 import { signatureFor, signedHeaders, verifySignedBody } from '../src/signing.mjs';
@@ -219,8 +219,8 @@ test('notifica Telegram después de persistir complete y registra la entrega', a
 
 test('cliente Telegram usa el canal existente después de la reserva durable', async () => {
   let request;
-  const notifier = new OpenClawTelegramClient({
-    gatewayUrl: 'http://openclaw.local', gatewayToken: 'gateway-secret', target: '12345', botToken: 'bot-secret',
+  const notifier = new TelegramNotificationClient({
+    target: '12345', botToken: 'bot-secret',
     fetchImpl: async (url, init) => { request = { url, init }; return jsonResponse({ ok: true }); },
   });
   await notifier.send(claim, advisory);
@@ -271,8 +271,8 @@ test('agenda genérica usa API HMAC firmada', async () => {
 
 test('Telegram falla cerrado si el proveedor rechaza el envío', async () => {
   const calls = [];
-  const notifier = new OpenClawTelegramClient({
-    gatewayUrl: 'http://openclaw.local', gatewayToken: 'gateway-secret', target: '12345', botToken: 'bot-secret',
+  const notifier = new TelegramNotificationClient({
+    target: '12345', botToken: 'bot-secret',
     fetchImpl: async (url) => {
       calls.push(url);
       return jsonResponse({ ok: false }, 500);
