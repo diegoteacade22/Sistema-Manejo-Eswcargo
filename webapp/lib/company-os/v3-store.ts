@@ -996,6 +996,11 @@ export async function decideCompanyOsMission(input: {
           decisionDetail = { ...decisionDetail, deferUntil: deferUntil.toISOString() };
         }
         if (input.decision === 'MARK_INCORRECT' && !decisionDetail.reason) throw new Error('Debe indicar qué información es incorrecta');
+        const persistedDecision = await tx.companyOsDecision.create({ data: {
+          caseId: mission.caseId, missionId: mission.id, decision: input.decision,
+          reason: JSON.stringify({ requestHash, detail: decisionDetail }),
+          actorRef: identity.actorRef, idempotencyKey: input.idempotencyKey,
+        } });
         const updated = await tx.companyOsMission.update({ where: { id: mission.id }, data: missionUpdate });
         await appendCaseEvent(tx, {
           caseId: mission.caseId, requestId: input.requestId, eventType: 'MISSION_DECIDED',
@@ -1017,10 +1022,8 @@ export async function decideCompanyOsMission(input: {
           });
         }
         const result = { mission: updated, caseStatus: openReviews === 0 ? 'COMPLETED' : mission.caseStatus, executionAuthorized: false as const };
-        await tx.companyOsDecision.create({ data: {
-          caseId: mission.caseId, missionId: mission.id, decision: input.decision,
+        await tx.companyOsDecision.update({ where: { id: persistedDecision.id }, data: {
           reason: JSON.stringify({ requestHash, detail: decisionDetail, result }),
-          actorRef: identity.actorRef, idempotencyKey: input.idempotencyKey,
         } });
         return result;
       },
