@@ -89,6 +89,7 @@ export function buildRuntime(config, overrides = {}) {
       gatewayUrl: config.openClawGatewayUrl,
       gatewayToken: config.openClawGatewayToken,
       target: config.telegramTarget,
+      botToken: config.telegramBotToken,
       fetchImpl: overrides.fetchImpl,
     }),
     heartbeatIntervalMs: config.heartbeatIntervalMs,

@@ -30,5 +30,6 @@ export function loadConfig(env = process.env) {
     openClawGatewayUrl: required('COMPANY_OS_V3_OPENCLAW_GATEWAY_URL', env).replace(/\/$/, ''),
     openClawGatewayToken: required('COMPANY_OS_V3_OPENCLAW_GATEWAY_TOKEN', env),
     telegramTarget: required('COMPANY_OS_V3_TELEGRAM_TARGET', env),
+    telegramBotToken: required('COMPANY_OS_V3_TELEGRAM_BOT_TOKEN', env),
   });
 }

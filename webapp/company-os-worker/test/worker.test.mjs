@@ -196,7 +196,7 @@ test('notifica Telegram después de persistir complete y registra la entrega', a
 test('cliente OpenClaw usa tools/invoke con Telegram y clave idempotente', async () => {
   let request;
   const notifier = new OpenClawTelegramClient({
-    gatewayUrl: 'http://openclaw.local', gatewayToken: 'gateway-secret', target: '12345',
+    gatewayUrl: 'http://openclaw.local', gatewayToken: 'gateway-secret', target: '12345', botToken: 'bot-secret',
     fetchImpl: async (url, init) => { request = { url, init }; return jsonResponse({ ok: true }); },
   });
   await notifier.send(claim, advisory);
@@ -207,4 +207,19 @@ test('cliente OpenClaw usa tools/invoke con Telegram y clave idempotente', async
   assert.equal(body.args.channel, 'telegram');
   assert.equal(body.args.to, '12345');
   assert.equal(body.args.idempotencyKey, 'company-os-v3:request-1:completed');
+});
+
+test('Telegram usa fallback directo si OpenClaw falla', async () => {
+  const calls = [];
+  const notifier = new OpenClawTelegramClient({
+    gatewayUrl: 'http://openclaw.local', gatewayToken: 'gateway-secret', target: '12345', botToken: 'bot-secret',
+    fetchImpl: async (url) => {
+      calls.push(url);
+      if (url.includes('/tools/invoke')) return jsonResponse({ ok: false }, 500);
+      return jsonResponse({ ok: true, result: { message_id: 9 } });
+    },
+  });
+  assert.deepEqual(await notifier.send(claim, advisory), { status: 'DELIVERED', responseCode: 200 });
+  assert.equal(calls.filter((url) => url.includes('/tools/invoke')).length, 2);
+  assert.match(calls.at(-1), /^https:\/\/api\.telegram\.org\/botbot-secret\/sendMessage$/);
 });

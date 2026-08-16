@@ -23,6 +23,7 @@ COMPANY_OS_V3_DEDUPE_TTL_MS=3600000
 COMPANY_OS_V3_OPENCLAW_GATEWAY_URL=http://host.docker.internal:42691
 COMPANY_OS_V3_OPENCLAW_GATEWAY_TOKEN=secretref-resolved-at-deploy
 COMPANY_OS_V3_TELEGRAM_TARGET=authorized-chat-id
+COMPANY_OS_V3_TELEGRAM_BOT_TOKEN=secretref-resolved-at-deploy
 ```
 
 No guardar el archivo de entorno en el repositorio. Restringirlo al usuario del servicio.
@@ -46,7 +47,7 @@ Todas las llamadas del worker a `/api/company-os/v3/worker/*` se firman sobre el
 4. Mientras OpenAI procesa, se envían heartbeats periódicos.
 5. Responses API usa `store:false`, reasoning `low`, máximo 3000 tokens, timeout 120 s y un único reintento para errores transitorios.
 6. Éxito envía output advisory estricto y el objeto `usage` completo a `complete`. Error envía código/mensaje seguro y `retryable` a `fail`.
-7. Tras persistir el resultado, notifica al chat Telegram autorizado mediante el endpoint OpenClaw existente y registra la entrega; un fallo de Telegram no revierte el análisis.
+7. Tras persistir el resultado, notifica al chat Telegram autorizado mediante OpenClaw; si su pipeline TTS falla, usa el mismo bot como fallback directo y registra la entrega. Un fallo de Telegram no revierte el análisis.
 
 El worker no consulta bases de datos ni selecciona evidencia. Las misiones generadas sólo pueden quedar `PLANNED`.
 
