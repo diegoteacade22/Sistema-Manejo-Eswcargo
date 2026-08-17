@@ -44,22 +44,34 @@ export function matchCatalog(item: ExtractedItem, catalog: CatalogProduct[]) {
   const query = normalizeWords([
     item.product, item.exactModel, item.capacity, item.color, item.condition, item.region,
   ].filter(Boolean).join(' '));
-  const ranked = catalog
-    .map((product) => ({
+  const ranked = catalog.map((product) => ({
       product,
-      confidence: score(query, normalizeWords([
+      tokens: normalizeWords([
         product.sku, product.brand, product.name, product.model, product.color_grade,
-      ].filter(Boolean).join(' '))),
+      ].filter(Boolean).join(' ')),
     }))
+    .map(({ product, tokens }) => ({ product, tokens, confidence: score(query, tokens) }))
     .sort((left, right) => right.confidence - left.confidence);
   const best = ranked[0];
   const second = ranked[1];
-  const accepted = Boolean(
+  const identityTokens = normalizeWords([
+    item.product, item.exactModel, item.capacity, item.color, item.region,
+  ].filter(Boolean).join(' '));
+  const exactIdentity = identityTokens.length >= 4
+    ? ranked.filter(({ tokens }) => {
+      const candidate = new Set(tokens);
+      return identityTokens.every((token) => candidate.has(token));
+    })
+    : [];
+  const exactProduct = exactIdentity.length === 1 ? exactIdentity[0] : null;
+  const acceptedFuzzy = Boolean(
     best && best.confidence >= 0.82 && best.confidence - (second?.confidence || 0) >= 0.08,
   );
+  const accepted = Boolean(exactProduct || acceptedFuzzy);
+  const matched = exactProduct || (acceptedFuzzy ? best : null);
   return {
-    product: accepted ? best.product : null,
-    confidence: best?.confidence || 0,
+    product: matched?.product || null,
+    confidence: exactProduct ? Math.max(exactProduct.confidence, 0.95) : best?.confidence || 0,
     reason: accepted
       ? null
       : best?.confidence

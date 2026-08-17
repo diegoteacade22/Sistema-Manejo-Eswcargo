@@ -66,6 +66,29 @@ test('manda a revisión una coincidencia ambigua', () => {
   assert.match(match.reason || '', /ambigua/);
 });
 
+test('acepta una identidad única por modelo, capacidad, color y región', () => {
+  const item = {
+    lineNumber: 1,
+    rawLine: 'iPhone 16 Pro Max 256GB Black Titanium NEW US $1095 x1',
+    product: 'iPhone',
+    exactModel: '16 Pro Max',
+    capacity: '256GB',
+    color: 'Black Titanium',
+    condition: 'NEW',
+    region: 'US',
+    costUsd: 1095,
+    availability: null,
+    quantity: 1,
+    observations: null,
+  };
+  const match = matchCatalog(item, [
+    { id: 382, sku: 'IP16PM-256-US-BT', name: 'iPhone 16 Pro Max 256GB US', model: 'iPhone 16 Pro Max', brand: 'Apple', color_grade: 'Black Titanium' },
+    { id: 383, sku: 'IP16PM-256-US-WT', name: 'iPhone 16 Pro Max 256GB US', model: 'iPhone 16 Pro Max', brand: 'Apple', color_grade: 'White Titanium' },
+  ]);
+  assert.equal(match.product?.id, 382);
+  assert.equal(match.reason, null);
+});
+
 test('exige fecha ISO con zona horaria', () => {
   assert.throws(() => ingestRequestSchema.parse({ text: 'producto', receivedAt: '2026-08-15T14:30:00' }));
   assert.equal(
