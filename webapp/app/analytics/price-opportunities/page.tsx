@@ -33,9 +33,28 @@ export default async function PriceOpportunitiesPage() {
           </Button>
         </div>
 
+        <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4 text-sm text-slate-300">
+          <p className="font-bold text-cyan-300">Cómo usar las oportunidades</p>
+          <p className="mt-2">
+            1. Envía o recibe por WhatsApp una lista XLS, XLSX, CSV o TXT. El bot la analiza
+            automáticamente y te avisa por WhatsApp con el enlace al Google Sheet.
+          </p>
+          <p className="mt-1">
+            2. Prioriza <strong className="text-emerald-400">Oferta probable</strong>; revisa
+            SKU, región, condición y stock antes de comprar. En <strong>Posible oferta</strong>,
+            confirma el producto y el historial.
+          </p>
+          <p className="mt-1">
+            3. Si recibes la lista fuera de WhatsApp, puedes cargarla manualmente debajo.
+          </p>
+          <p className="mt-1">
+            La carga queda registrada con fecha, estado y proveedor para que Telegram pueda responder
+            cuántas listas cargaste sin consultar el correo.
+          </p>
+        </div>
+
         <PriceOpportunitiesClient />
       </div>
     </main>
   );
 }
-

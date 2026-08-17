@@ -48,6 +48,7 @@ const badgeClass: Record<string, string> = {
 export function PriceOpportunitiesClient() {
   const [file, setFile] = useState<File | null>(null);
   const [text, setText] = useState('');
+  const [supplierName, setSupplierName] = useState('');
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -59,6 +60,7 @@ export function PriceOpportunitiesClient() {
       const form = new FormData();
       if (file) form.set('file', file);
       if (text.trim()) form.set('text', text.trim());
+      if (supplierName.trim()) form.set('supplierName', supplierName.trim());
       const response = await fetch('/api/price-opportunities', { method: 'POST', body: form });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'No se pudo analizar la lista.');
@@ -99,6 +101,11 @@ export function PriceOpportunitiesClient() {
             type="file"
             accept=".xls,.xlsx,.xlsm,.csv,.txt"
             onChange={(event) => setFile(event.target.files?.[0] || null)}
+          />
+          <Input
+            value={supplierName}
+            onChange={(event) => setSupplierName(event.target.value)}
+            placeholder="Proveedor (opcional, pero recomendado)"
           />
           <Textarea
             value={text}
