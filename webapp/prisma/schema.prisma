@@ -76,6 +76,8 @@ model Product {
   imageUrl           String?
   orderItems         OrderItem[]
   purchaseItems      PurchaseItem[]
+  ingestionItems     IngestionItem[]
+  supplierOffers     SupplierOffer[]
 }
 
 model SparePart {
@@ -108,6 +110,80 @@ model Supplier {
   orderItems   OrderItem[]
   purchases    Purchase[]
   transactions Transaction[]
+  ingestionRuns IngestionRun[]
+  supplierOffers SupplierOffer[]
+}
+
+/// Raw, immutable supplier input and its processing lifecycle.
+model IngestionRun {
+  id             String          @id @default(cuid())
+  sourceType     String          @default("text")
+  rawText        String
+  contentHash    String
+  idempotencyKey String?         @unique
+  receivedAt     DateTime
+  status         String          @default("PROCESSING")
+  supplierId     Int?
+  supplierName   String?
+  model          String?
+  errorMessage   String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  supplier       Supplier?       @relation(fields: [supplierId], references: [id])
+  items          IngestionItem[]
+
+  @@index([receivedAt])
+  @@index([status])
+  @@index([contentHash, createdAt])
+}
+
+/// One validated extraction from an ingestion run, optionally matched to the catalog.
+model IngestionItem {
+  id                  String         @id @default(cuid())
+  ingestionRunId      String
+  lineNumber          Int
+  rawLine             String
+  productName         String?
+  exactModel          String?
+  capacity            String?
+  color               String?
+  condition           String?
+  region              String?
+  costUsd             Float?
+  availability        String?
+  quantity            Int?
+  observations        String?
+  normalizedProductId Int?
+  matchConfidence     Float?
+  reviewRequired      Boolean        @default(true)
+  reviewReason        String?
+  extractedData       Json
+  createdAt           DateTime       @default(now())
+  ingestionRun        IngestionRun   @relation(fields: [ingestionRunId], references: [id], onDelete: Cascade)
+  normalizedProduct   Product?       @relation(fields: [normalizedProductId], references: [id])
+  offer               SupplierOffer?
+
+  @@unique([ingestionRunId, lineNumber])
+  @@index([normalizedProductId])
+  @@index([reviewRequired])
+}
+
+/// A supplier cost observation. It never changes Product selling prices or purchases.
+model SupplierOffer {
+  id              String        @id @default(cuid())
+  ingestionItemId String        @unique
+  supplierId      Int
+  productId       Int
+  costUsd         Float
+  quantity        Int?
+  availability    String?
+  observedAt      DateTime
+  createdAt       DateTime      @default(now())
+  ingestionItem   IngestionItem @relation(fields: [ingestionItemId], references: [id], onDelete: Cascade)
+  supplier        Supplier      @relation(fields: [supplierId], references: [id])
+  product         Product       @relation(fields: [productId], references: [id])
+
+  @@index([supplierId, productId, observedAt])
 }
 
 model Order {
