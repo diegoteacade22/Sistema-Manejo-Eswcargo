@@ -1,4 +1,4 @@
-import crypto from 'node:crypto';
+import { verifyAgentRequest } from '@/lib/agent-auth';
 import { auth } from '@/lib/auth';
 import { getPriceListStatus, businessDateKey } from '@/lib/price-list-status';
 import { NextResponse } from 'next/server';
@@ -6,25 +6,8 @@ import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function suppliedKey(request: Request) {
-  const direct = request.headers.get('x-agent-key')?.trim();
-  if (direct) return direct;
-  const authorization = request.headers.get('authorization')?.trim();
-  return authorization?.toLowerCase().startsWith('bearer ')
-    ? authorization.slice(7).trim()
-    : '';
-}
-
-function safeEqual(left: string, right: string) {
-  const leftBuffer = Buffer.from(left);
-  const rightBuffer = Buffer.from(right);
-  return leftBuffer.length === rightBuffer.length && crypto.timingSafeEqual(leftBuffer, rightBuffer);
-}
-
 async function authorize(request: Request) {
-  const expectedKey = (process.env.AGENT_API_KEY || '').trim();
-  const providedKey = suppliedKey(request);
-  if (expectedKey && providedKey && safeEqual(providedKey, expectedKey)) return true;
+  if (verifyAgentRequest(request, '')) return true;
   const session = await auth();
   return session?.user && (session.user as { role?: string }).role === 'ADMIN';
 }
