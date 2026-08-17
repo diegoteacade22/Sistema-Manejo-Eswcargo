@@ -12,9 +12,11 @@ export type CompanyOsMissionStatus = (typeof COMPANY_OS_MISSION_STATUSES)[number
 
 export const COMPANY_OS_V3_IDENTITY = 'general-manager-ai-v3' as const;
 export const COMPANY_OS_SYSTEMS_MANAGER_IDENTITY = 'systems-manager-ai-v1' as const;
+export const COMPANY_OS_DATA_MANAGER_IDENTITY = 'data-manager-ai-v1' as const;
 export const COMPANY_OS_AGENT_IDS = [
   COMPANY_OS_V3_IDENTITY,
   COMPANY_OS_SYSTEMS_MANAGER_IDENTITY,
+  COMPANY_OS_DATA_MANAGER_IDENTITY,
 ] as const;
 export type CompanyOsAgentId = (typeof COMPANY_OS_AGENT_IDS)[number];
 
@@ -31,6 +33,11 @@ export const COMPANY_OS_AGENT_CONTRACTS: Record<CompanyOsAgentId, {
   [COMPANY_OS_SYSTEMS_MANAGER_IDENTITY]: {
     displayName: 'Gerente de Sistemas AI',
     area: 'SYSTEMS',
+    reportsToAgentId: COMPANY_OS_V3_IDENTITY,
+  },
+  [COMPANY_OS_DATA_MANAGER_IDENTITY]: {
+    displayName: 'Gerente de Datos AI',
+    area: 'DATA_QUALITY',
     reportsToAgentId: COMPANY_OS_V3_IDENTITY,
   },
 };

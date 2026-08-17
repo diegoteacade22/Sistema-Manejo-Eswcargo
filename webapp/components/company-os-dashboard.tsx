@@ -7,6 +7,7 @@ import {
   BrainCircuit,
   CheckCircle2,
   Database,
+  FileSpreadsheet,
   GitBranch,
   Loader2,
   MessageSquarePlus,
@@ -15,6 +16,7 @@ import {
   ServerCog,
   ShieldCheck,
   TriangleAlert,
+  Upload,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -55,7 +57,18 @@ type MissionStatus =
   | "DONE";
 type ObservationMode =
   "LIVE_OBSERVED" | "DECLARED_FROM_CONFIG" | "INFERRED" | "UNOBSERVED";
-type View = "Resumen" | "Inbox" | "Caso" | "Sistemas";
+type ManagerId =
+  | "general-manager-ai-v3"
+  | "systems-manager-ai-v1"
+  | "data-manager-ai-v1";
+type View =
+  | "Resumen"
+  | "Inbox"
+  | "Caso"
+  | "Sistemas"
+  | "Carga de listas"
+  | "Decisiones"
+  | "Catálogo";
 type GlobalState =
   "IDLE" | "WORKING" | "WAITING_FOR_DIEGO" | "DEGRADED" | "OFFLINE";
 type Asset = {
@@ -93,7 +106,7 @@ type Risk = {
 type CaseSummary = {
   id: string;
   requestId: string;
-  agentId: "general-manager-ai-v3" | "systems-manager-ai-v1";
+  agentId: ManagerId;
   area: string;
   caseType: string;
   objective: string;
@@ -195,8 +208,8 @@ export function deriveCompanyOsGlobalState(
   now = Date.now(),
 ) {
   const active = cases.filter((item) => activeStatuses.has(item.status));
-  const reviews = cases.filter((item) =>
-    item.missions.some((mission) => reviewMissionStatuses.has(mission.status)),
+  const reviews = cases.flatMap((item) =>
+    item.missions.filter((mission) => reviewMissionStatuses.has(mission.status)),
   );
   const heartbeatDates = cases
     .flatMap((item) =>
@@ -371,6 +384,39 @@ type ActionDialog = {
   editTitle: string;
   editOutput: string;
 } | null;
+
+type DetailDialog = {
+  title: string;
+  description: string;
+  lines: string[];
+  caseIds?: string[];
+} | null;
+
+const managerConfig: Record<ManagerId, {
+  label: string;
+  description: string;
+  backendAgentId: ManagerId;
+  tabs: View[];
+}> = {
+  "systems-manager-ai-v1": {
+    label: "Gerente de Sistemas",
+    description: "Salud técnica, procesamiento, regulación y cobertura.",
+    backendAgentId: "systems-manager-ai-v1",
+    tabs: ["Resumen", "Inbox", "Caso", "Sistemas"],
+  },
+  "general-manager-ai-v3": {
+    label: "Gerente General",
+    description: "Prioridades ejecutivas, decisiones y estado global.",
+    backendAgentId: "general-manager-ai-v3",
+    tabs: ["Resumen", "Inbox", "Caso", "Decisiones"],
+  },
+  "data-manager-ai-v1": {
+    label: "Gerente de Datos",
+    description: "Listas de proveedores, calidad de catálogo y actualización de datos.",
+    backendAgentId: "data-manager-ai-v1",
+    tabs: ["Resumen", "Inbox", "Carga de listas", "Catálogo"],
+  },
+};
 
 function SystemsEvidence({
   companyCase,
@@ -646,9 +692,7 @@ function SystemsEvidence({
 }
 
 export function CompanyOsDashboard() {
-  const [agentId, setAgentId] = useState<
-    "general-manager-ai-v3" | "systems-manager-ai-v1"
-  >("systems-manager-ai-v1");
+  const [agentId, setAgentId] = useState<ManagerId>("systems-manager-ai-v1");
   const [allCases, setAllCases] = useState<CaseSummary[]>([]);
   const [cases, setCases] = useState<CaseSummary[]>([]);
   const [reports, setReports] = useState<CaseSummary[]>([]);
@@ -660,8 +704,23 @@ export function CompanyOsDashboard() {
   const [error, setError] = useState("");
   const [view, setView] = useState<View>("Resumen");
   const [action, setAction] = useState<ActionDialog>(null);
+  const [detail, setDetail] = useState<DetailDialog>(null);
+  const [supplierName, setSupplierName] = useState("");
+  const [listText, setListText] = useState("");
+  const [listFile, setListFile] = useState<File | null>(null);
+  const [intakeResult, setIntakeResult] = useState("");
   const selected =
     cases.find((entry) => entry.requestId === selectedId) ?? cases[0];
+  const manager = managerConfig[agentId];
+  const pendingReviews = useMemo(
+    () =>
+      allCases.flatMap((companyCase) =>
+        companyCase.missions
+          .filter((mission) => reviewMissionStatuses.has(mission.status))
+          .map((mission) => ({ companyCase, mission })),
+      ),
+    [allCases],
+  );
   const refresh = useCallback(async () => {
     const response = await fetch("/api/company-os/v3/cases?limit=100", {
       cache: "no-store",
@@ -670,7 +729,14 @@ export function CompanyOsDashboard() {
     const payload = await response.json();
     const received = (payload.cases ?? []) as CaseSummary[];
     setAllCases(received);
-    setCases(received.filter((entry) => entry.agentId === agentId));
+    const backendAgentId = managerConfig[agentId].backendAgentId;
+    setCases(
+      received.filter(
+        (entry) =>
+          entry.agentId === backendAgentId &&
+          (agentId !== "data-manager-ai-v1" || entry.caseType.startsWith("DATA_")),
+      ),
+    );
     setReports(
       agentId === "general-manager-ai-v3"
         ? received.filter((entry) => entry.agentId === "systems-manager-ai-v1")
@@ -688,10 +754,13 @@ export function CompanyOsDashboard() {
     return () => clearInterval(timer);
   }, [refresh]);
   const operations = useMemo(
-    () => deriveCompanyOsGlobalState(allCases),
-    [allCases],
+    () => {
+      const sourceCases = agentId === "general-manager-ai-v3" ? allCases : cases;
+      return deriveCompanyOsGlobalState(sourceCases);
+    },
+    [agentId, allCases, cases],
   );
-  const audit = useMemo(() => deriveAuditSummary(allCases), [allCases]);
+  const audit = useMemo(() => deriveAuditSummary(agentId === "general-manager-ai-v3" ? allCases : cases), [agentId, allCases, cases]);
   const totals = useMemo(
     () =>
       cases.reduce(
@@ -737,13 +806,51 @@ export function CompanyOsDashboard() {
     const payload = await post("/api/company-os/v3/cases", {
       objective,
       relatedRequestId: relatedRequestId || undefined,
-      agentId,
+      agentId: manager.backendAgentId,
+      caseType: agentId === "data-manager-ai-v1" ? "DATA_ADVISORY" : undefined,
     });
     if (payload) {
       setObjective("");
       setRelatedRequestId("");
       setSelectedId(payload.requestId);
       setView("Caso");
+    }
+  }
+
+  async function submitSupplierList() {
+    if (!listFile && !listText.trim()) return;
+    setBusy(true);
+    setError("");
+    setIntakeResult("");
+    try {
+      const form = new FormData();
+      if (listFile) form.append("file", listFile);
+      if (listText.trim()) form.append("text", listText.trim());
+      if (supplierName.trim()) form.append("supplierName", supplierName.trim());
+      const response = await fetch("/api/price-opportunities", {
+        method: "POST",
+        body: form,
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "No se pudo analizar la lista");
+      const objective = `Analizar lista de precios de ${supplierName.trim() || "proveedor no identificado"}. Fuente: ${payload.sourceName}. ${payload.rowsAnalyzed} filas, ${payload.counts?.OFERTA_PROBABLE ?? 0} ofertas probables y ${payload.counts?.AMBIGUO ?? 0} ambiguas.`;
+      const casePayload = await post("/api/company-os/v3/cases", {
+        objective,
+        agentId: "data-manager-ai-v1",
+        caseType: "DATA_INGESTION",
+      });
+      setIntakeResult(
+        `Lista analizada: ${payload.rowsAnalyzed} filas. Caso ${casePayload?.requestId ?? "encolado"} enviado al Gerente de Datos.`,
+      );
+      setListFile(null);
+      setListText("");
+      setSupplierName("");
+      setAgentId("data-manager-ai-v1");
+      setView("Inbox");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se pudo cargar la lista");
+    } finally {
+      setBusy(false);
     }
   }
   async function appendContext() {
@@ -844,9 +951,7 @@ export function CompanyOsDashboard() {
                 Company OS
               </h1>
               <p className="mt-3 max-w-3xl text-sm text-slate-300">
-                {agentId === "systems-manager-ai-v1"
-                  ? "Gerente de Sistemas AI · reporta al Gerente General · sin ejecución autónoma."
-                  : "Gerente General AI · análisis empresarial de sólo lectura."}
+                {manager.label} AI · {manager.description} Análisis advisory-only, sin ejecución autónoma.
               </p>
             </div>
             <Badge variant="outline" className="p-3 text-base">
@@ -860,46 +965,40 @@ export function CompanyOsDashboard() {
             {error}
           </p>
         )}
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant={
-              agentId === "systems-manager-ai-v1" ? "default" : "outline"
-            }
-            onClick={() => {
-              setAgentId("systems-manager-ai-v1");
-              setSelectedId("");
-              setView("Resumen");
-            }}
-          >
-            <ServerCog className="mr-2 h-4 w-4" />
-            Gerente de Sistemas
-          </Button>
-          <Button
-            variant={
-              agentId === "general-manager-ai-v3" ? "default" : "outline"
-            }
-            onClick={() => {
-              setAgentId("general-manager-ai-v3");
-              setSelectedId("");
-              setView("Resumen");
-            }}
-          >
-            <BrainCircuit className="mr-2 h-4 w-4" />
-            Gerente General
-          </Button>
+        <div className="grid gap-2 md:grid-cols-3">
+          {(Object.keys(managerConfig) as ManagerId[]).map((id) => (
+            <Button
+              key={id}
+              variant={agentId === id ? "default" : "outline"}
+              aria-pressed={agentId === id}
+              className="justify-start"
+              onClick={() => {
+                setAgentId(id);
+                setSelectedId("");
+                setView("Resumen");
+                setDetail(null);
+              }}
+            >
+              {id === "systems-manager-ai-v1" ? (
+                <ServerCog className="mr-2 h-4 w-4" />
+              ) : id === "data-manager-ai-v1" ? (
+                <Database className="mr-2 h-4 w-4" />
+              ) : (
+                <BrainCircuit className="mr-2 h-4 w-4" />
+              )}
+              {managerConfig[id].label}
+            </Button>
+          ))}
         </div>
         <nav
           aria-label="Navegación Company OS"
           className="sticky top-2 z-10 grid grid-cols-4 gap-1 rounded-xl border border-white/10 bg-slate-950/95 p-1 backdrop-blur md:flex"
         >
-          {(["Resumen", "Inbox", "Caso", "Sistemas"] as View[]).map((item) => (
+          {manager.tabs.map((item) => (
             <Button
               key={item}
               size="sm"
               variant={view === item ? "default" : "ghost"}
-              disabled={
-                item === "Sistemas" && agentId !== "systems-manager-ai-v1"
-              }
               onClick={() => setView(item)}
             >
               {item}
@@ -910,7 +1009,27 @@ export function CompanyOsDashboard() {
         {view === "Resumen" && (
           <div className="space-y-5">
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Card className="border-white/10 bg-slate-950/80 text-slate-100">
+              <Card
+                role="button"
+                tabIndex={0}
+                onClick={() => setDetail({
+                  title: "Estado global",
+                  description: "Estado derivado de casos, actividad y telemetría observada.",
+                  lines: [
+                    `Estado: ${operations.state}`,
+                    `En cola: ${operations.queued}`,
+                    `Activos: ${operations.active}`,
+                    `Revisiones pendientes: ${operations.reviews}`,
+                    `Último heartbeat: ${formatDate(operations.lastHeartbeat)}`,
+                  ],
+                })}
+                onKeyDown={(event) => event.key === "Enter" && setDetail({
+                  title: "Estado global",
+                  description: "Estado derivado de casos, actividad y telemetría observada.",
+                  lines: [`Estado: ${operations.state}`, `Revisiones pendientes: ${operations.reviews}`],
+                })}
+                className="cursor-pointer border-white/10 bg-slate-950/80 text-slate-100 transition hover:border-cyan-400/50"
+              >
                 <CardHeader>
                   <CardDescription>Estado global</CardDescription>
                   <CardTitle>{operations.state}</CardTitle>
@@ -919,7 +1038,19 @@ export function CompanyOsDashboard() {
                   Todos los agentes · refresco permanente cada 45 segundos.
                 </CardContent>
               </Card>
-              <Card className="border-white/10 bg-slate-950/80 text-slate-100">
+              <Card
+                role="button"
+                tabIndex={0}
+                onClick={() => setDetail({
+                  title: "Operación y revisiones",
+                  description: "Casos y misiones que requieren seguimiento desde esta pantalla.",
+                  lines: pendingReviews.length
+                    ? pendingReviews.map(({ companyCase, mission }) => `${mission.title} · ${companyCase.objective}`)
+                    : ["No hay revisiones pendientes."],
+                  caseIds: pendingReviews.map(({ companyCase }) => companyCase.requestId),
+                })}
+                className="cursor-pointer border-white/10 bg-slate-950/80 text-slate-100 transition hover:border-cyan-400/50"
+              >
                 <CardHeader>
                   <CardDescription>Operación</CardDescription>
                   <CardTitle>
@@ -930,7 +1061,22 @@ export function CompanyOsDashboard() {
                   {operations.reviews} revisiones pendientes
                 </CardContent>
               </Card>
-              <Card className="border-white/10 bg-slate-950/80 text-slate-100">
+              <Card
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  const latest = allCases
+                    .slice()
+                    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+                  if (latest) {
+                    setSelectedId(latest.requestId);
+                    setView("Caso");
+                  } else {
+                    setDetail({ title: "Último ciclo exitoso", description: "Todavía no hay un caso registrado.", lines: ["Sin registro"] });
+                  }
+                }}
+                className="cursor-pointer border-white/10 bg-slate-950/80 text-slate-100 transition hover:border-cyan-400/50"
+              >
                 <CardHeader>
                   <CardDescription>Último ciclo exitoso</CardDescription>
                   <CardTitle className="text-base">
@@ -941,7 +1087,21 @@ export function CompanyOsDashboard() {
                   Heartbeat: {formatDate(operations.lastHeartbeat)}
                 </CardContent>
               </Card>
-              <Card className="border-white/10 bg-slate-950/80 text-slate-100">
+              <Card
+                role="button"
+                tabIndex={0}
+                onClick={() => setDetail({
+                  title: "Auditoría persistida",
+                  description: "Resumen de eventos y escrituras detectadas en los casos cargados.",
+                  lines: [
+                    `Escrituras empresariales: ${audit.businessWrites}`,
+                    `Cambios de infraestructura: ${audit.infrastructureWrites}`,
+                    `Eventos: ${audit.auditEvents}`,
+                    `Cobertura: ${audit.auditCoverageComplete ? "completa" : "incompleta"}`,
+                  ],
+                })}
+                className="cursor-pointer border-white/10 bg-slate-950/80 text-slate-100 transition hover:border-cyan-400/50"
+              >
                 <CardHeader>
                   <CardDescription>Auditoría persistida</CardDescription>
                   <CardTitle>
@@ -968,8 +1128,16 @@ export function CompanyOsDashboard() {
               <CardContent className="grid gap-3 md:grid-cols-2">
                 {latestRisks.length ? (
                   latestRisks.map((risk) => (
-                    <div
+                    <button
                       key={risk.riskId}
+                      type="button"
+                      onClick={() => {
+                        const source = allCases.find((item) => item.agentId === "systems-manager-ai-v1");
+                        if (source) {
+                          setSelectedId(source.requestId);
+                          setView("Sistemas");
+                        }
+                      }}
                       className="rounded-xl border border-white/10 p-4"
                     >
                       <Badge variant="outline">
@@ -981,7 +1149,7 @@ export function CompanyOsDashboard() {
                       <p className="mt-2 text-sm text-slate-400">
                         {risk.recommendedAction}
                       </p>
-                    </div>
+                    </button>
                   ))
                 ) : (
                   <p className="text-sm text-slate-500">
@@ -1007,6 +1175,69 @@ export function CompanyOsDashboard() {
               </Badge>
             </div>
           </div>
+        )}
+
+        {view === "Carga de listas" && agentId === "data-manager-ai-v1" && (
+          <Card className="border-cyan-500/20 bg-slate-950/80 text-slate-100">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileSpreadsheet className="text-cyan-300" />
+                Ingresar lista de precios
+              </CardTitle>
+              <CardDescription className="text-slate-400">
+                Cargá XLS/XLSX/XLSM/CSV/TXT o pegá el texto recibido del proveedor. Se analiza sin modificar stock, precios ni compras y se envía el caso al Gerente de Datos.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="supplier-name">Proveedor</Label>
+                  <Input id="supplier-name" value={supplierName} onChange={(event) => setSupplierName(event.target.value)} placeholder="Nombre del proveedor" className="border-white/10 bg-black/30" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="supplier-file">Archivo</Label>
+                  <Input id="supplier-file" type="file" accept=".xls,.xlsx,.xlsm,.csv,.txt" onChange={(event) => setListFile(event.target.files?.[0] ?? null)} className="border-white/10 bg-black/30 file:text-cyan-300" />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="supplier-text">Texto de WhatsApp (opcional)</Label>
+                <Textarea id="supplier-text" value={listText} onChange={(event) => setListText(event.target.value)} className="min-h-32 border-white/10 bg-black/30" placeholder="iPhone 15 128GB — USD 620..." />
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button onClick={() => void submitSupplierList()} disabled={busy || (!listFile && !listText.trim())} className="bg-cyan-400 font-bold text-slate-950 hover:bg-cyan-300">
+                  {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                  Analizar y enviar a Datos
+                </Button>
+                {intakeResult && <p className="text-sm text-emerald-300">{intakeResult}</p>}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {view === "Catálogo" && agentId === "data-manager-ai-v1" && (
+          <Card className="border-white/10 bg-slate-950/80 text-slate-100">
+            <CardHeader>
+              <CardTitle>Calidad y actualización de datos</CardTitle>
+              <CardDescription className="text-slate-400">El Gerente de Datos concentra las listas cargadas, los casos DATA_ y sus revisiones.</CardDescription>
+            </CardHeader>
+            <CardContent className="grid gap-3 sm:grid-cols-3">
+              <button type="button" onClick={() => setView("Carga de listas")} className="rounded-xl border border-white/10 p-4 text-left transition hover:border-cyan-400/50"><p className="font-semibold">Nueva lista</p><p className="mt-1 text-xs text-slate-400">Analizar proveedor</p></button>
+              <button type="button" onClick={() => setView("Inbox")} className="rounded-xl border border-white/10 p-4 text-left transition hover:border-cyan-400/50"><p className="font-semibold">Casos de datos</p><p className="mt-1 text-xs text-slate-400">{cases.length} casos en inbox</p></button>
+              <button type="button" onClick={() => setDetail({ title: "Cobertura del catálogo", description: "Resumen de la fuente operativa disponible.", lines: [`Casos de datos: ${cases.length}`, `Revisiones de datos: ${pendingReviews.length}`, "Los resultados detallados se abren desde Inbox → Caso."] })} className="rounded-xl border border-white/10 p-4 text-left transition hover:border-cyan-400/50"><p className="font-semibold">Cobertura</p><p className="mt-1 text-xs text-slate-400">Ver estado</p></button>
+            </CardContent>
+          </Card>
+        )}
+
+        {view === "Decisiones" && agentId === "general-manager-ai-v3" && (
+          <Card className="border-white/10 bg-slate-950/80 text-slate-100">
+            <CardHeader><CardTitle>Prioridades y decisiones ejecutivas</CardTitle><CardDescription className="text-slate-400">Abrí cualquier prioridad para ir al caso y registrar una decisión con motivo.</CardDescription></CardHeader>
+            <CardContent className="space-y-2">
+              {allCases.flatMap((companyCase) => companyCase.missions.filter((mission) => reviewMissionStatuses.has(mission.status)).map((mission) => ({ companyCase, mission }))).map(({ companyCase, mission }) => (
+                <button type="button" key={mission.id} onClick={() => { setSelectedId(companyCase.requestId); setView("Caso"); }} className="w-full rounded-xl border border-white/10 p-3 text-left transition hover:border-cyan-400/50"><p className="font-semibold">{mission.title}</p><p className="text-xs text-slate-400">{companyCase.objective}</p></button>
+              ))}
+              {!pendingReviews.length && <p className="text-sm text-slate-500">No hay decisiones pendientes.</p>}
+            </CardContent>
+          </Card>
         )}
 
         {view === "Inbox" && (
@@ -1323,17 +1554,43 @@ export function CompanyOsDashboard() {
               </CardHeader>
               <CardContent>
                 {reports.slice(0, 10).map((report) => (
-                  <p
+                  <button
                     key={report.requestId}
-                    className="border-b border-white/10 py-2 text-sm"
+                    type="button"
+                    onClick={() => { setSelectedId(report.requestId); setView("Caso"); }}
+                    className="block w-full border-b border-white/10 py-2 text-left text-sm transition hover:text-cyan-200"
                   >
                     {report.objective}
-                  </p>
+                  </button>
                 ))}
               </CardContent>
             </Card>
           )}
       </div>
+      <Dialog
+        open={Boolean(detail)}
+        onOpenChange={(open) => !open && setDetail(null)}
+      >
+        <DialogContent className="max-h-[85dvh] overflow-y-auto border-white/10 bg-slate-950 text-slate-100">
+          <DialogHeader>
+            <DialogTitle>{detail?.title}</DialogTitle>
+            <DialogDescription className="text-slate-400">{detail?.description}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {detail?.lines.map((line, index) => <p key={`${line}-${index}`} className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm">{line}</p>)}
+            {detail?.caseIds && detail.caseIds.length > 0 && (
+              <div className="border-t border-white/10 pt-3">
+                <p className="mb-2 text-xs uppercase text-slate-500">Abrir caso</p>
+                {detail.caseIds.map((requestId) => {
+                  const companyCase = allCases.find((item) => item.requestId === requestId);
+                  if (!companyCase) return null;
+                  return <button type="button" key={requestId} onClick={() => { setSelectedId(requestId); setView("Caso"); setDetail(null); }} className="mb-2 w-full rounded-lg border border-cyan-500/30 p-2 text-left text-xs text-cyan-200 transition hover:bg-cyan-500/10">{companyCase.objective}</button>;
+                })}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={Boolean(action)}
         onOpenChange={(open) => !open && setAction(null)}

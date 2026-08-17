@@ -68,7 +68,7 @@ test('auditoría visible se deriva de eventos y estados, no de texto constante',
   assert.match(source,/45_000/); assert.match(source,/type="datetime-local"/); assert.match(source,/Motivo obligatorio/); assert.match(source,/max-h-\[90dvh\]/);
   assert.match(source,/"Resumen"\s*,\s*"Inbox"\s*,\s*"Caso"\s*,\s*"Sistemas"/); assert.match(source,/<details/); assert.match(source,/Score \$\{risk\.priority\}/);
   assert.match(source,/names\.get\(item\.sourceAssetId\)/);
-  assert.match(source,/setAllCases\(received\)/); assert.match(source,/deriveCompanyOsGlobalState\(allCases\)/);
+  assert.match(source,/setAllCases\(received\)/); assert.match(source,/deriveCompanyOsGlobalState\(sourceCases\)/);
   assert.match(source,/Cero escrituras verificadas por auditoría/);
   const storeSource=readFileSync('lib/company-os/v3-store.ts','utf8');
   assert.match(storeSource,/auditsByRequest/); assert.match(storeSource,/auditEvents:/);
