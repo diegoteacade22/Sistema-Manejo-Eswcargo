@@ -16,6 +16,8 @@ const aliases: Record<string, string> = {
   wht: 'white',
 };
 
+const regionTokens = new Set(['us', 'usa', 'ca', 'canada', 'uk', 'eu']);
+
 export function normalizeWords(value: string) {
   return value
     .toLowerCase()
@@ -44,7 +46,8 @@ export function matchCatalog(item: ExtractedItem, catalog: CatalogProduct[]) {
   const query = normalizeWords([
     item.product, item.exactModel, item.capacity, item.color, item.condition, item.region,
   ].filter(Boolean).join(' '));
-  const ranked = catalog.map((product) => ({
+  const ranked = catalog
+    .map((product) => ({
       product,
       tokens: normalizeWords([
         product.sku, product.brand, product.name, product.model, product.color_grade,
@@ -54,8 +57,11 @@ export function matchCatalog(item: ExtractedItem, catalog: CatalogProduct[]) {
     .sort((left, right) => right.confidence - left.confidence);
   const best = ranked[0];
   const second = ranked[1];
+  const explicitRegion = item.region
+    ? item.region
+    : normalizeWords(item.rawLine).find((token) => regionTokens.has(token));
   const identityTokens = normalizeWords([
-    item.product, item.exactModel, item.capacity, item.color, item.region,
+    item.product, item.exactModel, item.capacity, item.color, explicitRegion,
   ].filter(Boolean).join(' '));
   const exactIdentity = identityTokens.length >= 4
     ? ranked.filter(({ tokens }) => {
