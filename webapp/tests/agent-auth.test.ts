@@ -13,7 +13,7 @@ test('acepta firma HMAC vigente de OpenClaw', () => {
     headers: {
       'x-openclaw-timestamp': String(timestamp),
       'x-openclaw-signature': `sha256=${crypto.createHmac('sha256', 'test-secret')
-        .update(`${timestamp}.GET./api/price-opportunities/status?date=2026-08-17.${body}`)
+        .update(`${timestamp}.${body}`)
         .digest('hex')}`,
     },
   });

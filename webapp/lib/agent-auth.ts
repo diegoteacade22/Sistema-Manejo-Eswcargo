@@ -17,11 +17,6 @@ function providedApiKey(request: Request) {
     : '';
 }
 
-function signedTarget(request: Request) {
-  const url = new URL(request.url);
-  return `${url.pathname}${url.search}`;
-}
-
 export function verifyOpenClawSignature(request: Request, rawBody: string) {
   const secret = (process.env.OPENCLAW_PRICE_LIST_HMAC_SECRET || '').trim();
   const timestampRaw = request.headers.get('x-openclaw-timestamp') || '';
@@ -31,7 +26,7 @@ export function verifyOpenClawSignature(request: Request, rawBody: string) {
     return false;
   }
 
-  const canonical = `${timestamp}.${request.method.toUpperCase()}.${signedTarget(request)}.${rawBody}`;
+  const canonical = `${timestamp}.${rawBody}`;
   const expected = `sha256=${createHmac('sha256', secret).update(canonical).digest('hex')}`;
   return safeEqual(provided, expected);
 }
