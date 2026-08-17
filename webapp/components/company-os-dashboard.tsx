@@ -833,14 +833,15 @@ export function CompanyOsDashboard() {
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "No se pudo analizar la lista");
-      const objective = `Analizar lista de precios de ${supplierName.trim() || "proveedor no identificado"}. Fuente: ${payload.sourceName}. ${payload.rowsAnalyzed} filas, ${payload.counts?.OFERTA_PROBABLE ?? 0} ofertas probables y ${payload.counts?.AMBIGUO ?? 0} ambiguas.`;
+      const objective = `Analizar lista de precios de ${supplierName.trim() || "proveedor no identificado"}. Carga ${payload.load?.id ?? "sin-id"}. Fuente: ${payload.sourceName}. ${payload.rowsAnalyzed} filas, ${payload.counts?.OFERTA_PROBABLE ?? 0} ofertas probables y ${payload.counts?.AMBIGUO ?? 0} ambiguas.`;
       const casePayload = await post("/api/company-os/v3/cases", {
         objective,
         agentId: "data-manager-ai-v1",
         caseType: "DATA_INGESTION",
       });
+      if (!casePayload?.requestId) throw new Error("La lista se analizó, pero no se pudo crear el caso de Datos");
       setIntakeResult(
-        `Lista analizada: ${payload.rowsAnalyzed} filas. Caso ${casePayload?.requestId ?? "encolado"} enviado al Gerente de Datos.`,
+        `Lista analizada: ${payload.rowsAnalyzed} filas (carga ${payload.load?.id ?? "sin-id"}). Caso ${casePayload.requestId} enviado al Gerente de Datos.`,
       );
       setListFile(null);
       setListText("");
