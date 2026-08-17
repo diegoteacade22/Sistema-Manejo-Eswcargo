@@ -30,7 +30,13 @@ export async function POST(request: Request) {
   }
   const agentId = input.agentId == null ? COMPANY_OS_V3_IDENTITY : String(input.agentId);
   if (!COMPANY_OS_AGENT_IDS.includes(agentId as CompanyOsAgentId)) return NextResponse.json({ error: 'agentId inválido' }, { status: 400 });
-  const caseType = String(input.caseType ?? (agentId === 'systems-manager-ai-v1' ? 'TECHNICAL_ADVISORY' : 'ADVISORY'));
+  const caseType = String(input.caseType ?? (
+    agentId === 'systems-manager-ai-v1'
+      ? 'TECHNICAL_ADVISORY'
+      : agentId === 'data-manager-ai-v1'
+        ? 'DATA_ADVISORY'
+        : 'ADVISORY'
+  ));
   if (!/^[A-Z][A-Z0-9_]{1,63}$/.test(caseType)) return NextResponse.json({ error: 'caseType inválido' }, { status: 400 });
   try {
     const companyCase = await createCompanyOsCase(input.objective, authorization.identity, input.relatedRequestId as string | undefined, agentId as CompanyOsAgentId, caseType);

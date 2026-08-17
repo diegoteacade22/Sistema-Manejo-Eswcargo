@@ -104,7 +104,7 @@ test('Telegram conserva intentos append-only y permite una sola reentrega', () =
 });
 
 test('registro cerrado integra Gerente de Sistemas y línea de reporte', () => {
-  assert.deepEqual(COMPANY_OS_AGENT_IDS, ['general-manager-ai-v3', 'systems-manager-ai-v1']);
+  assert.deepEqual(COMPANY_OS_AGENT_IDS, ['general-manager-ai-v3', 'systems-manager-ai-v1', 'data-manager-ai-v1']);
   assert.equal(COMPANY_OS_AGENT_CONTRACTS['systems-manager-ai-v1'].displayName, 'Gerente de Sistemas AI');
   assert.equal(COMPANY_OS_AGENT_CONTRACTS['systems-manager-ai-v1'].reportsToAgentId, 'general-manager-ai-v3');
   assert.equal(COMPANY_OS_AGENT_CONTRACTS['systems-manager-ai-v1'].area, 'SYSTEMS');
