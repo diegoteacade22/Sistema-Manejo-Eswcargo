@@ -23,9 +23,11 @@ function safeEqual(left: string, right: string) {
 }
 
 async function authorized(request: Request) {
-  const expected = process.env.AGENT_API_KEY?.trim();
   const supplied = suppliedKey(request);
-  if (expected && supplied && safeEqual(supplied, expected)) return true;
+  const acceptedKeys = [process.env.INGESTION_API_KEY, process.env.AGENT_API_KEY]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value));
+  if (supplied && acceptedKeys.some((expected) => safeEqual(supplied, expected))) return true;
   const session = await auth();
   return Boolean(session?.user && (session.user as { role?: string }).role === 'ADMIN');
 }
