@@ -1,6 +1,7 @@
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { prisma } from "./prisma";
+import { formatPriceListStatus, getPriceListStatus, isPriceListStatusIntent } from "./price-list-status";
 
 let geminiKeyInvalidDetected = false;
 
@@ -137,6 +138,15 @@ async function buildFallbackResponse(prompt: string, userRole: string, userId: s
 }
 
 export async function processAiQuery(prompt: string, userRole: string, userId: string) {
+    if (userRole === 'ADMIN' && isPriceListStatusIntent(prompt)) {
+        try {
+            return formatPriceListStatus(await getPriceListStatus());
+        } catch (error) {
+            console.error("Price list status query failed:", error instanceof Error ? error.message : error);
+            return "No pude verificar el registro de listas de proveedores en ImportSys/Agent OS. No voy a buscar ese dato en Gmail.";
+        }
+    }
+
     const apiKey = getApiKey();
 
     if (geminiKeyInvalidDetected || !apiKey) {

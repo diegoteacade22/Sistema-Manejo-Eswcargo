@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { auth } from '@/lib/auth';
 import { analyzePriceOpportunities } from '@/lib/price-opportunities';
+import { prisma } from '@/lib/prisma';
 import {
   parseOfferText,
   parsePriceListBuffer,
@@ -74,12 +75,14 @@ export async function POST(request: Request) {
     const contentType = request.headers.get('content-type') || '';
     let items: OfferedPriceItem[] = [];
     let sourceName = 'entrada';
+    let supplierName: string | null = null;
     let historyLimit = 5;
 
     if (contentType.includes('multipart/form-data')) {
       const form = await request.formData();
       const fileValue = form.get('file');
       const text = String(form.get('text') || '').trim();
+      supplierName = String(form.get('supplierName') || '').trim() || null;
       historyLimit = Number(form.get('historyLimit') || 5);
 
       if (fileValue instanceof File && fileValue.size > 0) {
@@ -102,6 +105,7 @@ export async function POST(request: Request) {
       const body = await request.json();
       historyLimit = Number(body?.historyLimit || 5);
       sourceName = typeof body?.sourceName === 'string' ? body.sourceName : 'integración';
+      supplierName = typeof body?.supplierName === 'string' ? body.supplierName.trim() || null : null;
       items = validatedJsonItems(body?.items);
       if (!items.length && typeof body?.text === 'string') items = parseOfferText(body.text);
     }
@@ -113,10 +117,22 @@ export async function POST(request: Request) {
     }
 
     const analysis = await analyzePriceOpportunities(items, historyLimit);
-    return NextResponse.json({ sourceName, ...analysis });
+    const load = await prisma.supplierPriceListLoad.create({
+      data: {
+        source: 'IMPORTSYS',
+        supplierName,
+        sourceName,
+        status: 'LOADED',
+        rowsAnalyzed: analysis.rowsAnalyzed,
+        uniqueProductsAnalyzed: analysis.uniqueProductsAnalyzed,
+        probableCount: analysis.counts.OFERTA_PROBABLE,
+        possibleCount: analysis.counts.POSIBLE_OFERTA,
+        manualReviewCount: analysis.counts.AMBIGUO + analysis.counts.NO_ENCONTRADO,
+      },
+    });
+    return NextResponse.json({ sourceName, load: { id: load.id, receivedAt: load.receivedAt.toISOString(), supplierName }, ...analysis });
   } catch (error) {
     console.error('[Price Opportunities] Analysis failed:', error instanceof Error ? error.message : error);
     return NextResponse.json({ error: 'No se pudo analizar la lista de precios.' }, { status: 500 });
   }
 }
-

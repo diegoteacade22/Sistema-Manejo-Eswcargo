@@ -735,3 +735,24 @@ model CompanyOsNotificationDelivery {
 
   @@index([requestId, channel, createdAt])
 }
+
+/// Auditable receipt of a supplier price list loaded through ImportSys/Agent OS.
+/// This stores load metadata only; it never stores the WhatsApp message or raw file.
+model SupplierPriceListLoad {
+  id                     String   @id @default(cuid())
+  source                 String   @default("IMPORTSYS")
+  supplierName           String?
+  sourceName             String?
+  status                 String   @default("LOADED")
+  rowsAnalyzed           Int
+  uniqueProductsAnalyzed Int
+  probableCount          Int      @default(0)
+  possibleCount          Int      @default(0)
+  manualReviewCount      Int      @default(0)
+  receivedAt             DateTime @default(now())
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([receivedAt])
+  @@index([supplierName, receivedAt])
+}
