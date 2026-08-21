@@ -207,7 +207,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                         className="bg-emerald-600 hover:bg-emerald-700 text-white"
                     >
                         {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                        Guardar PDF
+                        Descargar PDF
                     </Button>
                     <Button
                         onClick={handleSendEmail}
