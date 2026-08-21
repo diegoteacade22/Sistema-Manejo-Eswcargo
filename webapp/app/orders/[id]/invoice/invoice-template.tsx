@@ -8,6 +8,9 @@ import { sendInvoiceEmail } from '@/app/email-actions';
 import { toast } from 'sonner';
 import { toInvNumber4 } from '@/lib/inv-filename';
 import { INVOICE_TYPOGRAPHY } from '@/lib/invoice-typography';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 interface InvoiceTemplateProps {
     order: any;
@@ -16,6 +19,8 @@ interface InvoiceTemplateProps {
 export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
     const [isSending, setIsSending] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+    const [targetEmail, setTargetEmail] = useState(order.client?.email || '');
     const invNumber = toInvNumber4(order?.order_number, order?.id);
     const invBaseName = `INV ${invNumber}`;
     const invFileName = `INV ${invNumber}.pdf`;
@@ -43,15 +48,14 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
         });
     };
 
-    const handleSendEmail = async () => {
-        const targetEmail = window.prompt('Ingrese el email del cliente:', order.client.email || '');
-
+    const handleSendAction = async () => {
         if (!targetEmail) {
-            toast.error('Operación cancelada: El email es obligatorio.');
+            toast.error('El email es obligatorio.');
             return;
         }
 
         setIsSending(true);
+        setEmailDialogOpen(false);
         try {
             const result = await sendInvoiceEmail(order.id, targetEmail);
             if (result.success) {
@@ -64,6 +68,11 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
         } finally {
             setIsSending(false);
         }
+    };
+
+    const handleSendEmail = () => {
+        setTargetEmail(order.client?.email || '');
+        setEmailDialogOpen(true);
     };
 
     const handleSaveDrive = async () => {
@@ -379,6 +388,37 @@ export default function InvoiceTemplate({ order }: InvoiceTemplateProps) {
                     </div>
                 </div>
             </div>
+
+            <Dialog open={emailDialogOpen} onOpenChange={setEmailDialogOpen}>
+                <DialogContent className="sm:max-w-md bg-white">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl font-bold text-[#103a89]">Enviar factura</DialogTitle>
+                        <DialogDescription>
+                            Confirme o ingrese el correo electrónico de destino.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-2 py-4">
+                        <Label htmlFor="invoice-email">Email de destino</Label>
+                        <Input
+                            id="invoice-email"
+                            type="email"
+                            value={targetEmail}
+                            onChange={(event) => setTargetEmail(event.target.value)}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter') void handleSendAction();
+                            }}
+                            autoFocus
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setEmailDialogOpen(false)}>Cancelar</Button>
+                        <Button onClick={() => void handleSendAction()} disabled={isSending}>
+                            {isSending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
+                            Enviar
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

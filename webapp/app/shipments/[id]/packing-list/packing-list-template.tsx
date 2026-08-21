@@ -3,11 +3,15 @@
 import { Button } from '../../../../components/ui/button';
 import { Printer, Package, Globe, Instagram, Facebook, Mail, Loader2, Download } from 'lucide-react';
 import { sendPackingListEmail } from '../../../email-actions';
-import { useEffect, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { buildShipmentItems, getShipmentCargoDescription } from '../../../../lib/shipment-items';
 import { getPackingDocumentNumber, getPackingSubtotal, isSharedShipmentPacking } from '../../../../lib/packing-segments';
 import { toInvNumber4 } from '../../../../lib/inv-filename';
 import { PACKING_LIST_TYPOGRAPHY } from '../../../../lib/packing-list-typography';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../../../components/ui/dialog';
+import { Input } from '../../../../components/ui/input';
+import { Label } from '../../../../components/ui/label';
+import { toast } from 'sonner';
 
 /* eslint-disable @next/next/no-img-element */
 
@@ -18,6 +22,8 @@ interface PackingListTemplateProps {
 export default function PackingListTemplate({ shipment }: PackingListTemplateProps) {
     const [isSending, startTransition] = useTransition();
     const [isSaving, startSaveTransition] = useTransition();
+    const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+    const [targetEmail, setTargetEmail] = useState(shipment.client?.email || '');
     const invNumber = toInvNumber4(shipment?.invoice, shipment?.shipment_number || shipment?.id);
     const isSharedShipment = isSharedShipmentPacking(shipment);
     const packingSubtotal = getPackingSubtotal(shipment);
@@ -33,21 +39,26 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
         };
     }, [invFileName]);
 
-    const handleSendEmail = () => {
-        const defaultEmail = shipment.client?.email || '';
-        if (!defaultEmail) {
-            alert('El cliente seleccionado no tiene un email confirmado.');
+    const handleSendAction = () => {
+        if (!targetEmail) {
+            toast.error('El email es obligatorio.');
             return;
         }
 
+        setEmailDialogOpen(false);
         startTransition(async () => {
-                const result = await sendPackingListEmail(shipment.id, defaultEmail, shipment.packingSegment?.clientId);
+            const result = await sendPackingListEmail(shipment.id, targetEmail, shipment.packingSegment?.clientId);
             if (result.success) {
-                alert('Email enviado correctamente!');
+                toast.success('Packing List enviado correctamente.');
             } else {
-                alert('Error al enviar email: ' + result.message);
+                toast.error('Error al enviar email: ' + result.message);
             }
         });
+    };
+
+    const handleSendEmail = () => {
+        setTargetEmail(shipment.client?.email || '');
+        setEmailDialogOpen(true);
     };
 
     const handleSaveDrive = () => {
@@ -476,6 +487,37 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                 </div>
                 </div>
             </div>
+
+            <Dialog open={emailDialogOpen} onOpenChange={setEmailDialogOpen}>
+                <DialogContent className="sm:max-w-md bg-white">
+                    <DialogHeader>
+                        <DialogTitle className="text-xl font-bold text-[#0D3B4C]">Enviar Packing List</DialogTitle>
+                        <DialogDescription>
+                            Confirme o ingrese el correo electrónico de destino.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-2 py-4">
+                        <Label htmlFor="packing-email">Email de destino</Label>
+                        <Input
+                            id="packing-email"
+                            type="email"
+                            value={targetEmail}
+                            onChange={(event) => setTargetEmail(event.target.value)}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Enter') handleSendAction();
+                            }}
+                            autoFocus
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setEmailDialogOpen(false)}>Cancelar</Button>
+                        <Button onClick={handleSendAction} disabled={isSending}>
+                            {isSending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Mail className="mr-2 h-4 w-4" />}
+                            Enviar
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
