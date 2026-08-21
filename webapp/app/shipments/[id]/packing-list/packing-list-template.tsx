@@ -2,7 +2,7 @@
 
 import { Button } from '../../../../components/ui/button';
 import { Printer, Package, Globe, Instagram, Facebook, Mail, Loader2, Download } from 'lucide-react';
-import { savePackingListPdfToDrive, sendPackingListEmail } from '../../../email-actions';
+import { sendPackingListEmail } from '../../../email-actions';
 import { useEffect, useTransition } from 'react';
 import { buildShipmentItems, getShipmentCargoDescription } from '../../../../lib/shipment-items';
 import { getPackingDocumentNumber, getPackingSubtotal, isSharedShipmentPacking } from '../../../../lib/packing-segments';
@@ -52,11 +52,27 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
 
     const handleSaveDrive = () => {
         startSaveTransition(async () => {
-            const result = await savePackingListPdfToDrive(shipment.id, shipment.packingSegment?.clientId);
-            if (result.success) {
-                alert(`PDF guardado: ${result.fileName}`);
-            } else {
-                alert('Error al guardar PDF: ' + result.message);
+            try {
+                const clientId = shipment.packingSegment?.clientId;
+                const query = Number.isInteger(clientId) ? `?clientId=${clientId}` : '';
+                const response = await fetch(`/api/shipments/${shipment.id}/packing-list${query}`, {
+                    cache: 'no-store',
+                });
+                if (!response.ok) {
+                    throw new Error((await response.text()) || 'No se pudo generar el PDF.');
+                }
+
+                const blobUrl = URL.createObjectURL(await response.blob());
+                const link = document.createElement('a');
+                link.href = blobUrl;
+                link.download = invFileName;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                URL.revokeObjectURL(blobUrl);
+                alert(`PDF descargado: ${invFileName}`);
+            } catch (error) {
+                alert('Error al guardar PDF: ' + (error instanceof Error ? error.message : 'Error de red'));
             }
         });
     };
@@ -191,7 +207,7 @@ export default function PackingListTemplate({ shipment }: PackingListTemplatePro
                         className="bg-emerald-600 hover:bg-emerald-700 text-white"
                     >
                         {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                        Guardar PDF
+                        Descargar PDF
                     </Button>
                     <Button
                         onClick={handleSendEmail}
