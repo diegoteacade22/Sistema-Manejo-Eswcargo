@@ -205,6 +205,7 @@ test('líneas emparejadas uno a uno pueden actualizarse preservando ids y alloca
   assert.equal(canUpdateMatchedItemsInPlace(2, [101, 102]), true);
   assert.equal(canUpdateMatchedItemsInPlace(2, [101, 101]), false);
   assert.equal(canUpdateMatchedItemsInPlace(2, [101, undefined]), false);
+  assert.equal(canUpdateMatchedItemsInPlace(1, [101, undefined]), false);
 });
 
 test('una anomalía histórica no ensucia el control general pero sí el diagnóstico puntual', () => {

@@ -363,10 +363,10 @@ export function selectDirectOrders<T extends { orderNumber: number }>(orders: T[
 }
 
 export function canUpdateMatchedItemsInPlace(existingItemCount: number, matchingItemIds: Array<number | null | undefined>) {
-  const ids = matchingItemIds.filter((id): id is number => typeof id === 'number');
   return existingItemCount > 0
-    && ids.length === existingItemCount
-    && new Set(ids).size === existingItemCount;
+    && matchingItemIds.length === existingItemCount
+    && matchingItemIds.every((id): id is number => typeof id === 'number')
+    && new Set(matchingItemIds).size === existingItemCount;
 }
 
 export function shouldReportSourceIntegrityIssue(
@@ -1319,9 +1319,12 @@ export async function runDirectSheetSync(options: {
           if (!options.dryRun) {
             if (existing && canUpdateItemsInPlace) {
               for (const item of plannedItems) {
+                if (!item.matching) {
+                  throw new Error(`El invoice #${source.orderNumber} no tiene correspondencia uno a uno para actualizar sus líneas.`);
+                }
                 const { orderId: _orderId, ...data } = item.next;
-                if (itemSyncSignature(item.matching!) !== itemSyncSignature(item.next)) {
-                  pendingMatchedItemUpdates.push({ id: item.matching!.id, data });
+                if (itemSyncSignature(item.matching) !== itemSyncSignature(item.next)) {
+                  pendingMatchedItemUpdates.push({ id: item.matching.id, data });
                 }
               }
             } else {
