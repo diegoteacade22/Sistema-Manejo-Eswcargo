@@ -1,0 +1,47 @@
+{
+  "firecrawl_base_url": "http://127.0.0.1:3002",
+  "sources": [
+    {
+      "id": "apple_iphone",
+      "name": "Apple US",
+      "enabled": true,
+      "mode": "firecrawl",
+      "url": "https://www.apple.com/shop/buy-iphone",
+      "purpose": "official_baseline"
+    },
+    {
+      "id": "walmart_iphone",
+      "name": "Walmart US",
+      "enabled": true,
+      "mode": "firecrawl",
+      "url": "https://www.walmart.com/search?q=iphone",
+      "purpose": "retail_promos"
+    },
+    {
+      "id": "bh_iphone",
+      "name": "B&H Photo",
+      "enabled": true,
+      "mode": "firecrawl",
+      "url": "https://www.bhphotovideo.com/c/search?q=iphone&sts=ma",
+      "purpose": "retail_reference"
+    },
+    {
+      "id": "amazon",
+      "name": "Amazon US",
+      "enabled": false,
+      "mode": "official_connector_pending",
+      "url": "https://www.amazon.com/",
+      "purpose": "marketplace_promos",
+      "note": "Disabled in V1 pending compliant API/affiliate integration."
+    },
+    {
+      "id": "bestbuy",
+      "name": "Best Buy US",
+      "enabled": false,
+      "mode": "official_connector_pending",
+      "url": "https://www.bestbuy.com/",
+      "purpose": "retail_promos_open_box",
+      "note": "Disabled in V1 pending approved feed/API integration."
+    }
+  ]
+}
