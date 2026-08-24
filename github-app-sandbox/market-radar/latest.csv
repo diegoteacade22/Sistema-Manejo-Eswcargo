@@ -1,22 +1,13 @@
 Retailer,Modelo,Capacidad,Color,Condición,Tipo,Precio,Moneda,Stock,URL,Fecha,Origen
-Apple,iPhone 17 Pro,256GB,Silver,New,Unlocked,1099,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro,256GB,Cosmic Orange,New,Unlocked,1099,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro,256GB,Deep Blue,New,Unlocked,1099,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro,512GB,Silver,New,Unlocked,1299,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro,512GB,Cosmic Orange,New,Unlocked,1299,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro,512GB,Deep Blue,New,Unlocked,1299,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro,1TB,Silver,New,Unlocked,1499,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro,1TB,Cosmic Orange,New,Unlocked,1499,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro,1TB,Deep Blue,New,Unlocked,1499,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro Max,256GB,Silver,New,Unlocked,1199,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro Max,256GB,Cosmic Orange,New,Unlocked,1199,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro Max,256GB,Deep Blue,New,Unlocked,1199,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro Max,512GB,Silver,New,Unlocked,1399,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro Max,512GB,Cosmic Orange,New,Unlocked,1399,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro Max,512GB,Deep Blue,New,Unlocked,1399,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro Max,1TB,Silver,New,Unlocked,1599,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro Max,1TB,Cosmic Orange,New,Unlocked,1599,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro Max,1TB,Deep Blue,New,Unlocked,1599,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro Max,2TB,Silver,New,Unlocked,1999,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro Max,2TB,Cosmic Orange,New,Unlocked,1999,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
-Apple,iPhone 17 Pro Max,2TB,Deep Blue,New,Unlocked,1999,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
+Apple,iPhone 16,,,New,,699.0,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-16,2026-08-24,Firecrawl
+Apple,iPhone 17,,,New,,799.0,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17,2026-08-24,Firecrawl
+Apple,iPhone 17,,,New,,999.0,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-air,2026-08-24,Firecrawl
+Apple,iPhone 17,,Red,New,,10.0,USD,Available,https://www.apple.com/shop/browse/overlay/iphone/tradein,2026-08-24,Firecrawl
+Apple,iPhone 17,,Red,New,,205.0,USD,Available,https://www.apple.com/shop/browse/overlay/iphone/tradein,2026-08-24,Firecrawl
+Apple,iPhone 17 Pro,,,New,,49.0,USD,Available,https://www.apple.com/shop/product/mhvx4zm/a/iphone-17-pro-silicone-case-with-magsafe-vanilla,2026-08-24,Firecrawl
+Apple,iPhone 17 Pro,,,New,,1099.0,USD,Available,https://www.apple.com/shop/buy-iphone,2026-08-24,Firecrawl
+Apple,iPhone 17 Pro,,,New,,1099.0,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17-pro,2026-08-24,Firecrawl
+Apple,iPhone 17 Pro Max,,Blue,New,,59.0,USD,Available,https://www.apple.com/shop/product/mgf94ll/a/iphone-17-pro-max-techwoven-case-with-magsafe-blue,2026-08-24,Firecrawl
+Apple,iPhone 17e,,,New,,49.0,USD,Available,https://www.apple.com/shop/product/mgkn4am/a/40w-dynamic-power-adapter-with-60w-max,2026-08-24,Firecrawl
+Apple,iPhone 17e,,,New,,54.95,USD,Available,https://www.apple.com/shop/product/mhwc4zm/a/iphone-17e-clear-case-with-magsafe,2026-08-24,Firecrawl
+Apple,iPhone 17e,,,New,,599.0,USD,Available,https://www.apple.com/shop/buy-iphone/iphone-17e,2026-08-24,Firecrawl
