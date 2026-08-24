@@ -1,0 +1,1 @@
+Temporary marker. Stable data branch will be created by installer if absent.
