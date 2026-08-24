@@ -48,13 +48,18 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .venv
-          key: eswcargo-sync-python-3.11-${{ hashFiles('requirements-sync.txt') }}
+          key: eswcargo-sync-python-v2-3.11-${{ hashFiles('requirements-sync.txt') }}
 
-      - name: 📦 Instalar dependencias Python
-        if: steps.python-runtime.outputs.cache-hit != 'true'
+      - name: 📦 Asegurar dependencias Python
         run: |
-          python -m venv .venv
-          .venv/bin/pip install --disable-pip-version-check -r requirements-sync.txt
+          if [ ! -x .venv/bin/python ]; then
+            rm -rf .venv
+            python -m venv .venv
+          fi
+          if ! .venv/bin/python -c "import pandas, openpyxl, googleapiclient, google.auth"; then
+            .venv/bin/pip install --disable-pip-version-check -r requirements-sync.txt
+          fi
+          .venv/bin/python -c "import pandas, openpyxl, googleapiclient, google.auth"
 
       - name: 🟢 Configurar Node.js
         uses: actions/setup-node@v4
