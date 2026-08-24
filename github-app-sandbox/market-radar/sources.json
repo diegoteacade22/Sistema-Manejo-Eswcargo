@@ -14,7 +14,7 @@
       "name": "Walmart US",
       "enabled": true,
       "mode": "firecrawl",
-      "url": "https://www.walmart.com/search?q=iphone",
+      "url": "https://www.walmart.com/search?q=iphone+17+pro+unlocked",
       "purpose": "retail_promos"
     },
     {
@@ -22,17 +22,17 @@
       "name": "B&H Photo",
       "enabled": true,
       "mode": "firecrawl",
-      "url": "https://www.bhphotovideo.com/c/search?q=iphone&sts=ma",
+      "url": "https://www.bhphotovideo.com/c/search?q=iphone%2017%20pro&sts=ma",
       "purpose": "retail_reference"
     },
     {
-      "id": "amazon",
+      "id": "amazon_iphone",
       "name": "Amazon US",
-      "enabled": false,
-      "mode": "official_connector_pending",
-      "url": "https://www.amazon.com/",
+      "enabled": true,
+      "mode": "firecrawl",
+      "url": "https://www.amazon.com/s?k=iphone+17+pro+unlocked",
       "purpose": "marketplace_promos",
-      "note": "Disabled in V1 pending compliant API/affiliate integration."
+      "note": "Firecrawl enabled for public search-result extraction. Rows without visible buy-box price must remain unpriced; do not infer prices."
     },
     {
       "id": "bestbuy",
@@ -41,7 +41,7 @@
       "mode": "official_connector_pending",
       "url": "https://www.bestbuy.com/",
       "purpose": "retail_promos_open_box",
-      "note": "Disabled in V1 pending approved feed/API integration."
+      "note": "Disabled pending approved feed/API integration."
     }
   ]
 }
