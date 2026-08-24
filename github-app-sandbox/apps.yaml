@@ -1,0 +1,55 @@
+apps:
+  - id: headroom
+    repo: headroomlabs-ai/headroom
+    category: llm-efficiency
+    status: CANDIDATE
+    use_case: Reducir tokens y contexto desperdiciado en agentes.
+    impact: 5
+    maturity: 4
+    complexity: 2
+    risk: 2
+    next_test: Medir ahorro de tokens sobre un flujo real no productivo.
+
+  - id: firecrawl
+    repo: mendableai/firecrawl
+    category: web-data
+    status: CANDIDATE
+    use_case: Capturar precios, stock y datos web para procurement y research.
+    impact: 5
+    maturity: 4
+    complexity: 3
+    risk: 3
+    next_test: Extraer datos estructurados de 3 sitios públicos sin autenticación.
+
+  - id: browser-use
+    repo: browser-use/browser-use
+    category: browser-agent
+    status: CANDIDATE
+    use_case: Automatizar portales y tareas web sin API.
+    impact: 5
+    maturity: 4
+    complexity: 3
+    risk: 4
+    next_test: Ejecutar navegación sobre sitio de prueba sin credenciales reales.
+
+  - id: twenty
+    repo: twentyhq/twenty
+    category: crm
+    status: CANDIDATE
+    use_case: CRM operativo sobre contactos, clientes y proveedores.
+    impact: 4
+    maturity: 4
+    complexity: 3
+    risk: 2
+    next_test: Levantar instancia demo con datos ficticios.
+
+  - id: paperless-ngx
+    repo: paperless-ngx/paperless-ngx
+    category: documents
+    status: CANDIDATE
+    use_case: Clasificar, indexar y buscar documentos automáticamente.
+    impact: 4
+    maturity: 5
+    complexity: 2
+    risk: 2
+    next_test: Ingerir 20 PDFs/fotos de ejemplo sin datos sensibles.
