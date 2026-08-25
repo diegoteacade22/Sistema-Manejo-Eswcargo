@@ -2,17 +2,24 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 
 const HOME = homedir();
-const ROOT = process.env.DIEGOSERVER_WORKSPACE || join(HOME, '02_DESARROLLO');
-const REPO = process.env.DIEGOSERVER_REPO || join(ROOT, 'Sistema-Manejo-Eswcargo');
+const STATE_DIR = join(HOME, '.diegoserver-worker');
+const ROOT = process.env.DIEGOSERVER_WORKSPACE || STATE_DIR;
+const REPO = process.env.DIEGOSERVER_REPO || join(ROOT, 'repo');
 const LABEL = process.env.DIEGOSERVER_TASK_LABEL || 'diegoserver-task';
 const INTERVAL = Number(process.env.DIEGOSERVER_POLL_MS || 60000);
-const STATE_DIR = join(HOME, '.diegoserver-worker');
 const STATE_FILE = join(STATE_DIR, 'state.json');
 mkdirSync(STATE_DIR, { recursive: true });
 
+function assertIsolatedRepo() {
+  const stateRoot = `${resolve(STATE_DIR)}${sep}`;
+  const repoPath = resolve(REPO);
+  if (!repoPath.startsWith(stateRoot) || repoPath === resolve(HOME)) {
+    throw new Error(`DIEGOSERVER_REPO inseguro: ${repoPath}. Debe estar dentro de ${STATE_DIR}`);
+  }
+}
 function sh(cmd, args, cwd = REPO) {
   return execFileSync(cmd, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
@@ -20,6 +27,7 @@ function gh(args) { return sh('gh', args); }
 function loadState() { try { return JSON.parse(readFileSync(STATE_FILE, 'utf8')); } catch { return { done: [] }; } }
 function saveState(s) { writeFileSync(STATE_FILE, JSON.stringify(s, null, 2)); }
 function ensureRepo() {
+  assertIsolatedRepo();
   mkdirSync(ROOT, { recursive: true });
   if (!existsSync(join(REPO, '.git'))) sh('gh', ['repo','clone','diegoteacade22/Sistema-Manejo-Eswcargo', REPO], ROOT);
   sh('git', ['fetch','--all','--prune']);
@@ -35,12 +43,13 @@ function codexExec(prompt) {
   return { code: r.status ?? 1, out: `${r.stdout || ''}\n${r.stderr || ''}`.trim().slice(-12000) };
 }
 function runIssue(issue) {
+  assertIsolatedRepo();
   const branch = `diegoserver/task-${issue.number}-${Date.now()}`;
   sh('git', ['checkout','main']);
   sh('git', ['reset','--hard','origin/main']);
   sh('git', ['clean','-fd']);
   sh('git', ['checkout','-b',branch]);
-  const prompt = `You are the DiegoServer production coding worker. Complete GitHub issue #${issue.number}: ${issue.title}\n\n${issue.body || ''}\n\nRules: work only in this repository; inspect AGENTS.md and existing contracts first; preserve security/read-only boundaries unless the issue explicitly authorizes a scoped change; run relevant tests; do not expose secrets; commit all completed changes with a clear message. If blocked, explain exactly why.`;
+  const prompt = `You are the DiegoServer production coding worker. Complete GitHub issue #${issue.number}: ${issue.title}\n\n${issue.body || ''}\n\nRules: work only in this isolated repository; inspect AGENTS.md and existing contracts first; preserve security/read-only boundaries unless the issue explicitly authorizes a scoped change; run relevant tests; do not expose secrets; commit all completed changes with a clear message. If blocked, explain exactly why.`;
   const result = codexExec(prompt);
   let summary = result.out || '(sin salida)';
   if (result.code === 0) {
@@ -64,5 +73,5 @@ async function cycle() {
     state.done.push(issue.number); saveState(state);
   }
 }
-console.log(`DiegoServer worker activo. Repo=${REPO} label=${LABEL} interval=${INTERVAL}ms`);
+console.log(`DiegoServer worker activo. Repo aislado=${REPO} label=${LABEL} interval=${INTERVAL}ms`);
 for (;;) { try { await cycle(); } catch (e) { console.error(new Date().toISOString(), e.message); } await new Promise(r => setTimeout(r, INTERVAL)); }
