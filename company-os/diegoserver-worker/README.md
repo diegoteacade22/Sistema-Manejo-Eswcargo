@@ -6,14 +6,18 @@ Objetivo: permitir que ChatGPT cree una tarea controlada en GitHub y que DiegoSe
 
 1. ChatGPT crea un issue en `diegoteacade22/Sistema-Manejo-Eswcargo` con label `diegoserver-task`.
 2. El worker de DiegoServer consulta la cola cada 60 s.
-3. Para cada issue nuevo crea una branch aislada desde `origin/main`.
-4. Codex ejecuta la misión dentro de ese repositorio, lee los contratos existentes y corre tests.
-5. Si termina correctamente, el worker hace push y abre PR contra `main`.
-6. El resultado/PR se comenta en el issue. El merge queda separado del worker.
+3. Trabaja exclusivamente en el clon aislado `~/.diegoserver-worker/repo`.
+4. Para cada issue crea una branch desde `origin/main` dentro de ese clon.
+5. Codex ejecuta la misión, lee los contratos existentes y corre tests.
+6. Si termina correctamente, el worker hace push y abre PR contra `main`.
+7. El resultado/PR se comenta en el issue. El merge queda separado del worker.
 
 ## Seguridad v1
 
 - Repo permitido fijo: `diegoteacade22/Sistema-Manejo-Eswcargo`.
+- El checkout operativo visible en Codex y cualquier cambio local del usuario quedan fuera del alcance del worker.
+- El worker rechaza `DIEGOSERVER_REPO` si no está dentro de `~/.diegoserver-worker`.
+- `reset --hard` y `clean -fd` sólo pueden ejecutarse en el clon aislado.
 - No acepta shell arbitrario desde ChatGPT; recibe una misión textual y Codex decide cambios dentro del repo.
 - Cada tarea corre en branch independiente.
 - No hace merge automático.
@@ -21,12 +25,12 @@ Objetivo: permitir que ChatGPT cree una tarea controlada en GitHub y que DiegoSe
 - Usa la autenticación local ya existente de `gh` y `codex`.
 - `launchd` mantiene el worker activo aunque la MacBook esté cerrada.
 
-## Instalación única en DiegoServer
-
-Una vez que este cambio esté en `main`, ejecutar en DiegoServer:
+## Instalación o actualización en DiegoServer
 
 ```sh
-cd ~/02_DESARROLLO/Sistema-Manejo-Eswcargo && git pull --ff-only origin main && zsh company-os/diegoserver-worker/install.sh
+cd ~/02_DESARROLLO/02_Activos_Deploy/Sistema-Manejo-Eswcargo && git pull --ff-only origin main && zsh company-os/diegoserver-worker/install.sh
 ```
 
-Después de esa activación inicial, el flujo diario se opera desde ChatGPT/GitHub y no requiere Terminal.
+El instalador copia el runtime a `~/.diegoserver-worker/worker.mjs`, crea o reutiliza el clon aislado y reinicia únicamente `com.esw.diegoserver-worker`.
+
+Después de esta activación, el flujo diario se opera desde ChatGPT/GitHub y no requiere Terminal.
