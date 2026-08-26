@@ -1,9 +1,14 @@
 import { createServer } from 'node:http';
+import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { loadConfig } from './config.mjs';
 import { CompanyOsApiClient } from './api-client.mjs';
+import { createJsonLogger } from './json-logger.mjs';
 import { OpenAiAdvisoryClient } from './openai-client.mjs';
 import { TelegramNotificationClient } from './notification-client.mjs';
+import { CompanyOsRuntimeApiClient } from './runtime-api-client.mjs';
+import { loadRuntimeConfig } from './runtime-config.mjs';
+import { CompanyOsRuntimeDaemon } from './runtime-daemon.mjs';
 import { SIGNATURE_HEADER, TIMESTAMP_HEADER, verifySignedBody } from './signing.mjs';
 import { CompanyOsWorker, SerialWebhookQueue } from './worker.mjs';
 
@@ -101,8 +106,71 @@ export function buildRuntime(config, overrides = {}) {
   return { worker, queue: new SerialWebhookQueue({ worker, dedupeTtlMs: config.dedupeTtlMs }) };
 }
 
+export function buildDaemonRuntime(config, overrides = {}) {
+  const instanceId = overrides.instanceId || randomUUID();
+  const logger = overrides.logger || createJsonLogger(config);
+  const api = overrides.api || new CompanyOsRuntimeApiClient({
+    baseUrl: config.apiBaseUrl,
+    hmacSecret: config.hmacSecret,
+    workerId: config.workerId,
+    instanceId,
+    timeoutMs: config.apiTimeoutMs,
+    fetchImpl: overrides.fetchImpl,
+  });
+  const openai = overrides.openai || new OpenAiAdvisoryClient({
+    apiKey: config.openAiApiKey,
+    baseUrl: config.openAiBaseUrl,
+    model: config.model,
+    timeoutMs: config.openAiTimeoutMs,
+    requireClaimOutputSchema: true,
+    fetchImpl: overrides.fetchImpl,
+  });
+  const notifier = overrides.notifier !== undefined
+    ? overrides.notifier
+    : null;
+  const processor = overrides.processor || new CompanyOsWorker({
+    api,
+    openai,
+    notifier,
+    heartbeatIntervalMs: config.leaseHeartbeatIntervalMs,
+    failClosedInitialHeartbeat: true,
+    onError: (error) => logger.error('CLAIM_BACKGROUND_ERROR', { code: error?.code || 'UNKNOWN', message: error?.message || 'Background error' }),
+  });
+  const daemon = new CompanyOsRuntimeDaemon({
+    config,
+    api,
+    processor,
+    logger,
+    instanceId,
+    lock: overrides.lock,
+    healthServerFactory: overrides.healthServerFactory,
+    now: overrides.now,
+    sleep: overrides.sleep,
+  });
+  return { daemon, api, processor, logger, instanceId };
+}
+
+async function runDaemon(env) {
+  const config = loadRuntimeConfig(env);
+  const runtime = buildDaemonRuntime(config);
+  await runtime.daemon.start();
+  let stopping = false;
+  const shutdown = async (signal) => {
+    if (stopping) process.exit(1);
+    stopping = true;
+    const forceExit = setTimeout(() => process.exit(1), config.shutdownGraceMs + 15_000);
+    const result = await runtime.daemon.stop(signal);
+    clearTimeout(forceExit);
+    process.exit(result.drained ? 0 : 1);
+  };
+  process.once('SIGTERM', () => void shutdown('SIGTERM'));
+  process.once('SIGINT', () => void shutdown('SIGINT'));
+  return runtime;
+}
+
 export async function main(argv = process.argv.slice(2), env = process.env) {
   const mode = argv[0] || 'serve';
+  if (mode === 'daemon') return runDaemon(env);
   const config = loadConfig(env);
   const runtime = buildRuntime(config);
 

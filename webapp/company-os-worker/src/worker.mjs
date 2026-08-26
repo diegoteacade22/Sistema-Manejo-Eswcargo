@@ -1,6 +1,6 @@
 import { redactExternalText, redactExternalValue } from './redaction.mjs';
 
-function assertClaim(claim) {
+export function assertClaim(claim) {
   const required = ['leaseToken', 'requestId', 'caseId', 'agentId', 'objective', 'evidencePayload'];
   if (!claim || typeof claim !== 'object' || required.some((key) => !(key in claim))) {
     throw Object.assign(new Error('Claim payload is invalid'), { code: 'INVALID_CLAIM', retryable: false });
@@ -20,27 +20,50 @@ export function safeFailure(error) {
 }
 
 export class CompanyOsWorker {
-  constructor({ api, openai, notifier = null, heartbeatIntervalMs = 30_000, onError = () => {} }) {
+  constructor({ api, openai, notifier = null, heartbeatIntervalMs = 30_000, failClosedInitialHeartbeat = false, onError = () => {} }) {
     this.api = api;
     this.openai = openai;
     this.notifier = notifier;
     this.heartbeatIntervalMs = heartbeatIntervalMs;
+    this.failClosedInitialHeartbeat = failClosedInitialHeartbeat;
     this.onError = onError;
   }
 
   async runOnce(requestId) {
     const claim = await this.api.claim(requestId);
     if (claim === null) return { status: 'NO_CONTENT' };
+    return this.runClaim(claim);
+  }
+
+  async runClaim(claim, { signal: shutdownSignal } = {}) {
     assertClaim(claim);
 
     let heartbeatBusy = false;
-    const heartbeat = async () => {
+    let leaseFailure = null;
+    const executionController = new AbortController();
+    const abortForShutdown = () => {
+      leaseFailure = Object.assign(new Error('Runtime shutdown aborted the active claim'), {
+        code: 'RUNTIME_SHUTDOWN_ABORTED',
+        retryable: true,
+      });
+      executionController.abort();
+    };
+    if (shutdownSignal?.aborted) abortForShutdown();
+    else shutdownSignal?.addEventListener('abort', abortForShutdown, { once: true });
+    const heartbeat = async (required = false) => {
       if (heartbeatBusy) return;
       heartbeatBusy = true;
       try {
         await this.api.heartbeat(claim);
       } catch (error) {
         this.onError(error);
+        leaseFailure = Object.assign(new Error('Runtime lease heartbeat failed; model execution aborted'), {
+          code: 'LEASE_HEARTBEAT_FAILED',
+          retryable: true,
+          cause: error,
+        });
+        executionController.abort();
+        if (required) throw leaseFailure;
       } finally {
         heartbeatBusy = false;
       }
@@ -49,8 +72,10 @@ export class CompanyOsWorker {
     interval.unref?.();
 
     try {
-      await heartbeat();
-      const { output, usage } = await this.openai.generate(claim);
+      await heartbeat(this.failClosedInitialHeartbeat);
+      if (executionController.signal.aborted) throw leaseFailure ?? Object.assign(new Error('Claim aborted before model execution'), { code: 'OPENAI_ABORTED', retryable: true });
+      const { output, usage } = await this.openai.generate(claim, { signal: executionController.signal });
+      if (executionController.signal.aborted) throw leaseFailure ?? Object.assign(new Error('Claim aborted after model execution'), { code: 'OPENAI_ABORTED', retryable: true });
       const safeOutput = redactExternalValue(output);
       const completion = await this.api.complete(claim, safeOutput, usage);
       if (this.notifier) {
@@ -69,7 +94,11 @@ export class CompanyOsWorker {
       }
       return { status: 'COMPLETED', requestId: claim.requestId, caseId: claim.caseId };
     } catch (error) {
-      const failure = safeFailure(error);
+      const reportedError = leaseFailure ?? error;
+      const failure = {
+        ...safeFailure(reportedError),
+        ...(error?.usage && typeof error.usage === 'object' ? { usage: error.usage } : {}),
+      };
       try {
         await this.api.fail(claim, failure);
       } catch (failError) {
@@ -78,6 +107,7 @@ export class CompanyOsWorker {
       return { status: 'FAILED', requestId: claim.requestId, caseId: claim.caseId, error: failure };
     } finally {
       clearInterval(interval);
+      shutdownSignal?.removeEventListener('abort', abortForShutdown);
     }
   }
 }

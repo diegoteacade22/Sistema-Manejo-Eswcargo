@@ -577,36 +577,42 @@ model CompanyAgentRequest {
 }
 
 model CompanyOsCase {
-  id                    String                          @id @default(cuid())
-  requestId             String                          @unique
-  agentId               String                          @default("general-manager-ai-v3")
-  area                  String                          @default("GENERAL_MANAGEMENT")
-  caseType              String                          @default("ADVISORY")
-  scheduleRunKey        String?                         @unique
-  objective             String
-  objectiveHash         String
-  status                String                          @default("QUEUED")
-  actorRef              String
-  authMode              String
-  relatedCaseId         String?
-  inputBudgetEstimate   Int
-  maxOutputTokens       Int                             @default(3000)
-  targetTotalTokens     Int                             @default(12000)
-  webhookDeliveryStatus String                          @default("PENDING")
-  cancellationReason    String?
-  completedAt           DateTime?
-  createdAt             DateTime                        @default(now())
-  updatedAt             DateTime                        @updatedAt
-  messages              CompanyOsMessage[]
-  events                CompanyOsCaseEvent[]
-  evidence              CompanyOsEvidenceRef[]
-  missions              CompanyOsMission[]
-  decisions             CompanyOsDecision[]
-  usage                 CompanyOsUsage[]
-  leases                CompanyOsLease[]
-  heartbeats            CompanyOsHeartbeat[]
-  attempts              CompanyOsExecutionAttempt[]
-  deliveries            CompanyOsNotificationDelivery[]
+  id                     String                           @id @default(cuid())
+  requestId              String                           @unique
+  agentId                String                           @default("general-manager-ai-v3")
+  area                   String                           @default("GENERAL_MANAGEMENT")
+  caseType               String                           @default("ADVISORY")
+  scheduleRunKey         String?                          @unique
+  objective              String
+  objectiveHash          String
+  status                 String                           @default("QUEUED")
+  actorRef               String
+  authMode               String
+  relatedCaseId          String?
+  inputBudgetEstimate    Int
+  maxOutputTokens        Int                              @default(3000)
+  targetTotalTokens      Int                              @default(12000)
+  webhookDeliveryStatus  String                           @default("PENDING")
+  cancellationReason     String?
+  maxAttempts            Int                              @default(3)
+  maxTurns               Int                              @default(6)
+  turnCount              Int                              @default(0)
+  nextAttemptAt          DateTime?
+  completedAt            DateTime?
+  createdAt              DateTime                         @default(now())
+  updatedAt              DateTime                         @updatedAt
+  messages               CompanyOsMessage[]
+  events                 CompanyOsCaseEvent[]
+  evidence               CompanyOsEvidenceRef[]
+  missions               CompanyOsMission[]
+  decisions              CompanyOsDecision[]
+  usage                  CompanyOsUsage[]
+  leases                 CompanyOsLease[]
+  heartbeats             CompanyOsHeartbeat[]
+  attempts               CompanyOsExecutionAttempt[]
+  deliveries             CompanyOsNotificationDelivery[]
+  workItems              CompanyOsWorkItem[]
+  dependencyObservations CompanyOsDependencyObservation[]
 
   @@index([status, createdAt])
   @@index([agentId, status, createdAt])
@@ -615,16 +621,32 @@ model CompanyOsCase {
 }
 
 model CompanyOsMessage {
-  id        String        @id @default(cuid())
-  caseId    String
-  role      String
-  kind      String
-  content   String
-  actorRef  String
-  createdAt DateTime      @default(now())
-  case      CompanyOsCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  id              String              @id @default(cuid())
+  caseId          String
+  role            String
+  kind            String
+  content         String
+  actorRef        String
+  fromAgentId     String?
+  toAgentId       String?
+  messageType     String?
+  payload         Json                @default("{}")
+  schemaVersion   Int                 @default(1)
+  evidenceRefs    Json                @default("[]")
+  correlationId   String?
+  causationId     String?
+  deliveryStatus  String              @default("DELIVERED")
+  idempotencyKey  String?             @unique
+  expectsResponse Boolean             @default(false)
+  expiresAt       DateTime?
+  deliveredAt     DateTime?
+  createdAt       DateTime            @default(now())
+  case            CompanyOsCase       @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  causedWorkItems CompanyOsWorkItem[] @relation("CausalMessage")
 
   @@index([caseId, createdAt])
+  @@index([fromAgentId, toAgentId, createdAt])
+  @@index([correlationId, createdAt])
 }
 
 model CompanyOsCaseEvent {
@@ -705,30 +727,36 @@ model CompanyOsAuditEvent {
 }
 
 model CompanyOsUsage {
-  id               String        @id @default(cuid())
+  id               String                     @id @default(cuid())
   caseId           String
   provider         String
   model            String
   inputTokens      Int
   cachedTokens     Int
-  cacheWriteTokens Int           @default(0)
+  cacheWriteTokens Int                        @default(0)
   outputTokens     Int
   reasoningTokens  Int
   totalTokens      Int
-  estimatedCostUsd Decimal       @db.Decimal(12, 6)
+  estimatedCostUsd Decimal                    @db.Decimal(12, 6)
   dailyTotalTokens Int
-  dailyCostUsd     Decimal       @db.Decimal(12, 6)
+  dailyCostUsd     Decimal                    @db.Decimal(12, 6)
   alertLevel       Int?
   responseId       String?
   durationMs       Int?
-  retries          Int           @default(0)
+  retries          Int                        @default(0)
   snapshotBytes    Int?
-  rulesApplied     Json          @default("[]")
-  createdAt        DateTime      @default(now())
-  case             CompanyOsCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  rulesApplied     Json                       @default("[]")
+  attemptId        String?                    @unique
+  agentId          String?
+  workerId         String?
+  outcome          String                     @default("SUCCEEDED")
+  createdAt        DateTime                   @default(now())
+  case             CompanyOsCase              @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  attempt          CompanyOsExecutionAttempt? @relation(fields: [attemptId], references: [id], onDelete: Restrict)
 
   @@index([caseId, createdAt])
   @@index([createdAt])
+  @@index([agentId, createdAt])
 }
 
 model CompanyOsLock {
@@ -742,22 +770,32 @@ model CompanyOsLock {
 }
 
 model CompanyOsLease {
-  id         String                      @id @default(cuid())
-  caseId     String
-  requestId  String
-  leaseToken String                      @unique
-  ownerRef   String
-  status     String                      @default("ACTIVE")
-  expiresAt  DateTime
-  releasedAt DateTime?
-  createdAt  DateTime                    @default(now())
-  case       CompanyOsCase               @relation(fields: [caseId], references: [id], onDelete: Restrict)
-  heartbeats CompanyOsHeartbeat[]
-  attempts   CompanyOsExecutionAttempt[]
+  id             String                      @id @default(cuid())
+  caseId         String
+  requestId      String
+  leaseToken     String                      @unique
+  ownerRef       String
+  workItemId     String?
+  agentId        String                      @default("general-manager-ai-v3")
+  workerId       String                      @default("legacy-hostinger-company-os-v3")
+  instanceId     String                      @default("legacy")
+  slotNo         Int?
+  renewedAt      DateTime                    @default(now())
+  reservedTokens Int                         @default(0)
+  status         String                      @default("ACTIVE")
+  expiresAt      DateTime
+  releasedAt     DateTime?
+  createdAt      DateTime                    @default(now())
+  case           CompanyOsCase               @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  heartbeats     CompanyOsHeartbeat[]
+  attempts       CompanyOsExecutionAttempt[]
+  workItem       CompanyOsWorkItem?          @relation(fields: [workItemId], references: [id], onDelete: Restrict)
+  slot           CompanyOsRuntimeSlot?       @relation(fields: [slotNo], references: [slotNo], onDelete: Restrict)
 
   @@unique([requestId, leaseToken, caseId])
   @@index([requestId, status, expiresAt])
   @@index([caseId, createdAt])
+  @@index([workerId, status, expiresAt])
 }
 
 model CompanyOsHeartbeat {
@@ -772,44 +810,208 @@ model CompanyOsHeartbeat {
   lease      CompanyOsLease @relation(fields: [requestId, leaseToken, caseId], references: [requestId, leaseToken, caseId], onDelete: Restrict)
 
   @@index([requestId, createdAt])
+  @@index([caseId])
+  @@index([requestId, leaseToken, caseId])
 }
 
 model CompanyOsExecutionAttempt {
-  id         String         @id @default(cuid())
-  caseId     String
-  requestId  String
-  leaseToken String
-  attempt    Int
-  outcome    String
-  errorCode  String?
-  detail     String?
-  startedAt  DateTime       @default(now())
-  finishedAt DateTime?
-  case       CompanyOsCase  @relation(fields: [caseId], references: [id], onDelete: Restrict)
-  lease      CompanyOsLease @relation(fields: [requestId, leaseToken, caseId], references: [requestId, leaseToken, caseId], onDelete: Restrict)
+  id               String             @id @default(cuid())
+  caseId           String
+  requestId        String
+  leaseToken       String
+  attempt          Int
+  outcome          String
+  errorCode        String?
+  detail           String?
+  workItemId       String?
+  agentId          String?
+  workerId         String?
+  instanceId       String?
+  model            String?
+  durationMs       Int?
+  inputTokens      Int?
+  outputTokens     Int?
+  totalTokens      Int?
+  estimatedCostUsd Decimal?           @db.Decimal(12, 6)
+  timeoutAt        DateTime?
+  startedAt        DateTime           @default(now())
+  finishedAt       DateTime?
+  case             CompanyOsCase      @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  lease            CompanyOsLease     @relation(fields: [requestId, leaseToken, caseId], references: [requestId, leaseToken, caseId], onDelete: Restrict)
+  workItem         CompanyOsWorkItem? @relation(fields: [workItemId], references: [id], onDelete: Restrict)
+  usage            CompanyOsUsage?
 
   @@unique([requestId, attempt])
   @@index([caseId, startedAt])
+  @@index([workItemId, startedAt])
+  @@index([requestId, leaseToken, caseId])
 }
 
 model CompanyOsNotificationDelivery {
-  id             String        @id @default(cuid())
-  caseId         String
-  requestId      String
-  agentId        String        @default("general-manager-ai-v3")
+  id                  String        @id @default(cuid())
+  caseId              String
+  requestId           String
+  agentId             String        @default("general-manager-ai-v3")
   evidenceFingerprint String?
-  assetId        String?
-  channel        String
-  eventType      String
-  status         String
-  attempt        Int
-  responseCode   Int?
-  errorDetail    String?
-  idempotencyKey String        @unique
-  createdAt      DateTime      @default(now())
-  case           CompanyOsCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  assetId             String?
+  channel             String
+  eventType           String
+  status              String
+  attempt             Int
+  responseCode        Int?
+  errorDetail         String?
+  idempotencyKey      String        @unique
+  createdAt           DateTime      @default(now())
+  case                CompanyOsCase @relation(fields: [caseId], references: [id], onDelete: Restrict)
 
   @@index([requestId, channel, createdAt])
+}
+
+model CompanyOsAgentContract {
+  id               String   @id
+  agentId          String
+  contractVersion  String
+  name             String
+  reportsToAgentId String?
+  domain           String
+  handlerKey       String
+  status           String
+  contract         Json
+  createdAt        DateTime @default(now())
+
+  @@unique([agentId, contractVersion])
+  @@index([agentId, createdAt])
+}
+
+model CompanyOsWorkItem {
+  id              String                      @id
+  caseId          String
+  agentId         String
+  triggerType     String
+  status          String                      @default("QUEUED")
+  priority        Int                         @default(50)
+  availableAt     DateTime                    @default(now())
+  causalMessageId String?
+  inputPayload    Json                        @default("{}")
+  schemaVersion   Int                         @default(1)
+  idempotencyKey  String                      @unique
+  maxAttempts     Int                         @default(3)
+  attemptCount    Int                         @default(0)
+  timeoutMs       Int                         @default(120000)
+  reservedTokens  Int                         @default(12000)
+  nextAttemptAt   DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime                    @default(now())
+  updatedAt       DateTime                    @updatedAt
+  case            CompanyOsCase               @relation(fields: [caseId], references: [id], onDelete: Restrict)
+  causalMessage   CompanyOsMessage?           @relation("CausalMessage", fields: [causalMessageId], references: [id], onDelete: Restrict)
+  leases          CompanyOsLease[]
+  attempts        CompanyOsExecutionAttempt[]
+
+  @@unique([id, caseId, agentId])
+  @@index([status, availableAt, priority, createdAt])
+  @@index([caseId, status, createdAt])
+  @@index([agentId, status, availableAt])
+  @@index([causalMessageId])
+}
+
+model CompanyOsRuntimeSlot {
+  slotNo     Int              @id
+  leaseToken String?
+  agentId    String?
+  workerId   String?
+  expiresAt  DateTime?
+  updatedAt  DateTime         @updatedAt
+  leases     CompanyOsLease[]
+}
+
+model CompanyOsWorker {
+  workerId        String                     @id
+  instanceId      String
+  host            String
+  version         String
+  state           String
+  startedAt       DateTime
+  lastHeartbeatAt DateTime
+  currentWork     Json                       @default("[]")
+  capacity        Int                        @default(2)
+  allowedAgentIds String[]                   @default([])
+  lastErrorCode   String?
+  updatedAt       DateTime                   @updatedAt
+  heartbeats      CompanyOsWorkerHeartbeat[]
+}
+
+model CompanyOsWorkerHeartbeat {
+  id          String          @id
+  workerId    String
+  instanceId  String
+  state       String
+  currentWork Json            @default("[]")
+  host        String
+  version     String
+  observedAt  DateTime
+  createdAt   DateTime        @default(now())
+  worker      CompanyOsWorker @relation(fields: [workerId], references: [workerId], onDelete: Restrict)
+
+  @@index([workerId, observedAt])
+}
+
+model CompanyOsDependencyObservation {
+  id            String         @id
+  dependencyKey String
+  status        String
+  workerId      String?
+  caseId        String?
+  latencyMs     Int?
+  detail        String?
+  observedAt    DateTime
+  createdAt     DateTime       @default(now())
+  case          CompanyOsCase? @relation(fields: [caseId], references: [id], onDelete: Restrict)
+
+  @@index([dependencyKey, observedAt])
+  @@index([caseId])
+}
+
+model CompanyOsIncident {
+  id              String    @id
+  dedupeKey       String    @unique
+  type            String
+  severity        String
+  status          String
+  summary         String
+  detail          Json      @default("{}")
+  occurrenceCount Int       @default(1)
+  firstSeenAt     DateTime
+  lastSeenAt      DateTime
+  notifiedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([status, severity, lastSeenAt])
+}
+
+model CompanyOsRuntimeControl {
+  id                  String   @id
+  paused              Boolean  @default(false)
+  globalConcurrency   Int      @default(2)
+  pollIntervalMs      Int      @default(15000)
+  heartbeatIntervalMs Int      @default(60000)
+  leaseMs             Int      @default(300000)
+  leaseRenewMs        Int      @default(30000)
+  shutdownGraceMs     Int      @default(30000)
+  updatedBy           String   @default("migration")
+  updatedAt           DateTime @updatedAt
+}
+
+model CompanyOsWorkerRequestNonce {
+  nonce     String   @id
+  workerId  String
+  endpoint  String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([workerId, createdAt])
+  @@index([expiresAt])
 }
 
 /// Auditable receipt of a supplier price list loaded through ImportSys/Agent OS.

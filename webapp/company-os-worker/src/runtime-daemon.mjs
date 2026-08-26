@@ -1,0 +1,439 @@
+import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
+import { InstanceLock } from './instance-lock.mjs';
+import { runtimeOutputSchemaForClaim } from './openai-client.mjs';
+import { createRuntimeHealthServer } from './runtime-health.mjs';
+import { assertClaim, safeFailure } from './worker.mjs';
+
+const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+function workKey(claim) {
+  return claim.workItemId || claim.requestId;
+}
+
+export function assertRuntimeClaim(claim) {
+  assertClaim(claim);
+  for (const key of ['workItemId', 'attemptId', 'leaseExpiresAt', 'handlerKey', 'contractVersion']) {
+    if (typeof claim[key] !== 'string' || !claim[key]) {
+      throw Object.assign(new Error(`Runtime claim is missing ${key}`), { code: 'INVALID_RUNTIME_CLAIM', retryable: false });
+    }
+  }
+  if (!Number.isSafeInteger(claim.attempt) || claim.attempt < 1
+    || !Number.isSafeInteger(claim.slotNo) || claim.slotNo < 1
+    || !Number.isSafeInteger(claim.timeoutMs) || claim.timeoutMs < 1
+    || !Array.isArray(claim.contextMessages)
+    || !claim.budgets || typeof claim.budgets !== 'object' || Array.isArray(claim.budgets)
+    || Number.isNaN(new Date(claim.leaseExpiresAt).getTime())) {
+    throw Object.assign(new Error('Runtime claim metadata is invalid'), { code: 'INVALID_RUNTIME_CLAIM', retryable: false });
+  }
+  if ((claim.contract?.agentId !== undefined && claim.contract.agentId !== claim.agentId)
+    || (claim.contract?.handlerKey !== undefined && claim.contract.handlerKey !== claim.handlerKey)
+    || (claim.contract?.version !== undefined && claim.contract.version !== claim.contractVersion)) {
+    throw Object.assign(new Error('Runtime claim contract identity does not match'), { code: 'INVALID_RUNTIME_CONTRACT', retryable: false });
+  }
+  runtimeOutputSchemaForClaim(claim);
+  return claim;
+}
+
+export class CompanyOsRuntimeDaemon {
+  constructor({
+    config,
+    api,
+    processor,
+    logger,
+    instanceId = randomUUID(),
+    lock,
+    healthServerFactory = createRuntimeHealthServer,
+    now = () => new Date(),
+    sleep = delay,
+  }) {
+    this.config = config;
+    this.api = api;
+    this.processor = processor;
+    this.logger = logger;
+    this.instanceId = instanceId;
+    this.now = now;
+    this.sleep = sleep;
+    this.startedAt = now().toISOString();
+    this.lock = lock || new InstanceLock({
+      lockPath: join(config.stateDir, 'runtime.lock'),
+      workerId: config.workerId,
+      instanceId,
+      now,
+    });
+    this.healthServerFactory = healthServerFactory;
+    this.healthServer = null;
+    this.activeWork = new Map();
+    this.failures = new Map();
+    this.timers = new Set();
+    this.running = false;
+    this.draining = false;
+    this.stopped = false;
+    this.starting = true;
+    this.polling = false;
+    this.workerHeartbeating = false;
+    this.reconciling = false;
+    this.scheduling = false;
+    this.lastWorkerHeartbeatAt = null;
+    this.lastState = 'STARTING';
+    this.apiDependency = { status: 'UNOBSERVED', observedAt: null, detail: null };
+    this.modelDependency = { status: 'UNOBSERVED', observedAt: null, detail: null };
+  }
+
+  effectiveState() {
+    if (this.stopped) return 'STOPPED';
+    if (this.draining) return 'DRAINING';
+    if (this.starting) return 'STARTING';
+    if (this.failures.size > 0) return 'DEGRADED';
+    if (this.activeWork.size > 0) return 'BUSY';
+    return 'IDLE';
+  }
+
+  transitionIfNeeded(reason) {
+    const state = this.effectiveState();
+    if (state !== this.lastState) {
+      this.logger.info('RUNTIME_STATE_CHANGED', { from: this.lastState, to: state, reason });
+      this.lastState = state;
+    }
+    return state;
+  }
+
+  markFailure(operation, error) {
+    const failure = safeFailure(error);
+    this.failures.set(operation, failure.code);
+    this.apiDependency = { status: 'DEGRADED', observedAt: this.now().toISOString(), detail: failure.code };
+    this.logger.error('RUNTIME_OPERATION_FAILED', { operation, code: failure.code, message: failure.message, retryable: failure.retryable });
+    this.transitionIfNeeded(`${operation}:failed`);
+  }
+
+  markSuccess(operation) {
+    this.apiDependency = { status: 'HEALTHY', observedAt: this.now().toISOString(), detail: null };
+    if (this.failures.delete(operation)) this.logger.info('RUNTIME_OPERATION_RECOVERED', { operation });
+    this.transitionIfNeeded(`${operation}:ok`);
+  }
+
+  observeModelResult(result) {
+    if (result?.status === 'COMPLETED') {
+      this.failures.delete('openai');
+      this.modelDependency = { status: 'HEALTHY', observedAt: this.now().toISOString(), detail: null };
+      this.transitionIfNeeded('openai:ok');
+      return;
+    }
+    const code = result?.error?.code;
+    if (typeof code === 'string' && code.startsWith('OPENAI_')) {
+      this.failures.set('openai', code);
+      this.modelDependency = { status: 'DEGRADED', observedAt: this.now().toISOString(), detail: code };
+      this.transitionIfNeeded('openai:failed');
+    }
+  }
+
+  currentWork() {
+    return [...this.activeWork.values()].map(({ claim, startedAt }) => ({
+      workItemId: claim.workItemId || null,
+      requestId: claim.requestId,
+      caseId: claim.caseId,
+      agentId: claim.agentId,
+      startedAt,
+    }));
+  }
+
+  snapshot() {
+    return {
+      workerId: this.config.workerId,
+      instanceId: this.instanceId,
+      version: this.config.version,
+      state: this.effectiveState(),
+      startedAt: this.startedAt,
+      lastWorkerHeartbeatAt: this.lastWorkerHeartbeatAt,
+      activeCount: this.activeWork.size,
+      capacity: this.config.globalConcurrency,
+      acceptingWork: this.running && !this.draining,
+      currentWork: this.currentWork(),
+      lastErrorCode: this.failures.values().next().value || null,
+    };
+  }
+
+  heartbeatPayload(state = this.effectiveState()) {
+    const observedAt = this.now().toISOString();
+    return {
+      state,
+      host: this.config.hostName,
+      version: this.config.version,
+      startedAt: this.startedAt,
+      observedAt,
+      capacity: this.config.globalConcurrency,
+      allowedAgentIds: this.config.allowedAgentIds,
+      currentWork: this.currentWork(),
+      lastErrorCode: this.failures.values().next().value || null,
+      dependencies: [
+        { key: 'network', ...this.apiDependency },
+        { key: 'vercel-api', ...this.apiDependency },
+        { key: 'supabase-postgres', status: 'UNOBSERVED', observedAt: null, detail: 'Observed only through the signed Vercel API' },
+        { key: 'openai-api', ...this.modelDependency },
+        { key: 'openclaw-optional', status: 'UNOBSERVED', observedAt: null, detail: 'Optional dependency not configured' },
+      ],
+    };
+  }
+
+  installTimer(callback, intervalMs) {
+    const timer = setInterval(() => void callback(), intervalMs);
+    timer.unref?.();
+    this.timers.add(timer);
+  }
+
+  installTimeout(callback, delayMs) {
+    const timer = setTimeout(() => {
+      this.timers.delete(timer);
+      void callback();
+    }, delayMs);
+    timer.unref?.();
+    this.timers.add(timer);
+  }
+
+  clearTimers() {
+    for (const timer of this.timers) clearInterval(timer);
+    this.timers.clear();
+  }
+
+  async start({ runImmediately = true } = {}) {
+    if (this.running) return this.snapshot();
+    this.lock.acquire();
+    try {
+      this.healthServer = this.healthServerFactory({
+        host: this.config.healthHost,
+        port: this.config.healthPort,
+        snapshot: () => this.snapshot(),
+      });
+      const address = await this.healthServer.listen();
+      this.running = true;
+      this.logger.info('RUNTIME_STARTED', {
+        workerId: this.config.workerId,
+        instanceId: this.instanceId,
+        version: this.config.version,
+        healthHost: this.config.healthHost,
+        healthPort: address?.port || this.config.healthPort,
+        globalConcurrency: this.config.globalConcurrency,
+        externalNotificationsEnabled: this.config.externalNotificationsEnabled,
+      });
+      await this.tickWorkerHeartbeat('STARTING');
+      this.starting = false;
+      this.transitionIfNeeded('startup-complete');
+      if (this.failures.has('worker-heartbeat')) this.installTimeout(() => this.tickWorkerHeartbeat(), 5_000);
+      this.installTimer(() => this.tickPoll(), this.config.pollIntervalMs);
+      this.installTimer(() => this.tickWorkerHeartbeat(), this.config.workerHeartbeatIntervalMs);
+      this.installTimer(() => this.tickReconcile(), this.config.reconcileIntervalMs);
+      this.installTimer(() => this.tickSchedule(), this.config.scheduleIntervalMs);
+      if (runImmediately) {
+        void this.tickReconcile();
+        void this.tickSchedule();
+        void this.tickPoll();
+      }
+      return this.snapshot();
+    } catch (error) {
+      this.running = false;
+      try { await this.healthServer?.close(); } catch {}
+      this.lock.release();
+      throw error;
+    }
+  }
+
+  async tickWorkerHeartbeat(forcedState) {
+    if (!this.running || this.workerHeartbeating) return null;
+    this.workerHeartbeating = true;
+    try {
+      const result = await this.api.workerHeartbeat(this.heartbeatPayload(forcedState));
+      this.lastWorkerHeartbeatAt = this.now().toISOString();
+      this.markSuccess('worker-heartbeat');
+      return result;
+    } catch (error) {
+      this.markFailure('worker-heartbeat', error);
+      return null;
+    } finally {
+      this.workerHeartbeating = false;
+    }
+  }
+
+  async tickReconcile() {
+    if (!this.running || this.draining || this.reconciling) return null;
+    this.reconciling = true;
+    try {
+      const result = await this.api.reconcile();
+      this.markSuccess('reconcile');
+      return result;
+    } catch (error) {
+      this.markFailure('reconcile', error);
+      return null;
+    } finally {
+      this.reconciling = false;
+    }
+  }
+
+  async tickSchedule() {
+    if (!this.running || this.draining || this.scheduling) return null;
+    this.scheduling = true;
+    try {
+      const result = await this.api.schedule();
+      this.markSuccess('schedule');
+      return result;
+    } catch (error) {
+      this.markFailure('schedule', error);
+      return null;
+    } finally {
+      this.scheduling = false;
+    }
+  }
+
+  agentAlreadyActive(agentId) {
+    return [...this.activeWork.values()].some((entry) => entry.claim.agentId === agentId);
+  }
+
+  async rejectUnsafeClaim(claim, code, message, retryable = true) {
+    this.logger.error('RUNTIME_CLAIM_REJECTED', { code, requestId: claim?.requestId || null, agentId: claim?.agentId || null });
+    if (!claim?.leaseToken || !claim?.requestId || !claim?.caseId || !claim?.workItemId) return;
+    try {
+      await this.api.fail(claim, { code, message, retryable });
+      this.markSuccess('claim-rejection');
+    } catch (error) {
+      this.markFailure('claim-rejection', error);
+    }
+  }
+
+  startClaim(claim) {
+    const key = workKey(claim);
+    const startedAt = this.now().toISOString();
+    const controller = new AbortController();
+    const execution = Promise.resolve()
+      .then(() => this.processor.runClaim(claim, { signal: controller.signal }))
+      .then((result) => {
+        this.observeModelResult(result);
+        this.logger.info('RUNTIME_CLAIM_FINISHED', {
+          requestId: claim.requestId,
+          workItemId: claim.workItemId || null,
+          agentId: claim.agentId,
+          status: result?.status || 'UNKNOWN',
+        });
+        return result;
+      })
+      .catch((error) => {
+        const failure = safeFailure(error);
+        this.observeModelResult({ status: 'FAILED', error: failure });
+        this.logger.error('RUNTIME_CLAIM_CRASHED', {
+          requestId: claim.requestId || null,
+          workItemId: claim.workItemId || null,
+          agentId: claim.agentId || null,
+          code: failure.code,
+          message: failure.message,
+        });
+        return { status: 'FAILED', error: failure };
+      })
+      .finally(() => {
+        this.activeWork.delete(key);
+        this.transitionIfNeeded('claim-finished');
+        if (this.running && !this.draining) queueMicrotask(() => void this.tickPoll());
+      });
+    this.activeWork.set(key, { claim, startedAt, execution, controller });
+    this.logger.info('RUNTIME_CLAIM_STARTED', {
+      requestId: claim.requestId,
+      workItemId: claim.workItemId || null,
+      agentId: claim.agentId,
+      activeCount: this.activeWork.size,
+    });
+    this.transitionIfNeeded('claim-started');
+    return execution;
+  }
+
+  async tickPoll() {
+    if (!this.running || this.draining || this.polling) return null;
+    this.polling = true;
+    let claimed = 0;
+    let attempts = 0;
+    const maxAttempts = this.config.globalConcurrency * 4;
+    try {
+      while (!this.draining && this.activeWork.size < this.config.globalConcurrency && attempts < maxAttempts) {
+        attempts += 1;
+        const claim = await this.api.claim();
+        this.markSuccess('claim');
+        if (claim === null) break;
+        try {
+          assertRuntimeClaim(claim);
+        } catch (error) {
+          const failure = safeFailure(error);
+          await this.rejectUnsafeClaim(claim, failure.code, failure.message, false);
+          continue;
+        }
+        if (!this.config.allowedAgentIds.includes(claim.agentId)) {
+          await this.rejectUnsafeClaim(claim, 'AGENT_NOT_ALLOWED', 'Claimed agent is not installed on this worker');
+          continue;
+        }
+        const key = workKey(claim);
+        if (this.activeWork.has(key)) {
+          await this.rejectUnsafeClaim(claim, 'DUPLICATE_LOCAL_CLAIM', 'Work item is already active on this runtime');
+          continue;
+        }
+        if (this.agentAlreadyActive(claim.agentId)) {
+          await this.rejectUnsafeClaim(claim, 'AGENT_CONCURRENCY_EXCEEDED', 'Agent concurrency is limited to one');
+          continue;
+        }
+        this.startClaim(claim);
+        claimed += 1;
+      }
+      if (attempts === maxAttempts && this.activeWork.size < this.config.globalConcurrency) {
+        this.logger.warn('RUNTIME_POLL_ATTEMPT_LIMIT', { attempts, claimed });
+      }
+      return { claimed, attempts };
+    } catch (error) {
+      this.markFailure('claim', error);
+      return null;
+    } finally {
+      this.polling = false;
+      this.transitionIfNeeded('poll-complete');
+    }
+  }
+
+  async sendTerminalHeartbeat(state) {
+    try {
+      await this.api.workerHeartbeat(this.heartbeatPayload(state));
+      this.lastWorkerHeartbeatAt = this.now().toISOString();
+    } catch (error) {
+      this.markFailure('worker-heartbeat', error);
+    }
+  }
+
+  async stop(reason = 'SIGTERM') {
+    if (this.stopped) return { drained: true, activeRemaining: 0 };
+    if (this.draining) return { drained: false, activeRemaining: this.activeWork.size };
+    this.draining = true;
+    this.clearTimers();
+    this.transitionIfNeeded(reason);
+    this.logger.info('RUNTIME_DRAINING', { reason, activeCount: this.activeWork.size, timeoutMs: this.config.shutdownGraceMs });
+    await this.sendTerminalHeartbeat('DRAINING');
+
+    const executions = [...this.activeWork.values()].map((entry) => entry.execution);
+    let drained = executions.length === 0;
+    if (!drained) {
+      drained = await Promise.race([
+        Promise.allSettled(executions).then(() => true),
+        this.sleep(this.config.shutdownGraceMs).then(() => false),
+      ]);
+    }
+    if (!drained) this.logger.warn('RUNTIME_DRAIN_TIMEOUT', { activeRemaining: this.activeWork.size });
+    if (!drained) {
+      for (const entry of this.activeWork.values()) entry.controller.abort();
+      const cleanupWaitMs = Math.min(10_000, Math.max(2_000, Math.trunc(this.config.shutdownGraceMs / 3)));
+      await Promise.race([
+        Promise.allSettled([...this.activeWork.values()].map((entry) => entry.execution)),
+        this.sleep(cleanupWaitMs),
+      ]);
+      drained = this.activeWork.size === 0;
+      if (!drained) this.logger.error('RUNTIME_ABORT_CLEANUP_TIMEOUT', { activeRemaining: this.activeWork.size, cleanupWaitMs });
+    }
+    await this.sendTerminalHeartbeat('STOPPED');
+    this.running = false;
+    this.stopped = true;
+    this.draining = false;
+    this.transitionIfNeeded('shutdown-complete');
+    try { await this.healthServer?.close(); } finally { this.lock.release(); }
+    this.logger.info('RUNTIME_STOPPED', { drained, activeRemaining: this.activeWork.size });
+    return { drained, activeRemaining: this.activeWork.size };
+  }
+}

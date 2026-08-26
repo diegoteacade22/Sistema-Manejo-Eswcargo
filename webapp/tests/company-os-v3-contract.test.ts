@@ -16,9 +16,12 @@ import {
 } from '../lib/company-os/v3-types';
 
 test('solicitudes y misiones conservan ciclos tipados independientes', () => {
-  assert.deepEqual(COMPANY_OS_REQUEST_STATUSES, ['QUEUED','ANALYZING','AWAITING_REVIEW','BLOCKED','FAILED','CANCELLED','COMPLETED']);
+  assert.deepEqual(COMPANY_OS_REQUEST_STATUSES, [
+    'QUEUED','CLAIMED','RUNNING','NEEDS_REVIEW','COMPLETED','BLOCKED',
+    'FAILED_RETRYABLE','FAILED_FINAL','CANCELLED','ANALYZING','AWAITING_REVIEW','FAILED',
+  ]);
   assert.deepEqual(COMPANY_OS_MISSION_STATUSES, ['PLANNED','APPROVED','REJECTED','REVIEW','BLOCKED','RUNNING','DONE']);
-  assert.equal(COMPANY_OS_REQUEST_STATUSES.includes('RUNNING' as never), false);
+  assert.equal(COMPANY_OS_REQUEST_STATUSES.includes('RUNNING'), true);
   assert.equal(COMPANY_OS_REQUEST_STATUSES.includes('DONE' as never), false);
   assert.equal(COMPANY_OS_MISSION_STATUSES.includes('COMPLETED' as never), false);
 });

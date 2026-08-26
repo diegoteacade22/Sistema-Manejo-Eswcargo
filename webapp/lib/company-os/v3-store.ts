@@ -3,6 +3,8 @@ import { Prisma, type CompanyOsCase } from '@prisma/client';
 import { buildCompanySnapshot } from './live-snapshot';
 import { sanitizeCompanyObjective, sanitizeCompanyText } from './objective';
 import { buildSystemsSnapshot } from './systems-snapshot';
+import { getCompanyOsScheduleObjective } from './runtime-contracts';
+import { enqueueInitialRuntimeWorkItem, isCompanyOsRuntimeAgentInstalled } from './runtime-store';
 import { signCompanyOsWorkerPayload } from './v3-auth';
 import { companyOsV3Prisma } from './v3-prisma';
 import {
@@ -24,7 +26,7 @@ import {
 const LEASE_MS = 4 * 60 * 1000;
 const WORKER_REF = 'hostinger-company-os-v3';
 const GLOBAL_LOCK_ID = '__COMPANY_OS_V3_GLOBAL__';
-const TERMINAL_REQUEST_STATUSES = new Set<CompanyOsRequestStatus>(['FAILED', 'CANCELLED', 'COMPLETED']);
+const TERMINAL_REQUEST_STATUSES = new Set<CompanyOsRequestStatus>(['FAILED', 'FAILED_FINAL', 'CANCELLED', 'COMPLETED']);
 
 type Tx = Prisma.TransactionClient;
 type Identity = { authMode: string; actorRef: string };
@@ -266,6 +268,7 @@ export async function createCompanyOsCase(
   const budgets = companyOsV3BudgetConfig();
   if (!sanitized.safeObjective) throw new Error('La orden no puede quedar vacía');
   if (!COMPANY_OS_AGENT_IDS.includes(agentId)) throw new Error('Agente Company OS inválido');
+  if (!isCompanyOsRuntimeAgentInstalled(agentId)) throw new Error(`Agente ${agentId} NOT_INSTALLED`);
   if (!/^[A-Z][A-Z0-9_]{1,63}$/.test(caseType)) throw new Error('caseType inválido');
   const systemsManager = agentId === 'systems-manager-ai-v1';
   const contract = COMPANY_OS_AGENT_CONTRACTS[agentId];
@@ -300,8 +303,17 @@ export async function createCompanyOsCase(
       targetTotalTokens: budgets.targetTotalTokens,
       webhookDeliveryStatus: blocked ? 'FAILED' : 'PENDING',
     } });
-    await tx.companyOsMessage.create({ data: {
+    const initialMessage = await tx.companyOsMessage.create({ data: {
       caseId: companyCase.id, role: 'USER', kind: 'ORDER', content: sanitized.safeObjective, actorRef: identity.actorRef,
+      fromAgentId: null,
+      toAgentId: agentId,
+      messageType: scheduleRunKey ? 'SCHEDULE_ORDER' : 'HUMAN_ORDER',
+      payload: jsonValue({ objective: sanitized.safeObjective }),
+      correlationId: requestId,
+      deliveryStatus: 'DELIVERED',
+      idempotencyKey: `message:${requestId}:initial`,
+      expectsResponse: true,
+      deliveredAt: new Date(),
     } });
     const refs = Object.entries(evidence.payload).map(([evidenceKey, value]) => ({
       caseId: companyCase.id,
@@ -318,6 +330,17 @@ export async function createCompanyOsCase(
         { id: companyCase.id, requestId, caseType },
         snapshot as Awaited<ReturnType<typeof buildSystemsSnapshot>>,
       );
+    }
+    if (!blocked) {
+      await enqueueInitialRuntimeWorkItem(tx, {
+        caseId: companyCase.id,
+        requestId,
+        agentId,
+        objective: sanitized.safeObjective,
+        causalMessageId: initialMessage.id,
+        triggerType: scheduleRunKey ? 'SCHEDULE' : relatedRequestId ? 'EVENT' : 'MANUAL',
+        reservedTokens: budgets.targetTotalTokens,
+      });
     }
     await appendCaseEvent(tx, {
       caseId: companyCase.id, requestId, eventType: blocked ? 'CASE_BLOCKED_INPUT_BUDGET' : 'CASE_QUEUED', toStatus: blocked ? 'BLOCKED' : 'QUEUED',
@@ -336,6 +359,9 @@ export async function createCompanyOsCase(
 }
 
 export async function dispatchCompanyOsWebhook(companyCase: Pick<CompanyOsCase, 'id' | 'requestId' | 'agentId'>) {
+  if ((process.env.COMPANY_OS_RUNTIME_DISPATCH_MODE ?? 'POLL').trim().toUpperCase() === 'POLL') {
+    return { status: 'SKIPPED' as const, responseCode: null, errorDetail: 'DURABLE_POLL_QUEUE' };
+  }
   const db = companyOsV3Prisma();
   const baseUrl = (process.env.COMPANY_OS_V3_WORKER_URL ?? '').trim().replace(/\/$/, '');
   const body = JSON.stringify({ requestId: companyCase.requestId });
@@ -374,16 +400,16 @@ export async function dispatchCompanyOsWebhook(companyCase: Pick<CompanyOsCase, 
   return { status, responseCode, errorDetail };
 }
 
-type DueSchedule = { id: string; agentId: string; scheduleKey: string; cadence: string; caseType: string; timeZone: string };
+type DueSchedule = { id: string; agentId: string; scheduleKey: string; revision: number; cadence: string; caseType: string; timeZone: string };
 
 function dateInTimeZone(timeZone: string) {
   return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 }
 
-export async function runDueCompanyOsSchedules() {
+export async function runDueCompanyOsSchedules(actorRef = 'diegoserver-company-os-runtime') {
   const db = companyOsV3Prisma();
   const due = await db.$queryRaw<DueSchedule[]>(Prisma.sql`
-    SELECT id, "agentId", "scheduleKey", cadence, "caseType", "timeZone"
+    SELECT id, "agentId", "scheduleKey", revision, cadence, "caseType", "timeZone"
     FROM public."CompanyOsAgentSchedule"
     WHERE enabled = true AND "nextRunAt" <= now()
     ORDER BY "nextRunAt" ASC
@@ -391,15 +417,15 @@ export async function runDueCompanyOsSchedules() {
   `);
   const results = [];
   for (const schedule of due) {
-    if (!COMPANY_OS_AGENT_IDS.includes(schedule.agentId as CompanyOsAgentId)) continue;
+    if (!isCompanyOsRuntimeAgentInstalled(schedule.agentId)) continue;
     const runDate = dateInTimeZone(schedule.timeZone);
-    const scheduleRunKey = `${schedule.agentId}:${schedule.cadence}:${runDate}`;
+    const scheduleRunKey = `${schedule.agentId}:${schedule.scheduleKey}:v${schedule.revision}:${runDate}`;
     let companyCase: CompanyOsCase;
     let reused = false;
     try {
       companyCase = await createCompanyOsCase(
-        'Actualizá determinísticamente el inventario técnico, la salud, la cobertura y los riesgos observables. No ejecutes cambios ni reveles secretos.',
-        { authMode: 'hmac-worker-schedule', actorRef: WORKER_REF },
+        getCompanyOsScheduleObjective(schedule.agentId),
+        { authMode: 'hmac-runtime-schedule', actorRef },
         undefined,
         schedule.agentId as CompanyOsAgentId,
         schedule.caseType,
@@ -410,7 +436,7 @@ export async function runDueCompanyOsSchedules() {
       companyCase = await db.companyOsCase.findUniqueOrThrow({ where: { scheduleRunKey } });
       reused = true;
     }
-    const delivery = reused ? null : await dispatchCompanyOsWebhook(companyCase);
+    const delivery = null;
     await db.$executeRaw(Prisma.sql`
       UPDATE public."CompanyOsAgentSchedule"
       SET "lastRunAt" = now(),
@@ -855,8 +881,29 @@ export async function cancelCompanyOsCase(requestId: string, reason: string, ide
     const companyCase = await tx.companyOsCase.findUniqueOrThrow({ where: { requestId } });
     const fromStatus = companyCase.status as CompanyOsRequestStatus;
     if (TERMINAL_REQUEST_STATUSES.has(fromStatus)) return { reused: true, status: fromStatus };
+    const now = new Date();
+    const activeRuntimeLeases = await tx.companyOsLease.findMany({
+      where: { caseId: companyCase.id, status: 'ACTIVE' },
+      select: { leaseToken: true },
+    });
     await tx.companyOsCase.update({ where: { id: companyCase.id }, data: { status: 'CANCELLED', cancellationReason: reason.slice(0, 500) } });
-    await tx.companyOsLease.updateMany({ where: { caseId: companyCase.id, status: 'ACTIVE' }, data: { status: 'RELEASED', releasedAt: new Date() } });
+    await tx.companyOsWorkItem.updateMany({
+      where: {
+        caseId: companyCase.id,
+        status: { in: ['QUEUED', 'CLAIMED', 'RUNNING', 'FAILED_RETRYABLE', 'BLOCKED', 'NEEDS_REVIEW'] },
+      },
+      data: { status: 'CANCELLED', completedAt: now, nextAttemptAt: null },
+    });
+    await tx.companyOsExecutionAttempt.updateMany({
+      where: { caseId: companyCase.id, finishedAt: null },
+      data: { outcome: 'CANCELLED', errorCode: 'HUMAN_CANCELLED', detail: 'Caso cancelado por control humano', finishedAt: now },
+    });
+    await tx.companyOsLease.updateMany({ where: { caseId: companyCase.id, status: 'ACTIVE' }, data: { status: 'RELEASED', releasedAt: now } });
+    const leaseTokens = activeRuntimeLeases.map((lease) => lease.leaseToken);
+    if (leaseTokens.length > 0) await tx.companyOsRuntimeSlot.updateMany({
+      where: { leaseToken: { in: leaseTokens } },
+      data: { leaseToken: null, agentId: null, workerId: null, expiresAt: null },
+    });
     const requestLock = await tx.companyOsLock.findUnique({ where: { requestId }, select: { ownerToken: true } });
     if (requestLock) await tx.companyOsLock.deleteMany({ where: { ownerToken: { in: [requestLock.ownerToken, `${requestLock.ownerToken}:global`] } } });
     await appendCaseEvent(tx, {
@@ -998,7 +1045,8 @@ export async function decideCompanyOsMission(input: {
         if (input.decision === 'MARK_INCORRECT' && !decisionDetail.reason) throw new Error('Debe indicar qué información es incorrecta');
         const openReviewsBefore = await tx.companyOsMission.count({ where: { caseId: mission.caseId, status: { in: ['PLANNED', 'REVIEW'] } } });
         const openReviewsAfter = ['PLANNED', 'REVIEW'].includes(target) ? openReviewsBefore : Math.max(0, openReviewsBefore - 1);
-        const resultingCaseStatus = openReviewsAfter === 0 && mission.caseStatus === 'AWAITING_REVIEW' ? 'COMPLETED' : mission.caseStatus;
+        const isReviewCase = ['AWAITING_REVIEW', 'NEEDS_REVIEW'].includes(mission.caseStatus);
+        const resultingCaseStatus = openReviewsAfter === 0 && isReviewCase ? 'COMPLETED' : mission.caseStatus;
         const lockedMission = { id: mission.id, caseId: mission.caseId, title: mission.title, rationale: mission.rationale, expectedOutput: mission.expectedOutput, status: mission.status, createdAt: mission.createdAt, updatedAt: mission.updatedAt };
         const result = { mission: { ...lockedMission, ...missionUpdate }, caseStatus: resultingCaseStatus, executionAuthorized: false as const };
         await tx.companyOsDecision.create({ data: {
@@ -1018,11 +1066,11 @@ export async function decideCompanyOsMission(input: {
           idempotencyKey: `audit:${input.requestId}:mission:${input.idempotencyKey}`,
         } });
         const openReviews = await tx.companyOsMission.count({ where: { caseId: mission.caseId, status: { in: ['PLANNED', 'REVIEW'] } } });
-        if (openReviews === 0 && mission.caseStatus === 'AWAITING_REVIEW') {
+        if (openReviews === 0 && ['AWAITING_REVIEW', 'NEEDS_REVIEW'].includes(mission.caseStatus)) {
           await tx.companyOsCase.update({ where: { id: mission.caseId }, data: { status: 'COMPLETED', completedAt: new Date() } });
           await appendCaseEvent(tx, {
             caseId: mission.caseId, requestId: input.requestId, eventType: 'CASE_COMPLETED',
-            fromStatus: 'AWAITING_REVIEW', toStatus: 'COMPLETED', payload: { reason: 'HUMAN_REVIEW_CLOSED', executionAuthorized: false },
+            fromStatus: mission.caseStatus, toStatus: 'COMPLETED', payload: { reason: 'HUMAN_REVIEW_CLOSED', executionAuthorized: false },
             idempotencyKey: `case:${input.requestId}:human-review-completed`,
           });
         }

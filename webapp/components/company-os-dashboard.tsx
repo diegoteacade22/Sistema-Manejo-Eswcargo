@@ -38,12 +38,18 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { CompanyOsRuntimeControlCenter } from "@/components/company-os-runtime-control-center";
 
 type RequestStatus =
   | "QUEUED"
+  | "CLAIMED"
+  | "RUNNING"
+  | "NEEDS_REVIEW"
   | "ANALYZING"
   | "AWAITING_REVIEW"
   | "BLOCKED"
+  | "FAILED_RETRYABLE"
+  | "FAILED_FINAL"
   | "FAILED"
   | "CANCELLED"
   | "COMPLETED";
@@ -167,13 +173,18 @@ type CaseSummary = {
   }>;
 };
 
-const activeStatuses = new Set<RequestStatus>(["QUEUED", "ANALYZING"]);
+const activeStatuses = new Set<RequestStatus>(["QUEUED", "CLAIMED", "RUNNING", "ANALYZING", "FAILED_RETRYABLE"]);
 const reviewMissionStatuses = new Set<MissionStatus>(["PLANNED", "REVIEW"]);
 const statusColor: Record<RequestStatus, string> = {
   QUEUED: "border-sky-500/40 text-sky-300",
+  CLAIMED: "border-cyan-500/40 text-cyan-300",
+  RUNNING: "border-violet-500/40 text-violet-300",
+  NEEDS_REVIEW: "border-amber-500/40 text-amber-300",
   ANALYZING: "border-violet-500/40 text-violet-300",
   AWAITING_REVIEW: "border-amber-500/40 text-amber-300",
   BLOCKED: "border-orange-500/40 text-orange-300",
+  FAILED_RETRYABLE: "border-orange-500/40 text-orange-300",
+  FAILED_FINAL: "border-red-500/40 text-red-300",
   FAILED: "border-red-500/40 text-red-300",
   CANCELLED: "border-slate-500/40 text-slate-400",
   COMPLETED: "border-emerald-500/40 text-emerald-300",
@@ -1009,6 +1020,7 @@ export function CompanyOsDashboard() {
 
         {view === "Resumen" && (
           <div className="space-y-5">
+            <CompanyOsRuntimeControlCenter />
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Card
                 role="button"
@@ -1092,8 +1104,8 @@ export function CompanyOsDashboard() {
                 role="button"
                 tabIndex={0}
                 onClick={() => setDetail({
-                  title: "Auditoría persistida",
-                  description: "Resumen de eventos y escrituras detectadas en los casos cargados.",
+                  title: "Auditoría interna persistida",
+                  description: "Resumen autorreportado por los eventos de los casos cargados; no reemplaza un readback DML independiente.",
                   lines: [
                     `Escrituras empresariales: ${audit.businessWrites}`,
                     `Cambios de infraestructura: ${audit.infrastructureWrites}`,
@@ -1104,9 +1116,9 @@ export function CompanyOsDashboard() {
                 className="cursor-pointer border-white/10 bg-slate-950/80 text-slate-100 transition hover:border-cyan-400/50"
               >
                 <CardHeader>
-                  <CardDescription>Auditoría persistida</CardDescription>
+                  <CardDescription>Auditoría interna persistida</CardDescription>
                   <CardTitle>
-                    {audit.businessWrites} escrituras empresariales
+                    {audit.businessWrites} escrituras empresariales declaradas
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="text-xs text-slate-400">
@@ -1165,8 +1177,8 @@ export function CompanyOsDashboard() {
                 {audit.auditCoverageComplete &&
                 audit.businessWrites === 0 &&
                 audit.infrastructureWrites === 0
-                  ? "Cero escrituras verificadas por auditoría"
-                  : "Revisar cobertura de auditoría"}
+                  ? "Auditoría interna sin escrituras declaradas"
+                  : "Revisar cobertura de auditoría interna"}
               </Badge>
               <Badge variant="outline" className="justify-center p-3">
                 {totals.tokens.toLocaleString()} tokens

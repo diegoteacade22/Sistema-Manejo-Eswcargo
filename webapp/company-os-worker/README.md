@@ -1,11 +1,14 @@
 # Company OS V3 Worker
 
-Worker Node.js puro para Hostinger. Tiene dos modos exclusivos:
+Worker Node.js puro compartido por el despliegue Hostinger existente y el runtime genérico de macOS. Tiene tres modos exclusivos:
 
 - `serve`: escucha `POST /webhook`, valida HMAC y procesa webhooks con concurrencia 1.
 - `recover`: reclama como máximo un caso sin enviar `requestId`; un `204` termina sin llamar OpenAI. El timer repite esta ejecución.
+- `daemon`: runtime Mac 24/7 con polling, heartbeat aun en `IDLE`, reconcile/schedule, health sólo en loopback, lock de instancia, logs JSON rotativos y drenaje de hasta 30 segundos.
 
 El servicio webhook y el timer de recovery deben quedar habilitados simultáneamente. La API conserva la autoridad final sobre lease e idempotencia; el mapa en memoria del webhook sólo evita reclamos duplicados dentro del mismo proceso.
+
+`serve` y `recover` mantienen el contrato V3 de Hostinger. `daemon` usa exclusivamente `/api/company-os/runtime/v1/*`; no reemplaza ni modifica los servicios de Hostinger/GitHub.
 
 ## Variables
 
@@ -37,6 +40,17 @@ Entradas y llamadas salientes usan:
 
 Todas las llamadas del worker a `/api/company-os/v3/worker/*` se firman sobre el JSON exacto enviado.
 
+### Runtime v2
+
+El modo `daemon` firma cada request con un nonce nuevo:
+
+- headers `X-Company-OS-Worker-Id`, `X-Company-OS-Nonce`, `X-Company-OS-Timestamp`, `X-Company-OS-Signature-Version: v2` y `X-Company-OS-Signature`;
+- mensaje exacto `${workerId}.${nonce}.${timestamp}.${rawBody}`;
+- secreto `COMPANY_OS_RUNTIME_HMAC_SECRET`;
+- el servidor debe rechazar timestamps fuera de tolerancia y nonces ya consumidos.
+
+Los endpoints son `claim`, `heartbeat`, `complete`, `fail`, `worker-heartbeat`, `reconcile` y `schedule` bajo `/api/company-os/runtime/v1/`. El `claim` envía `{workerId,instanceId}` y un `204` representa cola vacía.
+
 ## Flujo
 
 1. Webhook válido encola un `requestId`; duplicados recientes reciben `202` con `deduped: true`.
@@ -57,6 +71,16 @@ npm test
 ```
 
 Las pruebas usan servidores/fetch locales simulados; no llaman producción ni OpenAI.
+
+## Runtime Mac 24/7
+
+La instalación operativa está documentada en [`company-os/runtime/README.md`](../../company-os/runtime/README.md). El único punto de administración es:
+
+```bash
+company-os/runtime/manage.sh install|status|doctor|restart|uninstall|rollback
+```
+
+`install` obtiene las credenciales por nombre desde macOS Keychain, crea un backup previo y luego instala una copia aislada bajo `~/.company-os-runtime`. No se guardan secretos en el plist ni en los logs. Las notificaciones externas quedan apagadas en esta instalación.
 
 ## Hostinger
 

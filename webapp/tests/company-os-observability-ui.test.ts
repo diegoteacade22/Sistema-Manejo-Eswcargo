@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { deriveAuditSummary, deriveCompanyOsGlobalState } from '../components/company-os-dashboard';
+import { CompanyOsRuntimeControlCenter, flattenRuntimeAgentHierarchy, normalizeRuntimeControlCenterSnapshot } from '../components/company-os-runtime-control-center';
 import { buildSystemsSnapshot, SYSTEMS_OBSERVATION_MODES } from '../lib/company-os/systems-snapshot';
 
 type DashboardCases = Parameters<typeof deriveCompanyOsGlobalState>[0];
@@ -58,6 +61,64 @@ test('estado global deriva IDLE, WORKING, WAITING, DEGRADED y OFFLINE', () => {
   ],now).state,'IDLE');
 });
 
+test('centro runtime conserva UNKNOWN, UNOBSERVED y NOT_INSTALLED sin inferir OFFLINE', () => {
+  const snapshot=normalizeRuntimeControlCenterSnapshot({
+    generatedAt:'2026-08-25T23:00:00.000Z',
+    runtime:{paused:false,globalConcurrency:2},
+    workers:[
+      {workerId:'worker-unknown',host:'Mac mini',state:'OFFLINE',currentWork:undefined},
+      {workerId:'worker-stopped',host:'Mac mini',state:'STOPPED',currentWork:null},
+    ],
+    agents:[
+      {agentId:'general-manager',name:'Gerente General',installationStatus:'INSTALLED',status:'IDLE'},
+      {agentId:'procurement-manager',name:'Gerente de Compras',reportsToAgentId:'general-manager',installationStatus:'NOT_INSTALLED',status:'UNKNOWN'},
+    ],
+    queue:{queued:0,claimed:0,running:0,needsReview:0,blocked:0,failedRetryable:0,failedFinal:0},
+    schedules:[],
+    usage:{dailyTokens:0,dailyCostUsd:0,monthlyTokens:0,monthlyCostUsd:0,byAgentModel:[]},
+    incidents:[],
+    dependencies:[
+      {key:'supabase',status:'HEALTHY',observedAt:null,latencyMs:null},
+      {key:'worker-api',status:'HEALTHY',observedAt:'2026-08-25T22:59:59.000Z',latencyMs:12},
+    ],
+    messages:[],
+  });
+  assert.equal(snapshot.workers[0].state,'UNKNOWN');
+  assert.equal(snapshot.workers[1].state,'STOPPED');
+  assert.equal(snapshot.agents[1].installationStatus,'NOT_INSTALLED');
+  assert.equal(snapshot.dependencies[0].status,'UNOBSERVED');
+  assert.equal(snapshot.dependencies[1].status,'HEALTHY');
+  assert.deepEqual(
+    flattenRuntimeAgentHierarchy(snapshot.agents).map(({agent,depth})=>[agent.agentId,depth]),
+    [['general-manager',0],['procurement-manager',1]],
+  );
+});
+
+test('centro runtime usa polling de 15 segundos y controles humanos idempotentes', () => {
+  const source=readFileSync('components/company-os-runtime-control-center.tsx','utf8');
+  const dashboard=readFileSync('components/company-os-dashboard.tsx','utf8');
+  assert.match(source,/\/api\/company-os\/runtime\/v1\/control-center/);
+  assert.match(source,/\/api\/company-os\/runtime\/v1\/control/);
+  assert.match(source,/POLL_INTERVAL_MS = 15_000/);
+  assert.match(source,/"PAUSE" \| "RESUME" \| "RETRY_CASE"/);
+  assert.match(source,/idempotencyKey: `ui:\$\{crypto\.randomUUID\(\)\}`/);
+  assert.match(source,/observation === "OBSERVED"/);
+  assert.doesNotMatch(source,/workerStates[\s\S]*"OFFLINE"/);
+  assert.match(dashboard,/CompanyOsRuntimeControlCenter/);
+});
+
+test('centro runtime inicia sin convertir telemetría ausente en estado operativo', () => {
+  const markup=renderToStaticMarkup(createElement(CompanyOsRuntimeControlCenter));
+  assert.match(markup,/Centro de Control runtime/);
+  assert.match(markup,/API LOADING/);
+  assert.match(markup,/Runtime UNKNOWN/);
+  assert.match(markup,/No hay workers observados/);
+  assert.match(markup,/Schedules UNOBSERVED/);
+  assert.match(markup,/Incidentes UNOBSERVED/);
+  assert.match(markup,/Mensajes UNOBSERVED/);
+  assert.doesNotMatch(markup,/Runtime ENABLED/);
+});
+
 test('auditoría visible se deriva de eventos y estados, no de texto constante', () => {
   const clean=[companyCase({event:'ANALYSIS_COMPLETED',mission:'APPROVED'})];
   assert.deepEqual(deriveAuditSummary(clean),{events:1,executionStates:0,advisoryOnly:true,auditEvents:1,businessWrites:0,infrastructureWrites:0,auditCoverageComplete:true});
@@ -69,7 +130,8 @@ test('auditoría visible se deriva de eventos y estados, no de texto constante',
   assert.match(source,/"Resumen"\s*,\s*"Inbox"\s*,\s*"Caso"\s*,\s*"Sistemas"/); assert.match(source,/<details/); assert.match(source,/Score \$\{risk\.priority\}/);
   assert.match(source,/names\.get\(item\.sourceAssetId\)/);
   assert.match(source,/setAllCases\(received\)/); assert.match(source,/deriveCompanyOsGlobalState\(sourceCases\)/);
-  assert.match(source,/Cero escrituras verificadas por auditoría/);
+  assert.doesNotMatch(source,/Cero escrituras verificadas por auditoría/);
+  assert.match(source,/Auditoría interna sin escrituras declaradas/);
   const storeSource=readFileSync('lib/company-os/v3-store.ts','utf8');
   assert.match(storeSource,/auditsByRequest/); assert.match(storeSource,/auditEvents:/);
 });
