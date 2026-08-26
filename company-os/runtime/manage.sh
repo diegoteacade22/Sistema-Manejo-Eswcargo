@@ -241,6 +241,18 @@ bootout_if_loaded() {
   launchctl bootout "gui/$(id -u)/$LAUNCH_LABEL" >/dev/null 2>&1 || true
 }
 
+bootstrap_service() {
+  local attempt output=""
+  for attempt in {1..10}; do
+    if output="$(launchctl bootstrap "gui/$(id -u)" "$PLIST" 2>&1)"; then
+      return 0
+    fi
+    [[ "$attempt" -lt 10 ]] && sleep 1
+  done
+  [[ -n "$output" ]] && print -r -- "$output" >&2
+  return 1
+}
+
 wait_for_health() {
   local attempt
   for attempt in {1..20}; do
@@ -315,11 +327,11 @@ install_action() {
   mv "$stage/launchd.plist" "$PLIST"
   chmod 700 "$CURRENT_DIR/manage.sh"
 
-  if ! launchctl bootstrap "gui/$(id -u)" "$PLIST"; then
+  if ! bootstrap_service; then
     [[ -d "$CURRENT_DIR" ]] && mv "$CURRENT_DIR" "$backup/failed-current"
     [[ -f "$PLIST" ]] && mv "$PLIST" "$backup/failed-launchd.plist"
     restore_snapshot "$backup"
-    [[ -f "$PLIST" ]] && launchctl bootstrap "gui/$(id -u)" "$PLIST" >/dev/null 2>&1 || true
+    [[ -f "$PLIST" ]] && bootstrap_service >/dev/null 2>&1 || true
     die "launchctl bootstrap falló; snapshot anterior restaurado desde $backup"
   fi
   launchctl kickstart "gui/$(id -u)/$LAUNCH_LABEL"
@@ -329,7 +341,7 @@ install_action() {
     [[ -f "$PLIST" ]] && mv "$PLIST" "$backup/failed-health-launchd.plist"
     restore_snapshot "$backup"
     if [[ -f "$PLIST" && -f "$CURRENT_DIR/worker/src/server.mjs" ]]; then
-      launchctl bootstrap "gui/$(id -u)" "$PLIST" >/dev/null 2>&1 || true
+      bootstrap_service >/dev/null 2>&1 || true
       launchctl kickstart "gui/$(id -u)/$LAUNCH_LABEL" >/dev/null 2>&1 || true
     fi
     die "launchd cargó pero no confirmó heartbeat remoto y estado operativo; snapshot anterior restaurado desde $backup"
@@ -341,9 +353,7 @@ restart_action() {
   validate_state_dir
   service_loaded || die "Servicio no cargado: $LAUNCH_LABEL"
   [[ -f "$PLIST" ]] || die "Falta plist instalado: $PLIST"
-  bootout_if_loaded
-  launchctl bootstrap "gui/$(id -u)" "$PLIST"
-  launchctl kickstart "gui/$(id -u)/$LAUNCH_LABEL"
+  launchctl kickstart -k "gui/$(id -u)/$LAUNCH_LABEL"
   wait_for_health || die "Restart ejecutado pero no confirmó heartbeat remoto y estado operativo en puerto $RUNTIME_HEALTH_PORT"
   say "RESTART_OK"
 }
@@ -380,11 +390,11 @@ rollback_action() {
   [[ -f "$PLIST" ]] && mv "$PLIST" "$safety/displaced-launchd.plist"
   restore_snapshot "$target"
   if [[ -f "$PLIST" && -f "$CURRENT_DIR/worker/src/server.mjs" ]]; then
-    if ! launchctl bootstrap "gui/$(id -u)" "$PLIST"; then
+    if ! bootstrap_service; then
       [[ -d "$CURRENT_DIR" ]] && mv "$CURRENT_DIR" "$safety/failed-rollback-current"
       [[ -f "$PLIST" ]] && mv "$PLIST" "$safety/failed-rollback-launchd.plist"
       restore_snapshot "$safety"
-      [[ -f "$PLIST" ]] && launchctl bootstrap "gui/$(id -u)" "$PLIST" >/dev/null 2>&1 || true
+      [[ -f "$PLIST" ]] && bootstrap_service >/dev/null 2>&1 || true
       die "Rollback no pudo cargar launchd; estado previo restaurado desde $safety"
     fi
     launchctl kickstart "gui/$(id -u)/$LAUNCH_LABEL"
@@ -394,7 +404,7 @@ rollback_action() {
       [[ -f "$PLIST" ]] && mv "$PLIST" "$safety/failed-rollback-health-launchd.plist"
       restore_snapshot "$safety"
       if [[ -f "$PLIST" && -f "$CURRENT_DIR/worker/src/server.mjs" ]]; then
-        launchctl bootstrap "gui/$(id -u)" "$PLIST" >/dev/null 2>&1 || true
+        bootstrap_service >/dev/null 2>&1 || true
         launchctl kickstart "gui/$(id -u)/$LAUNCH_LABEL" >/dev/null 2>&1 || true
       fi
       die "Rollback sin health; estado previo restaurado desde $safety"
