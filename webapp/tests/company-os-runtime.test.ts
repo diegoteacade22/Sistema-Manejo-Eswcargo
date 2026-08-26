@@ -67,6 +67,17 @@ test('runtime durable contiene concurrencia, leases, retry, heartbeat idle y no-
   assert.match(daemon, /globalConcurrency/);
 });
 
+test('un lease vencido puede volver de FAILED_RETRYABLE a CLAIMED', () => {
+  const migration = readFileSync('../supabase/migrations/20260826015130_company_os_runtime_retry_claim_transition.sql', 'utf8');
+  const aclMigration = readFileSync('../supabase/migrations/20260826015330_company_os_runtime_function_acl.sql', 'utf8');
+  assert.match(
+    migration,
+    /OLD\.status = 'FAILED_RETRYABLE'[\s\S]*NEW\.status IN \('QUEUED','CLAIMED','FAILED_FINAL','BLOCKED','CANCELLED'\)/,
+  );
+  assert.match(migration, /REVOKE ALL ON FUNCTION public\.company_os_runtime_guard_work_item_transition\(\) FROM PUBLIC/);
+  assert.match(aclMigration, /FROM PUBLIC, anon, authenticated, service_role/);
+});
+
 test('migración runtime sólo escribe relaciones internas Company OS', () => {
   const migration = readFileSync('../supabase/migrations/20260826000155_company_os_runtime_24x7.sql', 'utf8');
   assert.doesNotMatch(migration, /(?:INSERT INTO|UPDATE|DELETE FROM)\s+public\."?(?:Client|Product|Supplier|Order|Purchase|Shipment|Expense|Transaction)"?/i);
