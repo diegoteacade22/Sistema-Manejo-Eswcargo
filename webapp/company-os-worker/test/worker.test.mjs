@@ -78,17 +78,20 @@ test('cliente API firma todas las llamadas salientes sobre el body exacto', asyn
 
 test('OpenAI hace como máximo un reintento', async () => {
   let calls = 0;
+  const idempotencyKeys = [];
   const openai = new OpenAiAdvisoryClient({
     apiKey: 'test-key',
     timeoutMs: 1000,
     sleep: async () => {},
-    fetchImpl: async () => {
+    fetchImpl: async (_url, init) => {
       calls += 1;
+      idempotencyKeys.push(init.headers['idempotency-key']);
       return jsonResponse({ error: 'temporary' }, 500);
     },
   });
   await assert.rejects(() => openai.generate(claim), /HTTP 500/);
   assert.equal(calls, 2);
+  assert.deepEqual(idempotencyKeys, [`company-os-runtime:${claim.requestId}`, `company-os-runtime:${claim.requestId}`]);
 });
 
 test('Responses API usa el contrato V3 estricto y advisory', async () => {

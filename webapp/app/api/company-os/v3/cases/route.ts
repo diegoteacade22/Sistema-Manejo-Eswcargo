@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { hasTrustedHumanRequestOrigin, requireHumanCompanyAdmin } from '@/lib/company-os/human-admin';
 import { createCompanyOsCase, dispatchCompanyOsWebhook, listCompanyOsCases } from '@/lib/company-os/v3-store';
 import { COMPANY_OS_AGENT_IDS, COMPANY_OS_V3_IDENTITY, type CompanyOsAgentId } from '@/lib/company-os/v3-types';
+import { isCompanyOsRuntimeAgentInstalled } from '@/lib/company-os/runtime-store';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -30,12 +31,11 @@ export async function POST(request: Request) {
   }
   const agentId = input.agentId == null ? COMPANY_OS_V3_IDENTITY : String(input.agentId);
   if (!COMPANY_OS_AGENT_IDS.includes(agentId as CompanyOsAgentId)) return NextResponse.json({ error: 'agentId inválido' }, { status: 400 });
+  if (!isCompanyOsRuntimeAgentInstalled(agentId)) return NextResponse.json({ error: `Agente ${agentId} NOT_INSTALLED` }, { status: 409 });
   const caseType = String(input.caseType ?? (
     agentId === 'systems-manager-ai-v1'
       ? 'TECHNICAL_ADVISORY'
-      : agentId === 'data-manager-ai-v1'
-        ? 'DATA_ADVISORY'
-        : 'ADVISORY'
+      : 'ADVISORY'
   ));
   if (!/^[A-Z][A-Z0-9_]{1,63}$/.test(caseType)) return NextResponse.json({ error: 'caseType inválido' }, { status: 400 });
   try {

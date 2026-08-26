@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server';
 import { verifyCompanyOsWorkerRequest } from '@/lib/company-os/v3-auth';
 
 export async function verifiedWorkerJson(request: Request) {
+  if ((process.env.COMPANY_OS_RUNTIME_LEGACY_WORKER_ENABLED ?? 'false').toLowerCase() !== 'true') {
+    return { error: NextResponse.json({ error: 'Worker V3 legado deshabilitado; use Runtime v1' }, { status: 410 }) } as const;
+  }
   const rawBody = await request.text();
   if (!verifyCompanyOsWorkerRequest(request, rawBody)) {
     return { error: NextResponse.json({ error: 'Firma HMAC inválida' }, { status: 401 }) } as const;
@@ -12,4 +15,3 @@ export async function verifiedWorkerJson(request: Request) {
     return { error: NextResponse.json({ error: 'JSON inválido' }, { status: 400 }) } as const;
   }
 }
-
