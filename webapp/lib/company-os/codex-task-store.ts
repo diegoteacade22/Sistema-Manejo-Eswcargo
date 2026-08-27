@@ -163,8 +163,8 @@ export async function ingestCodexTaskChunk(raw: unknown, actorRef: string) {
         create: persistedTask,
       });
       if (!previous || previous.fingerprint !== task.fingerprint) {
-        await tx.companyOsCodexTaskObservation.create({
-          data: {
+        await tx.companyOsCodexTaskObservation.createMany({
+          data: [{
             id: `codex-observation:${randomUUID()}`,
             taskId: task.id,
             fingerprint: task.fingerprint,
@@ -172,7 +172,8 @@ export async function ingestCodexTaskChunk(raw: unknown, actorRef: string) {
             sourceStatus: task.sourceStatus,
             actorRef,
             observedAt,
-          },
+          }],
+          skipDuplicates: true,
         });
       }
     }

@@ -344,6 +344,16 @@ test('inventario durable es interno, saneado y append-only para observaciones', 
   assert.doesNotMatch(migration, /rawText|prompt|conversation|cwd/);
 });
 
+test('el intake tolera que una tarea vuelva a una observación histórica', () => {
+  const observationWrite = store.slice(
+    store.indexOf('tx.companyOsCodexTaskObservation.createMany'),
+    store.indexOf('if (input.finalChunk === true)'),
+  );
+  assert.match(observationWrite, /createMany/);
+  assert.match(observationWrite, /skipDuplicates: true/);
+  assert.doesNotMatch(store, /companyOsCodexTaskObservation\.create\(/);
+});
+
 test('intake Codex usa un secreto dedicado, identidad fija, timestamp y body exacto', () => {
   const prior = process.env.COMPANY_OS_CODEX_INTAKE_HMAC_SECRET;
   process.env.COMPANY_OS_CODEX_INTAKE_HMAC_SECRET = 'collector-secret-for-test';
