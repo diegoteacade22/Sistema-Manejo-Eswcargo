@@ -4,7 +4,7 @@ import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createHmac } from 'node:crypto';
-import { CompanyOsHumanDashboard } from '../components/company-os-human-dashboard';
+import { CompanyOsHumanDashboard, SECTION_HASHES, sectionFromHash } from '../components/company-os-human-dashboard';
 import { verifyCodexIntakeRequest } from '../lib/company-os/codex-task-auth';
 
 const page = readFileSync('app/company-os/operations/page.tsx', 'utf8');
@@ -29,6 +29,41 @@ test('la vista inicial usa lenguaje humano y no muestra leases ni fencing', () =
     assert.match(component, new RegExp(label));
   }
   assert.match(component, /Monitoreos activos/);
+});
+
+test('cada cuadro navega a una sola categoría interactiva y admite enlaces directos', () => {
+  assert.deepEqual(SECTION_HASHES, {
+    now: 'trabajando-ahora',
+    pending: 'para-el-agente',
+    needsDiego: 'necesito-de-vos',
+    blocked: 'con-problemas',
+    readyReview: 'listas-para-revisar',
+    monitoring: 'monitoreos-activos',
+    commercial: 'ideas-y-ofertas',
+    done: 'realizadas',
+  });
+  for (const [section, hash] of Object.entries(SECTION_HASHES)) {
+    assert.equal(sectionFromHash(`#${hash}`), section);
+  }
+  assert.equal(sectionFromHash('#categoria-inexistente'), null);
+  assert.match(component, /aria-expanded=\{activeSection === item\.section\}/);
+  assert.match(component, /aria-controls="dashboard-detail-panel"/);
+  assert.match(component, /role="region"/);
+  assert.match(component, /tabIndex=\{-1\}/);
+  assert.match(component, /panel\.focus\(\{ preventScroll: true \}\)/);
+  assert.match(component, /navigationRequest/);
+  assert.match(component, /window\.addEventListener\("popstate"/);
+  assert.match(component, /event\.preventDefault\(\); openSection\(item\.section\)/);
+  assert.match(component, /Mostrando solamente/);
+  assert.match(component, /Hacé clic en cualquiera de los cuadros para abrir solamente esa lista/);
+  assert.match(component, /switch \(activeSection\)/);
+});
+
+test('cada resultado ofrece una acción visible hacia su tarea Codex original', () => {
+  assert.match(component, /href=\{task\.codexUrl\}/);
+  assert.match(component, /aria-label=\{`Abrir tarea \$\{task\.title\} en Codex`\}/);
+  assert.match(component, /Abrir tarea en Codex →/);
+  assert.match(store, /codex:\/\/threads\/\$\{threadId\}/);
 });
 
 test('las ofertas exponen costo, precio sugerido, margen y fuente real', () => {
