@@ -40,10 +40,8 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       DIRECT_URL: ${{ secrets.DIRECT_URL }}
       ESW_DOCUMENT_EXPORT_DRIVE_FOLDER_ID: ${{ secrets.ESW_DOCUMENT_EXPORT_DRIVE_FOLDER_ID }}
-      ESW_DOCUMENT_EXPORT_RUNTIME_DIR: ${{ runner.temp }}/eswcargo-document-export
       ESW_DOCUMENT_EXPORT_TARGET: drive
       ESW_PRISMA_QUERY_LOG: '0'
-      GOOGLE_CREDENTIALS_FILE: ${{ runner.temp }}/google_credentials.json
       PUPPETEER_SKIP_DOWNLOAD: 'true'
       AWS_EXECUTION_ENV: github-actions
 
@@ -57,6 +55,12 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: webapp/package-lock.json
+
+      - name: Configurar rutas efímeras del runner
+        run: |
+          set -euo pipefail
+          echo "ESW_DOCUMENT_EXPORT_RUNTIME_DIR=$RUNNER_TEMP/eswcargo-document-export" >> "$GITHUB_ENV"
+          echo "GOOGLE_CREDENTIALS_FILE=$RUNNER_TEMP/google_credentials.json" >> "$GITHUB_ENV"
 
       - name: Instalar runtime bloqueado
         run: |
