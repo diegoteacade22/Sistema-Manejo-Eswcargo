@@ -99,13 +99,21 @@ test('page integra tablero engineering antes del runtime base read-only', () => 
   assert.ok(page.indexOf('<CompanyOsEngineeringControlCenter />') < page.indexOf('<CompanyOsRuntimeControlCenter readOnly />'));
 });
 
-test('componente usa sólo los endpoints V2 autorizados para leer y controlar', () => {
+test('componente usa sólo lectura, control humano y pruebas acotadas V2', () => {
   const source = readFileSync('components/company-os-engineering-control-center.tsx', 'utf8');
+  const probeRoute = readFileSync('app/api/company-os/engineering/v2/missions/probe/route.ts', 'utf8');
   assert.match(source, /\/api\/company-os\/engineering\/v2\/control-center/);
   assert.match(source, /\/api\/company-os\/engineering\/v2\/control/);
   assert.match(source, /PAUSE_INTAKE/);
   assert.match(source, /PAUSE_EXECUTION/);
   assert.match(source, /EMERGENCY_STOP/);
   assert.match(source, /idempotencyKey/);
-  assert.doesNotMatch(source, /\/api\/company-os\/engineering\/v2\/(?:missions|claim|complete|effect\/reserve)/);
+  assert.match(source, /\/api\/company-os\/engineering\/v2\/missions\/probe/);
+  assert.doesNotMatch(source, /ENGINEERING_PROBE_URL\s*=\s*["']\/api\/company-os\/engineering\/v2\/missions["']/);
+  assert.doesNotMatch(source, /\/api\/company-os\/engineering\/v2\/(?:claim|complete|effect\/reserve)/);
+  assert.match(probeRoute, /requireHumanCompanyAdmin/);
+  assert.match(probeRoute, /hasTrustedHumanRequestOrigin/);
+  assert.match(probeRoute, /company-os\/proofs/);
+  assert.match(probeRoute, /budgetUsd: 1/);
+  assert.match(probeRoute, /deadline: new Date\(Date\.now\(\) \+ 2 \* 60 \* 60_000\)/);
 });
