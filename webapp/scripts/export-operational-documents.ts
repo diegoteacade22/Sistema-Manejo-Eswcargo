@@ -27,6 +27,7 @@ import { getPackingSegments } from '../lib/packing-segments';
 import {
     invoiceDocumentContentFingerprint,
     packingListDocumentContentFingerprint,
+    packingListSourceFingerprint,
 } from '../lib/document-export-fingerprint';
 
 dotenv.config({
@@ -169,7 +170,7 @@ async function main() {
     const previous = await target.loadState();
     assertDriveBootstrapReady({
         targetName: target.name,
-        hasPreviousState: Boolean(previous),
+        hasVerifiedPilot: Boolean(previous?.pilotCompleted),
         dryRun,
         selectedOrderId,
         selectedShipmentId,
@@ -179,6 +180,7 @@ async function main() {
         orders: { ...(previous?.orders || {}) },
         shipments: { ...(previous?.shipments || {}) },
         updatedAt: new Date().toISOString(),
+        ...(previous?.pilotCompleted ? { pilotCompleted: previous.pilotCompleted } : {}),
     };
 
     const orders = await prisma.order.findMany({
@@ -215,9 +217,7 @@ async function main() {
             id: true,
             shipment_number: true,
             date_shipped: true,
-            date_arrived: true,
             createdAt: true,
-            updatedAt: true,
             item_count: true,
             price_total: true,
             cargo_description: true,
@@ -325,11 +325,8 @@ async function main() {
 
     for (const shipment of shipments) {
         const key = String(shipment.id);
-        const currentFingerprint = packingListDocumentContentFingerprint({
-            shipment,
-            segment: null,
-            clientCharge: null,
-        });
+        const segments = getPackingSegments(shipment);
+        const currentFingerprint = packingListSourceFingerprint({ shipment, segments });
         const operationalDate = shipment.date_shipped || shipment.createdAt;
         const isRequestedDate = Boolean(
             selectedShipmentId === shipment.id
@@ -344,7 +341,6 @@ async function main() {
             continue;
         }
 
-        const segments = getPackingSegments(shipment);
         if (segments.length === 0) {
             failures.push({
                 type: 'PACKING_LIST',
@@ -358,20 +354,20 @@ async function main() {
 
         for (const segment of segments) {
             const segmentKey = `${key}:${segment.clientId}`;
-            const clientCharge = segments.length > 1 && shipment.shipment_number
-                ? await getShipmentClientCharge(shipment.shipment_number, segment.clientId)
+            const shipmentChargeKey = shipment.shipment_number || shipment.id;
+            const clientCharge = segments.length > 1
+                ? await getShipmentClientCharge(shipmentChargeKey, segment.clientId)
                 : null;
-            const segmentFingerprint = packingListDocumentContentFingerprint({ shipment, segment, clientCharge });
+            const segmentFingerprint = packingListDocumentContentFingerprint({
+                shipment,
+                segment,
+                segmentCount: segments.length,
+                clientCharge,
+            });
             const previousSegmentFingerprint = previous?.shipments[segmentKey];
-            const comparisonFingerprint = previousSegmentFingerprint === undefined
-                ? currentFingerprint
-                : segmentFingerprint;
-            const previousComparisonFingerprint = previousSegmentFingerprint === undefined
-                ? previous?.shipments[key]
-                : previousSegmentFingerprint;
             const shouldExportSegment = shouldExportOperationalDocument({
-                currentFingerprint: comparisonFingerprint,
-                previousFingerprint: previousComparisonFingerprint,
+                currentFingerprint: segmentFingerprint,
+                previousFingerprint: previousSegmentFingerprint,
                 hasPreviousState: Boolean(previous),
                 isWithinLookback,
                 isRequestedDate,
@@ -431,6 +427,17 @@ async function main() {
         selectedShipmentId,
         exitCode,
     });
+    if (target.name === 'drive'
+        && shouldPersistState
+        && !next.pilotCompleted
+        && (selectedOrderId !== null || selectedShipmentId !== null)) {
+        next.pilotCompleted = {
+            completed: true,
+            kind: selectedOrderId !== null ? 'ORDER' : 'SHIPMENT',
+            identity: selectedOrderId !== null ? `order:${selectedOrderId}` : `shipment:${selectedShipmentId}`,
+            completedAt: next.updatedAt,
+        };
+    }
     if (shouldPersistState) await target.saveState(next);
     const summaryFailures = target.name === 'drive'
         ? Object.entries(failures.reduce<Record<string, number>>((counts, { message }) => {

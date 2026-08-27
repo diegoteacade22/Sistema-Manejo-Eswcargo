@@ -14,13 +14,13 @@ export function assertSelectedShipmentObserved(selectedShipmentId: number | null
 
 export function assertDriveBootstrapReady({
     targetName,
-    hasPreviousState,
+    hasVerifiedPilot,
     dryRun,
     selectedOrderId,
     selectedShipmentId,
 }: {
     targetName: string;
-    hasPreviousState: boolean;
+    hasVerifiedPilot: boolean;
     dryRun: boolean;
     selectedOrderId: number | null;
     selectedShipmentId: number | null;
@@ -29,7 +29,7 @@ export function assertDriveBootstrapReady({
         && !dryRun
         && selectedOrderId === null
         && selectedShipmentId === null;
-    if (isFullDriveExport && !hasPreviousState) {
+    if (isFullDriveExport && !hasVerifiedPilot) {
         throw new Error('Falta el manifiesto Drive: ejecutá y verificá export-one antes del export completo.');
     }
 }

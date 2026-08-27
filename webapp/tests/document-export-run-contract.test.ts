@@ -13,7 +13,7 @@ test('export completo Drive falla cerrado hasta que exista un manifiesto piloto'
     assert.throws(
         () => assertDriveBootstrapReady({
             targetName: 'drive',
-            hasPreviousState: false,
+            hasVerifiedPilot: false,
             dryRun: false,
             selectedOrderId: null,
             selectedShipmentId: null,
@@ -22,28 +22,28 @@ test('export completo Drive falla cerrado hasta que exista un manifiesto piloto'
     );
     assert.doesNotThrow(() => assertDriveBootstrapReady({
         targetName: 'drive',
-        hasPreviousState: false,
+        hasVerifiedPilot: false,
         dryRun: false,
         selectedOrderId: 42,
         selectedShipmentId: null,
     }));
     assert.doesNotThrow(() => assertDriveBootstrapReady({
         targetName: 'drive',
-        hasPreviousState: false,
+        hasVerifiedPilot: false,
         dryRun: true,
         selectedOrderId: null,
         selectedShipmentId: null,
     }));
     assert.doesNotThrow(() => assertDriveBootstrapReady({
         targetName: 'drive',
-        hasPreviousState: true,
+        hasVerifiedPilot: true,
         dryRun: false,
         selectedOrderId: null,
         selectedShipmentId: null,
     }));
     assert.doesNotThrow(() => assertDriveBootstrapReady({
         targetName: 'filesystem',
-        hasPreviousState: false,
+        hasVerifiedPilot: false,
         dryRun: false,
         selectedOrderId: null,
         selectedShipmentId: null,

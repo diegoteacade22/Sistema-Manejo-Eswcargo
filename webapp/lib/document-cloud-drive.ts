@@ -4,11 +4,19 @@ import { GoogleAuth } from 'google-auth-library';
 
 export const DOCUMENT_EXPORT_STATE_FILE = '.eswcargo-document-export-state.v1.json';
 
+export type DocumentExportPilot = {
+    completed: true;
+    kind: 'ORDER' | 'SHIPMENT';
+    identity: string;
+    completedAt: string;
+};
+
 export type DocumentExportState = {
     version: 1;
     orders: Record<string, string>;
     shipments: Record<string, string>;
     updatedAt: string;
+    pilotCompleted?: DocumentExportPilot;
 };
 
 type DriveFile = {
@@ -73,6 +81,52 @@ function asBuffer(contents: Buffer | Uint8Array | ArrayBuffer | string) {
     if (contents instanceof ArrayBuffer) return Buffer.from(contents);
     if (contents instanceof Uint8Array) return Buffer.from(contents);
     return Buffer.from(contents);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return Boolean(value)
+        && typeof value === 'object'
+        && !Array.isArray(value)
+        && Object.getPrototypeOf(value) === Object.prototype;
+}
+
+function isCanonicalIso(value: unknown): value is string {
+    if (typeof value !== 'string') return false;
+    const timestamp = Date.parse(value);
+    return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value;
+}
+
+function isFingerprintMap(value: unknown, keyPattern: RegExp): value is Record<string, string> {
+    return isPlainObject(value)
+        && Object.entries(value).every(([key, fingerprint]) => (
+            keyPattern.test(key)
+            && typeof fingerprint === 'string'
+            && /^[a-f0-9]{64}$/.test(fingerprint)
+        ));
+}
+
+function assertDriveState(state: unknown): asserts state is DocumentExportState {
+    if (!isPlainObject(state)
+        || state.version !== 1
+        || !isCanonicalIso(state.updatedAt)
+        || !isFingerprintMap(state.orders, /^[1-9]\d*$/)
+        || !isFingerprintMap(state.shipments, /^[1-9]\d*(?::[1-9]\d*)?$/)
+        || !isPlainObject(state.pilotCompleted)
+        || state.pilotCompleted.completed !== true
+        || !isCanonicalIso(state.pilotCompleted.completedAt)
+        || (state.pilotCompleted.kind !== 'ORDER' && state.pilotCompleted.kind !== 'SHIPMENT')
+        || typeof state.pilotCompleted.identity !== 'string') {
+        throw new Error('El manifiesto Drive del exportador tiene formato inválido.');
+    }
+
+    const identityPattern = state.pilotCompleted.kind === 'ORDER'
+        ? /^order:([1-9]\d*)$/
+        : /^shipment:([1-9]\d*)$/;
+    const identityMatch = state.pilotCompleted.identity.match(identityPattern);
+    const pilotMap = state.pilotCompleted.kind === 'ORDER' ? state.orders : state.shipments;
+    if (!identityMatch || !pilotMap[identityMatch[1]]) {
+        throw new Error('El manifiesto Drive no contiene una prueba de piloto válida.');
+    }
 }
 
 function assertFolderId(value: string | undefined) {
@@ -358,22 +412,13 @@ export class GoogleDriveDocumentStore {
             'application/json',
             verifiedOptions,
         );
-        const parsed = JSON.parse(readback.contents.toString('utf8')) as Partial<DocumentExportState> | null;
-        if (!parsed
-            || parsed.version !== 1
-            || !parsed.orders
-            || typeof parsed.orders !== 'object'
-            || Array.isArray(parsed.orders)
-            || !parsed.shipments
-            || typeof parsed.shipments !== 'object'
-            || Array.isArray(parsed.shipments)
-            || typeof parsed.updatedAt !== 'string') {
-            throw new Error('El manifiesto Drive del exportador tiene formato inválido.');
-        }
-        return parsed as DocumentExportState;
+        const parsed = JSON.parse(readback.contents.toString('utf8')) as unknown;
+        assertDriveState(parsed);
+        return parsed;
     }
 
     async saveState(state: DocumentExportState) {
+        assertDriveState(state);
         const contents = Buffer.from(JSON.stringify(state, null, 2));
         return this.put(
             DOCUMENT_EXPORT_STATE_FILE,

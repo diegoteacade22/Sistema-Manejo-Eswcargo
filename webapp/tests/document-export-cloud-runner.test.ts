@@ -76,7 +76,9 @@ test('invoice carga weight_cli y usa el contrato de render en huella y HTML', as
     const builders = await readFile(buildersPath, 'utf8');
     assert.match(exporter, /shipment:\s*\{\s*select:\s*\{\s*weight_cli:\s*true/);
     assert.match(exporter, /invoiceDocumentContentFingerprint\(order\)/);
-    assert.match(exporter, /packingListDocumentContentFingerprint\(\{ shipment, segment, clientCharge \}\)/);
+    assert.match(exporter, /packingListDocumentContentFingerprint\(\{[\s\S]*?segmentCount: segments\.length,[\s\S]*?clientCharge/);
+    assert.match(exporter, /shipmentChargeKey = shipment\.shipment_number \|\| shipment\.id/);
+    assert.doesNotMatch(exporter, /date_arrived:\s*true|updatedAt:\s*true/);
     assert.match(builders, /INVOICE_DOCUMENT_RENDER_VERSION/);
     assert.match(builders, /PACKING_LIST_DOCUMENT_RENDER_VERSION/);
     assert.match(builders, /shipment\.date_shipped \|\| shipment\.createdAt/);

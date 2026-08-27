@@ -11,7 +11,9 @@ import {
 import {
     INVOICE_DOCUMENT_RENDER_VERSION,
     invoiceDocumentContentFingerprint,
+    packingListDocumentContentFingerprint,
 } from '../lib/document-export-fingerprint';
+import { getPackingSegments } from '../lib/packing-segments';
 
 const folderId = 'folder_1234567890';
 const options: DrivePutOptions = {
@@ -276,22 +278,79 @@ async function assertFingerprintUpdatesSameFile(
     previousFingerprint: string,
     nextFingerprint: string,
     nextContents: Buffer,
+    testOptions: DrivePutOptions = options,
+    name = 'INV-CONTROL.pdf',
 ) {
     assert.notEqual(previousFingerprint, nextFingerprint);
-    const previousOptions = { ...options, contentFingerprint: previousFingerprint };
-    const nextOptions = { ...options, contentFingerprint: nextFingerprint };
-    const previous = driveFile({ contents: Buffer.from('pdf-anterior'), fileOptions: previousOptions });
-    const readback = driveFile({ contents: nextContents, fileOptions: nextOptions });
+    const previousOptions = { ...testOptions, contentFingerprint: previousFingerprint };
+    const nextOptions = { ...testOptions, contentFingerprint: nextFingerprint };
+    const previous = driveFile({ contents: Buffer.from('pdf-anterior'), name, fileOptions: previousOptions });
+    const readback = driveFile({ contents: nextContents, name, fileOptions: nextOptions });
     const client = new FakeDriveClient([{ files: [previous] }, { id: previous.id }, readback, nextContents]);
     const store = new GoogleDriveDocumentStore(client, folderId);
 
-    const result = await store.put('INV-CONTROL.pdf', nextContents, 'application/pdf', nextOptions);
+    const result = await store.put(name, nextContents, 'application/pdf', nextOptions);
 
     assert.equal(result.action, 'UPDATED');
     assert.equal(result.idSuffix, 'abcdefgh');
     assert.equal(client.calls[1]?.method, 'PATCH');
     assert.match(String(client.calls[1]?.url), /\/upload\/drive\/v3\/files\/drive-file-abcdefgh$/);
     assert.equal(client.calls.some((call) => call.method === 'POST'), false);
+}
+
+const sharedPackingSource = {
+    id: 77,
+    shipment_number: null,
+    date_shipped: '2026-08-27T12:00:00.000Z',
+    createdAt: '2026-08-26T12:00:00.000Z',
+    updatedAt: '2026-08-27T12:30:00.000Z',
+    date_arrived: null as string | null,
+    item_count: 3,
+    price_total: 300,
+    cargo_description: null,
+    client: { id: 10, old_id: 110, name: 'Cliente A' },
+    items: [
+        {
+            id: 1,
+            quantity: 1,
+            productName: 'Producto A',
+            product: { color_grade: 'BLACK' },
+            order: {
+                id: 101,
+                order_number: 7001,
+                clientId: 10,
+                client: { id: 10, old_id: 110, name: 'Cliente A' },
+            },
+        },
+        {
+            id: 2,
+            quantity: 2,
+            productName: 'Producto B',
+            product: { color_grade: 'BLUE' },
+            order: {
+                id: 102,
+                order_number: 7002,
+                clientId: 20,
+                client: { id: 20, old_id: 120, name: 'Cliente B' },
+            },
+        },
+    ],
+    orders: [],
+};
+
+function packingFingerprint(
+    shipment: typeof sharedPackingSource,
+    amount: number,
+) {
+    const segments = getPackingSegments(shipment);
+    const segment = segments.find((item) => item.clientId === 10);
+    assert.ok(segment);
+    return packingListDocumentContentFingerprint({
+        shipment,
+        segment,
+        segmentCount: segments.length,
+        clientCharge: { amount, reference: `SHIP-${shipment.id}:CLIENT:${segment.clientId}` },
+    });
 }
 
 test('cambio de weight_cli cambia la huella y actualiza el mismo file ID', async () => {
@@ -310,6 +369,32 @@ test('cambio de render version cambia la huella y actualiza el mismo file ID', a
         `${INVOICE_DOCUMENT_RENDER_VERSION}-next`,
     );
     await assertFingerprintUpdatesSameFile(previousFingerprint, nextFingerprint, Buffer.from('pdf-nuevo-template'));
+});
+
+test('packing compartido sin shipment_number actualiza el mismo file ID al cambiar el subtotal', async () => {
+    const previousFingerprint = packingFingerprint(sharedPackingSource, 50);
+    const nextFingerprint = packingFingerprint(sharedPackingSource, 60);
+    await assertFingerprintUpdatesSameFile(
+        previousFingerprint,
+        nextFingerprint,
+        Buffer.from('packing-nuevo-subtotal'),
+        {
+            kind: 'PACKING_LIST',
+            identity: 'shipment:77:client:10',
+            contentFingerprint: nextFingerprint,
+        },
+        'PACK-77A-110.pdf',
+    );
+});
+
+test('cambios administrativos no renderizados no alteran la huella del packing', () => {
+    const previousFingerprint = packingFingerprint(sharedPackingSource, 50);
+    const nextFingerprint = packingFingerprint({
+        ...sharedPackingSource,
+        updatedAt: '2026-08-27T20:00:00.000Z',
+        date_arrived: '2026-08-28T12:00:00.000Z',
+    }, 50);
+    assert.equal(nextFingerprint, previousFingerprint);
 });
 
 test('renombrar el número conserva identidad y actualiza el mismo archivo', async () => {
@@ -332,8 +417,34 @@ test('renombrar el número conserva identidad y actualiza el mismo archivo', asy
     assert.equal(client.calls.some((call) => call.method === 'POST'), false);
 });
 
+function validState() {
+    return {
+        version: 1 as const,
+        orders: { '42': 'a'.repeat(64) },
+        shipments: {},
+        updatedAt: '2026-08-27T00:00:00.000Z',
+        pilotCompleted: {
+            completed: true as const,
+            kind: 'ORDER' as const,
+            identity: 'order:42',
+            completedAt: '2026-08-27T00:00:00.000Z',
+        },
+    };
+}
+
+function stateReadbackClient(state: unknown) {
+    const contents = Buffer.from(JSON.stringify(state));
+    const stateOptions: DrivePutOptions = {
+        kind: 'STATE',
+        identity: 'state:v1',
+        contentFingerprint: sha256(contents),
+    };
+    const manifest = driveFile({ contents, name: DOCUMENT_EXPORT_STATE_FILE, fileOptions: stateOptions });
+    return { contents, manifest, client: new FakeDriveClient([{ files: [manifest] }, manifest, contents]) };
+}
+
 test('manifiesto de estado también exige MIME, tamaño y hashes reales antes de usarlo', async () => {
-    const state = { version: 1 as const, orders: { '42': 'abc' }, shipments: {}, updatedAt: '2026-08-27T00:00:00.000Z' };
+    const state = validState();
     const contents = Buffer.from(JSON.stringify(state));
     const stateOptions: DrivePutOptions = {
         kind: 'STATE',
@@ -356,21 +467,42 @@ test('manifiesto de estado también exige MIME, tamaño y hashes reales antes de
         /SHA-256 real/,
     );
 
-    const malformedContents = Buffer.from(JSON.stringify({ version: 1, orders: null, shipments: {} }));
-    const malformedOptions = { ...stateOptions, contentFingerprint: sha256(malformedContents) };
-    const malformedManifest = driveFile({
-        contents: malformedContents,
-        name: DOCUMENT_EXPORT_STATE_FILE,
-        fileOptions: malformedOptions,
+});
+
+for (const invalidState of [
+    { name: 'state vacío', value: { ...validState(), orders: {}, shipments: {} } },
+    { name: 'versión distinta', value: { ...validState(), version: 2 } },
+    { name: 'fecha no válida', value: { ...validState(), updatedAt: 'not-a-date' } },
+    { name: 'fecha no canónica', value: { ...validState(), updatedAt: '2026-08-27' } },
+    { name: 'fingerprint corto', value: { ...validState(), orders: { '42': '123' } } },
+    { name: 'fingerprint null', value: { ...validState(), orders: { '42': null } } },
+    { name: 'clave order cero', value: { ...validState(), orders: { '0': 'a'.repeat(64) } } },
+    { name: 'clave shipment inválida', value: { ...validState(), shipments: { bad: 'b'.repeat(64) } } },
+    { name: 'orders array', value: { ...validState(), orders: ['a'.repeat(64)] } },
+    { name: 'shipments número', value: { ...validState(), shipments: 123 } },
+]) {
+    test(`manifiesto Drive rechaza ${invalidState.name}`, async () => {
+        const { client } = stateReadbackClient(invalidState.value);
+        await assert.rejects(
+            new GoogleDriveDocumentStore(client, folderId).loadState(),
+            /formato inválido|prueba de piloto válida/,
+        );
     });
-    const malformedClient = new FakeDriveClient([
-        { files: [malformedManifest] },
-        malformedManifest,
-        malformedContents,
-    ]);
+}
+
+test('manifiesto Drive acepta sólo un piloto explícito enlazado a su fingerprint', async () => {
+    const state = validState();
+    const { client } = stateReadbackClient(state);
+    assert.deepEqual(await new GoogleDriveDocumentStore(client, folderId).loadState(), state);
+
+    const fabricatedPilot = {
+        ...state,
+        pilotCompleted: { ...state.pilotCompleted, identity: 'order:99' },
+    };
+    const { client: fabricatedClient } = stateReadbackClient(fabricatedPilot);
     await assert.rejects(
-        new GoogleDriveDocumentStore(malformedClient, folderId).loadState(),
-        /formato inválido/,
+        new GoogleDriveDocumentStore(fabricatedClient, folderId).loadState(),
+        /prueba de piloto válida/,
     );
 });
 
