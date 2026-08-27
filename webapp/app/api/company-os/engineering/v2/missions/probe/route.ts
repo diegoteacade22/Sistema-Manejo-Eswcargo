@@ -8,6 +8,10 @@ export const dynamic = 'force-dynamic';
 const REPOSITORY = 'diegoteacade22/Sistema-Manejo-Eswcargo';
 const POLICY_HASH = createHash('sha256').update('company-os-engineering-v2-live-probe-policy:v1').digest('hex');
 
+function probeIdentifier() {
+  return randomUUID().replaceAll('-', '').replace(/[0-9a-f]/g, (digit) => String.fromCharCode(97 + Number.parseInt(digit, 16)));
+}
+
 async function currentMainCommit() {
   const deployed = process.env.VERCEL_GIT_COMMIT_SHA?.trim().toLowerCase();
   if (deployed && /^[a-f0-9]{40}$/.test(deployed)) return deployed;
@@ -32,7 +36,7 @@ export async function POST(request: Request) {
     ? (input as Record<string, unknown>).autonomyLevel : null;
   if (level !== 'A1' && level !== 'A2') return NextResponse.json({ error: 'Prueba A1/A2 inválida' }, { status: 400 });
   try {
-    const probeId = randomUUID();
+    const probeId = probeIdentifier();
     const allowedPath = `company-os/proofs/${level.toLowerCase()}-${probeId}.md`;
     const baseCommit = await currentMainCommit();
     return NextResponse.json(await enqueueEngineeringMission({
