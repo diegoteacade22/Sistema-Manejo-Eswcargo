@@ -124,4 +124,7 @@ test('componente usa sólo lectura, control humano y pruebas acotadas V2', () =>
   assert.match(store, /opaqueIdentifier\(\s*input\.requestId/);
   assert.doesNotMatch(store, /const requestId = text\(input\.requestId/);
   assert.match(probeRoute, /function probeIdentifier\(\)/);
+  assert.match(store, /SELECT now\(\) AS now/);
+  assert.match(store, /const issuedAt = databaseClock\.now/);
+  assert.match(store, /status: 'ACTIVE', issuedAt, expiresAt/);
 });

@@ -390,7 +390,9 @@ export async function claimEngineeringMission(input: { workerId: string; instanc
     const mode = candidates[0].mode;
     const fencingToken = mission.fencingCounter + BigInt(1);
     const leaseId = `engineering-lease:${randomUUID()}`;
-    const issuedAt = new Date();
+    const [databaseClock] = await tx.$queryRaw<Array<{ now: Date }>>(Prisma.sql`SELECT now() AS now`);
+    if (!databaseClock?.now) throw new EngineeringStoreError('Reloj autoritativo no observado', 503, 'DATABASE_CLOCK_UNOBSERVED');
+    const issuedAt = databaseClock.now;
     const expiresAt = new Date(issuedAt.getTime() + ACTIVE_LEASE_MS);
     const allowedVerbs = mission.autonomyLevel === 'A2' ? [...A2_VERBS] : [...A1_VERBS];
     const lease = await tx.companyOsEngineeringCapabilityLease.create({ data: {
