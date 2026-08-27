@@ -33,8 +33,13 @@ jobs:
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
         run: |
           set -euo pipefail
-          plan="$(supabase db push --db-url "$DIRECT_URL" --include-all --dry-run 2>&1)"
+          plan_status=0
+          plan="$(supabase db push --db-url "$DIRECT_URL" --include-all --dry-run 2>&1)" || plan_status=$?
           printf '%s\n' "$plan"
+          if [ "$plan_status" -ne 0 ]; then
+            echo "::error::Supabase no pudo calcular el plan remoto (exit $plan_status)."
+            exit "$plan_status"
+          fi
           mapfile -t planned < <(grep -Eo '[0-9]{14}_[A-Za-z0-9_-]+\.sql' <<< "$plan" | sort -u)
           if [ "${#planned[@]}" -ne 1 ] || [ "${planned[0]:-}" != "20260827142708_company_os_codex_task_inventory.sql" ]; then
             echo "::error::El plan remoto no contiene únicamente la migración Codex esperada."
