@@ -34,6 +34,7 @@ type Task = {
   category: string;
   humanStatus: string;
   sourceHumanStatus: string;
+  sourceArchived: boolean;
   sourceProjectName: string;
   lifecycle: "OPEN" | "CLOSED" | "ARCHIVED";
   priority: number;
@@ -47,6 +48,8 @@ type Task = {
   boardUpdatedAt: string | null;
   changedSinceManaged: boolean;
   nativeMutationAvailable: boolean;
+  autoResumeApproved: boolean;
+  autoResumeRunning: boolean;
   sourceUpdatedAt: string;
 };
 
@@ -66,6 +69,7 @@ type Snapshot = {
   generatedAt: string;
   summary: Record<string, number>;
   now: Task[];
+  unreviewed: Task[];
   pending: Task[];
   needsDiego: Task[];
   blocked: Task[];
@@ -83,14 +87,16 @@ type Snapshot = {
     changedInLastScan: number;
     changesToday: number;
     fresh: boolean;
+    autoResumeEnabled: boolean;
   };
 };
 
-type SectionId = "now" | "pending" | "needsDiego" | "blocked" | "readyReview" | "monitoring" | "commercial" | "done" | "archived";
+type SectionId = "now" | "unreviewed" | "pending" | "needsDiego" | "blocked" | "readyReview" | "monitoring" | "commercial" | "done" | "archived";
 type ManagementAction = "MOVE" | "MOVE_PROJECT" | "ARCHIVE" | "CLOSE" | "REOPEN";
 
 export const SECTION_HASHES: Record<SectionId, string> = {
   now: "trabajando-ahora",
+  unreviewed: "sin-revisar",
   pending: "para-el-agente",
   needsDiego: "necesito-de-vos",
   blocked: "con-problemas",
@@ -140,7 +146,7 @@ function relativeTime(value: string) {
 }
 
 function findSnapshotTask(snapshot: Snapshot, threadId: string) {
-  return [snapshot.now, snapshot.pending, snapshot.needsDiego, snapshot.blocked, snapshot.readyReview, snapshot.done, snapshot.monitoring, snapshot.archived]
+  return [snapshot.now, snapshot.unreviewed, snapshot.pending, snapshot.needsDiego, snapshot.blocked, snapshot.readyReview, snapshot.done, snapshot.monitoring, snapshot.archived]
     .flat()
     .find((task) => task.threadId === threadId) ?? null;
 }
@@ -170,6 +176,7 @@ function TaskCard({ task, accent = "border-slate-800", onOpen }: {
       <div className="mt-3 flex flex-wrap gap-2">
         <Badge variant="outline" className="border-slate-700 text-slate-400">Prioridad {task.priority}</Badge>
         <Badge variant="outline" className="border-slate-700 text-slate-400">{task.autonomyLevel === "HUMAN" ? "Requiere persona" : `Agente ${task.autonomyLevel}`}</Badge>
+        {task.autoResumeApproved && <Badge className="bg-emerald-500/15 text-emerald-300">Reanudación automática aprobada</Badge>}
       </div>
     </div>
   );
@@ -209,6 +216,7 @@ function TaskManagerDialog({
   setConfirmation,
   error,
   notice,
+  autoResumeReady,
   onOpenChange,
   onAction,
 }: {
@@ -219,16 +227,18 @@ function TaskManagerDialog({
   projectTarget: string;
   setProjectTarget: (value: string) => void;
   savingAction: ManagementAction | null;
-  confirmation: "ARCHIVE" | "CLOSE" | null;
-  setConfirmation: (action: "ARCHIVE" | "CLOSE" | null) => void;
+  confirmation: "ARCHIVE" | "CLOSE" | "AUTO_RESUME" | null;
+  setConfirmation: (action: "ARCHIVE" | "CLOSE" | "AUTO_RESUME" | null) => void;
   error: string | null;
   notice: string | null;
+  autoResumeReady: boolean;
   onOpenChange: (open: boolean) => void;
   onAction: (action: ManagementAction, targetStatus?: string, confirmed?: boolean, targetProjectName?: string) => void;
 }) {
   const isOpen = task?.lifecycle === "OPEN";
   const canClose = isOpen && task?.humanStatus === "READY_REVIEW";
   const canReopen = Boolean(task && (!isOpen || ["DONE", "DISCARDED"].includes(task.humanStatus)));
+  const canAuthorizeAutoResume = Boolean(task && !task.sourceArchived && !task.attentionReason && ["IDLE", "NOT_LOADED"].includes(task.sourceStatus) && !task.autoResumeRunning);
   const options = canReopen ? WORKFLOW_OPTIONS.filter((option) => ["PENDING", "NEEDS_DIEGO"].includes(option.value)) : WORKFLOW_OPTIONS;
   const projectOptions = task && !projects.some((project) => project.name === task.projectName)
     ? [{ name: task.projectName, count: 0 }, ...projects]
@@ -259,6 +269,7 @@ function TaskManagerDialog({
           </div>
 
           {task.attentionReason && <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-100"><span className="font-semibold">Qué necesita:</span> {task.attentionReason}</div>}
+          {task.autoResumeApproved && <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-100"><span className="font-semibold">Autorizada para reanudación automática.</span> {autoResumeReady ? "El modo autónomo está habilitado y la tomará en un próximo ciclo, de a una tarea por vez." : "La autorización quedó guardada, pero todavía no hay un inventario autónomo reciente."}</div>}
           {task.changedSinceManaged && <div className="rounded-xl border border-violet-500/30 bg-violet-500/10 p-3 text-sm text-violet-100"><span className="font-semibold">Codex agregó actividad después del último cambio manual.</span> La clasificación automática volvió a actualizarse para que no se pierda nada.</div>}
           <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
             <p className="text-xs text-slate-500">Próximo paso</p>
@@ -268,19 +279,23 @@ function TaskManagerDialog({
           {error && <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">{error}</div>}
           {notice && <div role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">{notice}</div>}
 
-          {confirmation ? (
+          {task.autoResumeRunning ? (
+            <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-4 text-sm text-cyan-100">
+              <span className="font-semibold">Codex está ejecutando esta tarea.</span> Para no confundir el estado ni perder el readback, mover, archivar y cerrar quedan bloqueados hasta que termine o venza el límite de seguridad.
+            </div>
+          ) : confirmation ? (
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
-              <p className="font-semibold text-amber-100">{confirmation === "CLOSE" ? "¿Confirmás que revisaste el resultado?" : "¿Archivar esta tarea en el tablero?"}</p>
-              <p className="mt-1 text-sm text-slate-300">{confirmation === "CLOSE" ? "Quedará como realizada. Después podés reabrirla." : "Se ocultará de las listas activas, pero conservará su historial."}</p>
+              <p className="font-semibold text-amber-100">{confirmation === "AUTO_RESUME" ? "¿Autorizar que Codex reanude este hilo?" : confirmation === "CLOSE" ? "¿Confirmás que revisaste el resultado?" : "¿Archivar esta tarea en el tablero?"}</p>
+              <p className="mt-1 text-sm text-slate-300">{confirmation === "AUTO_RESUME" ? "Agregará una nueva ejecución dentro del alcance original, con sandbox, una tarea por vez y sin efectos externos nuevos no autorizados." : confirmation === "CLOSE" ? "Quedará como realizada. Después podés reabrirla." : "Se ocultará de las listas activas, pero conservará su historial."}</p>
               <div className="mt-4 flex flex-wrap justify-end gap-2">
                 <Button variant="ghost" disabled={Boolean(savingAction)} onClick={() => setConfirmation(null)}>Cancelar</Button>
                 <Button
-                  className={confirmation === "CLOSE" ? "bg-emerald-600 text-white hover:bg-emerald-500" : "bg-amber-600 text-white hover:bg-amber-500"}
+                  className={confirmation === "CLOSE" ? "bg-emerald-600 text-white hover:bg-emerald-500" : confirmation === "AUTO_RESUME" ? "bg-cyan-600 text-white hover:bg-cyan-500" : "bg-amber-600 text-white hover:bg-amber-500"}
                   disabled={Boolean(savingAction)}
-                  onClick={() => onAction(confirmation, undefined, confirmation === "CLOSE")}
+                  onClick={() => confirmation === "AUTO_RESUME" ? onAction(canReopen ? "REOPEN" : "MOVE", "PENDING", true) : onAction(confirmation, undefined, confirmation === "CLOSE")}
                 >
-                  {savingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : confirmation === "CLOSE" ? <CheckCircle2 className="mr-2 h-4 w-4" /> : <Archive className="mr-2 h-4 w-4" />}
-                  {confirmation === "CLOSE" ? "Sí, cerrar como realizada" : "Sí, archivar"}
+                  {savingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : confirmation === "CLOSE" ? <CheckCircle2 className="mr-2 h-4 w-4" /> : confirmation === "AUTO_RESUME" ? <Bot className="mr-2 h-4 w-4" /> : <Archive className="mr-2 h-4 w-4" />}
+                  {confirmation === "AUTO_RESUME" ? "Sí, autorizar y reanudar" : confirmation === "CLOSE" ? "Sí, cerrar como realizada" : "Sí, archivar"}
                 </Button>
               </div>
             </div>
@@ -294,12 +309,13 @@ function TaskManagerDialog({
                     <SelectContent>{options.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
                   </Select>
                 </div>
-                <Button variant="outline" disabled={Boolean(savingAction)} onClick={() => onAction(canReopen ? "REOPEN" : "MOVE", moveTarget)}>
+                <Button variant="outline" disabled={Boolean(savingAction) || (moveTarget === "PENDING" && !canAuthorizeAutoResume)} onClick={() => moveTarget === "PENDING" ? setConfirmation("AUTO_RESUME") : onAction(canReopen ? "REOPEN" : "MOVE", moveTarget)}>
                   {savingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : canReopen ? <RotateCcw className="mr-2 h-4 w-4" /> : <MoveRight className="mr-2 h-4 w-4" />}
-                  {canReopen ? "Reabrir" : "Mover"}
+                  {moveTarget === "PENDING" ? "Autorizar y reanudar" : canReopen ? "Reabrir" : "Mover"}
                 </Button>
               </div>
-              {!canReopen && <p className="text-xs text-slate-500">“Trabajando ahora” se actualiza automáticamente sólo cuando Codex está ejecutando la tarea.</p>}
+              <p className="text-xs text-slate-500">“Para el agente” requiere confirmación expresa y autoriza una nueva ejecución. “Trabajando ahora” aparecerá sólo cuando Codex la haya tomado.</p>
+              {moveTarget === "PENDING" && !canAuthorizeAutoResume && <p className="text-xs text-amber-300">Primero resolvé la decisión o ejecución activa indicada arriba; el reanudador no la tomará mientras tanto.</p>}
               <div className="grid gap-2 border-t border-slate-800 pt-3 sm:grid-cols-[1fr_auto] sm:items-end">
                 <div className="space-y-2">
                   <Label htmlFor="task-project">Mover chat a otro proyecto del tablero</Label>
@@ -318,7 +334,7 @@ function TaskManagerDialog({
           )}
 
           <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3 text-xs text-slate-400">
-            Mover, archivar, cerrar y reabrir organizan este tablero propio. No modifican silenciosamente la app de Codex.
+            Archivar, cerrar y cambiar de proyecto sólo organizan este tablero. Mover o reabrir en “Para el agente” autoriza explícitamente que Codex agregue una nueva ejecución al hilo.
           </div>
           {savingAction && <p role="status" className="text-center text-sm text-cyan-200"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" /> Guardando; esperá para cerrar.</p>}
           <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 border-t border-slate-800 bg-slate-950 px-6 py-4">
@@ -379,7 +395,7 @@ export function CompanyOsHumanDashboard() {
   const [moveTarget, setMoveTarget] = useState("PENDING");
   const [projectTarget, setProjectTarget] = useState("");
   const [savingAction, setSavingAction] = useState<ManagementAction | null>(null);
-  const [confirmation, setConfirmation] = useState<"ARCHIVE" | "CLOSE" | null>(null);
+  const [confirmation, setConfirmation] = useState<"ARCHIVE" | "CLOSE" | "AUTO_RESUME" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
@@ -425,7 +441,7 @@ export function CompanyOsHumanDashboard() {
           confirmed,
           expectedFingerprint: selectedTask.fingerprint,
           expectedVersion: selectedTask.boardVersion,
-          idempotencyKey: `dashboard:${window.crypto.randomUUID()}`,
+          idempotencyKey: `${["MOVE", "REOPEN"].includes(action) && targetStatus === "PENDING" ? "dashboard:auto-resume" : "dashboard"}:${window.crypto.randomUUID()}`,
         }),
       });
       const payload = await response.json().catch(() => null) as null | { error?: string; task?: Task };
@@ -450,7 +466,7 @@ export function CompanyOsHumanDashboard() {
         setProjectTarget(payload.task.projectName);
         setMoveTarget(moveTargetForTask(payload.task));
       }
-      setActionNotice(action === "MOVE" ? "La tarea se movió de lista." : action === "MOVE_PROJECT" ? "El chat se movió de proyecto en el tablero." : action === "ARCHIVE" ? "La tarea quedó archivada." : action === "CLOSE" ? "La tarea quedó cerrada como realizada." : "La tarea quedó abierta nuevamente.");
+      setActionNotice(action === "MOVE" && targetStatus === "PENDING" ? "La tarea quedó autorizada para reanudarse automáticamente." : action === "MOVE" ? "La tarea se movió de lista." : action === "MOVE_PROJECT" && selectedTask.autoResumeApproved ? "El chat se movió de proyecto y la autorización automática quedó revocada; vuelve a Sin revisar." : action === "MOVE_PROJECT" ? "El chat se movió de proyecto en el tablero." : action === "ARCHIVE" ? "La tarea quedó archivada." : action === "CLOSE" ? "La tarea quedó cerrada como realizada." : action === "REOPEN" && targetStatus === "PENDING" ? "La tarea quedó reabierta y autorizada para reanudarse automáticamente." : "La tarea quedó abierta nuevamente.");
       setConfirmation(null);
       await refresh();
     } catch (managementError) {
@@ -465,6 +481,12 @@ export function CompanyOsHumanDashboard() {
     const interval = window.setInterval(() => void refresh(), POLL_MS);
     return () => window.clearInterval(interval);
   }, [refresh]);
+
+  useEffect(() => {
+    if (!selectedTask || !snapshot) return;
+    const freshTask = findSnapshotTask(snapshot, selectedTask.threadId);
+    if (freshTask && freshTask !== selectedTask) setSelectedTask(freshTask);
+  }, [selectedTask, snapshot]);
 
   useEffect(() => {
     const syncSectionWithHash = () => {
@@ -510,7 +532,8 @@ export function CompanyOsHumanDashboard() {
 
   const summary = useMemo(() => [
     { section: "now" as const, label: "Trabajando", value: snapshot?.summary.inProgress ?? 0, className: "text-cyan-300" },
-    { section: "pending" as const, label: "Para el agente", value: (snapshot?.summary.pending ?? 0) + (snapshot?.summary.unreviewed ?? 0), className: "text-slate-100" },
+    { section: "unreviewed" as const, label: "Sin revisar", value: snapshot?.summary.unreviewed ?? 0, className: "text-slate-400" },
+    { section: "pending" as const, label: "Para el agente", value: snapshot?.summary.pending ?? 0, className: "text-slate-100" },
     { section: "needsDiego" as const, label: "Necesito de vos", value: snapshot?.summary.needsDiego ?? 0, className: "text-amber-300" },
     { section: "blocked" as const, label: "Con problemas", value: snapshot?.summary.blocked ?? 0, className: "text-rose-300" },
     { section: "readyReview" as const, label: "Listas para revisar", value: snapshot?.summary.readyReview ?? 0, className: "text-violet-300" },
@@ -523,9 +546,10 @@ export function CompanyOsHumanDashboard() {
   const activePanel = (() => {
     switch (activeSection) {
       case "now": return <TaskSection title="Trabajando ahora" description="Tareas que tienen una ejecución activa." tasks={snapshot?.now ?? []} empty="No hay una tarea activa en este momento." accent="border-cyan-500/25" onOpenTask={openTask} />;
+      case "unreviewed": return <TaskSection title="Sin revisar" description="Tareas antiguas o incompletas que todavía no están autorizadas para reanudarse." tasks={snapshot?.unreviewed ?? []} empty="No hay tareas pendientes de clasificación." accent="border-slate-700" onOpenTask={openTask} />;
       case "needsDiego": return <TaskSection title="Necesito que decidas" description="Decisiones, permisos o datos que sólo vos podés dar." tasks={snapshot?.needsDiego ?? []} empty="No hay decisiones tuyas pendientes." accent="border-amber-500/25" onOpenTask={openTask} />;
-      case "pending": return <TaskSection title="El agente puede trabajar ahora" description="Backlog priorizado para retomar sin una acción externa." tasks={snapshot?.pending ?? []} empty="No hay tareas listas para tomar." onOpenTask={openTask} />;
-      case "blocked": return <TaskSection title="Con problemas" description="Bloqueos por accesos, proveedores o dependencias externas." tasks={snapshot?.blocked ?? []} empty="No hay bloqueos detectados." accent="border-rose-500/25" onOpenTask={openTask} />;
+      case "pending": return <TaskSection title="El agente puede trabajar ahora" description="Sólo tareas que vos autorizaste al moverlas acá; el agente toma una por vez y la reanuda automáticamente." tasks={snapshot?.pending ?? []} empty="No hay tareas autorizadas para reanudar." onOpenTask={openTask} />;
+      case "blocked": return <TaskSection title="Con problemas" description="Bloqueos por accesos, dependencias externas, errores o tiempo agotado." tasks={snapshot?.blocked ?? []} empty="No hay bloqueos detectados." accent="border-rose-500/25" onOpenTask={openTask} />;
       case "readyReview": return <TaskSection title="Listas para que revises" description="Hay resultado y evidencia; abrí la ficha y, si está bien, cerrala como realizada." tasks={snapshot?.readyReview ?? []} empty="No hay resultados esperando revisión." accent="border-violet-500/25" onOpenTask={openTask} />;
       case "monitoring": return <TaskSection title="Monitoreos activos" description="Controles recurrentes que el agente mantiene bajo observación." tasks={snapshot?.monitoring ?? []} empty="No hay monitoreos activos." accent="border-cyan-500/20" onOpenTask={openTask} />;
       case "commercial": return <CommercialSection snapshot={snapshot} />;
@@ -551,6 +575,7 @@ export function CompanyOsHumanDashboard() {
         setConfirmation={setConfirmation}
         error={actionError}
         notice={actionNotice}
+        autoResumeReady={Boolean(snapshot?.activity?.fresh && snapshot.activity.autoResumeEnabled)}
         onOpenChange={(open) => {
           if (!open && !savingAction) {
             setSelectedTask(null);
@@ -602,6 +627,9 @@ export function CompanyOsHumanDashboard() {
           <div className="flex items-center gap-2">
             <Badge className={snapshot?.activity?.fresh ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-500/15 text-amber-300"}>
               {snapshot?.activity?.fresh ? "AL DÍA" : "SIN DATOS FRESCOS"}
+            </Badge>
+            <Badge className={snapshot?.activity?.fresh && snapshot.activity.autoResumeEnabled ? "bg-cyan-500/15 text-cyan-200" : "bg-slate-800 text-slate-400"}>
+              {snapshot?.activity?.fresh && snapshot.activity.autoResumeEnabled ? "REANUDADOR HABILITADO" : "SÓLO INVENTARIO"}
             </Badge>
             <Button size="sm" variant="outline" onClick={() => void refresh()}><RefreshCw className="mr-2 h-4 w-4" /> Actualizar</Button>
           </div>
