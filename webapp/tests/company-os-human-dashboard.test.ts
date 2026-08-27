@@ -37,7 +37,7 @@ test('las ofertas exponen costo, precio sugerido, margen y fuente real', () => {
 });
 
 test('collector excluye subagentes, no envía texto final y nunca convierte task_complete en DONE', () => {
-  assert.match(collector, /parent_thread_id \|\| inspected\.meta\.agent_path \|\| inspected\.meta\.forked_from_id/);
+  assert.match(collector, /header\.parent_thread_id \|\| header\.agent_path \|\| header\.forked_from_id/);
   assert.doesNotMatch(collector, /lastFinalText,\s*priority/);
   assert.match(collector, /humanStatus: 'READY_REVIEW'/);
   assert.doesNotMatch(collector, /humanStatus: 'DONE'/);
