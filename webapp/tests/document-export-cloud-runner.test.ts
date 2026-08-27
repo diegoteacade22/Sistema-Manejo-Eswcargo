@@ -50,3 +50,9 @@ test('job env no usa runner context y las rutas nacen desde RUNNER_TEMP', async 
     assert.match(workflow, /GOOGLE_CREDENTIALS_FILE=\$RUNNER_TEMP\/google_credentials\.json/);
     assert.match(workflow, />> "\$GITHUB_ENV"/);
 });
+
+test('export-one conserva cualquier salida parcial como error', async () => {
+    const workflow = await readFile(workflowPath, 'utf8');
+    assert.match(workflow, /\[ "\$status" -eq 2 \] && \[ "\$MODE" = "export" \]/);
+    assert.doesNotMatch(workflow, /if \[ "\$status" -eq 2 \]; then/);
+});

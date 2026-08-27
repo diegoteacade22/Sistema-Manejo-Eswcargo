@@ -34,7 +34,7 @@
     "test:shipment-status": "tsx --test tests/shipment-status-sheets.test.ts tests/shipment-sync-status.test.ts",
     "test:document-filenames": "tsx --test tests/document-filenames.test.ts",
     "test:document-export-policy": "tsx --test tests/document-export-policy.test.ts",
-    "test:document-export-cloud": "tsx --test tests/document-cloud-drive.test.ts tests/document-export-cloud-runner.test.ts",
+    "test:document-export-cloud": "tsx --test tests/document-cloud-drive.test.ts tests/document-export-cloud-runner.test.ts tests/document-export-run-contract.test.ts",
     "documents:export": "tsx scripts/export-operational-documents.ts",
     "test:client-account-policy": "tsx scripts/test-client-account-policy.ts",
     "test:order-allocation-guards": "tsx scripts/test-order-allocation-guards.ts",

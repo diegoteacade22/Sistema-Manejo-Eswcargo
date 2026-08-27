@@ -115,7 +115,7 @@ jobs:
           npx tsx scripts/export-operational-documents.ts "${args[@]}"
           status=$?
           set -e
-          if [ "$status" -eq 2 ]; then
+          if [ "$status" -eq 2 ] && [ "$MODE" = "export" ]; then
             echo "::warning::El runner exportó los documentos válidos y registró bloqueos de datos en el resumen."
             exit 0
           fi

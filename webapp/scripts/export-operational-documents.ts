@@ -9,6 +9,11 @@ import type {
 } from '../lib/document-cloud-drive';
 import { GoogleDriveDocumentStore } from '../lib/document-cloud-drive';
 import {
+    assertSelectedOrderObserved,
+    sanitizeDocumentExportFatalError,
+    selectedOrderExitCode,
+} from '../lib/document-export-run-contract';
+import {
     DOCUMENT_EXPORT_LOOKBACK_DAYS,
     isWithinDocumentExportWindow,
     shouldAdvanceShipmentBaseFingerprint,
@@ -78,13 +83,6 @@ function cloudFailureReason(message: string) {
     if (/clientes o artículos confirmados/i.test(message)) return 'MISSING_CONFIRMED_ITEMS';
     if (/bloque|inconsisten|fuente/i.test(message)) return 'SOURCE_DOCUMENT_BLOCKED';
     return 'DOCUMENT_BUILD_FAILED';
-}
-
-function sanitizeFatalMessage(value: string) {
-    return value
-        .replace(/postgres(?:ql)?:\/\/\S+/gi, 'postgresql://[REDACTED]')
-        .replace(/Bearer\s+\S+/gi, 'Bearer [REDACTED]')
-        .replace(/-----BEGIN [^-]+-----[\s\S]*?-----END [^-]+-----/g, '[REDACTED_KEY]');
 }
 
 async function loadLocalState(): Promise<DocumentExportState | null> {
@@ -251,6 +249,7 @@ async function main() {
             },
         },
     });
+    assertSelectedOrderObserved(selectedOrderId, orders.length);
 
     let exported = 0;
     let planned = 0;
@@ -395,7 +394,14 @@ async function main() {
         }
     }
 
-    if (!dryRun) await target.saveState(next);
+    const exitCode = selectedOrderExitCode({
+        selectedOrderId,
+        dryRun,
+        exported,
+        failureCount: failures.length,
+    });
+    const shouldPersistState = !dryRun && !(selectedOrderId !== null && exitCode !== 0);
+    if (shouldPersistState) await target.saveState(next);
     const summaryFailures = target.name === 'drive'
         ? Object.entries(failures.reduce<Record<string, number>>((counts, { message }) => {
             const reason = cloudFailureReason(message);
@@ -404,7 +410,7 @@ async function main() {
         }, {})).map(([reasonCode, count]) => ({ reasonCode, count }))
         : failures;
     const summary = {
-        status: dryRun ? 'DRY_RUN' : failures.length > 0 ? 'PARTIAL' : 'COMPLETED',
+        status: dryRun ? 'DRY_RUN' : exitCode === 1 ? 'FAILED_SELECTION' : failures.length > 0 ? 'PARTIAL' : 'COMPLETED',
         target: target.name,
         selection: selectedOrderId !== null
             ? { type: 'ORDER', id: selectedOrderId }
@@ -416,22 +422,24 @@ async function main() {
         failureCount: failures.length,
         lookbackDays: DOCUMENT_EXPORT_LOOKBACK_DAYS,
         ignoredOutsideLookback,
-        stateUpdatedAt: dryRun ? null : next.updatedAt,
+        stateUpdatedAt: shouldPersistState ? next.updatedAt : null,
         artifactReadbacks,
     };
     if (!dryRun) await logEvent({ type: 'RUN', ...summary });
     await writeSummary(summary);
     console.log(JSON.stringify(summary, null, 2));
-    if (failures.length > 0) process.exitCode = 2;
+    if (exitCode !== 0) process.exitCode = exitCode;
 }
 
 main()
     .catch(async (error) => {
-        const message = sanitizeFatalMessage(error instanceof Error ? error.message : String(error));
+        const message = sanitizeDocumentExportFatalError(error instanceof Error ? error.message : String(error));
         const summary = { status: 'FAILED', target: targetName, message };
-        await logEvent({ type: 'FATAL', message });
-        await writeSummary(summary);
-        console.error(error);
+        await Promise.allSettled([
+            logEvent({ type: 'FATAL', message }),
+            writeSummary(summary),
+        ]);
+        console.error(JSON.stringify(summary));
         process.exitCode = 1;
     })
     .finally(async () => {

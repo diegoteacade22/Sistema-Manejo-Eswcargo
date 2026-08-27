@@ -60,6 +60,11 @@ test('crea por nombre estable y exige readback de carpeta, tamaño y huella', as
     assert.equal(result.idSuffix, 'abcdefgh');
     assert.equal(client.calls[1]?.method, 'POST');
     assert.match(String((client.calls[1]?.headers as Record<string, string>)['Content-Type']), /^multipart\/related/);
+    const multipart = client.calls[1]?.data as Buffer;
+    const contentOffset = multipart.indexOf(contents);
+    assert.ok(contentOffset > 4);
+    assert.equal(multipart.subarray(contentOffset - 4, contentOffset).toString('hex'), '0d0a0d0a');
+    assert.deepEqual(multipart.subarray(contentOffset, contentOffset + contents.length), contents);
 });
 
 test('segunda corrida con la misma huella no vuelve a escribir', async () => {

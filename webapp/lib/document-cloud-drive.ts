@@ -112,6 +112,7 @@ function multipartBody(metadata: Record<string, unknown>, contents: Uint8Array, 
         `--${boundary}`,
         `Content-Type: ${mimeType}`,
         '',
+        '',
     ].join('\r\n'));
     const suffix = Buffer.from(`\r\n--${boundary}--\r\n`);
     return Buffer.concat([prefix, Buffer.from(contents), suffix]);
