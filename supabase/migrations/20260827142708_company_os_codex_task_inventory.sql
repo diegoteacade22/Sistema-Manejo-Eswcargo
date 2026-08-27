@@ -37,8 +37,9 @@ CREATE TABLE public."CompanyOsCodexTaskObservation" (
   fingerprint text NOT NULL CHECK (fingerprint ~ '^[0-9a-f]{64}$'),
   "humanStatus" text NOT NULL CHECK ("humanStatus" IN ('UNREVIEWED','PENDING','IN_PROGRESS','NEEDS_DIEGO','BLOCKED','READY_REVIEW','DONE','MONITORING','DISCARDED')),
   "sourceStatus" text NOT NULL CHECK ("sourceStatus" IN ('ACTIVE','IDLE','NOT_LOADED','ARCHIVED','UNKNOWN')),
+  "actorRef" text NOT NULL CHECK (length("actorRef") BETWEEN 1 AND 160),
   "observedAt" timestamptz NOT NULL DEFAULT now(),
-  UNIQUE ("taskId", fingerprint)
+  UNIQUE ("taskId", fingerprint, "humanStatus")
 );
 CREATE INDEX "CompanyOsCodexTaskObservation_observed_idx"
   ON public."CompanyOsCodexTaskObservation" ("observedAt" DESC);

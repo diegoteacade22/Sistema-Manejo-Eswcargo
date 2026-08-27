@@ -79,28 +79,36 @@ function relativeTime(value: string) {
   return `hace ${Math.floor(diff / 86_400_000)} días`;
 }
 
-function TaskCard({ task, accent = "border-slate-800" }: { task: Task; accent?: string }) {
+function TaskCard({ task, accent = "border-slate-800", onDone, saving }: {
+  task: Task; accent?: string; onDone?: (threadId: string) => void; saving?: boolean;
+}) {
   return (
-    <a href={task.codexUrl} className={`block rounded-2xl border ${accent} bg-slate-950/60 p-4 transition hover:-translate-y-0.5 hover:border-cyan-400/50`}>
-      <div className="flex items-start justify-between gap-3">
+    <div className={`rounded-2xl border ${accent} bg-slate-950/60 p-4 transition hover:border-cyan-400/50`}>
+      <a href={task.codexUrl} className="block">
+        <div className="flex items-start justify-between gap-3">
         <div>
           <p className="font-semibold leading-snug text-slate-100">{task.title}</p>
           <p className="mt-1 text-xs text-slate-500">{task.projectName} · {relativeTime(task.sourceUpdatedAt)}</p>
         </div>
         <ExternalLink className="mt-1 h-4 w-4 shrink-0 text-slate-600" />
-      </div>
-      {task.attentionReason && <p className="mt-3 text-sm text-amber-200">{task.attentionReason}</p>}
-      <p className="mt-3 text-sm text-slate-300"><span className="text-slate-500">Próximo paso:</span> {task.nextAction}</p>
+        </div>
+        {task.attentionReason && <p className="mt-3 text-sm text-amber-200">{task.attentionReason}</p>}
+        <p className="mt-3 text-sm text-slate-300"><span className="text-slate-500">Próximo paso:</span> {task.nextAction}</p>
+      </a>
       <div className="mt-3 flex flex-wrap gap-2">
         <Badge variant="outline" className="border-slate-700 text-slate-400">Prioridad {task.priority}</Badge>
         <Badge variant="outline" className="border-slate-700 text-slate-400">{task.autonomyLevel === "HUMAN" ? "Requiere persona" : `Agente ${task.autonomyLevel}`}</Badge>
+        {onDone && <Button size="sm" className="ml-auto bg-emerald-600 text-white hover:bg-emerald-500" disabled={saving} onClick={() => onDone(task.threadId)}>
+          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />} Marcar realizada
+        </Button>}
       </div>
-    </a>
+    </div>
   );
 }
 
-function TaskSection({ title, description, tasks, empty, accent }: {
+function TaskSection({ title, description, tasks, empty, accent, onDone, savingThreadId }: {
   title: string; description: string; tasks: Task[]; empty: string; accent?: string;
+  onDone?: (threadId: string) => void; savingThreadId?: string | null;
 }) {
   return (
     <Card className="border-slate-800 bg-slate-950/70 text-slate-100">
@@ -114,7 +122,7 @@ function TaskSection({ title, description, tasks, empty, accent }: {
         </div>
       </CardHeader>
       <CardContent className="grid gap-3 xl:grid-cols-2">
-        {tasks.length ? tasks.map((task) => <TaskCard key={task.threadId} task={task} accent={accent} />) : <p className="text-sm text-slate-500">{empty}</p>}
+        {tasks.length ? tasks.map((task) => <TaskCard key={task.threadId} task={task} accent={accent} onDone={onDone} saving={savingThreadId === task.threadId} />) : <p className="text-sm text-slate-500">{empty}</p>}
       </CardContent>
     </Card>
   );
@@ -124,6 +132,7 @@ export function CompanyOsHumanDashboard() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [savingThreadId, setSavingThreadId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -137,6 +146,23 @@ export function CompanyOsHumanDashboard() {
       setLoading(false);
     }
   }, []);
+
+  const markDone = useCallback(async (threadId: string) => {
+    setSavingThreadId(threadId);
+    try {
+      const response = await fetch(URL, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "MARK_DONE", threadId }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      await refresh();
+    } catch {
+      setError("No pude marcar la tarea como realizada. Abrila para revisar el resultado e intentá nuevamente.");
+    } finally {
+      setSavingThreadId(null);
+    }
+  }, [refresh]);
 
   useEffect(() => {
     void refresh();
@@ -196,7 +222,8 @@ export function CompanyOsHumanDashboard() {
       <TaskSection title="Necesito que decidas" description="Decisiones, permisos o datos que sólo vos podés dar." tasks={snapshot?.needsDiego ?? []} empty="No hay decisiones tuyas pendientes." accent="border-amber-500/25" />
       <TaskSection title="El agente puede trabajar ahora" description="Backlog priorizado para retomar sin una acción externa." tasks={snapshot?.pending ?? []} empty="No hay tareas listas para tomar." />
       <TaskSection title="Con problemas" description="Bloqueos por accesos, proveedores o dependencias externas." tasks={snapshot?.blocked ?? []} empty="No hay bloqueos detectados." accent="border-rose-500/25" />
-      <TaskSection title="Listas para que revises" description="Hay resultado y evidencia; falta tu validación humana antes de llamarlas realizadas." tasks={snapshot?.readyReview ?? []} empty="No hay resultados esperando revisión." accent="border-violet-500/25" />
+      <TaskSection title="Listas para que revises" description="Hay resultado y evidencia; abrí la tarea y, si está bien, marcala realizada." tasks={snapshot?.readyReview ?? []} empty="No hay resultados esperando revisión." accent="border-violet-500/25" onDone={markDone} savingThreadId={savingThreadId} />
+      <TaskSection title="Monitoreos activos" description="Controles recurrentes que el agente mantiene bajo observación." tasks={snapshot?.monitoring ?? []} empty="No hay monitoreos activos." accent="border-cyan-500/20" />
 
       <Card className="border-emerald-500/20 bg-slate-950/70 text-slate-100">
         <CardHeader>

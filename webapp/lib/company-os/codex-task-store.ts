@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import { prisma } from '@/lib/prisma';
 import { sanitizeCompanyText } from './objective';
+import { companyReadPrisma } from './read-prisma';
 import { companyOsV3Prisma } from './v3-prisma';
 
 const HUMAN_STATUSES = new Set(['UNREVIEWED', 'PENDING', 'IN_PROGRESS', 'NEEDS_DIEGO', 'BLOCKED', 'READY_REVIEW', 'DONE', 'MONITORING', 'DISCARDED']);
@@ -29,6 +29,12 @@ function safeText(value: unknown, max: number, fallback?: string) {
   throw new CodexTaskStoreError('Texto Codex obligatorio ausente');
 }
 
+function safeThreadId(value: unknown) {
+  const threadId = typeof value === 'string' ? value.trim() : '';
+  if (!/^[A-Za-z0-9_-]{8,128}$/.test(threadId)) throw new CodexTaskStoreError('threadId Codex inválido');
+  return threadId;
+}
+
 function enumValue(value: unknown, allowed: Set<string>, fallback: string) {
   const normalized = typeof value === 'string' ? value.trim().toUpperCase() : '';
   return allowed.has(normalized) ? normalized : fallback;
@@ -53,8 +59,7 @@ function fingerprint(input: Record<string, unknown>) {
 
 function taskInput(raw: unknown, sourceHost: string, observedAt: Date) {
   const input = record(raw);
-  const threadId = safeText(input.threadId, 128);
-  if (!/^[A-Za-z0-9_-]{8,128}$/.test(threadId)) throw new CodexTaskStoreError('threadId Codex inválido');
+  const threadId = safeThreadId(input.threadId);
   const humanStatus = enumValue(input.humanStatus, HUMAN_STATUSES, 'UNREVIEWED');
   const sourceStatus = enumValue(input.sourceStatus, SOURCE_STATUSES, 'UNKNOWN');
   const category = enumValue(input.category, CATEGORIES, 'GENERAL');
@@ -89,7 +94,9 @@ export async function ingestCodexTaskChunk(raw: unknown, actorRef: string) {
   const sourceHost = safeText(input.sourceHost, 120);
   const scanId = safeText(input.scanId, 160);
   const tasks = Array.isArray(input.tasks) ? input.tasks : [];
-  if (!tasks.length || tasks.length > 100) throw new CodexTaskStoreError('Cada lote debe contener entre 1 y 100 tareas');
+  if (tasks.length > 100 || (!tasks.length && !(input.finalChunk === true && Number(input.observedCount) === 0))) {
+    throw new CodexTaskStoreError('Cada lote debe contener hasta 100 tareas; sólo el escaneo final vacío puede no incluir tareas');
+  }
   const observedAt = isoDate(input.observedAt, new Date());
   const normalized = tasks.map((task) => taskInput(task, sourceHost, observedAt));
   const db = companyOsV3Prisma();
@@ -97,12 +104,18 @@ export async function ingestCodexTaskChunk(raw: unknown, actorRef: string) {
 
   await db.$transaction(async (tx) => {
     for (const task of normalized) {
-      const previous = await tx.companyOsCodexTask.findUnique({ where: { threadId: task.threadId }, select: { fingerprint: true } });
+      const previous = await tx.companyOsCodexTask.findUnique({
+        where: { threadId: task.threadId },
+        select: { fingerprint: true, humanStatus: true, lastCompletedAt: true },
+      });
       if (!previous || previous.fingerprint !== task.fingerprint) changedCount += 1;
+      const persistedTask = previous?.humanStatus === 'DONE' && previous.fingerprint === task.fingerprint
+        ? { ...task, humanStatus: 'DONE', nextAction: 'Realizada y validada por Diego.', attentionReason: null, lastCompletedAt: previous.lastCompletedAt }
+        : task;
       await tx.companyOsCodexTask.upsert({
         where: { threadId: task.threadId },
-        update: task,
-        create: task,
+        update: persistedTask,
+        create: persistedTask,
       });
       if (!previous || previous.fingerprint !== task.fingerprint) {
         await tx.companyOsCodexTaskObservation.create({
@@ -112,6 +125,7 @@ export async function ingestCodexTaskChunk(raw: unknown, actorRef: string) {
             fingerprint: task.fingerprint,
             humanStatus: task.humanStatus,
             sourceStatus: task.sourceStatus,
+            actorRef,
             observedAt,
           },
         });
@@ -138,6 +152,39 @@ export async function ingestCodexTaskChunk(raw: unknown, actorRef: string) {
   return { accepted: normalized.length, changedCount, scanId, actorRef };
 }
 
+export async function markCodexTaskDone(rawThreadId: unknown, actorRef: string) {
+  const threadId = safeThreadId(rawThreadId);
+  const db = companyOsV3Prisma();
+  return db.$transaction(async (tx) => {
+    const task = await tx.companyOsCodexTask.findUnique({ where: { threadId } });
+    if (!task) throw new CodexTaskStoreError('La tarea no existe', 404);
+    if (task.humanStatus === 'DONE') return { threadId, humanStatus: 'DONE', unchanged: true };
+    if (task.humanStatus !== 'READY_REVIEW') throw new CodexTaskStoreError('Sólo una tarea lista para revisar puede marcarse realizada', 409);
+    const observedAt = new Date();
+    await tx.companyOsCodexTask.update({
+      where: { threadId },
+      data: {
+        humanStatus: 'DONE',
+        nextAction: 'Realizada y validada por Diego.',
+        attentionReason: null,
+        lastCompletedAt: observedAt,
+      },
+    });
+    await tx.companyOsCodexTaskObservation.create({
+      data: {
+        id: `codex-observation:${randomUUID()}`,
+        taskId: task.id,
+        fingerprint: task.fingerprint,
+        humanStatus: 'DONE',
+        sourceStatus: task.sourceStatus,
+        actorRef,
+        observedAt,
+      },
+    });
+    return { threadId, humanStatus: 'DONE', unchanged: false };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10_000 });
+}
+
 function taskView(task: {
   threadId: string; title: string; projectName: string; category: string; humanStatus: string;
   priority: number; nextAction: string; attentionReason: string | null; autonomyLevel: string;
@@ -153,6 +200,7 @@ function taskView(task: {
 
 export async function getHumanWorkCenter() {
   const db = companyOsV3Prisma();
+  const businessDb = companyReadPrisma();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const [tasks, counts, lastSync, recentChanges, commercialProducts] = await Promise.all([
@@ -164,7 +212,7 @@ export async function getHumanWorkCenter() {
     db.companyOsCodexTask.groupBy({ by: ['humanStatus'], where: { archived: false }, _count: { _all: true } }),
     db.companyOsCodexInventorySync.findFirst({ orderBy: { completedAt: 'desc' } }),
     db.companyOsCodexTaskObservation.count({ where: { observedAt: { gte: today } } }),
-    prisma.product.findMany({
+    businessDb.product.findMany({
       where: { active: true, stock: { gt: 0 }, last_purchase_cost: { gt: 0 }, lp1: { gt: 0 } },
       select: { sku: true, name: true, stock: true, last_purchase_cost: true, lp1: true, updatedAt: true },
       orderBy: [{ updatedAt: 'desc' }],

@@ -1175,10 +1175,11 @@ model CompanyOsCodexTaskObservation {
   fingerprint  String
   humanStatus  String
   sourceStatus String
+  actorRef      String
   observedAt   DateTime           @default(now())
   task         CompanyOsCodexTask @relation(fields: [taskId], references: [id], onDelete: Restrict)
 
-  @@unique([taskId, fingerprint])
+  @@unique([taskId, fingerprint, humanStatus])
   @@index([observedAt])
 }
 

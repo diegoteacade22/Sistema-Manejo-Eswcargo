@@ -215,6 +215,9 @@ if (DRY_RUN) {
   process.exit(0);
 }
 let changedCount = 0;
+if (tasks.length === 0) {
+  await postChunk({ sourceHost: SOURCE_HOST, scanId, observedAt, tasks: [], finalChunk: true, observedCount: 0, changedBefore: 0 });
+}
 for (let offset = 0; offset < tasks.length; offset += 100) {
   const chunk = tasks.slice(offset, offset + 100);
   const finalChunk = offset + chunk.length >= tasks.length;

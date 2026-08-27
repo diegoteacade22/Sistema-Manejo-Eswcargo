@@ -11,6 +11,8 @@ const page = readFileSync('app/company-os/operations/page.tsx', 'utf8');
 const component = readFileSync('components/company-os-human-dashboard.tsx', 'utf8');
 const collector = readFileSync('../company-os/codex-task-collector/collector.mjs', 'utf8');
 const migration = readFileSync('../supabase/migrations/20260827142708_company_os_codex_task_inventory.sql', 'utf8');
+const store = readFileSync('lib/company-os/codex-task-store.ts', 'utf8');
+const route = readFileSync('app/api/company-os/dashboard/human/route.ts', 'utf8');
 
 test('el tablero humano es la vista principal y la consola técnica queda colapsada', () => {
   assert.match(page, /<CompanyOsHumanDashboard \/>/);
@@ -26,6 +28,7 @@ test('la vista inicial usa lenguaje humano y no muestra leases ni fencing', () =
   for (const label of ['Trabajando ahora', 'Necesito que decidas', 'El agente puede trabajar ahora', 'Con problemas', 'Ideas y ofertas', 'Realizadas']) {
     assert.match(component, new RegExp(label));
   }
+  assert.match(component, /Monitoreos activos/);
 });
 
 test('las ofertas exponen costo, precio sugerido, margen y fuente real', () => {
@@ -41,8 +44,24 @@ test('collector excluye subagentes, no envía texto final y nunca convierte task
   assert.doesNotMatch(collector, /lastFinalText,\s*priority/);
   assert.match(collector, /humanStatus: 'READY_REVIEW'/);
   assert.doesNotMatch(collector, /humanStatus: 'DONE'/);
-  const store = readFileSync('lib/company-os/codex-task-store.ts', 'utf8');
   assert.match(store, /codex:\/\/threads\/\$\{threadId\}/);
+  assert.match(store, /function safeThreadId/);
+  assert.match(collector, /if \(tasks\.length === 0\)/);
+});
+
+test('validación humana mueve READY_REVIEW a DONE y el siguiente escaneo la conserva', () => {
+  assert.match(component, /Marcar realizada/);
+  assert.match(route, /MARK_DONE/);
+  assert.match(route, /hasTrustedHumanRequestOrigin/);
+  assert.match(store, /task\.humanStatus !== 'READY_REVIEW'/);
+  assert.match(store, /previous\?\.humanStatus === 'DONE'/);
+  assert.match(migration, /UNIQUE \("taskId", fingerprint, "humanStatus"\)/);
+});
+
+test('ofertas usan el cliente empresarial de sólo lectura', () => {
+  assert.match(store, /companyReadPrisma/);
+  assert.match(store, /businessDb\.product\.findMany/);
+  assert.doesNotMatch(store, /db\.product\.findMany/);
 });
 
 test('inventario durable es interno, saneado y append-only para observaciones', () => {
