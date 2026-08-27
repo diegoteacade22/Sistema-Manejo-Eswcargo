@@ -47,13 +47,18 @@ jobs:
         run: >-
           npx eslint
           app/company-os/operations/page.tsx
+          app/api/company-os/codex/v1
+          app/api/company-os/dashboard/human
           app/api/company-os/engineering/v2
+          components/company-os-human-dashboard.tsx
           components/company-os-engineering-control-center.tsx
           lib/company-os/autonomous-engineering-v2.ts
+          lib/company-os/codex-task-store.ts
           lib/company-os/engineering-store.ts
           tests/company-os-autonomous-engineering-v2.test.ts
           tests/company-os-engineering-durable-contract.test.ts
           tests/company-os-engineering-control-center-ui.test.ts
+          tests/company-os-human-dashboard.test.ts
 
       - name: Build production artifact
         run: npm run build

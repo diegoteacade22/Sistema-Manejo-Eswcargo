@@ -1,0 +1,58 @@
+name: Company OS Codex Inventory Migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Apply the single verified migration after dry-run
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: company-os-codex-inventory-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.109.1
+
+      - name: Verify exact migration plan
+        id: plan
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          plan="$(supabase db push --db-url "$DIRECT_URL" --include-all --dry-run 2>&1)"
+          printf '%s\n' "$plan"
+          mapfile -t planned < <(grep -Eo '[0-9]{14}_[A-Za-z0-9_-]+\.sql' <<< "$plan" | sort -u)
+          if [ "${#planned[@]}" -ne 1 ] || [ "${planned[0]:-}" != "20260827142708_company_os_codex_task_inventory.sql" ]; then
+            echo "::error::El plan remoto no contiene únicamente la migración Codex esperada."
+            exit 1
+          fi
+
+      - name: Apply verified migration
+        if: ${{ inputs.apply }}
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: supabase db push --db-url "$DIRECT_URL" --include-all --yes
+
+      - name: Verify migration history
+        if: ${{ inputs.apply }}
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          plan="$(supabase db push --db-url "$DIRECT_URL" --include-all --dry-run 2>&1)"
+          printf '%s\n' "$plan"
+          grep -q 'Remote database is up to date' <<< "$plan"

@@ -4,6 +4,7 @@ import { ArrowLeft, Eye, ShieldCheck } from 'lucide-react';
 import { auth } from '@/lib/auth';
 import { CompanyOsRuntimeControlCenter } from '@/components/company-os-runtime-control-center';
 import { CompanyOsEngineeringControlCenter } from '@/components/company-os-engineering-control-center';
+import { CompanyOsHumanDashboard } from '@/components/company-os-human-dashboard';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
@@ -23,15 +24,15 @@ export default async function CompanyOsOperationsPage() {
             <div>
               <div className="mb-3 flex flex-wrap gap-2">
                 <Badge className="border-cyan-500/30 bg-cyan-500/10 text-cyan-300">
-                  <Eye className="mr-1 h-3 w-3" /> V2 · HUMAN CONTROLLED
+                  <Eye className="mr-1 h-3 w-3" /> CENTRO DE TRABAJO
                 </Badge>
                 <Badge variant="outline" className="border-cyan-500/30 text-cyan-300">
-                  <ShieldCheck className="mr-1 h-3 w-3" /> COMPANY OS CANONICAL DATA
+                  <ShieldCheck className="mr-1 h-3 w-3" /> AGENTE 24/7 · CONTROL HUMANO
                 </Badge>
               </div>
-              <h1 className="text-3xl font-black tracking-tight">Company OS Autonomous Operations</h1>
+              <h1 className="text-3xl font-black tracking-tight">Qué está haciendo Codex</h1>
               <p className="mt-2 max-w-3xl text-sm text-slate-400">
-                Tablero integrado del plano durable. La ingeniería sólo opera bajo capability leases, fencing, límites y controles humanos fail-closed.
+                Tareas pendientes, avances, bloqueos, resultados e ideas comerciales explicados en lenguaje humano.
               </p>
             </div>
             <Button asChild variant="outline">
@@ -40,18 +41,20 @@ export default async function CompanyOsOperationsPage() {
           </div>
         </header>
 
-        <CompanyOsEngineeringControlCenter />
+        <CompanyOsHumanDashboard />
 
-        <section aria-labelledby="company-os-runtime-title" className="space-y-3 border-t border-slate-800 pt-6">
-          <div>
-            <Badge variant="outline" className="mb-2 border-slate-700 text-slate-400">
-              RUNTIME BASE · PHASE 1 · READ ONLY
-            </Badge>
-            <h2 id="company-os-runtime-title" className="text-xl font-bold">Runtime Company OS compartido</h2>
-            <p className="mt-1 text-sm text-slate-500">Worker, cola, agentes, dependencias e incidentes del runtime base. Controles de esta sección permanecen read-only.</p>
+        <details className="rounded-3xl border border-slate-800 bg-slate-950/50 p-5">
+          <summary className="cursor-pointer select-none font-semibold text-slate-300">Diagnóstico técnico del sistema</summary>
+          <p className="mt-2 text-sm text-slate-500">Worker, seguridad, leases y controles de emergencia. Esta información queda disponible para soporte, pero no ocupa el tablero principal.</p>
+          <div className="mt-6 space-y-6">
+            <CompanyOsEngineeringControlCenter />
+            <section aria-labelledby="company-os-runtime-title" className="space-y-3 border-t border-slate-800 pt-6">
+              <Badge variant="outline" className="border-slate-700 text-slate-500">PHASE 1 · READ ONLY</Badge>
+              <h2 id="company-os-runtime-title" className="text-xl font-bold">Runtime Company OS</h2>
+              <CompanyOsRuntimeControlCenter readOnly />
+            </section>
           </div>
-          <CompanyOsRuntimeControlCenter readOnly />
-        </section>
+        </details>
       </div>
     </main>
   );
