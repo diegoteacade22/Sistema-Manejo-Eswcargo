@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
+import { prisma } from '@/lib/prisma';
 import { sanitizeCompanyText } from './objective';
 import { companyOsV3Prisma } from './v3-prisma';
 
@@ -163,7 +164,7 @@ export async function getHumanWorkCenter() {
     db.companyOsCodexTask.groupBy({ by: ['humanStatus'], where: { archived: false }, _count: { _all: true } }),
     db.companyOsCodexInventorySync.findFirst({ orderBy: { completedAt: 'desc' } }),
     db.companyOsCodexTaskObservation.count({ where: { observedAt: { gte: today } } }),
-    db.product.findMany({
+    prisma.product.findMany({
       where: { active: true, stock: { gt: 0 }, last_purchase_cost: { gt: 0 }, lp1: { gt: 0 } },
       select: { sku: true, name: true, stock: true, last_purchase_cost: true, lp1: true, updatedAt: true },
       orderBy: [{ updatedAt: 'desc' }],
