@@ -209,7 +209,6 @@ export async function getHumanWorkCenter() {
     db.companyOsCodexTask.findMany({
       where: { archived: false },
       orderBy: [{ priority: 'asc' }, { sourceUpdatedAt: 'desc' }],
-      take: 500,
     }),
     db.companyOsCodexTask.groupBy({ by: ['humanStatus'], where: { archived: false }, _count: { _all: true } }),
     db.companyOsCodexInventorySync.findFirst({ orderBy: { completedAt: 'desc' } }),
@@ -249,7 +248,9 @@ export async function getHumanWorkCenter() {
     .slice(0, 5);
 
   const select = (statuses: string[]) => tasks.filter((task) => statuses.includes(task.humanStatus)).map(taskView);
-  const commercialNextAction = commercialProducts.length ? null : commercialReadiness.withStock === 0
+  const commercialNextAction = commercialIdeas.length ? null : commercialProducts.length
+    ? { title: 'Revisar precios sin margen positivo', detail: `${commercialProducts.length} productos tienen stock, costo y LP1, pero ese precio no supera el costo con margen positivo.`, href: '/products' }
+    : commercialReadiness.withStock === 0
     ? { title: 'Primero falta cargar stock disponible', detail: 'Sin unidades disponibles no propongo una oferta que después no se pueda cumplir.', href: '/products' }
     : {
       title: 'Completar datos antes de ofrecer',
