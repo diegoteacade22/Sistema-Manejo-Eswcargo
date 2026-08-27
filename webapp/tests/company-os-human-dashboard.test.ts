@@ -233,6 +233,8 @@ test('la reanudación usa HMAC, journal durable, sandbox y no hereda el secreto'
   assert.match(collectorManager, /INSTALL_REQUIRES_QUIESCENCE/);
   assert.match(store, /claimBaselineToken/);
   assert.match(store, /claimBaselineFromKey/);
+  assert.equal((store.match(/SELECT 1 AS locked FROM pg_advisory_xact_lock/g) ?? []).length, 2);
+  assert.doesNotMatch(store, /SELECT pg_advisory_xact_lock/);
   assert.match(store, /claim-\$\{binding\}:\$\{baselineToken\}/);
   assert.match(store, /claimedFingerprint !== claimAction\.fingerprint/);
   assert.match(store, /durableBaseline\.value\?\.toISOString\(\) \?\? null/);
