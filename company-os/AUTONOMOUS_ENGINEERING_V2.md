@@ -2,7 +2,7 @@
 
 **Contract version:** `2.0.0`
 
-**Status:** executable safety contract; continuous autonomy remains disabled until go-live evidence passes
+**Status:** active in production 24/7; go-live evidence passed on 2026-08-27
 
 **Canonical state:** Company OS PostgreSQL/Supabase only
 
@@ -57,7 +57,7 @@ CONFIRMED → REVERSED
 - Reproducible tests or fixtures in non-production scope.
 - Lint, typecheck, build or preview-workflow repairs that cannot alter production.
 
-Authentication, migrations, payments, business data, secrets, production, merges and deploys are outside V1 authority.
+Authentication, migrations, payments, business data, secrets, production, merges and deploys are outside V2 autonomous authority.
 
 ## Proof levels
 
@@ -87,4 +87,10 @@ Controls call authenticated, same-origin Company OS APIs and are disabled when t
 
 ## Go-live gate
 
-Continuous A1/A2 remains disabled until `PASS_DURABLE_V2` is recorded from authoritative state and external readback. The first deployment may expose the read-only console and existing runtime controls without enabling the engineering worker.
+`PASS_DURABLE_V2` was recorded on 2026-08-27 from authoritative Supabase state, GitHub readback, a supervised DiegoServer worker and the production operations console. Continuous A1/A2 is active with the following ceiling:
+
+- A1: verified local commit in an isolated disposable workspace.
+- A2: allowlisted `codex/*` branch and Draft PR only.
+- Human-only: approval, merge, deployment, policy, credentials, business data and external communication.
+
+The durable runner is supervised by the DiegoServer LaunchAgent `com.esw.company-os-engineering-v2`. The production control surface is `https://webapp-weld-psi.vercel.app/company-os/operations`. A missing worker heartbeat, failed destination readback or stale observation must degrade the console and block new effects.

@@ -1,5 +1,13 @@
 # Aprendizajes de Company OS
 
+## LEARN-014 — La operación 24/7 necesita reloj autoritativo, reconciliación y readback de versión
+
+- Síntoma: hashes y rutas tipados podían ser alterados por un redactor genérico; un reloj de host adelantado vencía leases sanos; un kill switch podía dejar una misión sin lease; y un rollback sano podía restaurar código anterior.
+- Causa: datos estructurados, tiempo distribuido, estado de misión y versión instalada se verificaban en fronteras distintas.
+- Corrección: excluir identificadores tipados del redactor, usar reloj de base con tolerancia acotada, recuperar leases vencidos/revocados y exigir readback del commit del runtime después de rollback o instalación.
+- Prueba: `108/108` tests Company OS, `20/20` tests del worker, crash/restart, fencing `409`, emergencia, `UNKNOWN_OUTCOME_RECONCILED`, rollback y reinstalación saludable desde `4f44f56`.
+- Reutilización: un proceso saludable no prueba que ejecute la versión correcta; todo cierre durable debe leer estado, efecto externo, supervisor y commit instalado.
+
 ## LEARN-013 — La autoridad debe quedar ligada a la misión y probarse fuera del modelo
 
 - Síntoma: una misión A1 podía heredar verbos A2, admitir traversal, cortar el loop antes de tres muestras o esconder un veto de merge detrás de idempotencia.

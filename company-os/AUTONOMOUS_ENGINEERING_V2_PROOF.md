@@ -1,55 +1,40 @@
-# Autonomous Engineering V2 — Proof Record
+# Autonomous Engineering V2 — Production Proof Record
 
 **Date:** 2026-08-27
 
-**Branch:** `codex/autonomous-operations-v2`
+**Activation commit:** `4f44f56d3c1f8187ac81d9d86058149d67484623`
 
-**Result:** `PASS_CONTRACT` + `PASS_A1_LOCAL`
+**Result:** `PASS_CONTRACT` + `PASS_A1_LOCAL` + `PASS_A2_DRAFT_PR` + `PASS_DURABLE_V2`
 
-**Continuous operation:** disabled
+**Continuous operation:** active on DiegoServer through `com.esw.company-os-engineering-v2`
 
 ## Verified evidence
 
-- Company OS test suite: `92/92 PASS`.
-- TypeScript: `PASS` (`npx tsc --noEmit`).
-- Targeted ESLint: `PASS` with no errors.
-- Next.js production build: `PASS`; route `/company-os/operations` included.
-- Browser: route loads with meaningful content, no framework error overlay and the expected operations elements. Human mutation controls are disabled in read-only mode.
-- Local A1 execution: a real Codex process changed only `docs/a1-proof.md` inside a disposable repository with no remote, independent byte/diff verification, a local commit and a nine-event hash-linked ledger.
+- Company OS tests: `108/108 PASS`; dedicated engineering worker tests: `20/20 PASS`.
+- TypeScript, targeted ESLint and Next.js production build: `PASS`.
+- Production deployment `dpl_4XeM2jPxmLkbTnabTtM2g6tN5YWq`: `READY`, with canonical alias `https://webapp-weld-psi.vercel.app`.
+- Supabase uses the dedicated engineering role and grants only the five Company OS engineering tables plus the two pure transition predicates required by their triggers.
+- DiegoServer worker readback: LaunchAgent loaded, health `ok=true`, state `IDLE`, autonomy ceiling `A2` and source commit `4f44f56`.
+- Operations console: `https://webapp-weld-psi.vercel.app/company-os/operations`.
 
-## A1 run receipt
+## Live production exercises
 
-```json
-{
-  "proofLevel": "PASS_A1_LOCAL",
-  "ok": true,
-  "autonomyLevel": "A1",
-  "missionHash": "310d292ff0c0eefb2d7f83e119018940126415e4ab1d49e52a12348970ee4a42",
-  "changedPaths": ["docs/a1-proof.md"],
-  "diffHash": "779c3e95323b4740632928d386d4db755f0f0600d6f76858813714d7e18a75ac",
-  "acceptanceHash": "770abc12d5e188dd3cd9005689321928435130b1c2ba211ac63da8f276c814ed",
-  "ledgerEvents": 9,
-  "codexExitCode": 0,
-  "approvalMode": "approve-for-me",
-  "sandboxMode": "workspace-write",
-  "externalEffects": 0,
-  "remoteConfigured": false
-}
-```
+| Gate | Production evidence | Result |
+|---|---|---|
+| A1 local | Mission `33ae2a65…` completed with a released lease and no remote branch or PR | `PASS_A1_LOCAL` |
+| A2 reversible effect | Mission `fa7a303d…` pushed an allowlisted branch and created Draft PR `#60`; no merge or deploy authority | `PASS_A2_DRAFT_PR` |
+| Lease recovery | Expired lease produced `LEASE_EXPIRED_RECOVERY`, incremented fencing and completed under a new lease | `PASS` |
+| Stale worker fencing | Heartbeat signed with the previous fencing token returned HTTP `409` and persisted `STALE_FENCE_REJECTED` | `PASS` |
+| Host crash | Worker process was terminated and LaunchAgent restored it in less than two seconds | `PASS` |
+| Emergency stop | A running process was aborted, its lease was revoked and the worker reported `PROCESS_ABORTED_BY_LEASE_CONTROL`; controls were then explicitly restored | `PASS` |
+| Revoked/orphan recovery | Mission `da0f7159…` was recovered once, re-leased and completed instead of remaining `RUNNING` without a lease | `PASS` |
+| Unknown external outcome | Worker was terminated during `git push`; the branch existed at the expected SHA, reconciliation confirmed the existing effect without blind redispatch, then fencing token `3` completed the mission and confirmed Draft PR `#62` | `PASS` |
+| Rollback | Runtime restored the pre-install snapshot, returned healthy, then was reinstalled from activation commit `4f44f56` and returned healthy again | `PASS` |
 
-The temporary repository and local commit were removed after verification. The receipt proves the bounded workflow, not persistence of that disposable artifact.
+## Authority boundary
 
-## Honest boundary
+The autonomous worker can edit only mission-allowlisted paths, produce a local commit, push an allowlisted `codex/*` branch and create a Draft PR in the configured repository. It cannot approve or merge a PR, deploy, access production business data, mutate credentials, send messages, make payments or change its own policy.
 
-This is not `PASS_A2_DRAFT_PR` or `PASS_DURABLE_V2`. No autonomous push, Draft PR, merge, deployment or production effect was executed.
+GitHub `main` remains protected with required checks, conversation resolution, stale-review dismissal, last-push approval and one human approval. Force pushes and branch deletion are disabled.
 
-The local dashboard correctly rendered `UNOBSERVED` because `COMPANY_OS_V3_DATABASE_URL` is absent. That is the intended fail-closed behavior, but live runtime telemetry still requires the dedicated Company OS database role credential and authoritative readback.
-
-Before continuous operation is enabled, the remaining gate is:
-
-1. authorized Draft PR effect plus destination readback and idempotent replay;
-2. crash recovery and lease reacquisition;
-3. stale-worker fencing and kill switch during execution;
-4. `UNKNOWN_OUTCOME` reconciliation;
-5. live control-center telemetry through the dedicated least-privilege database role;
-6. proof of zero merge, deployment and production-data authority.
+The global emergency stop, execution pause, intake pause, repository quarantine and actor disable remain human controls. Missing or stale telemetry renders `UNOBSERVED`/`UNKNOWN`, never green.
