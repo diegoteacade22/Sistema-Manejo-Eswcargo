@@ -33,7 +33,7 @@
 
 ## Authority boundary
 
-The autonomous worker can edit only mission-allowlisted paths, produce a local commit, push an allowlisted `codex/*` branch and create a Draft PR in the configured repository. It cannot approve or merge a PR, deploy, access production business data, mutate credentials, send messages, make payments or change its own policy.
+The autonomous worker can edit only mission-allowlisted paths, produce a local commit, push an allowlisted `codex/engineering-v2-*` branch and create a Draft PR in the configured repository. It cannot approve or merge a PR, deploy, access production business data, mutate credentials, send messages, make payments or change its own policy.
 
 GitHub `main` remains protected with required checks, conversation resolution, stale-review dismissal, last-push approval and one human approval. Force pushes and branch deletion are disabled.
 

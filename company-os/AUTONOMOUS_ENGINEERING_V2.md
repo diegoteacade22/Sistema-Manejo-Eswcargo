@@ -90,7 +90,7 @@ Controls call authenticated, same-origin Company OS APIs and are disabled when t
 `PASS_DURABLE_V2` was recorded on 2026-08-27 from authoritative Supabase state, GitHub readback, a supervised DiegoServer worker and the production operations console. Continuous A1/A2 is active with the following ceiling:
 
 - A1: verified local commit in an isolated disposable workspace.
-- A2: allowlisted `codex/*` branch and Draft PR only.
+- A2: allowlisted `codex/engineering-v2-*` branch and Draft PR only.
 - Human-only: approval, merge, deployment, policy, credentials, business data and external communication.
 
 The durable runner is supervised by the DiegoServer LaunchAgent `com.esw.company-os-engineering-v2`. The production control surface is `https://webapp-weld-psi.vercel.app/company-os/operations`. A missing worker heartbeat, failed destination readback or stale observation must degrade the console and block new effects.
