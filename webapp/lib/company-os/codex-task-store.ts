@@ -205,11 +205,10 @@ export async function getHumanWorkCenter() {
   const businessDb = companyReadPrisma();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const [tasks, counts, lastSync, recentChanges, commercialProducts] = await Promise.all([
+  const [tasks, counts, lastSync, recentChanges, commercialProducts, commercialReadiness] = await Promise.all([
     db.companyOsCodexTask.findMany({
       where: { archived: false },
       orderBy: [{ priority: 'asc' }, { sourceUpdatedAt: 'desc' }],
-      take: 500,
     }),
     db.companyOsCodexTask.groupBy({ by: ['humanStatus'], where: { archived: false }, _count: { _all: true } }),
     db.companyOsCodexInventorySync.findFirst({ orderBy: { completedAt: 'desc' } }),
@@ -220,6 +219,11 @@ export async function getHumanWorkCenter() {
       orderBy: [{ updatedAt: 'desc' }],
       take: 20,
     }),
+    Promise.all([
+      businessDb.product.count({ where: { active: true, stock: { gt: 0 } } }),
+      businessDb.product.count({ where: { active: true, stock: { gt: 0 }, OR: [{ last_purchase_cost: null }, { last_purchase_cost: { lte: 0 } }] } }),
+      businessDb.product.count({ where: { active: true, stock: { gt: 0 }, OR: [{ lp1: null }, { lp1: { lte: 0 } }] } }),
+    ]).then(([withStock, missingCost, missingPrice]) => ({ withStock, missingCost, missingPrice })),
   ]);
   const byStatus = new Map(counts.map((row) => [row.humanStatus, row._count._all]));
   const commercialIdeas = commercialProducts
@@ -243,7 +247,16 @@ export async function getHumanWorkCenter() {
     .sort((a, b) => b.marginPct - a.marginPct)
     .slice(0, 5);
 
-  const select = (statuses: string[], limit: number) => tasks.filter((task) => statuses.includes(task.humanStatus)).slice(0, limit).map(taskView);
+  const select = (statuses: string[]) => tasks.filter((task) => statuses.includes(task.humanStatus)).map(taskView);
+  const commercialNextAction = commercialIdeas.length ? null : commercialProducts.length
+    ? { title: 'Revisar precios sin margen positivo', detail: `${commercialProducts.length} productos tienen stock, costo y LP1, pero ese precio no supera el costo con margen positivo.`, href: '/products' }
+    : commercialReadiness.withStock === 0
+    ? { title: 'Primero falta cargar stock disponible', detail: 'Sin unidades disponibles no propongo una oferta que después no se pueda cumplir.', href: '/products' }
+    : {
+      title: 'Completar datos antes de ofrecer',
+      detail: `${commercialReadiness.withStock} productos tienen stock; ${commercialReadiness.missingCost} necesitan costo y ${commercialReadiness.missingPrice} necesitan precio LP1.`,
+      href: '/products',
+    };
   return {
     generatedAt: new Date().toISOString(),
     summary: {
@@ -257,14 +270,15 @@ export async function getHumanWorkCenter() {
       monitoring: byStatus.get('MONITORING') ?? 0,
       total: counts.reduce((sum, row) => sum + row._count._all, 0),
     },
-    now: select(['IN_PROGRESS'], 5),
-    pending: select(['PENDING', 'UNREVIEWED'], 40),
-    needsDiego: select(['NEEDS_DIEGO'], 20),
-    blocked: select(['BLOCKED'], 20),
-    readyReview: select(['READY_REVIEW'], 20),
-    done: select(['DONE'], 20),
-    monitoring: select(['MONITORING'], 10),
+    now: select(['IN_PROGRESS']),
+    pending: select(['PENDING', 'UNREVIEWED']),
+    needsDiego: select(['NEEDS_DIEGO']),
+    blocked: select(['BLOCKED']),
+    readyReview: select(['READY_REVIEW']),
+    done: select(['DONE']),
+    monitoring: select(['MONITORING']),
     commercialIdeas,
+    commercialNextAction,
     activity: lastSync ? {
       sourceHost: lastSync.sourceHost,
       lastScanAt: lastSync.completedAt.toISOString(),

@@ -56,6 +56,7 @@ type Snapshot = {
   done: Task[];
   monitoring: Task[];
   commercialIdeas: Idea[];
+  commercialNextAction: null | { title: string; detail: string; href: string };
   activity: null | {
     sourceHost: string;
     lastScanAt: string;
@@ -245,7 +246,14 @@ export function CompanyOsHumanDashboard() {
               <p className="mt-2 text-xs text-slate-600">Fuente: {idea.evidence}</p>
             </div>
           ))}
-          {!snapshot?.commercialIdeas?.length && <p className="text-sm text-slate-500">No hay una oferta con costo, stock y precio verificables todavía.</p>}
+          {!snapshot?.commercialIdeas?.length && snapshot?.commercialNextAction && (
+            <a href={snapshot.commercialNextAction.href} className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 transition hover:border-amber-400/40">
+              <p className="font-semibold text-amber-200">{snapshot.commercialNextAction.title}</p>
+              <p className="mt-2 text-sm text-slate-400">{snapshot.commercialNextAction.detail}</p>
+              <p className="mt-3 text-sm text-cyan-300">Abrir artículos para completarlo →</p>
+            </a>
+          )}
+          {!snapshot?.commercialIdeas?.length && !snapshot?.commercialNextAction && <p className="text-sm text-slate-500">No hay una oferta con costo, stock y precio verificables todavía.</p>}
         </CardContent>
       </Card>
 
