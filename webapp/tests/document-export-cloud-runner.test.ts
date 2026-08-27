@@ -4,6 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 const workflowPath = path.resolve(process.cwd(), '..', '.github', 'workflows', 'export-operational-documents-cloud.yml');
+const exporterPath = path.resolve(process.cwd(), 'scripts', 'export-operational-documents.ts');
 
 function jobLevelEnvBlocks(workflow: string) {
     const lines = workflow.split('\n');
@@ -55,4 +56,16 @@ test('export-one conserva cualquier salida parcial como error', async () => {
     const workflow = await readFile(workflowPath, 'utf8');
     assert.match(workflow, /\[ "\$status" -eq 2 \] && \[ "\$MODE" = "export" \]/);
     assert.doesNotMatch(workflow, /if \[ "\$status" -eq 2 \]; then/);
+});
+
+test('el runner aplica el gate de bootstrap antes de consultar o persistir un export completo', async () => {
+    const exporter = await readFile(exporterPath, 'utf8');
+    const loadState = exporter.indexOf('const previous = await target.loadState()');
+    const bootstrap = exporter.indexOf('assertDriveBootstrapReady({');
+    const query = exporter.indexOf('const orders = await prisma.order.findMany({');
+    const persist = exporter.indexOf('if (shouldPersistState) await target.saveState(next)');
+    assert.ok(loadState >= 0);
+    assert.ok(bootstrap > loadState);
+    assert.ok(query > bootstrap);
+    assert.ok(persist > query);
 });

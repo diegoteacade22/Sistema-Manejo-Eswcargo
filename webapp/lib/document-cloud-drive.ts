@@ -29,7 +29,7 @@ export type DriveRequestClient = {
         method?: string;
         params?: Record<string, string | number>;
         headers?: Record<string, string>;
-        data?: Buffer | string;
+        data?: Buffer | string | Record<string, unknown>;
     }): Promise<{ data: T }>;
 };
 
@@ -41,6 +41,14 @@ export type DrivePutResult = {
     sha256: string;
     modifiedTime?: string;
 };
+
+export type DrivePutOptions = {
+    kind: 'INVOICE' | 'PACKING_LIST' | 'STATE';
+    identity: string;
+    contentFingerprint: string;
+};
+
+const MANAGED_VALUE = 'document-export-v1';
 
 function escapeDriveQuery(value: string) {
     return value.replaceAll('\\', '\\\\').replaceAll("'", "\\'");
@@ -133,19 +141,42 @@ export class GoogleDriveDocumentStore {
         return new GoogleDriveDocumentStore(client, folderId);
     }
 
-    private async listByName(name: string) {
+    private async listCandidates(name: string, identity: string) {
         const response = await this.client.request<DriveListResponse>({
             url: 'https://www.googleapis.com/drive/v3/files',
             method: 'GET',
             params: {
-                q: `'${escapeDriveQuery(this.folderId)}' in parents and name = '${escapeDriveQuery(name)}' and trashed = false`,
+                q: `'${escapeDriveQuery(this.folderId)}' in parents and trashed = false and (name = '${escapeDriveQuery(name)}' or appProperties has { key='eswIdentity' and value='${escapeDriveQuery(identity)}' })`,
                 fields: 'files(id,name,size,md5Checksum,modifiedTime,parents,appProperties)',
-                pageSize: 2,
+                pageSize: 100,
                 supportsAllDrives: 'true',
                 includeItemsFromAllDrives: 'true',
             },
         });
         return response.data.files ?? [];
+    }
+
+    private async resolveExisting(name: string, options: DrivePutOptions) {
+        const candidates = await this.listCandidates(name, options.identity);
+        const identityMatches = candidates.filter((file) => file.appProperties?.eswIdentity === options.identity);
+        const nameMatches = candidates.filter((file) => file.name === name);
+        if (identityMatches.length > 1) {
+            throw new Error(`Drive contiene más de un artefacto administrado para ${options.identity}.`);
+        }
+        if (nameMatches.length > 1) {
+            throw new Error(`Drive contiene más de un artefacto activo con el nombre ${name}.`);
+        }
+        if (identityMatches[0] && nameMatches[0] && identityMatches[0].id !== nameMatches[0].id) {
+            throw new Error(`Drive contiene una colisión entre identidad y nombre para ${options.identity}.`);
+        }
+        const existing = identityMatches[0] ?? nameMatches[0] ?? null;
+        if (!existing) return null;
+        if (existing.appProperties?.eswManaged !== MANAGED_VALUE
+            || existing.appProperties?.eswKind !== options.kind
+            || existing.appProperties?.eswIdentity !== options.identity) {
+            throw new Error(`Drive contiene una colisión no administrada para ${name}.`);
+        }
+        return existing;
     }
 
     private async readback(fileId: string) {
@@ -160,52 +191,89 @@ export class GoogleDriveDocumentStore {
         return response.data;
     }
 
-    private result(action: DrivePutResult['action'], file: DriveFile, name: string, size: number, digest: string): DrivePutResult {
+    private result(
+        action: DrivePutResult['action'],
+        file: DriveFile,
+        name: string,
+        options: DrivePutOptions,
+        expectedPayloadSha256?: string,
+        expectedSize?: number,
+    ): DrivePutResult {
         if (file.name !== name || !file.parents?.includes(this.folderId)) {
             throw new Error(`Drive no confirmó nombre y carpeta para ${name}.`);
         }
-        if (file.appProperties?.eswSha256 !== digest || Number(file.size) !== size) {
-            throw new Error(`Drive no confirmó tamaño y huella para ${name}.`);
+        if (file.appProperties?.eswManaged !== MANAGED_VALUE
+            || file.appProperties?.eswKind !== options.kind
+            || file.appProperties?.eswIdentity !== options.identity
+            || file.appProperties?.eswContentFingerprint !== options.contentFingerprint) {
+            throw new Error(`Drive no confirmó identidad y huella lógica para ${name}.`);
+        }
+        const payloadSha256 = file.appProperties?.eswPayloadSha256;
+        if (!payloadSha256 || !/^[a-f0-9]{64}$/.test(payloadSha256)) {
+            throw new Error(`Drive no confirmó la huella de bytes para ${name}.`);
+        }
+        const storedSize = Number(file.size);
+        if (!Number.isSafeInteger(storedSize) || storedSize < 0) {
+            throw new Error(`Drive no confirmó un tamaño válido para ${name}.`);
+        }
+        if ((expectedPayloadSha256 && payloadSha256 !== expectedPayloadSha256)
+            || (expectedSize !== undefined && storedSize !== expectedSize)) {
+            throw new Error(`Drive no confirmó tamaño y huella de bytes para ${name}.`);
         }
         return {
             action,
             idSuffix: shortId(file.id),
             name,
-            size,
-            sha256: digest,
+            size: storedSize,
+            sha256: payloadSha256,
             modifiedTime: file.modifiedTime,
         };
     }
 
-    async put(name: string, contents: Uint8Array, mimeType: string, kind: string): Promise<DrivePutResult> {
+    async put(name: string, contents: Uint8Array, mimeType: string, options: DrivePutOptions): Promise<DrivePutResult> {
         if (!name || name.includes('/') || name.includes('\\')) {
             throw new Error('Nombre de artefacto Drive inválido.');
         }
-        const digest = sha256(contents);
-        const existing = await this.listByName(name);
-        if (existing.length > 1) {
-            throw new Error(`Drive contiene más de un artefacto activo con el nombre ${name}.`);
+        if (!options.identity || !options.contentFingerprint) {
+            throw new Error('Identidad y huella lógica son obligatorias para Drive.');
         }
-        if (existing[0]?.appProperties?.eswSha256 === digest && Number(existing[0].size) === contents.byteLength) {
-            return this.result('UNCHANGED', await this.readback(existing[0].id), name, contents.byteLength, digest);
+        const payloadSha256 = sha256(contents);
+        const existing = await this.resolveExisting(name, options);
+        if (existing?.appProperties?.eswContentFingerprint === options.contentFingerprint) {
+            if (existing.name === name) {
+                return this.result('UNCHANGED', await this.readback(existing.id), name, options);
+            }
+            await this.client.request<DriveFile>({
+                url: `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(existing.id)}`,
+                method: 'PATCH',
+                params: {
+                    fields: 'id,name,size,md5Checksum,modifiedTime,parents,appProperties',
+                    supportsAllDrives: 'true',
+                },
+                headers: { 'Content-Type': 'application/json' },
+                data: { name },
+            });
+            return this.result('UPDATED', await this.readback(existing.id), name, options);
         }
 
-        const boundary = `eswcargo_${createHash('sha256').update(`${name}:${digest}`).digest('hex').slice(0, 24)}`;
+        const boundary = `eswcargo_${createHash('sha256').update(`${name}:${payloadSha256}`).digest('hex').slice(0, 24)}`;
         const metadata = {
             name,
-            ...(existing.length === 0 ? { parents: [this.folderId] } : {}),
+            ...(!existing ? { parents: [this.folderId] } : {}),
             appProperties: {
-                eswManaged: 'document-export-v1',
-                eswKind: kind,
-                eswSha256: digest,
+                eswManaged: MANAGED_VALUE,
+                eswKind: options.kind,
+                eswIdentity: options.identity,
+                eswContentFingerprint: options.contentFingerprint,
+                eswPayloadSha256: payloadSha256,
             },
         };
         const data = multipartBody(metadata, contents, mimeType, boundary);
         const response = await this.client.request<DriveFile>({
-            url: existing[0]
-                ? `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(existing[0].id)}`
+            url: existing
+                ? `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(existing.id)}`
                 : 'https://www.googleapis.com/upload/drive/v3/files',
-            method: existing[0] ? 'PATCH' : 'POST',
+            method: existing ? 'PATCH' : 'POST',
             params: {
                 uploadType: 'multipart',
                 fields: 'id,name,size,md5Checksum,modifiedTime,parents,appProperties',
@@ -215,17 +283,19 @@ export class GoogleDriveDocumentStore {
             data,
         });
         const readback = await this.readback(response.data.id);
-        return this.result(existing[0] ? 'UPDATED' : 'CREATED', readback, name, contents.byteLength, digest);
+        return this.result(existing ? 'UPDATED' : 'CREATED', readback, name, options, payloadSha256, contents.byteLength);
     }
 
     async loadState(): Promise<DocumentExportState | null> {
-        const matches = await this.listByName(DOCUMENT_EXPORT_STATE_FILE);
-        if (matches.length > 1) {
-            throw new Error('Drive contiene más de un manifiesto de estado del exportador.');
-        }
-        if (!matches[0]) return null;
+        const stateOptions: DrivePutOptions = {
+            kind: 'STATE',
+            identity: 'state:v1',
+            contentFingerprint: 'state-read',
+        };
+        const existing = await this.resolveExisting(DOCUMENT_EXPORT_STATE_FILE, stateOptions);
+        if (!existing) return null;
         const response = await this.client.request<string | DocumentExportState>({
-            url: `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(matches[0].id)}`,
+            url: `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(existing.id)}`,
             method: 'GET',
             params: { alt: 'media', supportsAllDrives: 'true' },
         });
@@ -239,11 +309,16 @@ export class GoogleDriveDocumentStore {
     }
 
     async saveState(state: DocumentExportState) {
+        const contents = Buffer.from(JSON.stringify(state, null, 2));
         return this.put(
             DOCUMENT_EXPORT_STATE_FILE,
-            Buffer.from(JSON.stringify(state, null, 2)),
+            contents,
             'application/json',
-            'STATE',
+            {
+                kind: 'STATE',
+                identity: 'state:v1',
+                contentFingerprint: sha256(contents),
+            },
         );
     }
 

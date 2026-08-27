@@ -5,10 +5,12 @@ import path from 'node:path';
 import dotenv from 'dotenv';
 import type {
     DocumentExportState,
+    DrivePutOptions,
     DrivePutResult,
 } from '../lib/document-cloud-drive';
 import { GoogleDriveDocumentStore } from '../lib/document-cloud-drive';
 import {
+    assertDriveBootstrapReady,
     assertSelectedOrderObserved,
     sanitizeDocumentExportFatalError,
     selectedOrderExitCode,
@@ -64,7 +66,7 @@ function validateArguments() {
 type ExportTarget = {
     name: 'filesystem' | 'drive';
     loadState(): Promise<DocumentExportState | null>;
-    saveDocument(fileName: string, contents: Uint8Array, kind: 'INVOICE' | 'PACKING_LIST'): Promise<DrivePutResult | { action: 'UPDATED'; destination: string }>;
+    saveDocument(fileName: string, contents: Uint8Array, options: DrivePutOptions): Promise<DrivePutResult | { action: 'UPDATED'; destination: string }>;
     saveState(state: DocumentExportState): Promise<unknown>;
     probe?(): Promise<unknown>;
 };
@@ -128,7 +130,7 @@ async function createExportTarget(): Promise<ExportTarget> {
     return {
         name: 'drive',
         loadState: () => store.loadState(),
-        saveDocument: (fileName, contents, kind) => store.put(fileName, contents, 'application/pdf', kind),
+        saveDocument: (fileName, contents, options) => store.put(fileName, contents, 'application/pdf', options),
         saveState: (state) => store.saveState(state),
         probe: () => store.probe(),
     };
@@ -164,6 +166,13 @@ async function main() {
 
     await mkdir(runtimeDir, { recursive: true });
     const previous = await target.loadState();
+    assertDriveBootstrapReady({
+        targetName: target.name,
+        hasPreviousState: Boolean(previous),
+        dryRun,
+        selectedOrderId,
+        selectedShipmentId,
+    });
     const next: DocumentExportState = {
         version: 1,
         orders: { ...(previous?.orders || {}) },
@@ -286,7 +295,11 @@ async function main() {
 
         try {
             const document = await buildInvoiceDocument(order.id);
-            const destination = await target.saveDocument(document.fileName, document.pdfBuffer, 'INVOICE');
+            const destination = await target.saveDocument(document.fileName, document.pdfBuffer, {
+                kind: 'INVOICE',
+                identity: `order:${order.id}`,
+                contentFingerprint: currentFingerprint,
+            });
             next.orders[key] = currentFingerprint;
             exported += 1;
             writes[destination.action.toLowerCase() as keyof typeof writes] += 1;
@@ -367,7 +380,11 @@ async function main() {
 
             try {
                 const document = await buildPackingListDocument(shipment.id, segment.clientId);
-                const destination = await target.saveDocument(document.fileName, document.pdfBuffer, 'PACKING_LIST');
+                const destination = await target.saveDocument(document.fileName, document.pdfBuffer, {
+                    kind: 'PACKING_LIST',
+                    identity: `shipment:${shipment.id}:client:${segment.clientId}`,
+                    contentFingerprint: segmentFingerprint,
+                });
                 next.shipments[segmentKey] = segmentFingerprint;
                 exported += 1;
                 writes[destination.action.toLowerCase() as keyof typeof writes] += 1;

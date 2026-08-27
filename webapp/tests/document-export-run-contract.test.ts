@@ -1,10 +1,52 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+    assertDriveBootstrapReady,
     assertSelectedOrderObserved,
     sanitizeDocumentExportFatalError,
     selectedOrderExitCode,
 } from '../lib/document-export-run-contract';
+
+test('export completo Drive falla cerrado hasta que exista un manifiesto piloto', () => {
+    assert.throws(
+        () => assertDriveBootstrapReady({
+            targetName: 'drive',
+            hasPreviousState: false,
+            dryRun: false,
+            selectedOrderId: null,
+            selectedShipmentId: null,
+        }),
+        /ejecutá y verificá export-one/,
+    );
+    assert.doesNotThrow(() => assertDriveBootstrapReady({
+        targetName: 'drive',
+        hasPreviousState: false,
+        dryRun: false,
+        selectedOrderId: 42,
+        selectedShipmentId: null,
+    }));
+    assert.doesNotThrow(() => assertDriveBootstrapReady({
+        targetName: 'drive',
+        hasPreviousState: false,
+        dryRun: true,
+        selectedOrderId: null,
+        selectedShipmentId: null,
+    }));
+    assert.doesNotThrow(() => assertDriveBootstrapReady({
+        targetName: 'drive',
+        hasPreviousState: true,
+        dryRun: false,
+        selectedOrderId: null,
+        selectedShipmentId: null,
+    }));
+    assert.doesNotThrow(() => assertDriveBootstrapReady({
+        targetName: 'filesystem',
+        hasPreviousState: false,
+        dryRun: false,
+        selectedOrderId: null,
+        selectedShipmentId: null,
+    }));
+});
 
 test('export-one inexistente falla en lugar de cerrar con cero exportados', () => {
     assert.throws(

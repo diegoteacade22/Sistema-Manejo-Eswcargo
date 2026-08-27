@@ -5,6 +5,28 @@ export function assertSelectedOrderObserved(selectedOrderId: number | null, obse
     }
 }
 
+export function assertDriveBootstrapReady({
+    targetName,
+    hasPreviousState,
+    dryRun,
+    selectedOrderId,
+    selectedShipmentId,
+}: {
+    targetName: string;
+    hasPreviousState: boolean;
+    dryRun: boolean;
+    selectedOrderId: number | null;
+    selectedShipmentId: number | null;
+}) {
+    const isFullDriveExport = targetName === 'drive'
+        && !dryRun
+        && selectedOrderId === null
+        && selectedShipmentId === null;
+    if (isFullDriveExport && !hasPreviousState) {
+        throw new Error('Falta el manifiesto Drive: ejecutá y verificá export-one antes del export completo.');
+    }
+}
+
 export function selectedOrderExitCode({
     selectedOrderId,
     dryRun,
