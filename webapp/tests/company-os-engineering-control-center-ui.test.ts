@@ -102,6 +102,7 @@ test('page integra tablero engineering antes del runtime base read-only', () => 
 test('componente usa sólo lectura, control humano y pruebas acotadas V2', () => {
   const source = readFileSync('components/company-os-engineering-control-center.tsx', 'utf8');
   const probeRoute = readFileSync('app/api/company-os/engineering/v2/missions/probe/route.ts', 'utf8');
+  const store = readFileSync('lib/company-os/engineering-store.ts', 'utf8');
   assert.match(source, /\/api\/company-os\/engineering\/v2\/control-center/);
   assert.match(source, /\/api\/company-os\/engineering\/v2\/control/);
   assert.match(source, /PAUSE_INTAKE/);
@@ -116,4 +117,7 @@ test('componente usa sólo lectura, control humano y pruebas acotadas V2', () =>
   assert.match(probeRoute, /company-os\/proofs/);
   assert.match(probeRoute, /budgetUsd: 1/);
   assert.match(probeRoute, /deadline: new Date\(Date\.now\(\) \+ 2 \* 60 \* 60_000\)/);
+  assert.match(store, /opaqueHex\(input\.baseCommit, 40/);
+  assert.match(store, /opaqueHex\(input\.policyHash, 64/);
+  assert.doesNotMatch(store, /const baseCommit = text\(input\.baseCommit/);
 });
