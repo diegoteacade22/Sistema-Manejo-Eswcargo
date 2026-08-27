@@ -1138,6 +1138,62 @@ model CompanyOsEngineeringControl {
   updatedAt               DateTime @updatedAt
 }
 
+/// Sanitized projection of a Codex task. Raw conversations never leave the Codex host.
+model CompanyOsCodexTask {
+  id               String                          @id
+  threadId         String                          @unique
+  sourceHost       String
+  title            String
+  projectName      String
+  category         String                          @default("GENERAL")
+  humanStatus      String                          @default("UNREVIEWED")
+  sourceStatus     String                          @default("UNKNOWN")
+  priority         Int                             @default(3)
+  nextAction       String
+  attentionReason  String?
+  autonomyLevel    String                          @default("A0")
+  codexUrl         String
+  fingerprint      String
+  sourceUpdatedAt  DateTime
+  lastStartedAt    DateTime?
+  lastCompletedAt  DateTime?
+  lastObservedAt   DateTime
+  archived         Boolean                         @default(false)
+  createdAt        DateTime                        @default(now())
+  updatedAt        DateTime                        @updatedAt
+  observations     CompanyOsCodexTaskObservation[]
+
+  @@index([humanStatus, priority, sourceUpdatedAt])
+  @@index([projectName, humanStatus, sourceUpdatedAt])
+  @@index([sourceHost, lastObservedAt])
+}
+
+/// Append-only evidence that a Codex task materially changed classification.
+model CompanyOsCodexTaskObservation {
+  id           String             @id
+  taskId       String
+  fingerprint  String
+  humanStatus  String
+  sourceStatus String
+  observedAt   DateTime           @default(now())
+  task         CompanyOsCodexTask @relation(fields: [taskId], references: [id], onDelete: Restrict)
+
+  @@unique([taskId, fingerprint])
+  @@index([observedAt])
+}
+
+model CompanyOsCodexInventorySync {
+  id            String   @id
+  sourceHost    String
+  scanId        String
+  observedCount Int      @default(0)
+  changedCount  Int      @default(0)
+  completedAt   DateTime
+  createdAt     DateTime @default(now())
+
+  @@index([sourceHost, completedAt])
+}
+
 /// Auditable receipt of a supplier price list loaded through ImportSys/Agent OS.
 /// This stores load metadata only; it never stores the WhatsApp message or raw file.
 model SupplierPriceListLoad {
