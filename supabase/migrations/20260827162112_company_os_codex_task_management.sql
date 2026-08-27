@@ -35,7 +35,8 @@ CREATE TABLE public."CompanyOsCodexTaskAction" (
   "newProjectName" text NOT NULL CHECK (length("newProjectName") BETWEEN 1 AND 160),
   "resultSnapshot" jsonb NOT NULL CHECK (jsonb_typeof("resultSnapshot") = 'object'),
   "actorRef" text NOT NULL CHECK (length("actorRef") BETWEEN 1 AND 160),
-  "createdAt" timestamptz NOT NULL DEFAULT now()
+  "createdAt" timestamptz NOT NULL DEFAULT now(),
+  UNIQUE ("taskId", "newVersion")
 );
 
 CREATE INDEX "CompanyOsCodexTaskAction_task_created_idx"
@@ -48,13 +49,50 @@ SET search_path = ''
 AS $$
 DECLARE
   prior_version integer;
+  prior_human_status text;
+  prior_lifecycle text;
+  prior_project text;
   effective_project text;
+  source_human_status text;
+  source_fingerprint text;
+  source_archived boolean;
+  source_project text;
+  expected_result jsonb;
 BEGIN
-  prior_version := CASE WHEN TG_OP = 'INSERT' THEN 0 ELSE OLD.version END;
-  SELECT COALESCE(NEW."projectNameOverride", task."projectName")
-    INTO effective_project
+  SELECT task."humanStatus", task.fingerprint, task.archived, task."projectName"
+    INTO source_human_status, source_fingerprint, source_archived, source_project
     FROM public."CompanyOsCodexTask" AS task
    WHERE task.id = NEW."taskId";
+
+  IF source_fingerprint IS NULL OR NEW."sourceFingerprint" <> source_fingerprint THEN
+    RAISE EXCEPTION 'Codex board transition requires the current source fingerprint';
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    prior_version := 0;
+    prior_human_status := source_human_status;
+    prior_lifecycle := CASE WHEN source_archived THEN 'ARCHIVED' WHEN source_human_status IN ('DONE','DISCARDED') THEN 'CLOSED' ELSE 'OPEN' END;
+    prior_project := source_project;
+  ELSE
+    prior_version := OLD.version;
+    prior_project := COALESCE(OLD."projectNameOverride", source_project);
+    IF OLD.lifecycle <> 'ARCHIVED' AND OLD."sourceFingerprint" <> source_fingerprint THEN
+      prior_human_status := source_human_status;
+      prior_lifecycle := CASE WHEN source_archived THEN 'ARCHIVED' WHEN source_human_status IN ('DONE','DISCARDED') THEN 'CLOSED' ELSE 'OPEN' END;
+    ELSE
+      prior_human_status := OLD."workflowStatus";
+      prior_lifecycle := OLD.lifecycle;
+    END IF;
+  END IF;
+
+  effective_project := COALESCE(NEW."projectNameOverride", source_project);
+  expected_result := jsonb_build_object(
+    'threadId', substring(NEW."taskId" from 12),
+    'humanStatus', NEW."workflowStatus",
+    'lifecycle', NEW.lifecycle,
+    'projectName', effective_project,
+    'boardVersion', NEW.version
+  );
 
   IF NOT EXISTS (
     SELECT 1
@@ -62,10 +100,14 @@ BEGIN
      WHERE action."taskId" = NEW."taskId"
        AND action."previousVersion" = prior_version
        AND action."newVersion" = NEW.version
+       AND action."previousHumanStatus" = prior_human_status
+       AND action."previousLifecycle" = prior_lifecycle
+       AND action."previousProjectName" = prior_project
        AND action."newHumanStatus" = NEW."workflowStatus"
        AND action."newLifecycle" = NEW.lifecycle
        AND action."newProjectName" = effective_project
-       AND action.fingerprint = NEW."sourceFingerprint"
+       AND action.fingerprint = source_fingerprint
+       AND action."resultSnapshot" = expected_result
        AND action."actorRef" = NEW."updatedBy"
   ) THEN
     RAISE EXCEPTION 'Codex board transition requires its append-only action';
