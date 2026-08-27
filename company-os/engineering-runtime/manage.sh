@@ -124,6 +124,67 @@ EOF
   say "A2_KEYCHAIN_READY service=$GITHUB_SERVICE dedicated=true"
 }
 
+gui_dispatch() {
+  local requested="$ACTION_ARG" result="$STATE_DIR/gui-action.result"
+  [[ "$requested" == "doctor" || "$requested" == "install" || "$requested" == "status" ]] || die "Acción GUI inválida"
+  if /bin/zsh "$SCRIPT_PATH" "$requested" >> "$LOGS/gui-action.log" 2>&1; then
+    print -r -- "GUI_ACTION_OK" > "$result"
+  else
+    print -r -- "GUI_ACTION_FAILED" > "$result"
+  fi
+}
+
+run_gui() {
+  local requested="$ACTION_ARG"
+  [[ "$requested" == "doctor" || "$requested" == "install" || "$requested" == "status" ]] || die "Uso: manage.sh gui doctor|install|status"
+  validate_state; mkdir -p "$STATE_DIR" "$LOGS" "$HOME/Library/LaunchAgents"; chmod 700 "$STATE_DIR" "$LOGS"
+  local result="$STATE_DIR/gui-action.result" helper_plist="$HOME/Library/LaunchAgents/com.esw.company-os-engineering-v2-helper.plist"
+  local helper_label="com.esw.company-os-engineering-v2-helper" attempt
+  rm -f "$result" "$helper_plist"
+  /bin/cat > "$helper_plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>$helper_label</string>
+<key>ProgramArguments</key><array><string>/bin/zsh</string><string>$SCRIPT_PATH</string><string>__gui_dispatch</string><string>$requested</string></array>
+<key>EnvironmentVariables</key><dict>
+<key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+<key>COMPANY_OS_ENGINEERING_SOURCE_REPO</key><string>${COMPANY_OS_ENGINEERING_SOURCE_REPO:-${SCRIPT_DIR:h:h}}</string>
+<key>COMPANY_OS_ENGINEERING_NODE_BIN</key><string>$NODE_BIN</string>
+<key>COMPANY_OS_ENGINEERING_GIT_BIN</key><string>$GIT_BIN</string>
+<key>COMPANY_OS_ENGINEERING_GH_BIN</key><string>$GH_BIN</string>
+<key>COMPANY_OS_ENGINEERING_DOCKER_BIN</key><string>$DOCKER_BIN</string>
+<key>COMPANY_OS_ENGINEERING_CODEX_IMAGE</key><string>$CODEX_IMAGE</string>
+<key>COMPANY_OS_ENGINEERING_CODEX_AUTH_DIR</key><string>${CODEX_AUTH_DIR:A}</string>
+<key>COMPANY_OS_ENGINEERING_REPOSITORY_PATH</key><string>${COMPANY_OS_ENGINEERING_REPOSITORY_PATH:-}</string>
+<key>COMPANY_OS_ENGINEERING_REPOSITORY_SLUG</key><string>${COMPANY_OS_ENGINEERING_REPOSITORY_SLUG:-}</string>
+<key>COMPANY_OS_ENGINEERING_MAX_AUTONOMY</key><string>${COMPANY_OS_ENGINEERING_MAX_AUTONOMY:-A1}</string>
+<key>COMPANY_OS_ENGINEERING_API_BASE_URL</key><string>${COMPANY_OS_ENGINEERING_API_BASE_URL:-https://webapp-weld-psi.vercel.app}</string>
+<key>COMPANY_OS_ENGINEERING_STATE_DIR</key><string>$STATE_DIR</string>
+<key>COMPANY_OS_ENGINEERING_HEALTH_PORT</key><string>$HEALTH_PORT</string>
+<key>COMPANY_OS_ENGINEERING_HMAC_KEYCHAIN_SERVICE</key><string>$HMAC_SERVICE</string>
+<key>COMPANY_OS_ENGINEERING_GITHUB_KEYCHAIN_SERVICE</key><string>$GITHUB_SERVICE</string>
+<key>COMPANY_OS_ENGINEERING_GITHUB_KEYCHAIN_PATH</key><string>${GITHUB_KEYCHAIN_PATH:A}</string>
+<key>COMPANY_OS_ENGINEERING_KEYCHAIN_ACCOUNT</key><string>$KEYCHAIN_ACCOUNT</string>
+</dict>
+<key>RunAtLoad</key><true/><key>ProcessType</key><string>Background</string>
+<key>StandardOutPath</key><string>$LOGS/gui-action.log</string><key>StandardErrorPath</key><string>$LOGS/gui-action.log</string>
+</dict></plist>
+EOF
+  plutil -lint "$helper_plist" >/dev/null
+  launchctl bootout "gui/$(id -u)/$helper_label" >/dev/null 2>&1 || true
+  launchctl bootstrap "gui/$(id -u)" "$helper_plist"
+  for attempt in {1..60}; do
+    [[ -f "$result" ]] && break
+    sleep 1
+  done
+  launchctl bootout "gui/$(id -u)/$helper_label" >/dev/null 2>&1 || true
+  rm -f "$helper_plist"
+  [[ -f "$result" && "$(<"$result")" == "GUI_ACTION_OK" ]] || die "Acción GUI $requested falló; revisar $LOGS/gui-action.log"
+  rm -f "$result"
+  say "GUI_ACTION_OK action=$requested"
+}
+
 auth_ready() {
   [[ "${COMPANY_OS_ENGINEERING_MAX_AUTONOMY:-A1}" != "A2" ]] || github_keychain_has || die "Falta token GitHub A2 en Keychain service=$GITHUB_SERVICE"
 }
@@ -255,6 +316,7 @@ run() {
 
 case "$ACTION" in
   provision-a2) provision_a2 ;;
+  gui) run_gui ;;
   doctor) doctor ;;
   install) install ;;
   status) status ;;
@@ -262,5 +324,6 @@ case "$ACTION" in
   uninstall) uninstall ;;
   __run) run ;;
   __provision_a2_gui) provision_a2_gui ;;
-  *) die "Uso: manage.sh provision-a2|doctor|install|status|rollback|uninstall" ;;
+  __gui_dispatch) gui_dispatch ;;
+  *) die "Uso: manage.sh provision-a2|gui doctor|gui install|gui status|doctor|install|status|rollback|uninstall" ;;
 esac

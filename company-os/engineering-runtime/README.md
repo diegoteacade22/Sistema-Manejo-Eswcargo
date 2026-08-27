@@ -59,10 +59,14 @@ CODEX_HOME="$COMPANY_OS_ENGINEERING_CODEX_AUTH_DIR" codex login
 gh auth token | zsh company-os/engineering-runtime/manage.sh provision-a2
 docker build -f webapp/company-os-engineering-worker/Dockerfile.codex \
   -t company-os-codex:0.150.1 webapp/company-os-engineering-worker
-zsh company-os/engineering-runtime/manage.sh doctor
-zsh company-os/engineering-runtime/manage.sh install
+zsh company-os/engineering-runtime/manage.sh gui doctor
+zsh company-os/engineering-runtime/manage.sh gui install
 zsh company-os/engineering-runtime/manage.sh status
 ```
+
+`gui doctor` y `gui install` ejecutan la comprobación en el dominio gráfico del
+LaunchAgent para que macOS permita leer las credenciales sin desactivar la
+protección de Keychain. No copian secretos al proceso SSH ni al plist.
 
 Cambiar a A2 requiere endpoints productivos, reserva/reconcile live y una
 instalación explícita con `COMPANY_OS_ENGINEERING_MAX_AUTONOMY=A2`.
