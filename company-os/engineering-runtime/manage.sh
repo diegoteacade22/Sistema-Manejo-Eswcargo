@@ -202,7 +202,7 @@ docker_sandbox_ready() {
     --mount "type=bind,src=${CODEX_AUTH_DIR:A}/auth.json,dst=/codex-home/auth.json,readonly" \
     --mount "type=bind,src=${sandbox_config:A},dst=/codex-home/config.toml,readonly" \
     -e CODEX_HOME=/codex-home "$CODEX_IMAGE" \
-    codex sandbox -C /workspace -- /bin/bash -c 'set -eu; test ! -r /codex-home/auth.json; node -e '\''fetch("https://example.com").then(()=>process.exit(42)).catch(()=>process.exit(0))'\''; touch /workspace/write-ok; test -f /workspace/write-ok; ! touch /etc/company-os-probe 2>/dev/null' \
+    codex sandbox -P engineering -C /workspace -- /bin/bash -c 'set -eu; test ! -r /codex-home/auth.json; node -e '\''fetch("https://example.com").then(()=>process.exit(42)).catch(()=>process.exit(0))'\''; touch /workspace/write-ok; test -f /workspace/write-ok; ! touch /etc/company-os-probe 2>/dev/null' \
     >/dev/null 2>&1; then
     rm -rf "$probe"
     die "Sandbox no confirmó límites de lectura, escritura y red"

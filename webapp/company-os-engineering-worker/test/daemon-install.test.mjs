@@ -40,7 +40,7 @@ test('installer references Keychain and local auth without embedding secrets', a
   assert.match(script, /security find-generic-password/);
   assert.match(script, /docker_sandbox_ready/);
   assert.match(script, /company-os-codex:0\.150\.1/);
-  assert.match(script, /codex sandbox -C \/workspace/);
+  assert.match(script, /codex sandbox -P engineering -C \/workspace/);
   assert.match(script, /test ! -r \/codex-home\/auth\.json/);
   assert.match(script, /COMPANY_OS_ENGINEERING_HMAC_SECRET="\$\(keychain_get\)"/);
   assert.match(script, /com\.esw\.company-os-runtime\.hmac/);
