@@ -63,6 +63,9 @@ jobs:
           history="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = '20260827142708'")"
           if [ "$tables" = "0" ] && [ "$history" = "0" ]; then
             psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -f "$migration" >/dev/null
+            tables="3"
+          fi
+          if [ "$tables" = "3" ] && [ "$history" = "0" ]; then
             supabase migration repair 20260827142708 --status applied --db-url "$DIRECT_URL" --yes >/dev/null
           elif [ "$tables" != "3" ] || [ "$history" != "1" ]; then
             echo "::error::Estado parcial inesperado: tablas=$tables historia=$history."
