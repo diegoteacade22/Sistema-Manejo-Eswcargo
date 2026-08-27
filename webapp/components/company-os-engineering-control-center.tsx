@@ -13,6 +13,7 @@ import {
   PauseCircle,
   PlayCircle,
   RefreshCw,
+  Rocket,
   ShieldAlert,
   ShieldCheck,
   TimerReset,
@@ -23,6 +24,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 
 const ENGINEERING_CONTROL_CENTER_URL = "/api/company-os/engineering/v2/control-center";
 const ENGINEERING_CONTROL_URL = "/api/company-os/engineering/v2/control";
+const ENGINEERING_PROBE_URL = "/api/company-os/engineering/v2/missions/probe";
 const POLL_INTERVAL_MS = 15_000;
 
 type ObservationState = "LOADING" | "OBSERVED" | "UNOBSERVED";
@@ -33,6 +35,7 @@ type EngineeringControlAction =
   | "RESUME_EXECUTION"
   | "EMERGENCY_STOP"
   | "CLEAR_EMERGENCY";
+type ProbeLevel = "A1" | "A2";
 
 type EngineeringMission = {
   id: string;
@@ -335,6 +338,8 @@ export function CompanyOsEngineeringControlCenter() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<EngineeringControlAction | null>(null);
   const [armed, setArmed] = useState<EngineeringControlAction | null>(null);
+  const [probeBusy, setProbeBusy] = useState<ProbeLevel | null>(null);
+  const [probeArmed, setProbeArmed] = useState<ProbeLevel | null>(null);
   const [clock, setClock] = useState(() => Date.now());
 
   const refresh = useCallback(async () => {
@@ -362,7 +367,7 @@ export function CompanyOsEngineeringControlCenter() {
   }, [refresh]);
 
   const freshness = deriveEngineeringFreshness(snapshot?.generatedAt ?? null, clock);
-  const canMutate = observation === "OBSERVED" && freshness === "CURRENT" && snapshot != null && busy == null;
+  const canMutate = observation === "OBSERVED" && freshness === "CURRENT" && snapshot != null && busy == null && probeBusy == null;
   const control = snapshot?.control ?? {
     pauseIntake: true,
     pauseExecution: true,
@@ -416,6 +421,31 @@ export function CompanyOsEngineeringControlCenter() {
     if (armed === action) void performControl(action);
     else setArmed(action);
   };
+
+  const requestProbe = useCallback(async (autonomyLevel: ProbeLevel) => {
+    if (!canMutate || control.pauseIntake || control.pauseExecution || control.emergencyStop) return;
+    if (probeArmed !== autonomyLevel) {
+      setProbeArmed(autonomyLevel);
+      return;
+    }
+    setProbeBusy(autonomyLevel);
+    try {
+      const response = await fetch(ENGINEERING_PROBE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ autonomyLevel }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(asRecord(body).error as string || `HTTP ${response.status}`);
+      setProbeArmed(null);
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Prueba rechazada");
+      setProbeArmed(null);
+    } finally {
+      setProbeBusy(null);
+    }
+  }, [canMutate, control.emergencyStop, control.pauseExecution, control.pauseIntake, probeArmed, refresh]);
 
   return (
     <section aria-labelledby="engineering-v2-title" className="space-y-5">
@@ -478,6 +508,20 @@ export function CompanyOsEngineeringControlCenter() {
           <div className="w-full pt-2 text-xs text-slate-500">
             Emergency stop también pausa intake/ejecución y revoca leases activos. Limpiarlo no reanuda automáticamente.
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-cyan-500/20 bg-cyan-950/10">
+        <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Rocket className="h-4 w-4 text-cyan-300" /> Pruebas vivas acotadas</CardTitle><CardDescription>Crean una misión inocua sobre un único recibo Markdown. A1 queda local; A2 sólo puede subir branch y abrir Draft PR.</CardDescription></CardHeader>
+        <CardContent className="flex flex-wrap gap-2">
+          {(["A1", "A2"] as ProbeLevel[]).map((level) => (
+            <Button key={level} variant="outline" disabled={!canMutate || control.pauseIntake || control.pauseExecution || control.emergencyStop} onClick={() => void requestProbe(level)}>
+              {probeBusy === level ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Rocket className="mr-2 h-4 w-4" />}
+              {probeArmed === level ? `Confirmar prueba ${level}` : `Crear prueba ${level}`}
+            </Button>
+          ))}
+          {probeArmed ? <Button variant="ghost" onClick={() => setProbeArmed(null)}>Cancelar prueba</Button> : null}
+          <p className="w-full pt-2 text-xs text-slate-500">Cada alta requiere dos clics y una sesión ADMIN actual; la clave de máquina recibe 403.</p>
         </CardContent>
       </Card>
 
