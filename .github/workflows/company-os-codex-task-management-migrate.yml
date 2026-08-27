@@ -40,6 +40,10 @@ jobs:
             echo "La migración de gestión Codex ya está aplicada y registrada."
             exit 0
           fi
+          if [ "$tables" = "2" ] && [ "$history" = "0" ]; then
+            echo "DDL aplicado con historial pendiente; el paso Apply puede reparar únicamente 20260827162112."
+            exit 0
+          fi
           if [ "$tables" != "0" ] || [ "$history" != "0" ]; then
             echo "::error::Estado parcial inesperado: tablas=$tables historia=$history."
             exit 1
