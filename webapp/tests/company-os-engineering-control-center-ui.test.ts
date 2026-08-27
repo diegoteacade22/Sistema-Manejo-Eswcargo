@@ -120,4 +120,8 @@ test('componente usa sólo lectura, control humano y pruebas acotadas V2', () =>
   assert.match(store, /opaqueHex\(input\.baseCommit, 40/);
   assert.match(store, /opaqueHex\(input\.policyHash, 64/);
   assert.doesNotMatch(store, /const baseCommit = text\(input\.baseCommit/);
+  assert.match(store, /relativePathArray\(input\.allowedPaths, 30, 300\)/);
+  assert.match(store, /opaqueIdentifier\(\s*input\.requestId/);
+  assert.doesNotMatch(store, /const requestId = text\(input\.requestId/);
+  assert.match(probeRoute, /function probeIdentifier\(\)/);
 });

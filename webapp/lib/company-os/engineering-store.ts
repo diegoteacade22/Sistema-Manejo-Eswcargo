@@ -61,6 +61,14 @@ function opaqueHex(value: unknown, length: 40 | 64, message: string, code: strin
   return source;
 }
 
+function opaqueIdentifier(value: unknown, max: number, pattern: RegExp, message: string, code: string) {
+  const source = typeof value === 'string' ? value.trim() : '';
+  if (!source || source.length > max || !pattern.test(source)) {
+    throw new EngineeringStoreError(message, 400, code);
+  }
+  return source;
+}
+
 function stringArray(value: unknown, maxItems: number, maxLength: number) {
   if (!Array.isArray(value) || value.length === 0 || value.length > maxItems) {
     throw new EngineeringStoreError('Lista de ingeniería inválida', 400, 'INVALID_ENGINEERING_LIST');
@@ -78,6 +86,19 @@ function safeRelativePath(value: string) {
     throw new EngineeringStoreError(`Path prohibido: ${normalized}`, 400, 'PATH_NOT_ALLOWED');
   }
   return normalized;
+}
+
+function relativePathArray(value: unknown, maxItems: number, maxLength: number) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > maxItems) {
+    throw new EngineeringStoreError('Lista de paths inválida', 400, 'INVALID_ENGINEERING_PATH_LIST');
+  }
+  return [...new Set(value.map((item) => safeRelativePath(opaqueIdentifier(
+    item,
+    maxLength,
+    /^[^\u0000-\u001f\u007f]+$/,
+    'Path de ingeniería inválido',
+    'PATH_NOT_ALLOWED',
+  ))))];
 }
 
 function decimalNumber(value: Prisma.Decimal | number | string) {
@@ -241,7 +262,7 @@ export async function enqueueEngineeringMission(rawInput: unknown, actorRef: str
   if (repository !== ALLOWED_REPOSITORY) throw new EngineeringStoreError('Repositorio no allowlisted', 403, 'TARGET_NOT_ALLOWLISTED');
   const objective = text(input.objective, MAX_OBJECTIVE_LENGTH);
   const baseCommit = opaqueHex(input.baseCommit, 40, 'baseCommit inválido', 'INVALID_BASE_COMMIT');
-  const allowedPaths = stringArray(input.allowedPaths, 30, 300).map(safeRelativePath);
+  const allowedPaths = relativePathArray(input.allowedPaths, 30, 300);
   const acceptanceCriteria = stringArray(input.acceptanceCriteria, 30, 500);
   const autonomyLevel = input.autonomyLevel === 'A2' ? 'A2' : input.autonomyLevel === 'A1' ? 'A1' : null;
   if (!autonomyLevel) throw new EngineeringStoreError('Sólo A1/A2 están habilitados', 400, 'AUTONOMY_LEVEL_DENIED');
@@ -254,10 +275,13 @@ export async function enqueueEngineeringMission(rawInput: unknown, actorRef: str
     throw new EngineeringStoreError('Deadline fuera de límite', 400, 'INVALID_DEADLINE');
   }
   const policyHash = opaqueHex(input.policyHash, 64, 'policyHash inválido', 'INVALID_POLICY_HASH');
-  const requestId = text(input.requestId, 160);
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/.test(requestId)) {
-    throw new EngineeringStoreError('requestId inválido', 400, 'INVALID_REQUEST_ID');
-  }
+  const requestId = opaqueIdentifier(
+    input.requestId,
+    160,
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/,
+    'requestId inválido',
+    'INVALID_REQUEST_ID',
+  );
   const missionId = `engineering-mission:${randomUUID()}`;
   const contract: EngineeringMissionContract = {
     missionId, objective, repository, baseCommit, allowedPaths, acceptanceCriteria, autonomyLevel,
