@@ -6,6 +6,7 @@ const A1_VERBS = new Set(['READ_REPOSITORY', 'WRITE_WORKTREE', 'RUN_TESTS', 'RUN
 const A2_VERBS = new Set([...A1_VERBS, 'PUSH_BRANCH', 'CREATE_DRAFT_PR']);
 const PROHIBITED_SEGMENTS = new Set(['.git', '.github', 'migrations', 'migration', 'secrets']);
 const CONTRACT_VERSION = '2.0.0';
+const MAX_LEASE_CLOCK_SKEW_MS = 5_000;
 
 function canonicalJson(value) {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
@@ -76,7 +77,7 @@ export function validateClaim(claim, config, now = new Date()) {
   if (lease.actor !== config.workerId) throw new PolicyError('ACTOR_MISMATCH');
   if (!Number.isSafeInteger(lease.fencingToken) || lease.fencingToken < 1) throw new PolicyError('FENCING_TOKEN_INVALID');
   if (!Number.isSafeInteger(lease.expectedStateVersion) || lease.expectedStateVersion !== mission.expectedStateVersion) throw new PolicyError('STATE_VERSION_MISMATCH');
-  if (!Number.isFinite(Date.parse(lease.issuedAt)) || Date.parse(lease.issuedAt) > now.getTime()) throw new PolicyError('LEASE_NOT_ACTIVE');
+  if (!Number.isFinite(Date.parse(lease.issuedAt)) || Date.parse(lease.issuedAt) > now.getTime() + MAX_LEASE_CLOCK_SKEW_MS) throw new PolicyError('LEASE_NOT_ACTIVE');
   if (!Number.isFinite(Date.parse(lease.expiresAt)) || Date.parse(lease.expiresAt) <= now.getTime()) throw new PolicyError('LEASE_EXPIRED');
   if (!Number.isFinite(Date.parse(mission.deadline)) || Date.parse(mission.deadline) <= now.getTime()) throw new PolicyError('MISSION_DEADLINE_EXPIRED');
   if (!Number.isFinite(mission.budgetUsd) || mission.budgetUsd < 0 || !Number.isFinite(lease.budgetUsd) || lease.budgetUsd > mission.budgetUsd) throw new PolicyError('BUDGET_ESCALATION');

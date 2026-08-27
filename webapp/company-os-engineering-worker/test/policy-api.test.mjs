@@ -38,6 +38,8 @@ test('claim validates fixed repository, authority and time', () => {
   const prohibitedMission = { ...mission, allowedPaths: ['.github'] };
   assert.throws(() => validateClaim(claimed(prohibitedMission, { ...lease, missionHash: missionHash(prohibitedMission) }), config, new Date('2028-01-01')), /PROHIBITED_PATH_AUTHORITY/);
   assert.throws(() => validateClaim(claimed(mission, { ...lease, expiresAt: '2027-01-01T00:00:00Z' }), config, new Date('2028-01-01')), /LEASE_EXPIRED/);
+  assert.doesNotThrow(() => validateClaim(claimed(mission, { ...lease, issuedAt: '2028-01-01T00:00:04.999Z' }), config, new Date('2028-01-01T00:00:00Z')));
+  assert.throws(() => validateClaim(claimed(mission, { ...lease, issuedAt: '2028-01-01T00:00:05.001Z' }), config, new Date('2028-01-01T00:00:00Z')), /LEASE_NOT_ACTIVE/);
   assert.throws(() => validateClaim(claimed(mission, { ...lease, missionHash: 'b'.repeat(64) }), config, new Date('2028-01-01')), /LEASE_BINDING_MISMATCH/);
   assert.throws(() => validateClaim(claimed(mission, { ...lease, actor: 'other-worker' }), config, new Date('2028-01-01')), /ACTOR_MISMATCH/);
 });
