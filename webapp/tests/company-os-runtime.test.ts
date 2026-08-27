@@ -53,7 +53,7 @@ test('HMAC runtime no acepta secreto legado ni worker fuera de allowlist', () =>
 });
 
 test('runtime durable contiene concurrencia, leases, retry, heartbeat idle y no-model-on-empty', () => {
-  const migration = readFileSync('../supabase/migrations/20260826000155_company_os_runtime_24x7.sql', 'utf8');
+  const migration = readFileSync('../supabase/migrations/20260826003811_company_os_runtime_24x7.sql', 'utf8');
   const store = readFileSync('lib/company-os/runtime-store.ts', 'utf8');
   const daemon = readFileSync('company-os-worker/src/runtime-daemon.mjs', 'utf8');
   assert.match(migration, /CompanyOsRuntimeSlot/);
@@ -68,8 +68,8 @@ test('runtime durable contiene concurrencia, leases, retry, heartbeat idle y no-
 });
 
 test('un lease vencido puede volver de FAILED_RETRYABLE a CLAIMED', () => {
-  const migration = readFileSync('../supabase/migrations/20260826015130_company_os_runtime_retry_claim_transition.sql', 'utf8');
-  const aclMigration = readFileSync('../supabase/migrations/20260826015330_company_os_runtime_function_acl.sql', 'utf8');
+  const migration = readFileSync('../supabase/migrations/20260826015319_company_os_runtime_retry_claim_transition.sql', 'utf8');
+  const aclMigration = readFileSync('../supabase/migrations/20260826015324_company_os_runtime_function_acl.sql', 'utf8');
   assert.match(
     migration,
     /OLD\.status = 'FAILED_RETRYABLE'[\s\S]*NEW\.status IN \('QUEUED','CLAIMED','FAILED_FINAL','BLOCKED','CANCELLED'\)/,
@@ -79,7 +79,7 @@ test('un lease vencido puede volver de FAILED_RETRYABLE a CLAIMED', () => {
 });
 
 test('migración runtime sólo escribe relaciones internas Company OS', () => {
-  const migration = readFileSync('../supabase/migrations/20260826000155_company_os_runtime_24x7.sql', 'utf8');
+  const migration = readFileSync('../supabase/migrations/20260826003811_company_os_runtime_24x7.sql', 'utf8');
   assert.doesNotMatch(migration, /(?:INSERT INTO|UPDATE|DELETE FROM)\s+public\."?(?:Client|Product|Supplier|Order|Purchase|Shipment|Expense|Transaction)"?/i);
   assert.match(migration, /FORCE ROW LEVEL SECURITY/);
   assert.match(migration, /REVOKE ALL ON TABLE/);

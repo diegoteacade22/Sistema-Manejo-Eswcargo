@@ -21,7 +21,7 @@ import {
 } from '../lib/company-os/runtime-contracts';
 
 const CANONICAL_CONTRACT_MIGRATION_URL = new URL(
-  '../../supabase/migrations/20260826004140_company_os_runtime_contract_3_1_1.sql',
+  '../../supabase/migrations/20260826005735_company_os_runtime_contract_3_1_1.sql',
   import.meta.url,
 );
 

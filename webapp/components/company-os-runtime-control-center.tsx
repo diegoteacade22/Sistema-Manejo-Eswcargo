@@ -8,6 +8,8 @@ import {
   CirclePause,
   CirclePlay,
   Clock3,
+  CheckCircle2,
+  CircleHelp,
   GitBranch,
   Loader2,
   MessagesSquare,
@@ -16,6 +18,7 @@ import {
   ServerCog,
   Users,
   WalletCards,
+  type LucideIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -96,6 +99,31 @@ type RuntimeIncident = {
   status: string;
   summary: string;
   createdAt: string | null;
+  lastSeenAt: string | null;
+};
+
+type RuntimeWorkItem = {
+  id: string;
+  requestId: string;
+  objective: string;
+  agentId: string;
+  triggerType: string;
+  status: string;
+  priority: number | null;
+  attemptCount: number | null;
+  maxAttempts: number | null;
+  availableAt: string | null;
+  nextAttemptAt: string | null;
+  completedAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  lease: null | {
+    status: string;
+    workerId: string | null;
+    slotNo: number | null;
+    renewedAt: string | null;
+    expiresAt: string | null;
+  };
 };
 
 type RuntimeDependency = {
@@ -121,6 +149,8 @@ export type RuntimeControlCenterSnapshot = {
   runtime: {
     paused: boolean | null;
     globalConcurrency: number | null;
+    updatedAt: string | null;
+    overallHealth: string;
   };
   workers: RuntimeWorker[];
   agents: RuntimeAgent[];
@@ -132,7 +162,17 @@ export type RuntimeControlCenterSnapshot = {
     blocked: number | null;
     failedRetryable: number | null;
     failedFinal: number | null;
+    oldestQueuedAt: string | null;
   };
+  summary: {
+    workingNow: number | null;
+    inQueue: number | null;
+    blocked: number | null;
+    solvedToday: number | null;
+    discoveredToday: number | null;
+    approvals: number | null;
+  };
+  workItems: RuntimeWorkItem[];
   schedules: RuntimeSchedule[];
   usage: {
     dailyTokens: number | null;
@@ -195,6 +235,8 @@ export function normalizeRuntimeControlCenterSnapshot(
       paused:
         typeof runtime.paused === "boolean" ? runtime.paused : null,
       globalConcurrency: numberValue(runtime.globalConcurrency),
+      updatedAt: textValue(runtime.updatedAt),
+      overallHealth: reportedState(runtime.overallHealth, "UNOBSERVED"),
     },
     workers: records(source.workers).map((worker) => ({
       workerId: textValue(worker.workerId) ?? "UNOBSERVED",
@@ -227,7 +269,43 @@ export function normalizeRuntimeControlCenterSnapshot(
       blocked: numberValue(queue.blocked),
       failedRetryable: numberValue(queue.failedRetryable),
       failedFinal: numberValue(queue.failedFinal),
+      oldestQueuedAt: textValue(queue.oldestQueuedAt),
     },
+    summary: {
+      workingNow: numberValue(asRecord(source.summary).workingNow),
+      inQueue: numberValue(asRecord(source.summary).inQueue),
+      blocked: numberValue(asRecord(source.summary).blocked),
+      solvedToday: numberValue(asRecord(source.summary).solvedToday),
+      discoveredToday: numberValue(asRecord(source.summary).discoveredToday),
+      approvals: numberValue(asRecord(source.summary).approvals),
+    },
+    workItems: records(source.workItems).map((workItem) => {
+      const lease = asRecord(workItem.lease);
+      const hasLease = Object.keys(lease).length > 0;
+      return {
+        id: textValue(workItem.id) ?? "UNOBSERVED",
+        requestId: textValue(workItem.requestId) ?? "UNOBSERVED",
+        objective: textValue(workItem.objective) ?? "Objetivo UNOBSERVED",
+        agentId: textValue(workItem.agentId) ?? "UNOBSERVED",
+        triggerType: textValue(workItem.triggerType) ?? "UNOBSERVED",
+        status: reportedState(workItem.status, "UNKNOWN"),
+        priority: numberValue(workItem.priority),
+        attemptCount: numberValue(workItem.attemptCount),
+        maxAttempts: numberValue(workItem.maxAttempts),
+        availableAt: textValue(workItem.availableAt),
+        nextAttemptAt: textValue(workItem.nextAttemptAt),
+        completedAt: textValue(workItem.completedAt),
+        createdAt: textValue(workItem.createdAt),
+        updatedAt: textValue(workItem.updatedAt),
+        lease: hasLease ? {
+          status: reportedState(lease.status, "UNKNOWN"),
+          workerId: textValue(lease.workerId),
+          slotNo: numberValue(lease.slotNo),
+          renewedAt: textValue(lease.renewedAt),
+          expiresAt: textValue(lease.expiresAt),
+        } : null,
+      };
+    }),
     schedules: records(source.schedules).map((schedule) => ({
       id: textValue(schedule.id) ?? "UNOBSERVED",
       agentId: textValue(schedule.agentId) ?? "UNOBSERVED",
@@ -260,6 +338,7 @@ export function normalizeRuntimeControlCenterSnapshot(
       status: reportedState(incident.status, "UNKNOWN"),
       summary: textValue(incident.summary) ?? "Sin resumen observado",
       createdAt: textValue(incident.createdAt),
+      lastSeenAt: textValue(incident.lastSeenAt),
     })),
     dependencies: records(source.dependencies).map((dependency) => {
       const observedAt = textValue(dependency.observedAt);
@@ -336,12 +415,33 @@ function formatCost(value: number | null) {
   return value == null ? "—" : `$${value.toFixed(4)}`;
 }
 
+export function deriveRuntimeFreshness(value: string | null, now = Date.now()) {
+  if (!value) return "UNOBSERVED" as const;
+  const observedAt = Date.parse(value);
+  if (!Number.isFinite(observedAt)) return "UNOBSERVED" as const;
+  const age = Math.max(0, now - observedAt);
+  if (age <= 30_000) return "CURRENT" as const;
+  if (age <= 150_000) return "STALE" as const;
+  return "UNOBSERVED" as const;
+}
+
+function formatAge(value: string | null, now = Date.now()) {
+  if (!value) return "UNOBSERVED";
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "UNOBSERVED";
+  const seconds = Math.max(0, Math.floor((now - timestamp) / 1_000));
+  if (seconds < 60) return `${seconds} s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+}
+
 function statusTone(status: string) {
-  if (["IDLE", "HEALTHY", "INSTALLED", "RESOLVED", "CLOSED"].includes(status))
+  if (["IDLE", "HEALTHY", "CURRENT", "INSTALLED", "RESOLVED", "CLOSED", "COMPLETED"].includes(status))
     return "border-emerald-500/40 text-emerald-300";
   if (["BUSY", "RUNNING", "CLAIMED", "STARTING"].includes(status))
     return "border-violet-500/40 text-violet-300";
-  if (["PAUSED", "DRAINING", "DEGRADED", "NEEDS_REVIEW", "WARNING"].includes(status))
+  if (["PAUSED", "DRAINING", "DEGRADED", "ATTENTION", "STALE", "NEEDS_REVIEW", "WARNING", "FAILED_RETRYABLE"].includes(status))
     return "border-amber-500/40 text-amber-300";
   if (["STOPPED", "FAILED", "FAILED_FINAL", "CRITICAL", "OPEN"].includes(status))
     return "border-red-500/40 text-red-300";
@@ -382,7 +482,7 @@ function queueMetrics(snapshot: RuntimeControlCenterSnapshot) {
   ] as const;
 }
 
-export function CompanyOsRuntimeControlCenter() {
+export function CompanyOsRuntimeControlCenter({ readOnly = false }: { readOnly?: boolean }) {
   const [snapshot, setSnapshot] = useState<RuntimeControlCenterSnapshot | null>(null);
   const [observation, setObservation] = useState<ObservationState>("LOADING");
   const [refreshing, setRefreshing] = useState(false);
@@ -435,9 +535,25 @@ export function CompanyOsRuntimeControlCenter() {
     () => flattenRuntimeAgentHierarchy(snapshot?.agents ?? []),
     [snapshot?.agents],
   );
-  const controlEnabled = observation === "OBSERVED" && snapshot != null;
+  const controlEnabled = !readOnly && observation === "OBSERVED" && snapshot != null;
   const paused = snapshot?.runtime.paused ?? null;
   const observedPaused = observation === "OBSERVED" ? paused : null;
+  const freshness = observation === "OBSERVED"
+    ? deriveRuntimeFreshness(snapshot?.generatedAt ?? null)
+    : "UNOBSERVED";
+  const attentionItems = (snapshot?.workItems ?? [])
+    .filter((item) => ["CLAIMED", "RUNNING", "NEEDS_REVIEW", "BLOCKED", "FAILED_RETRYABLE", "FAILED_FINAL"].includes(item.status))
+    .slice(0, 10);
+  const heroMetrics: Array<{ label: string; value: string; tone: string; Icon: LucideIcon }> = [
+    { label: "HEALTH", value: snapshot?.runtime.overallHealth ?? "UNOBSERVED", tone: snapshot?.runtime.overallHealth ?? "UNOBSERVED", Icon: Activity },
+    { label: "WORKING NOW", value: formatNumber(snapshot?.summary.workingNow ?? null), tone: "RUNNING", Icon: Loader2 },
+    { label: "IN QUEUE", value: formatNumber(snapshot?.summary.inQueue ?? null), tone: "CLAIMED", Icon: Clock3 },
+    { label: "BLOCKED", value: formatNumber(snapshot?.summary.blocked ?? null), tone: (snapshot?.summary.blocked ?? 0) > 0 ? "ATTENTION" : "IDLE", Icon: AlertTriangle },
+    { label: "SOLVED TODAY", value: formatNumber(snapshot?.summary.solvedToday ?? null), tone: "COMPLETED", Icon: CheckCircle2 },
+    { label: "DISCOVERED", value: snapshot?.summary.discoveredToday == null ? "UNOBSERVED" : formatNumber(snapshot.summary.discoveredToday), tone: "UNOBSERVED", Icon: CircleHelp },
+    { label: "APPROVALS", value: formatNumber(snapshot?.summary.approvals ?? null), tone: (snapshot?.summary.approvals ?? 0) > 0 ? "ATTENTION" : "IDLE", Icon: Users },
+    { label: "COST TODAY", value: formatCost(snapshot?.usage.dailyCostUsd ?? null), tone: "IDLE", Icon: WalletCards },
+  ];
 
   async function sendControl(action: ControlAction) {
     const requestId = retryRequestId.trim();
@@ -493,10 +609,10 @@ export function CompanyOsRuntimeControlCenter() {
             <div>
               <CardTitle id="runtime-control-center-title" className="flex items-center gap-2">
                 <ServerCog className="text-cyan-300" />
-                Centro de Control runtime
+                {readOnly ? "Autonomous Operations" : "Centro de Control runtime"}
               </CardTitle>
               <CardDescription className="mt-2 text-slate-400">
-                Estado observado por la API de control. La ausencia de telemetría se muestra como UNKNOWN o UNOBSERVED; nunca se infiere OFFLINE.
+                Estado observado por la API canónica de Company OS. La ausencia de telemetría se muestra como UNKNOWN o UNOBSERVED; nunca se infiere OFFLINE.
               </CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -518,6 +634,9 @@ export function CompanyOsRuntimeControlCenter() {
               <Badge variant="outline">
                 Concurrencia {formatNumber(observation === "OBSERVED" ? snapshot?.runtime.globalConcurrency ?? null : null)}
               </Badge>
+              <Badge variant="outline" className={statusTone(freshness)}>
+                Freshness {freshness}
+              </Badge>
               <Button
                 type="button"
                 size="sm"
@@ -538,11 +657,77 @@ export function CompanyOsRuntimeControlCenter() {
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-3 text-xs text-slate-400">
             <span>Snapshot: {formatTimestamp(snapshot?.generatedAt ?? null)}</span>
+            <span>Edad: {formatAge(snapshot?.generatedAt ?? null)}</span>
             <span>Polling: 15 segundos</span>
+            {readOnly && <span>Fase 1: observación sin mutaciones</span>}
           </div>
           {error && (
             <p role="alert" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
               Actualización no observada: {error}. Se conserva el último snapshot sólo como referencia; no se infiere una caída.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+        {heroMetrics.map(({ label, value, tone, Icon }) => (
+          <Card key={label} className="border-white/10 bg-slate-950/80 text-slate-100">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-semibold tracking-wide text-slate-500">{label}</p>
+                <Icon className={`h-4 w-4 ${statusTone(tone).split(" ").at(-1) ?? "text-slate-400"}`} />
+              </div>
+              <p className={`mt-2 text-xl font-black ${statusTone(tone).split(" ").at(-1) ?? "text-slate-100"}`}>{value}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <Card className="border-white/10 bg-slate-950/80 text-slate-100">
+        <CardHeader>
+          <CardTitle>Atención operativa</CardTitle>
+          <CardDescription className="text-slate-400">
+            Máximo diez work items activos o problemáticos, ordenados por actualización del control plane.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {attentionItems.length ? (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[860px] text-left text-sm">
+                <thead className="text-xs uppercase text-slate-500">
+                  <tr className="border-b border-white/10">
+                    <th className="px-2 py-3">Misión</th>
+                    <th className="px-2 py-3">Estado</th>
+                    <th className="px-2 py-3">Agente</th>
+                    <th className="px-2 py-3">Prioridad</th>
+                    <th className="px-2 py-3">Intento</th>
+                    <th className="px-2 py-3">Lease</th>
+                    <th className="px-2 py-3">Edad</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {attentionItems.map((item) => (
+                    <tr key={item.id} className="border-b border-white/5 align-top">
+                      <td className="max-w-sm px-2 py-3">
+                        <p className="font-medium text-slate-200">{item.objective}</p>
+                        <p className="mt-1 break-all text-xs text-slate-500">{item.requestId}</p>
+                      </td>
+                      <td className="px-2 py-3"><Badge variant="outline" className={statusTone(item.status)}>{item.status}</Badge></td>
+                      <td className="px-2 py-3 text-slate-300">{item.agentId}</td>
+                      <td className="px-2 py-3">{formatNumber(item.priority)}</td>
+                      <td className="px-2 py-3">{formatNumber(item.attemptCount)} / {formatNumber(item.maxAttempts)}</td>
+                      <td className="px-2 py-3 text-xs text-slate-400">
+                        {item.lease ? `${item.lease.status} · slot ${formatNumber(item.lease.slotNo)} · ${item.lease.workerId ?? "UNOBSERVED"}` : "Sin lease"}
+                      </td>
+                      <td className="px-2 py-3 text-slate-400">{formatAge(item.updatedAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="rounded-xl border border-dashed border-slate-600 p-4 text-sm text-slate-400">
+              {observation === "OBSERVED" ? "Sin trabajo activo o problemático observado." : "Atención operativa UNOBSERVED."}
             </p>
           )}
         </CardContent>
@@ -746,7 +931,7 @@ export function CompanyOsRuntimeControlCenter() {
           <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
             <div className="space-y-2">
               <Label htmlFor="runtime-retry-request-id">Request ID para reintento</Label>
-              <Input id="runtime-retry-request-id" value={retryRequestId} onChange={(event) => setRetryRequestId(event.target.value)} placeholder="request-id exacto" className="border-white/10 bg-black/30" />
+              <Input id="runtime-retry-request-id" value={retryRequestId} onChange={(event) => setRetryRequestId(event.target.value)} placeholder="request-id exacto" className="border-white/10 bg-black/30" disabled={readOnly} />
             </div>
             <Button type="button" variant="outline" className="self-end" disabled={!controlEnabled || !retryRequestId.trim() || pendingAction != null} onClick={() => void sendControl("RETRY_CASE")}>
               {pendingAction === "RETRY_CASE" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RotateCcw className="mr-2 h-4 w-4" />} Reintentar caso

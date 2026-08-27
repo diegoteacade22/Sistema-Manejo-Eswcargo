@@ -1014,6 +1014,130 @@ model CompanyOsWorkerRequestNonce {
   @@index([expiresAt])
 }
 
+model CompanyOsEngineeringMission {
+  id                 String                                @id
+  requestId          String                                @unique
+  missionHash        String                                @unique
+  objective          String
+  repository         String
+  baseCommit         String
+  allowedPaths       Json
+  acceptanceCriteria Json
+  autonomyLevel      String
+  budgetUsd          Decimal                               @db.Decimal(12, 6)
+  spentUsd           Decimal                               @default(0) @db.Decimal(12, 6)
+  deadline           DateTime
+  policyHash         String
+  stateVersion       Int                                   @default(1)
+  fencingCounter     BigInt                                @default(0)
+  status             String                                @default("DISCOVERED")
+  completedAt        DateTime?
+  createdAt          DateTime                              @default(now())
+  updatedAt          DateTime                              @updatedAt
+  capabilityLeases   CompanyOsEngineeringCapabilityLease[]
+  events             CompanyOsEngineeringEvent[]
+  effects            CompanyOsEngineeringEffect[]
+
+  @@index([status, createdAt])
+  @@index([repository, status, createdAt])
+}
+
+model CompanyOsEngineeringCapabilityLease {
+  id                   String                       @id
+  missionId            String
+  missionHash          String
+  actor                String
+  resource             String
+  allowedVerbs         Json
+  allowedPaths         Json
+  autonomyLevel        String
+  budgetUsd            Decimal                      @db.Decimal(12, 6)
+  policyHash           String
+  fencingToken         BigInt                       @default(0)
+  expectedStateVersion Int
+  status               String                       @default("ACTIVE")
+  issuedAt             DateTime                     @default(now())
+  expiresAt            DateTime
+  revokedAt            DateTime?
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
+  mission              CompanyOsEngineeringMission  @relation(fields: [missionId], references: [id], onDelete: Restrict)
+  effects              CompanyOsEngineeringEffect[]
+
+  @@unique([missionId, fencingToken])
+  @@index([missionId, status, expiresAt])
+  @@index([actor, status, expiresAt])
+}
+
+model CompanyOsEngineeringEvent {
+  id             String                      @id
+  missionId      String
+  sequence       Int
+  eventType      String
+  fromStatus     String?
+  toStatus       String
+  payload        Json
+  payloadHash    String
+  previousHash   String?
+  eventHash      String
+  idempotencyKey String
+  requestHash    String
+  fencingToken   BigInt?
+  createdAt      DateTime                    @default(now())
+  mission        CompanyOsEngineeringMission @relation(fields: [missionId], references: [id], onDelete: Restrict)
+
+  @@unique([missionId, sequence])
+  @@unique([missionId, idempotencyKey])
+  @@index([missionId, createdAt])
+  @@index([eventType, createdAt])
+}
+
+model CompanyOsEngineeringEffect {
+  id                 String                              @id
+  missionId          String
+  capabilityLeaseId  String
+  idempotencyKey     String                              @unique
+  requestHash        String
+  missionHash        String
+  targetRepository   String
+  verb               String
+  targetBaseBranch   String
+  targetHeadBranch   String
+  targetCommitSha    String
+  policyHash         String
+  fencingToken       BigInt
+  status             String                              @default("PLANNED")
+  remoteProvider     String?
+  remoteId           String?
+  remoteUrl          String?
+  remoteReadbackHash String?
+  reservedAt         DateTime?
+  dispatchStartedAt  DateTime?
+  confirmedAt        DateTime?
+  reconciledAt       DateTime?
+  failedAt           DateTime?
+  lastErrorCode      String?
+  createdAt          DateTime                            @default(now())
+  updatedAt          DateTime                            @updatedAt
+  mission            CompanyOsEngineeringMission         @relation(fields: [missionId], references: [id], onDelete: Restrict)
+  capabilityLease    CompanyOsEngineeringCapabilityLease @relation(fields: [capabilityLeaseId], references: [id], onDelete: Restrict)
+
+  @@index([missionId, status, createdAt])
+  @@index([status, updatedAt])
+  @@index([remoteProvider, remoteId])
+}
+
+model CompanyOsEngineeringControl {
+  id                      String   @id
+  pauseIntake             Boolean  @default(true)
+  pauseExecution          Boolean  @default(true)
+  emergencyStop           Boolean  @default(true)
+  quarantinedRepositories String[] @default([])
+  disabledActors          String[] @default([])
+  updatedBy               String   @default("migration")
+  updatedAt               DateTime @updatedAt
+}
+
 /// Auditable receipt of a supplier price list loaded through ImportSys/Agent OS.
 /// This stores load metadata only; it never stores the WhatsApp message or raw file.
 model SupplierPriceListLoad {

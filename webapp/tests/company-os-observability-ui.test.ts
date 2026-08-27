@@ -4,7 +4,7 @@ import test from 'node:test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { deriveAuditSummary, deriveCompanyOsGlobalState } from '../components/company-os-dashboard';
-import { CompanyOsRuntimeControlCenter, flattenRuntimeAgentHierarchy, normalizeRuntimeControlCenterSnapshot } from '../components/company-os-runtime-control-center';
+import { CompanyOsRuntimeControlCenter, deriveRuntimeFreshness, flattenRuntimeAgentHierarchy, normalizeRuntimeControlCenterSnapshot } from '../components/company-os-runtime-control-center';
 import { buildSystemsSnapshot, SYSTEMS_OBSERVATION_MODES } from '../lib/company-os/systems-snapshot';
 
 type DashboardCases = Parameters<typeof deriveCompanyOsGlobalState>[0];
@@ -105,6 +105,33 @@ test('centro runtime usa polling de 15 segundos y controles humanos idempotentes
   assert.match(source,/observation === "OBSERVED"/);
   assert.doesNotMatch(source,/workerStates[\s\S]*"OFFLINE"/);
   assert.match(dashboard,/CompanyOsRuntimeControlCenter/);
+});
+
+test('tablero Autonomous Operations clasifica freshness sin inventar salud', () => {
+  const now=Date.parse('2026-08-27T12:00:00.000Z');
+  assert.equal(deriveRuntimeFreshness('2026-08-27T11:59:30.000Z',now),'CURRENT');
+  assert.equal(deriveRuntimeFreshness('2026-08-27T11:59:29.999Z',now),'STALE');
+  assert.equal(deriveRuntimeFreshness('2026-08-27T11:57:30.000Z',now),'STALE');
+  assert.equal(deriveRuntimeFreshness('2026-08-27T11:57:29.999Z',now),'UNOBSERVED');
+  assert.equal(deriveRuntimeFreshness(null,now),'UNOBSERVED');
+  const markup=renderToStaticMarkup(createElement(CompanyOsRuntimeControlCenter,{readOnly:true}));
+  assert.match(markup,/Autonomous Operations/);
+  assert.match(markup,/Fase 1: observación sin mutaciones/);
+  assert.match(markup,/HEALTH/);
+  assert.match(markup,/DISCOVERED/);
+  assert.match(markup,/Atención operativa UNOBSERVED/);
+});
+
+test('ruta de operaciones reutiliza Company OS y mantiene controles deshabilitados', () => {
+  const page=readFileSync('app/company-os/operations/page.tsx','utf8');
+  const center=readFileSync('components/company-os-runtime-control-center.tsx','utf8');
+  const store=readFileSync('lib/company-os/runtime-store.ts','utf8');
+  assert.match(page,/CompanyOsRuntimeControlCenter readOnly/);
+  assert.match(page,/PHASE 1 · READ ONLY/);
+  assert.match(center,/!readOnly && observation === "OBSERVED"/);
+  assert.match(store,/CompanyOsWorkItem/);
+  assert.match(store,/oldestQueuedAt/);
+  assert.match(store,/completedToday/);
 });
 
 test('centro runtime inicia sin convertir telemetría ausente en estado operativo', () => {

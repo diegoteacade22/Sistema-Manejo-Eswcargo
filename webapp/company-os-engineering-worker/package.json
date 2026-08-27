@@ -1,0 +1,13 @@
+{
+  "name": "company-os-engineering-worker-v2",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "start": "node src/server.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

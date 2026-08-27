@@ -1,0 +1,59 @@
+name: Company OS V2 CI
+
+on:
+  push:
+    branches:
+      - main
+      - codex/autonomous-operations-v2
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: company-os-v2-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  company-os-v2:
+    name: Company OS tests, types, lint and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: webapp
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Test Company OS
+        run: npm run test:company-os
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint Company OS V2 surfaces
+        run: >-
+          npx eslint
+          app/company-os/operations/page.tsx
+          app/api/company-os/engineering/v2
+          components/company-os-engineering-control-center.tsx
+          lib/company-os/autonomous-engineering-v2.ts
+          lib/company-os/engineering-store.ts
+          tests/company-os-autonomous-engineering-v2.test.ts
+          tests/company-os-engineering-durable-contract.test.ts
+          tests/company-os-engineering-control-center-ui.test.ts
+
+      - name: Build production artifact
+        run: npm run build

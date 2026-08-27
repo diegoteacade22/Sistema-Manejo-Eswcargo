@@ -29,7 +29,7 @@ Debe completar `QUEUED → ANALYZING → AWAITING_REVIEW|COMPLETED`, materializa
 
 1. Deshabilitar `company-os-agent-schedule.timer`.
 2. Revertir el commit/PR en Vercel y restaurar el worker desde la imagen/copia anterior.
-3. Ejecutar, sólo en ventana controlada, el bloque de rollback documentado al final de `20260816184500_systems_manager_ai_v1.sql`.
+3. Ejecutar, sólo en ventana controlada, el bloque de rollback documentado al final de `20260816175940_systems_manager_ai_v1.sql`.
 4. Verificar que los casos existentes del Gerente General conserven `general-manager-ai-v3` y que Company OS V3 siga procesando.
 
 Los datos técnicos son append-only; antes de eliminar tablas, exportarlos o conservarlos según la política operativa.
