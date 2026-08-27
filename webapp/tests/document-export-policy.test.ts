@@ -45,6 +45,17 @@ test('force sin fecha tampoco atraviesa el limite historico', () => {
     }), false);
 });
 
+test('force reevalúa un documento reciente pero conserva la misma huella lógica', () => {
+    assert.equal(shouldExportOperationalDocument({
+        currentFingerprint: 'igual',
+        previousFingerprint: 'igual',
+        hasPreviousState: true,
+        isWithinLookback: true,
+        isRequestedDate: false,
+        force: true,
+    }), true);
+});
+
 test('una fecha solicitada manualmente permite regenerar un documento puntual', () => {
     assert.equal(shouldExportOperationalDocument({
         currentFingerprint: 'igual',

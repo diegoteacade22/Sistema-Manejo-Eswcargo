@@ -59,6 +59,7 @@ jobs:
           components/company-os-human-dashboard.tsx
           components/company-os-engineering-control-center.tsx
           lib/document-cloud-drive.ts
+          lib/document-export-fingerprint.ts
           lib/document-export-policy.ts
           lib/document-export-run-contract.ts
           lib/company-os/autonomous-engineering-v2.ts

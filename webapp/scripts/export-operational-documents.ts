@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,8 +11,10 @@ import { GoogleDriveDocumentStore } from '../lib/document-cloud-drive';
 import {
     assertDriveBootstrapReady,
     assertSelectedOrderObserved,
+    assertSelectedShipmentObserved,
     sanitizeDocumentExportFatalError,
     selectedOrderExitCode,
+    shouldPersistDocumentExportState,
 } from '../lib/document-export-run-contract';
 import {
     DOCUMENT_EXPORT_LOOKBACK_DAYS,
@@ -23,6 +24,10 @@ import {
 } from '../lib/document-export-policy';
 import { getShipmentClientCharge } from '../lib/shipment-client-charge';
 import { getPackingSegments } from '../lib/packing-segments';
+import {
+    invoiceDocumentContentFingerprint,
+    packingListDocumentContentFingerprint,
+} from '../lib/document-export-fingerprint';
 
 dotenv.config({
     path: [
@@ -70,10 +75,6 @@ type ExportTarget = {
     saveState(state: DocumentExportState): Promise<unknown>;
     probe?(): Promise<unknown>;
 };
-
-function fingerprint(value: unknown) {
-    return createHash('sha256').update(JSON.stringify(value)).digest('hex');
-}
 
 function utcDateKey(value: Date | string | null | undefined) {
     if (!value) return null;
@@ -191,6 +192,7 @@ async function main() {
             date: true,
             total_amount: true,
             client: { select: { id: true, old_id: true, name: true, address: true, city: true, country: true } },
+            shipment: { select: { weight_cli: true } },
             items: {
                 orderBy: { id: 'asc' },
                 select: {
@@ -259,6 +261,7 @@ async function main() {
         },
     });
     assertSelectedOrderObserved(selectedOrderId, orders.length);
+    assertSelectedShipmentObserved(selectedShipmentId, shipments.length);
 
     let exported = 0;
     let planned = 0;
@@ -269,7 +272,7 @@ async function main() {
 
     for (const order of orders) {
         const key = String(order.id);
-        const currentFingerprint = fingerprint(order);
+        const currentFingerprint = invoiceDocumentContentFingerprint(order);
         const isRequestedDate = Boolean(
             selectedOrderId === order.id
             || (dateArg && utcDateKey(order.date) === dateArg),
@@ -322,7 +325,11 @@ async function main() {
 
     for (const shipment of shipments) {
         const key = String(shipment.id);
-        const currentFingerprint = fingerprint(shipment);
+        const currentFingerprint = packingListDocumentContentFingerprint({
+            shipment,
+            segment: null,
+            clientCharge: null,
+        });
         const operationalDate = shipment.date_shipped || shipment.createdAt;
         const isRequestedDate = Boolean(
             selectedShipmentId === shipment.id
@@ -354,7 +361,7 @@ async function main() {
             const clientCharge = segments.length > 1 && shipment.shipment_number
                 ? await getShipmentClientCharge(shipment.shipment_number, segment.clientId)
                 : null;
-            const segmentFingerprint = fingerprint({ shipment, segment, clientCharge });
+            const segmentFingerprint = packingListDocumentContentFingerprint({ shipment, segment, clientCharge });
             const previousSegmentFingerprint = previous?.shipments[segmentKey];
             const comparisonFingerprint = previousSegmentFingerprint === undefined
                 ? currentFingerprint
@@ -413,11 +420,17 @@ async function main() {
 
     const exitCode = selectedOrderExitCode({
         selectedOrderId,
+        selectedShipmentId,
         dryRun,
         exported,
         failureCount: failures.length,
     });
-    const shouldPersistState = !dryRun && !(selectedOrderId !== null && exitCode !== 0);
+    const shouldPersistState = shouldPersistDocumentExportState({
+        dryRun,
+        selectedOrderId,
+        selectedShipmentId,
+        exitCode,
+    });
     if (shouldPersistState) await target.saveState(next);
     const summaryFailures = target.name === 'drive'
         ? Object.entries(failures.reduce<Record<string, number>>((counts, { message }) => {
@@ -427,7 +440,11 @@ async function main() {
         }, {})).map(([reasonCode, count]) => ({ reasonCode, count }))
         : failures;
     const summary = {
-        status: dryRun ? 'DRY_RUN' : exitCode === 1 ? 'FAILED_SELECTION' : failures.length > 0 ? 'PARTIAL' : 'COMPLETED',
+        status: dryRun
+            ? 'DRY_RUN'
+            : (selectedOrderId !== null || selectedShipmentId !== null) && exitCode !== 0
+                ? 'FAILED_SELECTION'
+                : failures.length > 0 ? 'PARTIAL' : 'COMPLETED',
         target: target.name,
         selection: selectedOrderId !== null
             ? { type: 'ORDER', id: selectedOrderId }

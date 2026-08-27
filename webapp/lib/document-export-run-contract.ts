@@ -5,6 +5,13 @@ export function assertSelectedOrderObserved(selectedOrderId: number | null, obse
     }
 }
 
+export function assertSelectedShipmentObserved(selectedShipmentId: number | null, observedShipments: number) {
+    if (selectedShipmentId === null) return;
+    if (observedShipments !== 1) {
+        throw new Error('La selección de shipment debe resolver exactamente un envío.');
+    }
+}
+
 export function assertDriveBootstrapReady({
     targetName,
     hasPreviousState,
@@ -29,18 +36,36 @@ export function assertDriveBootstrapReady({
 
 export function selectedOrderExitCode({
     selectedOrderId,
+    selectedShipmentId = null,
     dryRun,
     exported,
     failureCount,
 }: {
     selectedOrderId: number | null;
+    selectedShipmentId?: number | null;
     dryRun: boolean;
     exported: number;
     failureCount: number;
 }) {
     if (selectedOrderId !== null && !dryRun && (exported !== 1 || failureCount !== 0)) return 1;
     if (failureCount > 0) return 2;
+    if (selectedShipmentId !== null && !dryRun && exported < 1) return 1;
     return 0;
+}
+
+export function shouldPersistDocumentExportState({
+    dryRun,
+    selectedOrderId,
+    selectedShipmentId,
+    exitCode,
+}: {
+    dryRun: boolean;
+    selectedOrderId: number | null;
+    selectedShipmentId: number | null;
+    exitCode: number;
+}) {
+    const failedSelection = (selectedOrderId !== null || selectedShipmentId !== null) && exitCode !== 0;
+    return !dryRun && !failedSelection;
 }
 
 export function sanitizeDocumentExportFatalError(value: string) {

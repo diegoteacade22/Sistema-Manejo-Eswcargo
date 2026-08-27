@@ -5,6 +5,7 @@ import test from 'node:test';
 
 const workflowPath = path.resolve(process.cwd(), '..', '.github', 'workflows', 'export-operational-documents-cloud.yml');
 const exporterPath = path.resolve(process.cwd(), 'scripts', 'export-operational-documents.ts');
+const buildersPath = path.resolve(process.cwd(), 'app', 'email-actions.ts');
 
 function jobLevelEnvBlocks(workflow: string) {
     const lines = workflow.split('\n');
@@ -68,4 +69,16 @@ test('el runner aplica el gate de bootstrap antes de consultar o persistir un ex
     assert.ok(bootstrap > loadState);
     assert.ok(query > bootstrap);
     assert.ok(persist > query);
+});
+
+test('invoice carga weight_cli y usa el contrato de render en huella y HTML', async () => {
+    const exporter = await readFile(exporterPath, 'utf8');
+    const builders = await readFile(buildersPath, 'utf8');
+    assert.match(exporter, /shipment:\s*\{\s*select:\s*\{\s*weight_cli:\s*true/);
+    assert.match(exporter, /invoiceDocumentContentFingerprint\(order\)/);
+    assert.match(exporter, /packingListDocumentContentFingerprint\(\{ shipment, segment, clientCharge \}\)/);
+    assert.match(builders, /INVOICE_DOCUMENT_RENDER_VERSION/);
+    assert.match(builders, /PACKING_LIST_DOCUMENT_RENDER_VERSION/);
+    assert.match(builders, /shipment\.date_shipped \|\| shipment\.createdAt/);
+    assert.doesNotMatch(builders, /new Date\(\)\.toLocaleDateString\(\)/);
 });
