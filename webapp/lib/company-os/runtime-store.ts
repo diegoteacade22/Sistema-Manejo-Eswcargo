@@ -1268,12 +1268,21 @@ export async function getCompanyOsRuntimeControlCenter() {
     dependencyRows,
     messages,
     reviewCaseCount,
+    completedToday,
+    oldestQueued,
   ] = await Promise.all([
     db.companyOsRuntimeControl.findUniqueOrThrow({ where: { id: 'primary' } }),
     db.companyOsWorker.findMany({ orderBy: { lastHeartbeatAt: 'desc' } }),
     db.companyOsWorkItem.findMany({
-      where: { status: { in: ['CLAIMED', 'RUNNING', 'BLOCKED', 'FAILED_RETRYABLE', 'FAILED_FINAL'] } },
-      include: { case: { select: { requestId: true } } },
+      where: { status: { in: ['QUEUED', 'CLAIMED', 'RUNNING', 'NEEDS_REVIEW', 'COMPLETED', 'BLOCKED', 'FAILED_RETRYABLE', 'FAILED_FINAL'] } },
+      include: {
+        case: { select: { requestId: true, objective: true } },
+        leases: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { status: true, workerId: true, slotNo: true, renewedAt: true, expiresAt: true },
+        },
+      },
       orderBy: { updatedAt: 'desc' },
       take: 100,
     }),
@@ -1311,6 +1320,12 @@ export async function getCompanyOsRuntimeControlCenter() {
       select: { id: true, fromAgentId: true, toAgentId: true, messageType: true, deliveryStatus: true, content: true, createdAt: true },
     }),
     db.companyOsCase.count({ where: { status: { in: ['NEEDS_REVIEW', 'AWAITING_REVIEW'] } } }),
+    db.companyOsWorkItem.count({ where: { status: 'COMPLETED', completedAt: { gte: dayStart } } }),
+    db.companyOsWorkItem.findFirst({
+      where: { status: 'QUEUED' },
+      orderBy: { availableAt: 'asc' },
+      select: { availableAt: true },
+    }),
   ]);
   const counts = new Map(queueGroups.map((item) => [item.status, item._count._all]));
   const freshWorkers = workers.filter((worker) => now.getTime() - worker.lastHeartbeatAt.getTime() <= WORKER_STALE_MS && worker.state !== 'STOPPED');
@@ -1356,9 +1371,57 @@ export async function getCompanyOsRuntimeControlCenter() {
       latencyMs: observation.latencyMs,
     } : { key, status: 'UNOBSERVED', observedAt: null, latencyMs: null };
   });
+  const requiredDependencies = dependencies.filter((dependency) => dependency.key !== 'openclaw-optional');
+  const hasExplicitCriticalState = workers.some((worker) => worker.state === 'STOPPED')
+    || incidents.some((incident) => incident.status === 'OPEN' && incident.severity === 'CRITICAL')
+    || requiredDependencies.some((dependency) => dependency.status === 'UNAVAILABLE');
+  const hasAttentionState = freshWorkers.length === 0
+    || incidents.some((incident) => incident.status === 'OPEN')
+    || requiredDependencies.some((dependency) => dependency.status === 'DEGRADED');
+  const hasUnobservedRequiredDependency = requiredDependencies.some((dependency) => ['UNKNOWN', 'UNOBSERVED'].includes(dependency.status));
+  const overallHealth = control.paused
+    ? 'PAUSED'
+    : hasExplicitCriticalState
+      ? 'CRITICAL'
+      : hasAttentionState
+        ? 'ATTENTION'
+        : hasUnobservedRequiredDependency
+          ? 'UNOBSERVED'
+          : 'HEALTHY';
+  const workItemRows = workItems.map((work) => {
+    const lease = work.leases[0] ?? null;
+    return {
+      id: work.id,
+      requestId: work.case.requestId,
+      objective: cleanText(work.case.objective, 280),
+      agentId: work.agentId,
+      triggerType: work.triggerType,
+      status: work.status,
+      priority: work.priority,
+      attemptCount: work.attemptCount,
+      maxAttempts: work.maxAttempts,
+      availableAt: work.availableAt.toISOString(),
+      nextAttemptAt: work.nextAttemptAt?.toISOString() ?? null,
+      completedAt: work.completedAt?.toISOString() ?? null,
+      createdAt: work.createdAt.toISOString(),
+      updatedAt: work.updatedAt.toISOString(),
+      lease: lease ? {
+        status: lease.status,
+        workerId: lease.workerId,
+        slotNo: lease.slotNo,
+        renewedAt: lease.renewedAt.toISOString(),
+        expiresAt: lease.expiresAt.toISOString(),
+      } : null,
+    };
+  });
   return {
     generatedAt: now.toISOString(),
-    runtime: { paused: control.paused, globalConcurrency: control.globalConcurrency },
+    runtime: {
+      paused: control.paused,
+      globalConcurrency: control.globalConcurrency,
+      updatedAt: control.updatedAt.toISOString(),
+      overallHealth,
+    },
     workers: workers.map((worker) => ({
       workerId: worker.workerId,
       host: worker.host,
@@ -1377,7 +1440,17 @@ export async function getCompanyOsRuntimeControlCenter() {
       blocked: counts.get('BLOCKED') ?? 0,
       failedRetryable: counts.get('FAILED_RETRYABLE') ?? 0,
       failedFinal: counts.get('FAILED_FINAL') ?? 0,
+      oldestQueuedAt: oldestQueued?.availableAt.toISOString() ?? null,
     },
+    summary: {
+      workingNow: (counts.get('CLAIMED') ?? 0) + (counts.get('RUNNING') ?? 0),
+      inQueue: counts.get('QUEUED') ?? 0,
+      blocked: (counts.get('BLOCKED') ?? 0) + (counts.get('FAILED_RETRYABLE') ?? 0) + (counts.get('FAILED_FINAL') ?? 0),
+      solvedToday: completedToday,
+      discoveredToday: null,
+      approvals: reviewCaseCount,
+    },
+    workItems: workItemRows,
     schedules: schedules.map((schedule) => ({
       id: schedule.id,
       agentId: schedule.agentId,
@@ -1400,6 +1473,7 @@ export async function getCompanyOsRuntimeControlCenter() {
       status: incident.status,
       summary: incident.summary,
       createdAt: incident.createdAt.toISOString(),
+      lastSeenAt: incident.lastSeenAt.toISOString(),
     })),
     dependencies,
     messages: messages.map((message) => ({

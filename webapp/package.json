@@ -44,7 +44,7 @@
     "test:agent-order": "tsx scripts/test-agent-order-invariants.ts",
     "test:ingestion": "tsx --test tests/ingestion.test.ts",
     "test:ingestion:openai": "tsx scripts/test-ingestion-openai.ts",
-    "test:company-os": "tsx --test tests/app-base-url.test.ts tests/company-os-general-manager.test.ts tests/company-os-calibration.test.ts tests/company-os-mission-events.test.ts tests/company-os-v3-contract.test.ts tests/company-os-mission-concurrency.test.ts tests/company-os-observability-ui.test.ts tests/company-os-runtime-contracts.test.ts tests/company-os-runtime.test.ts",
+    "test:company-os": "tsx --test tests/app-base-url.test.ts tests/company-os-general-manager.test.ts tests/company-os-calibration.test.ts tests/company-os-mission-events.test.ts tests/company-os-v3-contract.test.ts tests/company-os-mission-concurrency.test.ts tests/company-os-observability-ui.test.ts tests/company-os-runtime-contracts.test.ts tests/company-os-runtime.test.ts tests/company-os-autonomous-engineering-v2.test.ts",
     "test:cashflow-export": "python3 scripts/test-export-cash-flow-raw-transactions.py",
     "test:cashflow-reconciliation": "node scripts/test-cashflow-reconciliation.mjs",
     "revert:ledger-batch:20260718": "node scripts/revert-duplicate-ledger-batch-20260718.mjs",

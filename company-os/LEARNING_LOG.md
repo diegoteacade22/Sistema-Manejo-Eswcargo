@@ -1,5 +1,13 @@
 # Aprendizajes de Company OS
 
+## LEARN-013 — La autoridad debe quedar ligada a la misión y probarse fuera del modelo
+
+- Síntoma: una misión A1 podía heredar verbos A2, admitir traversal, cortar el loop antes de tres muestras o esconder un veto de merge detrás de idempotencia.
+- Causa: autonomía, paths, repetición y vetos se evaluaban sin todos sus límites o en un orden ambiguo.
+- Corrección: ligar autonomía al hash de misión, normalizar paths, exigir tres fingerprints y ejecutar vetos productivos antes del replay.
+- Prueba: 92 tests, ejecución real `PASS_A1_LOCAL`, diff independiente, commit local acotado y ledger hash-linked de nueve eventos.
+- Reutilización: sin credencial dedicada y readback externo, el tablero muestra `UNOBSERVED` y la operación continua permanece deshabilitada.
+
 ## LEARN-001 — Un parser de ofertas no es el Gerente General
 
 - Síntoma: el Agente de Ingesta se presentaba como primer agente empresarial.
