@@ -5,9 +5,11 @@ BEGIN;
 
 CREATE TABLE public."CompanyOsCodexTaskBoardState" (
   "taskId" text PRIMARY KEY REFERENCES public."CompanyOsCodexTask"(id) ON DELETE RESTRICT,
-  "workflowStatus" text CHECK ("workflowStatus" IS NULL OR "workflowStatus" IN ('UNREVIEWED','PENDING','IN_PROGRESS','NEEDS_DIEGO','BLOCKED','READY_REVIEW','DONE','MONITORING','DISCARDED')),
+  "workflowStatus" text NOT NULL CHECK ("workflowStatus" IN ('UNREVIEWED','PENDING','IN_PROGRESS','NEEDS_DIEGO','BLOCKED','READY_REVIEW','DONE','MONITORING','DISCARDED')),
   lifecycle text NOT NULL DEFAULT 'OPEN' CHECK (lifecycle IN ('OPEN','CLOSED','ARCHIVED')),
   "previousLifecycle" text CHECK ("previousLifecycle" IS NULL OR "previousLifecycle" IN ('OPEN','CLOSED','ARCHIVED')),
+  "sourceFingerprint" text NOT NULL CHECK ("sourceFingerprint" ~ '^[0-9a-f]{64}$'),
+  "projectNameOverride" text CHECK ("projectNameOverride" IS NULL OR length("projectNameOverride") BETWEEN 1 AND 160),
   version integer NOT NULL DEFAULT 0 CHECK (version >= 0),
   "updatedBy" text NOT NULL CHECK (length("updatedBy") BETWEEN 1 AND 160),
   "updatedAt" timestamptz NOT NULL DEFAULT now()
@@ -20,18 +22,61 @@ CREATE TABLE public."CompanyOsCodexTaskAction" (
   id text PRIMARY KEY,
   "taskId" text NOT NULL REFERENCES public."CompanyOsCodexTask"(id) ON DELETE RESTRICT,
   "idempotencyKey" text NOT NULL UNIQUE CHECK (length("idempotencyKey") BETWEEN 16 AND 160),
-  action text NOT NULL CHECK (action IN ('MOVE','ARCHIVE','CLOSE','REOPEN')),
+  action text NOT NULL CHECK (action IN ('MOVE','MOVE_PROJECT','ARCHIVE','CLOSE','REOPEN')),
   fingerprint text NOT NULL CHECK (fingerprint ~ '^[0-9a-f]{64}$'),
+  "requestHash" text NOT NULL CHECK ("requestHash" ~ '^[0-9a-f]{64}$'),
+  "previousVersion" integer NOT NULL CHECK ("previousVersion" >= 0),
+  "newVersion" integer NOT NULL CHECK ("newVersion" = "previousVersion" + 1),
   "previousHumanStatus" text NOT NULL CHECK ("previousHumanStatus" IN ('UNREVIEWED','PENDING','IN_PROGRESS','NEEDS_DIEGO','BLOCKED','READY_REVIEW','DONE','MONITORING','DISCARDED')),
   "newHumanStatus" text NOT NULL CHECK ("newHumanStatus" IN ('UNREVIEWED','PENDING','IN_PROGRESS','NEEDS_DIEGO','BLOCKED','READY_REVIEW','DONE','MONITORING','DISCARDED')),
   "previousLifecycle" text NOT NULL CHECK ("previousLifecycle" IN ('OPEN','CLOSED','ARCHIVED')),
   "newLifecycle" text NOT NULL CHECK ("newLifecycle" IN ('OPEN','CLOSED','ARCHIVED')),
+  "previousProjectName" text NOT NULL CHECK (length("previousProjectName") BETWEEN 1 AND 160),
+  "newProjectName" text NOT NULL CHECK (length("newProjectName") BETWEEN 1 AND 160),
+  "resultSnapshot" jsonb NOT NULL CHECK (jsonb_typeof("resultSnapshot") = 'object'),
   "actorRef" text NOT NULL CHECK (length("actorRef") BETWEEN 1 AND 160),
   "createdAt" timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX "CompanyOsCodexTaskAction_task_created_idx"
   ON public."CompanyOsCodexTaskAction" ("taskId", "createdAt" DESC);
+
+CREATE FUNCTION public.company_os_codex_task_board_require_action()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+DECLARE
+  prior_version integer;
+  effective_project text;
+BEGIN
+  prior_version := CASE WHEN TG_OP = 'INSERT' THEN 0 ELSE OLD.version END;
+  SELECT COALESCE(NEW."projectNameOverride", task."projectName")
+    INTO effective_project
+    FROM public."CompanyOsCodexTask" AS task
+   WHERE task.id = NEW."taskId";
+
+  IF NOT EXISTS (
+    SELECT 1
+      FROM public."CompanyOsCodexTaskAction" AS action
+     WHERE action."taskId" = NEW."taskId"
+       AND action."previousVersion" = prior_version
+       AND action."newVersion" = NEW.version
+       AND action."newHumanStatus" = NEW."workflowStatus"
+       AND action."newLifecycle" = NEW.lifecycle
+       AND action."newProjectName" = effective_project
+       AND action.fingerprint = NEW."sourceFingerprint"
+       AND action."actorRef" = NEW."updatedBy"
+  ) THEN
+    RAISE EXCEPTION 'Codex board transition requires its append-only action';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER company_os_codex_task_board_guard
+BEFORE INSERT OR UPDATE ON public."CompanyOsCodexTaskBoardState"
+FOR EACH ROW EXECUTE FUNCTION public.company_os_codex_task_board_require_action();
 
 ALTER TABLE public."CompanyOsCodexTaskBoardState" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public."CompanyOsCodexTaskBoardState" FORCE ROW LEVEL SECURITY;
