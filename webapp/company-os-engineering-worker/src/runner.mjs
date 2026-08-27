@@ -2,6 +2,9 @@ import { GitWorkspace } from './git-workspace.mjs';
 import { GitHubEffects } from './github-effect.mjs';
 import { validateClaim } from './policy.mjs';
 import { nonSecretEnvironment, runProcess } from './process.mjs';
+import { fileURLToPath } from 'node:url';
+
+const SANDBOX_CONFIG = fileURLToPath(new URL('../sandbox-config.toml', import.meta.url));
 
 function promptFor(claim) {
   const { mission } = claim;
@@ -44,14 +47,16 @@ export class EngineeringRunner {
       heartbeat.unref?.();
       const codexRun = await runProcess(this.config.dockerBin, [
         'run', '--rm', '-i', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
-        '--user', `${process.getuid()}:${process.getgid()}`,
+        '--security-opt', 'seccomp=unconfined',
         '--user', `${process.getuid()}:${process.getgid()}`,
         '--pids-limit', '256', '--memory', '4g', '--cpus', '2',
         '--tmpfs', '/tmp:rw,noexec,nosuid,size=512m',
-        '--mount', `type=bind,src=${workspace.repo},dst=/workspace,rw`,
-        '--mount', `type=bind,src=${this.config.codexAuthDir},dst=/codex-auth,ro`,
-        '-e', 'CODEX_HOME=/codex-auth', this.config.codexImage,
-        'codex', 'exec', '--sandbox', 'workspace-write', '--approve-for-me', '--ephemeral', '--ignore-user-config', '--ignore-rules',
+        '--tmpfs', `/codex-home:rw,noexec,nosuid,size=128m,uid=${process.getuid()},gid=${process.getgid()},mode=0700`,
+        '--mount', `type=bind,src=${workspace.repo},dst=/workspace`,
+        '--mount', `type=bind,src=${this.config.codexAuthDir}/auth.json,dst=/codex-home/auth.json,readonly`,
+        '--mount', `type=bind,src=${SANDBOX_CONFIG},dst=/codex-home/config.toml,readonly`,
+        '-e', 'CODEX_HOME=/codex-home', this.config.codexImage,
+        'codex', 'exec', '--strict-config', '--ephemeral', '--ignore-rules',
         '--color', 'never', '-C', '/workspace', '-'
       ], {
         cwd: workspace.repo,

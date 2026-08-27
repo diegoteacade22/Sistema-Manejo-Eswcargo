@@ -40,7 +40,8 @@ test('installer references Keychain and local auth without embedding secrets', a
   assert.match(script, /security find-generic-password/);
   assert.match(script, /docker_sandbox_ready/);
   assert.match(script, /company-os-codex:0\.150\.1/);
-  assert.match(script, /codex sandbox linux --sandbox workspace-write/);
+  assert.match(script, /codex sandbox -C \/workspace/);
+  assert.match(script, /test ! -r \/codex-home\/auth\.json/);
   assert.match(script, /COMPANY_OS_ENGINEERING_HMAC_SECRET="\$\(keychain_get\)"/);
   assert.match(script, /com\.esw\.company-os-runtime\.hmac/);
   assert.match(script, /com\.esw\.company-os-engineering-v2\.github-token/);
@@ -55,9 +56,10 @@ test('Docker runner is hardened and does not mount host HOME or GitHub auth', as
   assert.match(runner, /'--read-only'/);
   assert.match(runner, /'--cap-drop', 'ALL'/);
   assert.match(runner, /'--security-opt', 'no-new-privileges'/);
+  assert.match(runner, /'--security-opt', 'seccomp=unconfined'/);
   assert.match(runner, /'--user', `\$\{process\.getuid\(\)\}:\$\{process\.getgid\(\)\}`/);
-  assert.match(runner, /'--sandbox', 'workspace-write'/);
-  assert.match(runner, /dst=\/codex-auth,ro/);
+  assert.match(runner, /dst=\/codex-home\/auth\.json,readonly/);
+  assert.match(runner, /dst=\/codex-home\/config\.toml,readonly/);
   assert.doesNotMatch(runner, /GH_TOKEN|GH_CONFIG_DIR/);
   assert.doesNotMatch(runner, /--network', 'none/);
   assert.match(runner, /error\?\.uncertain !== true/);

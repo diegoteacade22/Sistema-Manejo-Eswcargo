@@ -190,11 +190,24 @@ auth_ready() {
 }
 
 docker_sandbox_ready() {
-  "$DOCKER_BIN" run --rm --read-only --cap-drop ALL --security-opt no-new-privileges --pids-limit 64 --memory 512m --cpus 1 \
+  local repo probe sandbox_config
+  repo="$(source_repo)"; sandbox_config="$repo/webapp/company-os-engineering-worker/sandbox-config.toml"
+  probe="$(mktemp -d "$STATE_DIR/.sandbox-probe.XXXXXX")"
+  "$GIT_BIN" -C "$probe" init -q
+  if ! "$DOCKER_BIN" run --rm --read-only --cap-drop ALL --security-opt no-new-privileges --security-opt seccomp=unconfined \
+    --user "$(id -u):$(id -g)" --pids-limit 64 --memory 512m --cpus 1 \
     --tmpfs /tmp:rw,noexec,nosuid,size=64m \
-    --mount "type=bind,src=${CODEX_AUTH_DIR:A},dst=/codex-auth,ro" -e CODEX_HOME=/codex-auth "$CODEX_IMAGE" \
-    codex sandbox linux --sandbox workspace-write -- node -e 'fetch("https://example.com").then(()=>process.exit(42)).catch(()=>process.exit(0))' \
-    >/dev/null 2>&1 || die "Sandbox interno permitió red o no pudo verificarse"
+    --tmpfs "/codex-home:rw,noexec,nosuid,size=64m,uid=$(id -u),gid=$(id -g),mode=0700" \
+    --mount "type=bind,src=${probe:A},dst=/workspace" \
+    --mount "type=bind,src=${CODEX_AUTH_DIR:A}/auth.json,dst=/codex-home/auth.json,readonly" \
+    --mount "type=bind,src=${sandbox_config:A},dst=/codex-home/config.toml,readonly" \
+    -e CODEX_HOME=/codex-home "$CODEX_IMAGE" \
+    codex sandbox -C /workspace -- /bin/bash -c 'set -eu; test ! -r /codex-home/auth.json; node -e '\''fetch("https://example.com").then(()=>process.exit(42)).catch(()=>process.exit(0))'\''; touch /workspace/write-ok; test -f /workspace/write-ok; ! touch /etc/company-os-probe 2>/dev/null' \
+    >/dev/null 2>&1; then
+    rm -rf "$probe"
+    die "Sandbox no confirmó límites de lectura, escritura y red"
+  fi
+  rm -rf "$probe"
 }
 
 loaded() { launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1; }

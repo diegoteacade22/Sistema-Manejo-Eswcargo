@@ -12,9 +12,11 @@ efectos e idempotencia. El runner nunca es fuente de verdad.
 - No hay código para merge, deploy, datos productivos, secrets o mensajes.
 - `.github`, migraciones, env/secrets, symlinks, submodules y paths fuera de la
   capability fallan cerrado.
-- Codex sólo ve `/workspace` RW y un auth dir dedicado RO; no ve HOME, Keychain,
-  token GitHub ni la configuración `gh` del host. El contenedor es read-only,
-  sin capabilities, y el sandbox interno bloquea la red de sus herramientas.
+- Codex sólo expone `/workspace` RW a sus herramientas. `auth.json` se monta RO
+  para el proceso padre y un perfil de permisos lo hace ilegible a comandos del
+  modelo; no ve HOME, Keychain, token GitHub ni la configuración `gh` del host.
+  El contenedor es read-only, sin capabilities, y el sandbox interno bloquea la
+  red de sus herramientas.
 - Un timeout termina el grupo de procesos completo.
 - El endpoint local `127.0.0.1:8795/health` no otorga autoridad.
 

@@ -1,0 +1,11 @@
+default_permissions = "engineering"
+allow_login_shell = false
+
+[permissions.engineering.filesystem]
+":minimal" = "read"
+":workspace_roots" = "write"
+":tmpdir" = "write"
+"/codex-home" = "deny"
+
+[permissions.engineering.network]
+enabled = false
