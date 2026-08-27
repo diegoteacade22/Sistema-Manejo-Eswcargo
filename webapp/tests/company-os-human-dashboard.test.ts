@@ -46,6 +46,7 @@ test('collector excluye subagentes, no envía texto final y nunca convierte task
   assert.doesNotMatch(collector, /humanStatus: 'DONE'/);
   assert.match(store, /codex:\/\/threads\/\$\{threadId\}/);
   assert.match(store, /function safeThreadId/);
+  assert.match(store, /\\u0000-\\u0008/);
   assert.match(collector, /if \(tasks\.length === 0\)/);
 });
 

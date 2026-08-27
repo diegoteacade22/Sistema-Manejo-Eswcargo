@@ -22,7 +22,9 @@ function record(value: unknown) {
 }
 
 function safeText(value: unknown, max: number, fallback?: string) {
-  const source = typeof value === 'string' ? value : '';
+  const source = typeof value === 'string'
+    ? value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, ' ')
+    : '';
   const safe = sanitizeCompanyText(source, max).safeText.trim();
   if (safe) return safe;
   if (fallback) return fallback;
