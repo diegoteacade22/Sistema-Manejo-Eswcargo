@@ -114,7 +114,7 @@ test('registro cerrado integra Gerente de Sistemas y línea de reporte', () => {
 });
 
 test('migración Sistemas es aditiva, RLS forzado, agenda NY y sin DML empresarial', () => {
-  const sql = readFileSync('../supabase/migrations/20260816184500_systems_manager_ai_v1.sql', 'utf8');
+  const sql = readFileSync('../supabase/migrations/20260816175940_systems_manager_ai_v1.sql', 'utf8');
   assert.match(sql, /CompanyOsSystemSnapshot/);
   assert.match(sql, /CompanyOsSystemAsset/);
   assert.match(sql, /CompanyOsSystemDependency/);
@@ -130,7 +130,7 @@ test('migración Sistemas es aditiva, RLS forzado, agenda NY y sin DML empresari
 });
 
 test('hardening agrega rol aislado, revisión humana y consumo completo', () => {
-  const sql = readFileSync('../supabase/migrations/20260816192500_systems_manager_ai_v1_hardening.sql', 'utf8');
+  const sql = readFileSync('../supabase/migrations/20260816182702_systems_manager_ai_v1_hardening.sql', 'utf8');
   assert.match(sql, /CREATE ROLE systems_manager_ai_v1 NOLOGIN/);
   assert.match(sql, /NOBYPASSRLS/);
   assert.match(sql, /MARK_INCORRECT/);

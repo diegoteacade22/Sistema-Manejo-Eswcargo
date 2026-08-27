@@ -147,7 +147,10 @@ export function engineeringHash(value: unknown) {
 }
 
 export function engineeringMissionHash(mission: EngineeringMissionContract) {
-  return engineeringHash({ contractVersion: ENGINEERING_V2_CONTRACT_VERSION, ...mission });
+  const immutableContract = Object.fromEntries(
+    Object.entries(mission).filter(([key]) => key !== 'expectedStateVersion'),
+  );
+  return engineeringHash({ contractVersion: ENGINEERING_V2_CONTRACT_VERSION, ...immutableContract });
 }
 
 export function assertEngineeringTransition(from: EngineeringMissionState, to: EngineeringMissionState) {
