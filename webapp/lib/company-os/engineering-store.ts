@@ -53,6 +53,14 @@ function text(value: unknown, max = 500) {
   return safe;
 }
 
+function opaqueHex(value: unknown, length: 40 | 64, message: string, code: string) {
+  const source = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (source.length !== length || !/^[a-f0-9]+$/.test(source)) {
+    throw new EngineeringStoreError(message, 400, code);
+  }
+  return source;
+}
+
 function stringArray(value: unknown, maxItems: number, maxLength: number) {
   if (!Array.isArray(value) || value.length === 0 || value.length > maxItems) {
     throw new EngineeringStoreError('Lista de ingeniería inválida', 400, 'INVALID_ENGINEERING_LIST');
@@ -232,8 +240,7 @@ export async function enqueueEngineeringMission(rawInput: unknown, actorRef: str
   const repository = text(input.repository, 200);
   if (repository !== ALLOWED_REPOSITORY) throw new EngineeringStoreError('Repositorio no allowlisted', 403, 'TARGET_NOT_ALLOWLISTED');
   const objective = text(input.objective, MAX_OBJECTIVE_LENGTH);
-  const baseCommit = text(input.baseCommit, 64).toLowerCase();
-  if (!/^[a-f0-9]{40}$/.test(baseCommit)) throw new EngineeringStoreError('baseCommit inválido', 400, 'INVALID_BASE_COMMIT');
+  const baseCommit = opaqueHex(input.baseCommit, 40, 'baseCommit inválido', 'INVALID_BASE_COMMIT');
   const allowedPaths = stringArray(input.allowedPaths, 30, 300).map(safeRelativePath);
   const acceptanceCriteria = stringArray(input.acceptanceCriteria, 30, 500);
   const autonomyLevel = input.autonomyLevel === 'A2' ? 'A2' : input.autonomyLevel === 'A1' ? 'A1' : null;
@@ -246,8 +253,7 @@ export async function enqueueEngineeringMission(rawInput: unknown, actorRef: str
   if (Number.isNaN(deadline.getTime()) || deadline <= new Date() || deadline.getTime() > Date.now() + 24 * 60 * 60_000) {
     throw new EngineeringStoreError('Deadline fuera de límite', 400, 'INVALID_DEADLINE');
   }
-  const policyHash = text(input.policyHash, 128).toLowerCase();
-  if (!/^[a-f0-9]{64}$/.test(policyHash)) throw new EngineeringStoreError('policyHash inválido', 400, 'INVALID_POLICY_HASH');
+  const policyHash = opaqueHex(input.policyHash, 64, 'policyHash inválido', 'INVALID_POLICY_HASH');
   const requestId = text(input.requestId, 160);
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,159}$/.test(requestId)) {
     throw new EngineeringStoreError('requestId inválido', 400, 'INVALID_REQUEST_ID');

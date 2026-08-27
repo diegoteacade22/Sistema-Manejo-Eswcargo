@@ -472,6 +472,9 @@ export function CompanyOsEngineeringControlCenter() {
               <p className="mt-1 text-rose-300/80">{error ?? "La observación no es suficientemente reciente."} Las pausas se representan activas por fail-closed.</p>
             </div>
           ) : null}
+          {error && observation === "OBSERVED" ? (
+            <div role="alert" className="mt-3 rounded-xl border border-amber-500/30 bg-amber-950/30 p-3 text-sm text-amber-200">Última acción rechazada: {error}</div>
+          ) : null}
           <p className="mt-3 text-xs text-slate-500">Observado: {formatTimestamp(snapshot?.generatedAt ?? null)} · Control actualizado: {formatTimestamp(control.updatedAt)}</p>
         </CardContent>
       </Card>
