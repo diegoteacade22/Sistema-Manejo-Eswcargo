@@ -353,10 +353,67 @@ async function recoverExpiredEngineeringLeases(tx: Tx) {
   }
 }
 
+async function recoverOrphanedEngineeringMissions(tx: Tx) {
+  const readyForHuman = await tx.companyOsEngineeringMission.findMany({
+    where: {
+      status: 'READY_FOR_HUMAN',
+      capabilityLeases: { none: { status: 'ACTIVE' } },
+    },
+    include: { effects: true },
+  });
+  for (const mission of readyForHuman) {
+    const effectsConfirmed = mission.effects.every((effect) => effect.status === 'CONFIRMED');
+    const draftConfirmed = mission.effects.some((effect) => effect.verb === 'CREATE_DRAFT_PR' && effect.status === 'CONFIRMED');
+    if (!effectsConfirmed || (mission.autonomyLevel === 'A2' && !draftConfirmed)) continue;
+    await setMissionStatus(tx, {
+      missionId: mission.id,
+      fromStatus: 'READY_FOR_HUMAN',
+      toStatus: 'COMPLETED',
+      eventType: 'ORPHANED_COMPLETION_RECOVERY',
+      payload: { effectsConfirmed: mission.effects.length, autonomyLevel: mission.autonomyLevel },
+      idempotencyKey: `orphaned-completion:${mission.id}:${mission.fencingCounter.toString()}`,
+      fencingToken: mission.fencingCounter > BigInt(0) ? mission.fencingCounter : null,
+      completedAt: new Date(),
+    });
+  }
+  const orphanedEffectMissions = await tx.companyOsEngineeringMission.findMany({
+    where: {
+      status: 'READY_FOR_EFFECT',
+      capabilityLeases: { none: { status: 'ACTIVE' } },
+      effects: { some: { status: 'DISPATCHING' } },
+    },
+    select: { id: true },
+  });
+  for (const mission of orphanedEffectMissions) {
+    await tx.companyOsEngineeringEffect.updateMany({
+      where: { missionId: mission.id, status: 'DISPATCHING' },
+      data: { status: 'UNKNOWN_OUTCOME', lastErrorCode: 'ORPHANED_LEASE_DURING_EFFECT' },
+    });
+  }
+  const orphaned = await tx.companyOsEngineeringMission.findMany({
+    where: {
+      status: { in: [...ACTIVE_MISSION_STATES] },
+      capabilityLeases: { none: { status: 'ACTIVE' } },
+    },
+  });
+  for (const mission of orphaned) {
+    await setMissionStatus(tx, {
+      missionId: mission.id,
+      fromStatus: mission.status as EngineeringMissionState,
+      toStatus: 'FAILED_RETRYABLE',
+      eventType: 'ORPHANED_LEASE_RECOVERY',
+      payload: { fencingToken: mission.fencingCounter.toString() },
+      idempotencyKey: `orphaned-lease:${mission.id}:${mission.fencingCounter.toString()}`,
+      fencingToken: mission.fencingCounter > BigInt(0) ? mission.fencingCounter : null,
+    });
+  }
+}
+
 export async function claimEngineeringMission(input: { workerId: string; instanceId: string }) {
   const db = companyOsV3Prisma();
   return db.$transaction(async (tx) => {
     await recoverExpiredEngineeringLeases(tx);
+    await recoverOrphanedEngineeringMissions(tx);
     const control = await tx.companyOsEngineeringControl.findUniqueOrThrow({ where: { id: ENGINEERING_CONTROL_ID } });
     if (control.pauseExecution || control.emergencyStop || control.disabledActors.includes(ENGINEERING_ACTOR)) return null;
     const candidates = await tx.$queryRaw<Array<{ id: string; mode: 'EXECUTE' | 'RECONCILE' }>>(Prisma.sql`
@@ -789,26 +846,41 @@ export async function applyEngineeringControl(input: {
       data.disabledActors = updateList(control.disabledActors, input.action === 'DISABLE_ACTOR', actor);
     }
     await tx.companyOsEngineeringControl.update({ where: { id: ENGINEERING_CONTROL_ID }, data });
-    if (input.action === 'EMERGENCY_STOP') {
+    if (input.action === 'EMERGENCY_STOP' || input.action === 'PAUSE_EXECUTION') {
       const activeLeases = await tx.companyOsEngineeringCapabilityLease.findMany({
-        where: { status: 'ACTIVE' }, select: { missionId: true, fencingToken: true },
+        where: { status: 'ACTIVE' }, select: { id: true, missionId: true, fencingToken: true },
       });
       for (const activeLease of activeLeases) {
         const mission = await tx.companyOsEngineeringMission.findUnique({ where: { id: activeLease.missionId } });
         if (!mission) continue;
         const status = mission.status as EngineeringMissionState;
-        await appendEvent(tx, {
-          missionId: mission.id,
-          eventType: 'EMERGENCY_STOP_VERIFIED',
-          fromStatus: status,
-          toStatus: status,
-          payload: { controlId: ENGINEERING_CONTROL_ID, action: input.action },
-          idempotencyKey: `emergency-stop:${key}:${mission.id}`,
-          fencingToken: activeLease.fencingToken,
+        await tx.companyOsEngineeringEffect.updateMany({
+          where: { capabilityLeaseId: activeLease.id, status: 'DISPATCHING' },
+          data: { status: 'UNKNOWN_OUTCOME', lastErrorCode: 'LEASE_REVOKED_DURING_EFFECT' },
         });
+        if (input.action === 'EMERGENCY_STOP') {
+          await appendEvent(tx, {
+            missionId: mission.id,
+            eventType: 'EMERGENCY_STOP_VERIFIED',
+            fromStatus: status,
+            toStatus: status,
+            payload: { controlId: ENGINEERING_CONTROL_ID, action: input.action },
+            idempotencyKey: `emergency-stop:${key}:${mission.id}`,
+            fencingToken: activeLease.fencingToken,
+          });
+        }
+        if (ACTIVE_MISSION_STATES.includes(status as typeof ACTIVE_MISSION_STATES[number])) {
+          await setMissionStatus(tx, {
+            missionId: mission.id,
+            fromStatus: status,
+            toStatus: 'FAILED_RETRYABLE',
+            eventType: input.action === 'EMERGENCY_STOP' ? 'EMERGENCY_STOP_RECOVERY' : 'EXECUTION_PAUSED_RECOVERY',
+            payload: { controlId: ENGINEERING_CONTROL_ID, action: input.action, leaseId: activeLease.id },
+            idempotencyKey: `control-recovery:${key}:${activeLease.id}`,
+            fencingToken: activeLease.fencingToken,
+          });
+        }
       }
-    }
-    if (input.action === 'EMERGENCY_STOP' || input.action === 'PAUSE_EXECUTION') {
       await tx.companyOsEngineeringCapabilityLease.updateMany({
         where: { status: 'ACTIVE' }, data: { status: 'REVOKED', revokedAt: new Date() },
       });

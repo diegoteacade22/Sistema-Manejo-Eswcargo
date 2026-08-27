@@ -127,4 +127,11 @@ test('componente usa sólo lectura, control humano y pruebas acotadas V2', () =>
   assert.match(store, /SELECT now\(\) AS now/);
   assert.match(store, /const issuedAt = databaseClock\.now/);
   assert.match(store, /status: 'ACTIVE', issuedAt, expiresAt/);
+  assert.match(store, /recoverOrphanedEngineeringMissions\(tx\)/);
+  assert.match(store, /eventType: 'ORPHANED_LEASE_RECOVERY'/);
+  assert.match(store, /'EMERGENCY_STOP_RECOVERY' : 'EXECUTION_PAUSED_RECOVERY'/);
+  assert.match(store, /lastErrorCode: 'ORPHANED_LEASE_DURING_EFFECT'/);
+  assert.match(store, /lastErrorCode: 'LEASE_REVOKED_DURING_EFFECT'/);
+  assert.match(store, /eventType: 'ORPHANED_COMPLETION_RECOVERY'/);
+  assert.match(store, /mission\.autonomyLevel === 'A2' && !draftConfirmed/);
 });
