@@ -44,8 +44,10 @@ despachar.
 
 Las credenciales no se copian al plist. HMAC se resuelve desde Keychain service
 `com.esw.company-os-runtime.hmac`. A2 resuelve un token GitHub separado desde
-`com.esw.company-os-engineering-v2.github-token`; sólo se entrega a los adapters
-Git/`gh`. Codex usa un auth dir dedicado RO.
+`com.esw.company-os-engineering-v2.github-token` dentro de un Keychain dedicado
+`engineering-secrets.keychain-db`, desbloqueado por una derivación de la HMAC;
+sólo se entrega a los adapters Git/`gh`. Esto permite arranque no interactivo
+sin guardar el token en texto plano. Codex usa un auth dir dedicado RO.
 
 ```sh
 export COMPANY_OS_ENGINEERING_REPOSITORY_PATH=/ruta/al/repo-fijo
@@ -54,6 +56,7 @@ export COMPANY_OS_ENGINEERING_MAX_AUTONOMY=A1
 export COMPANY_OS_ENGINEERING_CODEX_AUTH_DIR="$HOME/.company-os-engineering-v2/codex-auth"
 install -d -m 700 "$COMPANY_OS_ENGINEERING_CODEX_AUTH_DIR"
 CODEX_HOME="$COMPANY_OS_ENGINEERING_CODEX_AUTH_DIR" codex login
+gh auth token | zsh company-os/engineering-runtime/manage.sh provision-a2
 docker build -f webapp/company-os-engineering-worker/Dockerfile.codex \
   -t company-os-codex:0.150.1 webapp/company-os-engineering-worker
 zsh company-os/engineering-runtime/manage.sh doctor

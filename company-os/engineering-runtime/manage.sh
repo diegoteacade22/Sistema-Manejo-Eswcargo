@@ -3,6 +3,7 @@ set -euo pipefail
 umask 077
 
 ACTION="${1:-}"
+ACTION_ARG="${2:-}"
 SCRIPT_PATH="${0:A}"
 SCRIPT_DIR="${SCRIPT_PATH:h}"
 STATE_DIR="${COMPANY_OS_ENGINEERING_STATE_DIR:-$HOME/.company-os-engineering-v2}"
@@ -14,6 +15,7 @@ LABEL="com.esw.company-os-engineering-v2"
 HEALTH_PORT="${COMPANY_OS_ENGINEERING_HEALTH_PORT:-8795}"
 HMAC_SERVICE="${COMPANY_OS_ENGINEERING_HMAC_KEYCHAIN_SERVICE:-com.esw.company-os-runtime.hmac}"
 GITHUB_SERVICE="${COMPANY_OS_ENGINEERING_GITHUB_KEYCHAIN_SERVICE:-com.esw.company-os-engineering-v2.github-token}"
+GITHUB_KEYCHAIN_PATH="${COMPANY_OS_ENGINEERING_GITHUB_KEYCHAIN_PATH:-$STATE_DIR/engineering-secrets.keychain-db}"
 KEYCHAIN_ACCOUNT="${COMPANY_OS_ENGINEERING_KEYCHAIN_ACCOUNT:-$(id -un)}"
 NODE_BIN="${COMPANY_OS_ENGINEERING_NODE_BIN:-$(command -v node 2>/dev/null || true)}"
 GIT_BIN="${COMPANY_OS_ENGINEERING_GIT_BIN:-$(command -v git 2>/dev/null || true)}"
@@ -54,8 +56,73 @@ check_target_repo() {
 
 keychain_has() { /usr/bin/security find-generic-password -a "$KEYCHAIN_ACCOUNT" -s "$HMAC_SERVICE" >/dev/null 2>&1; }
 keychain_get() { /usr/bin/security find-generic-password -a "$KEYCHAIN_ACCOUNT" -s "$HMAC_SERVICE" -w 2>/dev/null || die "Falta HMAC en Keychain service=$HMAC_SERVICE account=$KEYCHAIN_ACCOUNT"; }
-github_keychain_has() { /usr/bin/security find-generic-password -a "$KEYCHAIN_ACCOUNT" -s "$GITHUB_SERVICE" >/dev/null 2>&1; }
-github_keychain_get() { /usr/bin/security find-generic-password -a "$KEYCHAIN_ACCOUNT" -s "$GITHUB_SERVICE" -w 2>/dev/null || die "Falta token GitHub en Keychain service=$GITHUB_SERVICE account=$KEYCHAIN_ACCOUNT"; }
+github_keychain_password() { keychain_get | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}'; }
+github_keychain_unlock() {
+  [[ -f "$GITHUB_KEYCHAIN_PATH" ]] || return 1
+  /usr/bin/security unlock-keychain -p "$(github_keychain_password)" "$GITHUB_KEYCHAIN_PATH" >/dev/null 2>&1
+}
+github_keychain_has() {
+  github_keychain_unlock && /usr/bin/security find-generic-password -a "$KEYCHAIN_ACCOUNT" -s "$GITHUB_SERVICE" "$GITHUB_KEYCHAIN_PATH" >/dev/null 2>&1
+}
+github_keychain_get() {
+  github_keychain_unlock || die "Falta Keychain GitHub A2 en $GITHUB_KEYCHAIN_PATH"
+  /usr/bin/security find-generic-password -a "$KEYCHAIN_ACCOUNT" -s "$GITHUB_SERVICE" -w "$GITHUB_KEYCHAIN_PATH" 2>/dev/null || die "Falta token GitHub en Keychain service=$GITHUB_SERVICE account=$KEYCHAIN_ACCOUNT"
+}
+
+provision_a2_gui() {
+  validate_state
+  local fifo="$ACTION_ARG" result="$STATE_DIR/provision-a2.result" runtime_token keychain_password
+  [[ "${fifo:A}" == "${STATE_DIR:A}"/* && -p "$fifo" ]] || die "FIFO de provisión inválido"
+  IFS= read -r runtime_token < "$fifo"
+  [[ -n "$runtime_token" ]] || die "Token GitHub vacío"
+  keychain_password="$(github_keychain_password)"
+  if [[ -f "$GITHUB_KEYCHAIN_PATH" ]]; then
+    /usr/bin/security unlock-keychain -p "$keychain_password" "$GITHUB_KEYCHAIN_PATH" >/dev/null
+  else
+    /usr/bin/security create-keychain -p "$keychain_password" "$GITHUB_KEYCHAIN_PATH"
+    chmod 600 "$GITHUB_KEYCHAIN_PATH"
+  fi
+  /usr/bin/security add-generic-password -U -a "$KEYCHAIN_ACCOUNT" -s "$GITHUB_SERVICE" -w "$runtime_token" "$GITHUB_KEYCHAIN_PATH" >/dev/null
+  unset runtime_token keychain_password
+  github_keychain_has || die "No se pudo verificar el token GitHub dedicado"
+  print -r -- "A2_KEYCHAIN_READY" > "$result"
+}
+
+provision_a2() {
+  validate_state; keychain_has || die "Falta HMAC en Keychain service=$HMAC_SERVICE"
+  mkdir -p "$STATE_DIR" "$LOGS" "$HOME/Library/LaunchAgents"; chmod 700 "$STATE_DIR" "$LOGS"
+  local fifo="$STATE_DIR/provision-a2.fifo" result="$STATE_DIR/provision-a2.result"
+  local helper_plist="$HOME/Library/LaunchAgents/com.esw.company-os-engineering-v2-provision.plist"
+  local helper_label="com.esw.company-os-engineering-v2-provision" runtime_token attempt
+  rm -f "$fifo" "$result" "$helper_plist"
+  /usr/bin/mkfifo -m 600 "$fifo"
+  /bin/cat > "$helper_plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>$helper_label</string>
+<key>ProgramArguments</key><array><string>/bin/zsh</string><string>$SCRIPT_PATH</string><string>__provision_a2_gui</string><string>$fifo</string></array>
+<key>RunAtLoad</key><true/><key>ProcessType</key><string>Background</string>
+<key>StandardOutPath</key><string>$LOGS/provision-a2.log</string><key>StandardErrorPath</key><string>$LOGS/provision-a2.log</string>
+</dict></plist>
+EOF
+  plutil -lint "$helper_plist" >/dev/null
+  launchctl bootout "gui/$(id -u)/$helper_label" >/dev/null 2>&1 || true
+  launchctl bootstrap "gui/$(id -u)" "$helper_plist"
+  IFS= read -r runtime_token
+  [[ -n "$runtime_token" ]] || die "Token GitHub vacío"
+  print -r -- "$runtime_token" > "$fifo"
+  unset runtime_token
+  for attempt in {1..20}; do
+    [[ -f "$result" ]] && break
+    sleep 1
+  done
+  launchctl bootout "gui/$(id -u)/$helper_label" >/dev/null 2>&1 || true
+  rm -f "$fifo" "$helper_plist"
+  [[ -f "$result" && "$(<"$result")" == "A2_KEYCHAIN_READY" ]] || die "Provisión A2 falló; revisar $LOGS/provision-a2.log"
+  rm -f "$result"
+  say "A2_KEYCHAIN_READY service=$GITHUB_SERVICE dedicated=true"
+}
 
 auth_ready() {
   [[ "${COMPANY_OS_ENGINEERING_MAX_AUTONOMY:-A1}" != "A2" ]] || github_keychain_has || die "Falta token GitHub A2 en Keychain service=$GITHUB_SERVICE"
@@ -101,6 +168,7 @@ render_plist() {
 <key>COMPANY_OS_ENGINEERING_HEALTH_PORT</key><string>$HEALTH_PORT</string>
 <key>COMPANY_OS_ENGINEERING_HMAC_KEYCHAIN_SERVICE</key><string>$HMAC_SERVICE</string>
 <key>COMPANY_OS_ENGINEERING_GITHUB_KEYCHAIN_SERVICE</key><string>$GITHUB_SERVICE</string>
+<key>COMPANY_OS_ENGINEERING_GITHUB_KEYCHAIN_PATH</key><string>${GITHUB_KEYCHAIN_PATH:A}</string>
 <key>COMPANY_OS_ENGINEERING_KEYCHAIN_ACCOUNT</key><string>$KEYCHAIN_ACCOUNT</string>
 </dict>
 <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
@@ -186,11 +254,13 @@ run() {
 }
 
 case "$ACTION" in
+  provision-a2) provision_a2 ;;
   doctor) doctor ;;
   install) install ;;
   status) status ;;
   rollback) rollback ;;
   uninstall) uninstall ;;
   __run) run ;;
-  *) die "Uso: manage.sh doctor|install|status|rollback|uninstall" ;;
+  __provision_a2_gui) provision_a2_gui ;;
+  *) die "Uso: manage.sh provision-a2|doctor|install|status|rollback|uninstall" ;;
 esac
