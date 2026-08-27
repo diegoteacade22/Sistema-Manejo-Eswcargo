@@ -1,0 +1,88 @@
+name: Company OS Codex Task Management Migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Apply the single verified migration after dry-run
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: company-os-codex-task-management-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.109.1
+
+      - name: Verify exact migration plan
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          migration="supabase/migrations/20260827162112_company_os_codex_task_management.sql"
+          test -f "$migration"
+          tables="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM (VALUES (to_regclass('public.\"CompanyOsCodexTaskBoardState\"')), (to_regclass('public.\"CompanyOsCodexTaskAction\"'))) AS expected(table_name) WHERE table_name IS NOT NULL")"
+          history="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = '20260827162112'")"
+          if [ "$tables" = "2" ] && [ "$history" = "1" ]; then
+            echo "La migración de gestión Codex ya está aplicada y registrada."
+            exit 0
+          fi
+          if [ "$tables" != "0" ] || [ "$history" != "0" ]; then
+            echo "::error::Estado parcial inesperado: tablas=$tables historia=$history."
+            exit 1
+          fi
+          {
+            echo 'BEGIN;'
+            sed -e '/^BEGIN;$/d' -e '/^COMMIT;$/d' "$migration"
+            echo 'ROLLBACK;'
+          } | psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 >/dev/null
+          echo "Plan verificado: una migración, ejecutada y revertida correctamente."
+
+      - name: Apply verified migration
+        if: ${{ inputs.apply }}
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          migration="supabase/migrations/20260827162112_company_os_codex_task_management.sql"
+          tables="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM (VALUES (to_regclass('public.\"CompanyOsCodexTaskBoardState\"')), (to_regclass('public.\"CompanyOsCodexTaskAction\"'))) AS expected(table_name) WHERE table_name IS NOT NULL")"
+          history="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = '20260827162112'")"
+          if [ "$tables" = "0" ] && [ "$history" = "0" ]; then
+            psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -f "$migration" >/dev/null
+            tables="2"
+          fi
+          if [ "$tables" = "2" ] && [ "$history" = "0" ]; then
+            supabase migration repair 20260827162112 --status applied --db-url "$DIRECT_URL" --yes >/dev/null
+          elif [ "$tables" != "2" ] || [ "$history" != "1" ]; then
+            echo "::error::Estado parcial inesperado: tablas=$tables historia=$history."
+            exit 1
+          fi
+
+      - name: Verify migration history and permissions
+        if: ${{ inputs.apply }}
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          tables="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM (VALUES (to_regclass('public.\"CompanyOsCodexTaskBoardState\"')), (to_regclass('public.\"CompanyOsCodexTaskAction\"'))) AS expected(table_name) WHERE table_name IS NOT NULL")"
+          history="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = '20260827162112'")"
+          policies="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename IN ('CompanyOsCodexTaskBoardState','CompanyOsCodexTaskAction')")"
+          grants="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM information_schema.role_table_grants WHERE table_schema = 'public' AND table_name IN ('CompanyOsCodexTaskBoardState','CompanyOsCodexTaskAction') AND grantee = 'company_os_v3' AND privilege_type IN ('SELECT','INSERT','UPDATE')")"
+          test "$tables" = "2"
+          test "$history" = "1"
+          test "$policies" = "5"
+          test "$grants" = "5"
+          echo "Migración aplicada: 2 tablas, 5 políticas, 5 permisos y 1 registro de historial verificados."
