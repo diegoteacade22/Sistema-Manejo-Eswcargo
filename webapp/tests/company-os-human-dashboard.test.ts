@@ -37,6 +37,9 @@ test('las ofertas exponen costo, precio sugerido, margen y fuente real', () => {
   assert.match(component, /marginPct/);
   assert.match(component, /Fuente:/);
   assert.match(component, /no se publican solas/);
+  assert.match(component, /Abrir artículos para completarlo/);
+  assert.match(store, /missingCost/);
+  assert.doesNotMatch(store, /select\(\['MONITORING'\], 10\)/);
 });
 
 test('collector excluye subagentes, no envía texto final y nunca convierte task_complete en DONE', () => {
