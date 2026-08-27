@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
-import { closeSync, createReadStream, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, createReadStream, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { hostname, homedir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -19,6 +19,10 @@ const SOURCE_HOST = (process.env.COMPANY_OS_CODEX_SOURCE_HOST || hostname()).rep
 const WORKER_ID = (process.env.COMPANY_OS_CODEX_WORKER_ID || 'codex-intake-ai-v1').trim();
 const INSTANCE_ID = `${SOURCE_HOST}:codex-auto-resume-v1`;
 const STATE_DIR = resolve(process.env.COMPANY_OS_CODEX_COLLECTOR_STATE_DIR || join(homedir(), '.company-os-codex-collector'));
+const START_GATE_PATH = process.env.COMPANY_OS_CODEX_START_GATE ? resolve(process.env.COMPANY_OS_CODEX_START_GATE) : null;
+const START_GATE_TOKEN = process.env.COMPANY_OS_CODEX_START_TOKEN || null;
+delete process.env.COMPANY_OS_CODEX_START_GATE;
+delete process.env.COMPANY_OS_CODEX_START_TOKEN;
 const CLAIM_STATE_PATH = join(STATE_DIR, 'dispatch-state.json');
 const QUARANTINE_MARKER_PATH = join(STATE_DIR, 'dispatch-state.quarantined');
 const INSTALL_ID = (process.env.COMPANY_OS_CODEX_INSTALL_ID || 'manual').replace(/[^A-Za-z0-9._:-]/g, '-').slice(0, 120);
@@ -30,6 +34,8 @@ const AUTO_RESUME = process.env.COMPANY_OS_CODEX_AUTO_RESUME === '1';
 const CODEX_BIN = resolve(process.env.COMPANY_OS_CODEX_BIN || '/opt/homebrew/bin/codex');
 const AUTO_RESUME_TIMEOUT_MS = Math.min(3_600_000, Math.max(60_000, Number(process.env.COMPANY_OS_CODEX_AUTO_RESUME_TIMEOUT_MS) || 2_700_000));
 const HTTP_TIMEOUT_MS = Math.min(60_000, Math.max(5_000, Number(process.env.COMPANY_OS_CODEX_HTTP_TIMEOUT_MS) || 30_000));
+const CLAIMED_REASONS = new Set(['APPROVED_TASK_CLAIMED', 'APPROVED_TASK_CLAIM_REPLAYED']);
+const UNCLAIMED_REASONS = new Set(['NO_APPROVED_TASK', 'DISPATCH_ALREADY_ACTIVE', 'STALE_DISPATCH_BLOCKED', 'CLAIM_SOURCE_CHANGED', 'CLAIM_ALREADY_CONSUMED']);
 const AUTO_RESUME_PROMPT = [
   'Continuá esta tarea desde el punto pendiente y cerrá un resultado verificable dentro del alcance original.',
   'Aplicá sólo acciones reversibles y ya autorizadas en el hilo.',
@@ -39,6 +45,35 @@ const AUTO_RESUME_PROMPT = [
 ].join(' ');
 
 if (!SECRET && !DRY_RUN) throw new Error('COMPANY_OS_CODEX_INTAKE_SECRET_REQUIRED');
+
+async function waitForStartGate() {
+  if (!START_GATE_PATH && !START_GATE_TOKEN) return;
+  if (!START_GATE_PATH || !START_GATE_TOKEN
+    || resolve(START_GATE_PATH, '..') !== STATE_DIR
+    || !/^start-gate\.[A-Za-z0-9-]{20,80}$/.test(basename(START_GATE_PATH))
+    || !/^[A-Za-z0-9-]{20,80}$/.test(START_GATE_TOKEN)) {
+    throw new Error('COLLECTOR_START_GATE_INVALID');
+  }
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (existsSync(START_GATE_PATH)) {
+      const info = lstatSync(START_GATE_PATH);
+      const stat = statSync(START_GATE_PATH);
+      if (!info.isFile() || info.isSymbolicLink() || stat.uid !== process.getuid?.() || (stat.mode & 0o777) !== 0o600
+        || readFileSync(START_GATE_PATH, 'utf8').trim() !== START_GATE_TOKEN) {
+        throw new Error('COLLECTOR_START_GATE_INVALID');
+      }
+      unlinkSync(START_GATE_PATH);
+      const directory = openSync(STATE_DIR, 'r');
+      try { fsyncSync(directory); } finally { closeSync(directory); }
+      return;
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+  }
+  throw new Error('COLLECTOR_START_GATE_TIMEOUT');
+}
+
+await waitForStartGate();
 
 function jsonLines(path) {
   if (!existsSync(path)) return [];
@@ -440,6 +475,30 @@ function validateClaimDispatch(dispatch, projectedTasks) {
   return local;
 }
 
+function validateClaimResponse(value) {
+  if (!value || typeof value !== 'object' || typeof value.claimed !== 'boolean') {
+    throw new Error('COMPANY_OS_CODEX_DISPATCH_RESPONSE_INVALID');
+  }
+  if (value.claimed === false) {
+    if (typeof value.reason !== 'string' || !UNCLAIMED_REASONS.has(value.reason)) {
+      throw new Error('COMPANY_OS_CODEX_DISPATCH_RESPONSE_INVALID');
+    }
+    return value;
+  }
+  const dispatch = value.dispatch;
+  if (!CLAIMED_REASONS.has(value.reason)
+    || !dispatch || typeof dispatch !== 'object'
+    || !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(dispatch.threadId || '')
+    || !/^[0-9a-f]{64}$/i.test(dispatch.fingerprint || '')
+    || typeof dispatch.sourceProjectName !== 'string' || !dispatch.sourceProjectName.trim() || dispatch.sourceProjectName.length > 160
+    || !Number.isInteger(dispatch.boardVersion) || dispatch.boardVersion < 1
+    || !Object.prototype.hasOwnProperty.call(dispatch, 'lastCompletedAt')
+    || (dispatch.lastCompletedAt !== null && (typeof dispatch.lastCompletedAt !== 'string' || Number.isNaN(Date.parse(dispatch.lastCompletedAt))))) {
+    throw new Error('COMPANY_OS_CODEX_DISPATCH_RESPONSE_INVALID');
+  }
+  return value;
+}
+
 function runCodexResume(threadId, executionMarker, onSpawn) {
   return new Promise((resolveRun) => {
     const cwd = sessionCwd(threadId);
@@ -463,11 +522,14 @@ function runCodexResume(threadId, executionMarker, onSpawn) {
     let terminated = false;
     let forceKillTimer = null;
     let finished = false;
-    let stderrText = '';
-    child.stderr?.on('data', (chunk) => {
-      if (stderrText.length >= 65_536) return;
-      stderrText += String(chunk).slice(0, 65_536 - stderrText.length);
-    });
+    let stderrBytes = 0;
+    const stderrHash = createHash('sha256');
+    const handleStderr = (chunk) => {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+      stderrBytes += bytes.length;
+      stderrHash.update(bytes);
+    };
+    child.stderr?.on('data', handleStderr);
     const stopTree = (signal) => {
       if (!child.pid) return;
       try { process.kill(-child.pid, signal); } catch { /* process group already exited */ }
@@ -495,15 +557,13 @@ function runCodexResume(threadId, executionMarker, onSpawn) {
       process.off('SIGINT', handleTermination);
       try { unlinkSync(gatePath); } catch { /* wrapper already consumed it */ }
       const treeStopped = await stopProcessGroup(child.pid);
+      child.stderr?.off('data', handleStderr);
       const outcome = forcedOutcome || (timedOut || terminated ? 'TIMED_OUT' : code === 0 && treeStopped ? 'SUCCEEDED' : 'FAILED');
       if (outcome !== 'SUCCEEDED') {
         try {
-          const sanitizedStderr = stderrText
-            .replace(/Bearer\s+[A-Za-z0-9._~+\/-]+/gi, 'Bearer [REDACTED]')
-            .replace(/(api[_-]?key|token|secret|password|authorization)(\s*[:=]\s*)\S+/gi, '$1$2[REDACTED]');
           const diagnosticPath = join(STATE_DIR, 'logs', 'last-codex-error.log');
           mkdirSync(join(STATE_DIR, 'logs'), { recursive: true, mode: 0o700 });
-          writeFileSync(diagnosticPath, `${JSON.stringify({ observedAt: new Date().toISOString(), threadId, executionMarker, outcome, exitCode: Number.isInteger(code) ? code : null, signal: signal || null })}\n${sanitizedStderr}`, { mode: 0o600 });
+          writeFileSync(diagnosticPath, `${JSON.stringify({ observedAt: new Date().toISOString(), threadId, executionMarker, outcome, exitCode: Number.isInteger(code) ? code : null, signal: signal || null, stderrBytes, stderrSha256: stderrHash.digest('hex') })}\n`, { mode: 0o600 });
         } catch { /* diagnostics never supersede process cleanup and durable reporting */ }
       }
       resolveRun({ outcome, exitCode: Number.isInteger(code) ? code : null, signal: signal || null, treeStopped });
@@ -565,6 +625,7 @@ if (state?.phase === 'RUNNING' || state?.phase === 'RECOVERY_BLOCKED') {
   }
 
 const projected = await projectInventory();
+process.stdout.write(JSON.stringify({ event: 'COLLECTOR_SCAN_OK', ok: true, sourceHost: SOURCE_HOST, installId: INSTALL_ID, observedCount: projected.tasks.length, changedCount: projected.changedCount, scanId: projected.scanId }) + '\n');
 let dispatchResult = { claimed: false, reason: AUTO_RESUME ? 'NO_APPROVED_TASK' : 'AUTO_RESUME_DISABLED' };
 if (AUTO_RESUME) {
   if (state?.phase === 'EXECUTED') {
@@ -572,9 +633,9 @@ if (AUTO_RESUME) {
     dispatchResult = { claimed: true, reason: 'RECOVERED_REPORT', threadId: state.dispatch.threadId, verifiedCompletion: report.verifiedCompletion === true };
   } else {
     state = state || newDispatchState();
-    const claim = await signedPost(DISPATCH_ENDPOINT, { action: 'CLAIM', sourceHost: SOURCE_HOST, claimToken: state.token }, 3);
+    const claim = validateClaimResponse(await signedPost(DISPATCH_ENDPOINT, { action: 'CLAIM', sourceHost: SOURCE_HOST, claimToken: state.token }, 3));
     dispatchResult = { claimed: claim.claimed === true, reason: claim.reason || null, threadId: claim.dispatch?.threadId || null };
-    if (claim.claimed === true && claim.dispatch?.threadId) {
+    if (claim.claimed === true) {
       const dispatch = {
         threadId: claim.dispatch.threadId,
         fingerprint: claim.dispatch.fingerprint,
@@ -588,6 +649,7 @@ if (AUTO_RESUME) {
         await reportExecutedState(rejected);
         throw error;
       }
+      process.stdout.write(JSON.stringify({ event: 'DISPATCH_POLL_OK', ok: true, sourceHost: SOURCE_HOST, installId: INSTALL_ID, claimed: true, reason: claim.reason || null, threadId: dispatch.threadId }) + '\n');
       const executionMarker = `run-${randomBytes(18).toString('base64url')}`;
       state = { token: state.token, phase: 'RUNNING', dispatch, pid: null, executionMarker, spawnedAt: null };
       writeDispatchState(state);
@@ -601,8 +663,9 @@ if (AUTO_RESUME) {
       if (!execution.treeStopped) throw new Error('COMPANY_OS_CODEX_PROCESS_TREE_STILL_RUNNING');
       const report = await reportExecutedState(state);
       dispatchResult = { ...dispatchResult, verifiedCompletion: report.verifiedCompletion === true };
-    } else if (claim.reason !== 'DISPATCH_ALREADY_ACTIVE') {
-      clearDispatchState();
+    } else {
+      process.stdout.write(JSON.stringify({ event: 'DISPATCH_POLL_OK', ok: true, sourceHost: SOURCE_HOST, installId: INSTALL_ID, claimed: false, reason: claim.reason }) + '\n');
+      if (claim.reason !== 'DISPATCH_ALREADY_ACTIVE') clearDispatchState();
     }
   }
 }
