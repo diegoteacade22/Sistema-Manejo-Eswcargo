@@ -92,7 +92,7 @@ jobs:
             END;
           END;
           $$;
-SQL
+          SQL
             echo 'ROLLBACK;'
           } | psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 >/dev/null
           echo "Plan verificado: una migración, ejecutada y revertida correctamente."
