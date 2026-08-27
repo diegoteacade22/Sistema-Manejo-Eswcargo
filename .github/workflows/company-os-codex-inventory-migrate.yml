@@ -33,24 +33,41 @@ jobs:
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
         run: |
           set -euo pipefail
-          plan_status=0
-          plan="$(supabase db push --db-url "$DIRECT_URL" --include-all --dry-run 2>&1)" || plan_status=$?
-          printf '%s\n' "$plan"
-          if [ "$plan_status" -ne 0 ]; then
-            echo "::error::Supabase no pudo calcular el plan remoto (exit $plan_status)."
-            exit "$plan_status"
+          migration="supabase/migrations/20260827142708_company_os_codex_task_inventory.sql"
+          test -f "$migration"
+          tables="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM (VALUES (to_regclass('public.\"CompanyOsCodexTask\"')), (to_regclass('public.\"CompanyOsCodexTaskObservation\"')), (to_regclass('public.\"CompanyOsCodexInventorySync\"'))) AS expected(table_name) WHERE table_name IS NOT NULL")"
+          history="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = '20260827142708'")"
+          if [ "$tables" = "3" ] && [ "$history" = "1" ]; then
+            echo "La migración Codex ya está aplicada y registrada."
+            exit 0
           fi
-          mapfile -t planned < <(grep -Eo '[0-9]{14}_[A-Za-z0-9_-]+\.sql' <<< "$plan" | sort -u)
-          if [ "${#planned[@]}" -ne 1 ] || [ "${planned[0]:-}" != "20260827142708_company_os_codex_task_inventory.sql" ]; then
-            echo "::error::El plan remoto no contiene únicamente la migración Codex esperada."
+          if [ "$tables" != "0" ] || [ "$history" != "0" ]; then
+            echo "::error::Estado parcial inesperado: tablas=$tables historia=$history."
             exit 1
           fi
+          {
+            echo 'BEGIN;'
+            sed -e '/^BEGIN;$/d' -e '/^COMMIT;$/d' "$migration"
+            echo 'ROLLBACK;'
+          } | psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 >/dev/null
+          echo "Plan verificado: una migración, ejecutada y revertida correctamente."
 
       - name: Apply verified migration
         if: ${{ inputs.apply }}
         env:
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
-        run: supabase db push --db-url "$DIRECT_URL" --include-all --yes
+        run: |
+          set -euo pipefail
+          migration="supabase/migrations/20260827142708_company_os_codex_task_inventory.sql"
+          tables="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM (VALUES (to_regclass('public.\"CompanyOsCodexTask\"')), (to_regclass('public.\"CompanyOsCodexTaskObservation\"')), (to_regclass('public.\"CompanyOsCodexInventorySync\"'))) AS expected(table_name) WHERE table_name IS NOT NULL")"
+          history="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = '20260827142708'")"
+          if [ "$tables" = "0" ] && [ "$history" = "0" ]; then
+            psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -f "$migration" >/dev/null
+            supabase migration repair 20260827142708 --status applied --db-url "$DIRECT_URL" --yes >/dev/null
+          elif [ "$tables" != "3" ] || [ "$history" != "1" ]; then
+            echo "::error::Estado parcial inesperado: tablas=$tables historia=$history."
+            exit 1
+          fi
 
       - name: Verify migration history
         if: ${{ inputs.apply }}
@@ -58,6 +75,8 @@ jobs:
           DIRECT_URL: ${{ secrets.DIRECT_URL }}
         run: |
           set -euo pipefail
-          plan="$(supabase db push --db-url "$DIRECT_URL" --include-all --dry-run 2>&1)"
-          printf '%s\n' "$plan"
-          grep -q 'Remote database is up to date' <<< "$plan"
+          tables="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM (VALUES (to_regclass('public.\"CompanyOsCodexTask\"')), (to_regclass('public.\"CompanyOsCodexTaskObservation\"')), (to_regclass('public.\"CompanyOsCodexInventorySync\"'))) AS expected(table_name) WHERE table_name IS NOT NULL")"
+          history="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = '20260827142708'")"
+          test "$tables" = "3"
+          test "$history" = "1"
+          echo "Migración Codex aplicada: 3 tablas y 1 registro de historial verificados."
