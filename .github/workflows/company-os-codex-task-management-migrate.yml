@@ -47,6 +47,52 @@ jobs:
           {
             echo 'BEGIN;'
             sed -e '/^BEGIN;$/d' -e '/^COMMIT;$/d' "$migration"
+            cat <<'SQL'
+          INSERT INTO public."CompanyOsCodexTaskAction" (
+            id, "taskId", "idempotencyKey", action, fingerprint, "requestHash",
+            "previousVersion", "newVersion", "previousHumanStatus", "newHumanStatus",
+            "previousLifecycle", "newLifecycle", "previousProjectName", "newProjectName",
+            "resultSnapshot", "actorRef"
+          )
+          SELECT
+            'codex-action:migration-dry-run', id, 'migration:dry-run:management', 'MOVE', fingerprint,
+            repeat('0', 64), 0, 1, "humanStatus", "humanStatus",
+            CASE WHEN archived THEN 'ARCHIVED' WHEN "humanStatus" IN ('DONE','DISCARDED') THEN 'CLOSED' ELSE 'OPEN' END,
+            CASE WHEN archived THEN 'ARCHIVED' WHEN "humanStatus" IN ('DONE','DISCARDED') THEN 'CLOSED' ELSE 'OPEN' END,
+            "projectName", "projectName", '{}'::jsonb, 'migration-dry-run'
+          FROM public."CompanyOsCodexTask"
+          ORDER BY id
+          LIMIT 1;
+
+          INSERT INTO public."CompanyOsCodexTaskBoardState" (
+            "taskId", "workflowStatus", lifecycle, "previousLifecycle", "sourceFingerprint",
+            "projectNameOverride", version, "updatedBy"
+          )
+          SELECT
+            action."taskId", action."newHumanStatus", action."newLifecycle", action."previousLifecycle",
+            action.fingerprint, NULL, action."newVersion", action."actorRef"
+          FROM public."CompanyOsCodexTaskAction" AS action
+          WHERE action.id = 'codex-action:migration-dry-run';
+
+          DO $$
+          BEGIN
+            BEGIN
+              UPDATE public."CompanyOsCodexTaskBoardState"
+                 SET version = version + 1
+               WHERE "taskId" = (SELECT "taskId" FROM public."CompanyOsCodexTaskAction" WHERE id = 'codex-action:migration-dry-run');
+              RAISE EXCEPTION 'board guard did not reject unaudited update';
+            EXCEPTION WHEN OTHERS THEN
+              IF SQLERRM = 'board guard did not reject unaudited update' THEN RAISE; END IF;
+            END;
+            BEGIN
+              UPDATE public."CompanyOsCodexTaskAction" SET action = 'ARCHIVE' WHERE id = 'codex-action:migration-dry-run';
+              RAISE EXCEPTION 'append-only guard did not reject update';
+            EXCEPTION WHEN OTHERS THEN
+              IF SQLERRM = 'append-only guard did not reject update' THEN RAISE; END IF;
+            END;
+          END;
+          $$;
+SQL
             echo 'ROLLBACK;'
           } | psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 >/dev/null
           echo "Plan verificado: una migración, ejecutada y revertida correctamente."
