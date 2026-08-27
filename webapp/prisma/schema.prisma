@@ -1162,10 +1162,53 @@ model CompanyOsCodexTask {
   createdAt        DateTime                        @default(now())
   updatedAt        DateTime                        @updatedAt
   observations     CompanyOsCodexTaskObservation[]
+  actions          CompanyOsCodexTaskAction[]
+  boardState       CompanyOsCodexTaskBoardState?
 
   @@index([humanStatus, priority, sourceUpdatedAt])
   @@index([projectName, humanStatus, sourceUpdatedAt])
   @@index([sourceHost, lastObservedAt])
+}
+
+/// Human workflow overlay. The Codex collector never writes this table.
+model CompanyOsCodexTaskBoardState {
+  taskId            String             @id
+  workflowStatus    String
+  lifecycle         String             @default("OPEN")
+  previousLifecycle String?
+  sourceFingerprint String
+  projectNameOverride String?
+  version           Int                @default(0)
+  updatedBy         String
+  updatedAt         DateTime           @updatedAt
+  task              CompanyOsCodexTask @relation(fields: [taskId], references: [id], onDelete: Restrict)
+
+  @@index([lifecycle, workflowStatus, updatedAt])
+}
+
+/// Append-only human management action for a Codex task.
+model CompanyOsCodexTaskAction {
+  id                  String             @id
+  taskId              String
+  idempotencyKey      String             @unique
+  action              String
+  fingerprint         String
+  requestHash         String
+  previousVersion     Int
+  newVersion          Int
+  previousHumanStatus String
+  newHumanStatus      String
+  previousLifecycle   String
+  newLifecycle        String
+  previousProjectName String
+  newProjectName      String
+  resultSnapshot      Json
+  actorRef            String
+  createdAt           DateTime           @default(now())
+  task                CompanyOsCodexTask @relation(fields: [taskId], references: [id], onDelete: Restrict)
+
+  @@unique([taskId, newVersion])
+  @@index([taskId, createdAt])
 }
 
 /// Append-only evidence that a Codex task materially changed classification.

@@ -6,11 +6,13 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createHmac } from 'node:crypto';
 import { CompanyOsHumanDashboard, SECTION_HASHES, sectionFromHash } from '../components/company-os-human-dashboard';
 import { verifyCodexIntakeRequest } from '../lib/company-os/codex-task-auth';
+import { effectiveCodexTaskState } from '../lib/company-os/codex-task-store';
 
 const page = readFileSync('app/company-os/operations/page.tsx', 'utf8');
 const component = readFileSync('components/company-os-human-dashboard.tsx', 'utf8');
 const collector = readFileSync('../company-os/codex-task-collector/collector.mjs', 'utf8');
 const migration = readFileSync('../supabase/migrations/20260827142708_company_os_codex_task_inventory.sql', 'utf8');
+const managementMigration = readFileSync('../supabase/migrations/20260827162112_company_os_codex_task_management.sql', 'utf8');
 const store = readFileSync('lib/company-os/codex-task-store.ts', 'utf8');
 const route = readFileSync('app/api/company-os/dashboard/human/route.ts', 'utf8');
 
@@ -41,6 +43,7 @@ test('cada cuadro navega a una sola categoría interactiva y admite enlaces dire
     monitoring: 'monitoreos-activos',
     commercial: 'ideas-y-ofertas',
     done: 'realizadas',
+    archived: 'archivadas',
   });
   for (const [section, hash] of Object.entries(SECTION_HASHES)) {
     assert.equal(sectionFromHash(`#${hash}`), section);
@@ -59,10 +62,19 @@ test('cada cuadro navega a una sola categoría interactiva y admite enlaces dire
   assert.match(component, /switch \(activeSection\)/);
 });
 
-test('cada resultado ofrece una acción visible hacia su tarea Codex original', () => {
+test('cada resultado abre una ficha interna y Codex queda como salida secundaria', () => {
+  assert.match(component, /Ver y gestionar acá/);
+  assert.match(component, /onClick=\{\(\) => onOpen\(task\)\}/);
+  assert.match(component, /TaskManagerDialog/);
+  assert.match(component, /Mover en este tablero a/);
+  assert.match(component, /Mover chat a otro proyecto del tablero/);
+  assert.match(component, /MOVE_PROJECT/);
+  assert.match(component, /Cerrar como realizada/);
+  assert.match(component, /Archivar/);
+  assert.match(component, /Reabrir/);
   assert.match(component, /href=\{task\.codexUrl\}/);
-  assert.match(component, /aria-label=\{`Abrir tarea \$\{task\.title\} en Codex`\}/);
-  assert.match(component, /Abrir tarea en Codex →/);
+  assert.match(component, /Abrir en Codex/);
+  assert.match(component, /No modifican silenciosamente la app de Codex/);
   assert.match(store, /codex:\/\/threads\/\$\{threadId\}/);
 });
 
@@ -90,12 +102,47 @@ test('collector excluye subagentes, no envía texto final y nunca convierte task
   assert.match(collector, /if \(tasks\.length === 0\)/);
 });
 
-test('validación humana mueve READY_REVIEW a DONE y el siguiente escaneo la conserva', () => {
-  assert.match(component, /Marcar realizada/);
+test('la gestión humana usa un overlay durable que el collector no puede sobrescribir', () => {
+  const moved = effectiveCodexTaskState(
+    { humanStatus: 'READY_REVIEW', archived: false, fingerprint: 'a'.repeat(64), projectName: 'Proyecto A' },
+    { workflowStatus: 'NEEDS_DIEGO', lifecycle: 'OPEN', sourceFingerprint: 'a'.repeat(64), projectNameOverride: null, version: 4 },
+  );
+  assert.deepEqual(moved, { humanStatus: 'NEEDS_DIEGO', lifecycle: 'OPEN', projectName: 'Proyecto A', archived: false, boardVersion: 4, changedSinceManaged: false });
+  const stillArchivedAfterCollectorChange = effectiveCodexTaskState(
+    { humanStatus: 'IN_PROGRESS', archived: false, fingerprint: 'b'.repeat(64), projectName: 'Proyecto A' },
+    { workflowStatus: 'PENDING', lifecycle: 'ARCHIVED', sourceFingerprint: 'a'.repeat(64), projectNameOverride: 'Proyecto B', version: 5 },
+  );
+  assert.deepEqual(stillArchivedAfterCollectorChange, { humanStatus: 'PENDING', lifecycle: 'ARCHIVED', projectName: 'Proyecto B', archived: true, boardVersion: 5, changedSinceManaged: false });
+  const reopenedByNewCodexActivity = effectiveCodexTaskState(
+    { humanStatus: 'READY_REVIEW', archived: false, fingerprint: 'b'.repeat(64), projectName: 'Proyecto A' },
+    { workflowStatus: 'DONE', lifecycle: 'CLOSED', sourceFingerprint: 'a'.repeat(64), projectNameOverride: null, version: 6 },
+  );
+  assert.deepEqual(reopenedByNewCodexActivity, { humanStatus: 'READY_REVIEW', lifecycle: 'OPEN', projectName: 'Proyecto A', archived: false, boardVersion: 6, changedSinceManaged: true });
+  const automaticProgressWinsAfterNewActivity = effectiveCodexTaskState(
+    { humanStatus: 'IN_PROGRESS', archived: false, fingerprint: 'b'.repeat(64), projectName: 'Proyecto A' },
+    { workflowStatus: 'PENDING', lifecycle: 'OPEN', sourceFingerprint: 'a'.repeat(64), projectNameOverride: 'Proyecto B', version: 7 },
+  );
+  assert.deepEqual(automaticProgressWinsAfterNewActivity, { humanStatus: 'IN_PROGRESS', lifecycle: 'OPEN', projectName: 'Proyecto B', archived: false, boardVersion: 7, changedSinceManaged: true });
+  assert.doesNotMatch(collector, /CompanyOsCodexTaskBoardState|boardState/);
+  assert.match(managementMigration, /CREATE TABLE public\."CompanyOsCodexTaskBoardState"/);
+  assert.match(managementMigration, /company_os_codex_task_action_append_only/);
+});
+
+test('validación humana cierra READY_REVIEW y conserva auditoría idempotente', () => {
   assert.match(route, /MARK_DONE/);
+  assert.match(route, /manageCodexTask/);
   assert.match(route, /hasTrustedHumanRequestOrigin/);
-  assert.match(store, /task\.humanStatus !== 'READY_REVIEW'/);
+  assert.match(store, /current\.humanStatus !== 'READY_REVIEW'/);
   assert.match(store, /previous\?\.humanStatus === 'DONE'/);
+  assert.match(store, /idempotencyKey/);
+  assert.match(store, /requestHash/);
+  assert.match(store, /expectedFingerprint/);
+  assert.match(store, /expectedVersion/);
+  assert.match(store, /FOR UPDATE/);
+  assert.match(store, /updateMany/);
+  assert.match(store, /projectNameOverride: targetProjectName/);
+  assert.match(store, /P2034/);
+  assert.match(route, /65_536/);
   assert.match(migration, /UNIQUE \("taskId", fingerprint, "humanStatus"\)/);
 });
 
@@ -103,6 +150,8 @@ test('ofertas usan el cliente empresarial de sólo lectura', () => {
   assert.match(store, /companyReadPrisma/);
   assert.match(store, /businessDb\.product\.findMany/);
   assert.doesNotMatch(store, /db\.product\.findMany/);
+  assert.match(store, /commercialUnavailable/);
+  assert.match(store, /commercialProducts = await businessDb\.product\.findMany/);
 });
 
 test('inventario durable es interno, saneado y append-only para observaciones', () => {
@@ -111,6 +160,17 @@ test('inventario durable es interno, saneado y append-only para observaciones', 
   }
   assert.match(migration, /FORCE ROW LEVEL SECURITY/);
   assert.match(migration, /company_os_codex_observation_append_only/);
+  assert.match(managementMigration, /FORCE ROW LEVEL SECURITY/);
+  assert.match(managementMigration, /GRANT SELECT, INSERT, UPDATE ON TABLE public\."CompanyOsCodexTaskBoardState" TO company_os_v3/);
+  assert.match(managementMigration, /GRANT SELECT, INSERT ON TABLE public\."CompanyOsCodexTaskAction" TO company_os_v3/);
+  assert.match(managementMigration, /company_os_codex_task_board_guard/);
+  assert.match(managementMigration, /requestHash/);
+  assert.match(managementMigration, /newVersion/);
+  assert.match(managementMigration, /UNIQUE \("taskId", "newVersion"\)/);
+  assert.match(managementMigration, /source_fingerprint/);
+  assert.match(managementMigration, /previousProjectName/);
+  assert.match(managementMigration, /resultSnapshot/);
+  assert.doesNotMatch(managementMigration, /rawText|prompt|conversation|cwd/);
   assert.doesNotMatch(migration, /rawText|prompt|conversation|cwd/);
 });
 
