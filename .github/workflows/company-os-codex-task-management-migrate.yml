@@ -48,6 +48,17 @@ jobs:
             echo 'BEGIN;'
             sed -e '/^BEGIN;$/d' -e '/^COMMIT;$/d' "$migration"
             cat <<'SQL'
+          INSERT INTO public."CompanyOsCodexTask" (
+            id, "threadId", "sourceHost", title, "projectName", category, "humanStatus",
+            "sourceStatus", priority, "nextAction", "autonomyLevel", "codexUrl", fingerprint,
+            "sourceUpdatedAt", "lastObservedAt", archived
+          ) VALUES (
+            'codex-task:migration_dry_run_task', 'migration_dry_run_task', 'migration-dry-run',
+            'Tarea sintética de migración', 'Proyecto sintético', 'SYSTEMS', 'PENDING',
+            'IDLE', 3, 'Validar guardas de la migración.', 'A0',
+            'codex://threads/migration_dry_run_task', repeat('a', 64), now(), now(), false
+          );
+
           INSERT INTO public."CompanyOsCodexTaskAction" (
             id, "taskId", "idempotencyKey", action, fingerprint, "requestHash",
             "previousVersion", "newVersion", "previousHumanStatus", "newHumanStatus",
@@ -59,10 +70,17 @@ jobs:
             repeat('0', 64), 0, 1, "humanStatus", "humanStatus",
             CASE WHEN archived THEN 'ARCHIVED' WHEN "humanStatus" IN ('DONE','DISCARDED') THEN 'CLOSED' ELSE 'OPEN' END,
             CASE WHEN archived THEN 'ARCHIVED' WHEN "humanStatus" IN ('DONE','DISCARDED') THEN 'CLOSED' ELSE 'OPEN' END,
-            "projectName", "projectName", '{}'::jsonb, 'migration-dry-run'
+            "projectName", "projectName",
+            jsonb_build_object(
+              'threadId', "threadId",
+              'humanStatus', "humanStatus",
+              'lifecycle', CASE WHEN archived THEN 'ARCHIVED' WHEN "humanStatus" IN ('DONE','DISCARDED') THEN 'CLOSED' ELSE 'OPEN' END,
+              'projectName', "projectName",
+              'boardVersion', 1
+            ),
+            'migration-dry-run'
           FROM public."CompanyOsCodexTask"
-          ORDER BY id
-          LIMIT 1;
+          WHERE id = 'codex-task:migration_dry_run_task';
 
           INSERT INTO public."CompanyOsCodexTaskBoardState" (
             "taskId", "workflowStatus", lifecycle, "previousLifecycle", "sourceFingerprint",
