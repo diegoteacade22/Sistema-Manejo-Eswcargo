@@ -605,7 +605,7 @@ export async function claimApprovedCodexTask(raw: unknown, actorRef: string) {
   const db = companyOsV3Prisma();
   try {
     return await db.$transaction(async (tx) => {
-      await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${`company-os-codex-dispatch:${sourceHost}`}))`);
+      await tx.$queryRaw(Prisma.sql`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtext(${`company-os-codex-dispatch:${sourceHost}`}))`);
       const replayAction = await tx.companyOsCodexTaskAction.findFirst({
         where: {
           actorRef: safeActorRef,
@@ -720,7 +720,7 @@ export async function reportCodexTaskDispatch(raw: unknown, actorRef: string) {
   const safeActorRef = safeText(actorRef, 160);
   const db = companyOsV3Prisma();
   return db.$transaction(async (tx) => {
-    await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${`company-os-codex-dispatch:${sourceHost}`}))`);
+    await tx.$queryRaw(Prisma.sql`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtext(${`company-os-codex-dispatch:${sourceHost}`}))`);
     const task = await tx.companyOsCodexTask.findUnique({
       where: { threadId },
       include: { boardState: true, actions: { orderBy: { newVersion: 'desc' }, take: 1 } },
