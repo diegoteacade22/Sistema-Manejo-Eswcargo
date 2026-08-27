@@ -1,0 +1,127 @@
+name: Exportación documental ESWCARGO Cloud
+run-name: "Documentos ESWCARGO · ${{ github.event.inputs.mode || 'programada' }}"
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'probe sólo lee Drive; dry-run calcula; export escribe documentos'
+        required: true
+        type: choice
+        default: probe
+        options:
+          - probe
+          - dry-run
+          - export-one
+          - export
+      order_id:
+        description: 'ID interno del único invoice para la prueba export-one'
+        required: false
+        type: string
+
+concurrency:
+  group: eswcargo-document-export-cloud
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.ESW_DOCUMENT_EXPORT_CLOUD_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: webapp
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DIRECT_URL: ${{ secrets.DIRECT_URL }}
+      ESW_DOCUMENT_EXPORT_DRIVE_FOLDER_ID: ${{ secrets.ESW_DOCUMENT_EXPORT_DRIVE_FOLDER_ID }}
+      ESW_DOCUMENT_EXPORT_RUNTIME_DIR: ${{ runner.temp }}/eswcargo-document-export
+      ESW_DOCUMENT_EXPORT_TARGET: drive
+      ESW_PRISMA_QUERY_LOG: '0'
+      GOOGLE_CREDENTIALS_FILE: ${{ runner.temp }}/google_credentials.json
+      PUPPETEER_SKIP_DOWNLOAD: 'true'
+      AWS_EXECUTION_ENV: github-actions
+
+    steps:
+      - name: Clonar repositorio
+        uses: actions/checkout@v5
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+
+      - name: Instalar runtime bloqueado
+        run: |
+          npm ci --ignore-scripts --silent
+          npx prisma generate --schema prisma/schema.prisma
+
+      - name: Validar configuración sin exponer secretos
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: |
+          set -euo pipefail
+          test -n "$ESW_DOCUMENT_EXPORT_DRIVE_FOLDER_ID" || {
+            echo "::error::Falta ESW_DOCUMENT_EXPORT_DRIVE_FOLDER_ID."
+            exit 1
+          }
+          printf '%s' "$GOOGLE_CREDENTIALS" > "$GOOGLE_CREDENTIALS_FILE"
+          node - "$GOOGLE_CREDENTIALS_FILE" <<'NODE'
+          const fs = require('node:fs');
+          const parsed = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+          if (parsed.type !== 'service_account'
+              || typeof parsed.client_email !== 'string'
+              || typeof parsed.private_key !== 'string'
+              || !parsed.private_key.includes('PRIVATE KEY')) {
+            throw new Error('GOOGLE_CREDENTIALS no tiene formato service_account válido.');
+          }
+          console.log('Credencial Drive presente y con formato service_account válido.');
+          NODE
+
+      - name: Ejecutar runner con readback
+        env:
+          MODE: ${{ github.event.inputs.mode || 'export' }}
+          ORDER_ID: ${{ github.event.inputs.order_id || '' }}
+        run: |
+          set -euo pipefail
+          summary_path="$RUNNER_TEMP/eswcargo-document-export/summary.json"
+          args=(--target=drive "--summary-path=$summary_path")
+          case "$MODE" in
+            probe) args+=(--drive-probe) ;;
+            dry-run) args+=(--dry-run) ;;
+            export-one)
+              [[ "$ORDER_ID" =~ ^[1-9][0-9]*$ ]] || {
+                echo "::error::export-one requiere order_id entero positivo."
+                exit 1
+              }
+              args+=("--order-id=$ORDER_ID")
+              ;;
+            export) ;;
+            *) echo "::error::Modo inválido: $MODE"; exit 1 ;;
+          esac
+
+          set +e
+          npx tsx scripts/export-operational-documents.ts "${args[@]}"
+          status=$?
+          set -e
+          if [ "$status" -eq 2 ]; then
+            echo "::warning::El runner exportó los documentos válidos y registró bloqueos de datos en el resumen."
+            exit 0
+          fi
+          exit "$status"
+
+      - name: Conservar evidencia saneada
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eswcargo-document-export-${{ github.run_id }}
+          path: ${{ runner.temp }}/eswcargo-document-export/
+          if-no-files-found: warn
+          retention-days: 14
