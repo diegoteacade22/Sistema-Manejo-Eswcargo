@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
+  Archive,
   BadgeDollarSign,
   Bot,
   CheckCircle2,
@@ -10,13 +11,18 @@ import {
   Clock3,
   ExternalLink,
   Loader2,
+  MoveRight,
   RefreshCw,
+  RotateCcw,
   Sparkles,
   X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const URL = "/api/company-os/dashboard/human";
 const POLL_MS = 30_000;
@@ -27,11 +33,20 @@ type Task = {
   projectName: string;
   category: string;
   humanStatus: string;
+  sourceHumanStatus: string;
+  sourceProjectName: string;
+  lifecycle: "OPEN" | "CLOSED" | "ARCHIVED";
   priority: number;
   nextAction: string;
   attentionReason: string | null;
   autonomyLevel: string;
   codexUrl: string;
+  sourceStatus: string;
+  fingerprint: string;
+  boardVersion: number;
+  boardUpdatedAt: string | null;
+  changedSinceManaged: boolean;
+  nativeMutationAvailable: boolean;
   sourceUpdatedAt: string;
 };
 
@@ -57,6 +72,8 @@ type Snapshot = {
   readyReview: Task[];
   done: Task[];
   monitoring: Task[];
+  archived: Task[];
+  projects: Array<{ name: string; count: number }>;
   commercialIdeas: Idea[];
   commercialNextAction: null | { title: string; detail: string; href: string };
   activity: null | {
@@ -69,7 +86,8 @@ type Snapshot = {
   };
 };
 
-type SectionId = "now" | "pending" | "needsDiego" | "blocked" | "readyReview" | "monitoring" | "commercial" | "done";
+type SectionId = "now" | "pending" | "needsDiego" | "blocked" | "readyReview" | "monitoring" | "commercial" | "done" | "archived";
+type ManagementAction = "MOVE" | "MOVE_PROJECT" | "ARCHIVE" | "CLOSE" | "REOPEN";
 
 export const SECTION_HASHES: Record<SectionId, string> = {
   now: "trabajando-ahora",
@@ -80,6 +98,27 @@ export const SECTION_HASHES: Record<SectionId, string> = {
   monitoring: "monitoreos-activos",
   commercial: "ideas-y-ofertas",
   done: "realizadas",
+  archived: "archivadas",
+};
+
+const WORKFLOW_OPTIONS = [
+  { value: "PENDING", label: "Para el agente" },
+  { value: "NEEDS_DIEGO", label: "Necesito de vos" },
+  { value: "BLOCKED", label: "Con problemas" },
+  { value: "READY_REVIEW", label: "Lista para revisar" },
+  { value: "MONITORING", label: "Monitoreo activo" },
+] as const;
+
+const STATUS_LABELS: Record<string, string> = {
+  UNREVIEWED: "Sin revisar",
+  PENDING: "Para el agente",
+  IN_PROGRESS: "Trabajando ahora",
+  NEEDS_DIEGO: "Necesito de vos",
+  BLOCKED: "Con problemas",
+  READY_REVIEW: "Lista para revisar",
+  DONE: "Realizada",
+  MONITORING: "Monitoreo activo",
+  DISCARDED: "Descartada",
 };
 
 export function sectionFromHash(hash: string): SectionId | null {
@@ -100,37 +139,45 @@ function relativeTime(value: string) {
   return `hace ${Math.floor(diff / 86_400_000)} días`;
 }
 
-function TaskCard({ task, accent = "border-slate-800", onDone, saving }: {
-  task: Task; accent?: string; onDone?: (threadId: string) => void; saving?: boolean;
+function findSnapshotTask(snapshot: Snapshot, threadId: string) {
+  return [snapshot.now, snapshot.pending, snapshot.needsDiego, snapshot.blocked, snapshot.readyReview, snapshot.done, snapshot.monitoring, snapshot.archived]
+    .flat()
+    .find((task) => task.threadId === threadId) ?? null;
+}
+
+function moveTargetForTask(task: Task) {
+  if (task.lifecycle !== "OPEN") return "PENDING";
+  return WORKFLOW_OPTIONS.some((option) => option.value === task.humanStatus) ? task.humanStatus : "PENDING";
+}
+
+function TaskCard({ task, accent = "border-slate-800", onOpen }: {
+  task: Task; accent?: string; onOpen: (task: Task) => void;
 }) {
   return (
     <div className={`rounded-2xl border ${accent} bg-slate-950/60 p-4 transition hover:border-cyan-400/50`}>
-      <a href={task.codexUrl} className="block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400" aria-label={`Abrir tarea ${task.title} en Codex`}>
+      <button type="button" onClick={() => onOpen(task)} className="block w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400" aria-label={`Ver y gestionar ${task.title} en este tablero`}>
         <div className="flex items-start justify-between gap-3">
         <div>
           <p className="font-semibold leading-snug text-slate-100">{task.title}</p>
           <p className="mt-1 text-xs text-slate-500">{task.projectName} · {relativeTime(task.sourceUpdatedAt)}</p>
         </div>
-        <ExternalLink aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 text-slate-600" />
+        <MoveRight aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 text-slate-600" />
         </div>
         {task.attentionReason && <p className="mt-3 text-sm text-amber-200">{task.attentionReason}</p>}
         <p className="mt-3 text-sm text-slate-300"><span className="text-slate-500">Próximo paso:</span> {task.nextAction}</p>
-        <p className="mt-3 text-sm font-medium text-cyan-300">Abrir tarea en Codex →</p>
-      </a>
+        <p className="mt-3 text-sm font-medium text-cyan-300">Ver y gestionar acá →</p>
+      </button>
       <div className="mt-3 flex flex-wrap gap-2">
         <Badge variant="outline" className="border-slate-700 text-slate-400">Prioridad {task.priority}</Badge>
         <Badge variant="outline" className="border-slate-700 text-slate-400">{task.autonomyLevel === "HUMAN" ? "Requiere persona" : `Agente ${task.autonomyLevel}`}</Badge>
-        {onDone && <Button size="sm" className="ml-auto bg-emerald-600 text-white hover:bg-emerald-500" disabled={saving} aria-busy={saving} onClick={() => onDone(task.threadId)}>
-          {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />} Marcar realizada
-        </Button>}
       </div>
     </div>
   );
 }
 
-function TaskSection({ title, description, tasks, empty, accent, onDone, savingThreadId }: {
+function TaskSection({ title, description, tasks, empty, accent, onOpenTask }: {
   title: string; description: string; tasks: Task[]; empty: string; accent?: string;
-  onDone?: (threadId: string) => void; savingThreadId?: string | null;
+  onOpenTask: (task: Task) => void;
 }) {
   return (
     <Card className="border-slate-800 bg-slate-950/70 text-slate-100">
@@ -144,9 +191,145 @@ function TaskSection({ title, description, tasks, empty, accent, onDone, savingT
         </div>
       </CardHeader>
       <CardContent className="grid gap-3 xl:grid-cols-2">
-        {tasks.length ? tasks.map((task) => <TaskCard key={task.threadId} task={task} accent={accent} onDone={onDone} saving={savingThreadId === task.threadId} />) : <p className="text-sm text-slate-500">{empty}</p>}
+        {tasks.length ? tasks.map((task) => <TaskCard key={task.threadId} task={task} accent={accent} onOpen={onOpenTask} />) : <p className="text-sm text-slate-500">{empty}</p>}
       </CardContent>
     </Card>
+  );
+}
+
+function TaskManagerDialog({
+  task,
+  projects,
+  moveTarget,
+  setMoveTarget,
+  projectTarget,
+  setProjectTarget,
+  savingAction,
+  confirmation,
+  setConfirmation,
+  error,
+  notice,
+  onOpenChange,
+  onAction,
+}: {
+  task: Task | null;
+  projects: Array<{ name: string; count: number }>;
+  moveTarget: string;
+  setMoveTarget: (value: string) => void;
+  projectTarget: string;
+  setProjectTarget: (value: string) => void;
+  savingAction: ManagementAction | null;
+  confirmation: "ARCHIVE" | "CLOSE" | null;
+  setConfirmation: (action: "ARCHIVE" | "CLOSE" | null) => void;
+  error: string | null;
+  notice: string | null;
+  onOpenChange: (open: boolean) => void;
+  onAction: (action: ManagementAction, targetStatus?: string, confirmed?: boolean, targetProjectName?: string) => void;
+}) {
+  const isOpen = task?.lifecycle === "OPEN";
+  const canClose = isOpen && task?.humanStatus === "READY_REVIEW";
+  const canReopen = Boolean(task && (!isOpen || ["DONE", "DISCARDED"].includes(task.humanStatus)));
+  const options = canReopen ? WORKFLOW_OPTIONS.filter((option) => ["PENDING", "NEEDS_DIEGO"].includes(option.value)) : WORKFLOW_OPTIONS;
+  const projectOptions = task && !projects.some((project) => project.name === task.projectName)
+    ? [{ name: task.projectName, count: 0 }, ...projects]
+    : projects;
+
+  return (
+    <Dialog open={Boolean(task)} onOpenChange={onOpenChange}>
+      <DialogContent showCloseButton={false} className="max-h-[90dvh] overflow-y-auto border-slate-700 bg-slate-950 text-slate-100 sm:max-w-2xl" aria-busy={Boolean(savingAction)}>
+        {task && <>
+          <DialogHeader>
+            <DialogTitle className="pr-8 text-xl leading-snug">{task.title}</DialogTitle>
+            <DialogDescription className="text-slate-400">{task.projectName} · actualizada {relativeTime(task.sourceUpdatedAt)}</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3">
+              <p className="text-xs text-slate-500">Estado en el tablero</p>
+              <p className="mt-1 font-semibold text-cyan-200">{task.lifecycle === "ARCHIVED" ? "Archivada" : STATUS_LABELS[task.humanStatus] ?? task.humanStatus}</p>
+            </div>
+            <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3">
+              <p className="text-xs text-slate-500">Prioridad</p>
+              <p className="mt-1 font-semibold">{task.priority}</p>
+            </div>
+            <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3">
+              <p className="text-xs text-slate-500">Responsable</p>
+              <p className="mt-1 font-semibold">{task.autonomyLevel === "HUMAN" ? "Persona" : `Agente ${task.autonomyLevel}`}</p>
+            </div>
+          </div>
+
+          {task.attentionReason && <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-100"><span className="font-semibold">Qué necesita:</span> {task.attentionReason}</div>}
+          {task.changedSinceManaged && <div className="rounded-xl border border-violet-500/30 bg-violet-500/10 p-3 text-sm text-violet-100"><span className="font-semibold">Codex agregó actividad después del último cambio manual.</span> La clasificación automática volvió a actualizarse para que no se pierda nada.</div>}
+          <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+            <p className="text-xs text-slate-500">Próximo paso</p>
+            <p className="mt-2 text-sm text-slate-200">{task.nextAction}</p>
+          </div>
+
+          {error && <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">{error}</div>}
+          {notice && <div role="status" className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">{notice}</div>}
+
+          {confirmation ? (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+              <p className="font-semibold text-amber-100">{confirmation === "CLOSE" ? "¿Confirmás que revisaste el resultado?" : "¿Archivar esta tarea en el tablero?"}</p>
+              <p className="mt-1 text-sm text-slate-300">{confirmation === "CLOSE" ? "Quedará como realizada. Después podés reabrirla." : "Se ocultará de las listas activas, pero conservará su historial."}</p>
+              <div className="mt-4 flex flex-wrap justify-end gap-2">
+                <Button variant="ghost" disabled={Boolean(savingAction)} onClick={() => setConfirmation(null)}>Cancelar</Button>
+                <Button
+                  className={confirmation === "CLOSE" ? "bg-emerald-600 text-white hover:bg-emerald-500" : "bg-amber-600 text-white hover:bg-amber-500"}
+                  disabled={Boolean(savingAction)}
+                  onClick={() => onAction(confirmation, undefined, confirmation === "CLOSE")}
+                >
+                  {savingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : confirmation === "CLOSE" ? <CheckCircle2 className="mr-2 h-4 w-4" /> : <Archive className="mr-2 h-4 w-4" />}
+                  {confirmation === "CLOSE" ? "Sí, cerrar como realizada" : "Sí, archivar"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3 rounded-xl border border-slate-800 p-4">
+              <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                <div className="space-y-2">
+                  <Label htmlFor="task-destination">{canReopen ? "Reabrir en" : "Mover en este tablero a"}</Label>
+                  <Select value={moveTarget} onValueChange={setMoveTarget} disabled={Boolean(savingAction)}>
+                    <SelectTrigger id="task-destination" className="w-full border-slate-700 bg-slate-900"><SelectValue /></SelectTrigger>
+                    <SelectContent>{options.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <Button variant="outline" disabled={Boolean(savingAction)} onClick={() => onAction(canReopen ? "REOPEN" : "MOVE", moveTarget)}>
+                  {savingAction ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : canReopen ? <RotateCcw className="mr-2 h-4 w-4" /> : <MoveRight className="mr-2 h-4 w-4" />}
+                  {canReopen ? "Reabrir" : "Mover"}
+                </Button>
+              </div>
+              {!canReopen && <p className="text-xs text-slate-500">“Trabajando ahora” se actualiza automáticamente sólo cuando Codex está ejecutando la tarea.</p>}
+              <div className="grid gap-2 border-t border-slate-800 pt-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                <div className="space-y-2">
+                  <Label htmlFor="task-project">Mover chat a otro proyecto del tablero</Label>
+                  <Select value={projectTarget} onValueChange={setProjectTarget} disabled={Boolean(savingAction)}>
+                    <SelectTrigger id="task-project" className="w-full border-slate-700 bg-slate-900"><SelectValue /></SelectTrigger>
+                    <SelectContent>{projectOptions.map((project) => <SelectItem key={project.name} value={project.name}>{project.name} ({project.count})</SelectItem>)}</SelectContent>
+                  </Select>
+                </div>
+                <Button variant="outline" disabled={Boolean(savingAction) || projectTarget === task.projectName} onClick={() => onAction("MOVE_PROJECT", undefined, undefined, projectTarget)}><MoveRight className="mr-2 h-4 w-4" /> Cambiar proyecto</Button>
+              </div>
+              <div className="flex flex-wrap gap-2 border-t border-slate-800 pt-3">
+                {canClose && <Button className="bg-emerald-600 text-white hover:bg-emerald-500" disabled={Boolean(savingAction)} onClick={() => setConfirmation("CLOSE")}><CheckCircle2 className="mr-2 h-4 w-4" /> Cerrar como realizada</Button>}
+                {task.lifecycle !== "ARCHIVED" && <Button variant="outline" disabled={Boolean(savingAction)} onClick={() => setConfirmation("ARCHIVE")}><Archive className="mr-2 h-4 w-4" /> Archivar</Button>}
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3 text-xs text-slate-400">
+            Mover, archivar, cerrar y reabrir organizan este tablero propio. No modifican silenciosamente la app de Codex.
+          </div>
+          {savingAction && <p role="status" className="text-center text-sm text-cyan-200"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" /> Guardando; esperá para cerrar.</p>}
+          <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 border-t border-slate-800 bg-slate-950 px-6 py-4">
+            <Button className="min-h-11" variant="ghost" disabled={Boolean(savingAction)} onClick={() => onOpenChange(false)}>Cerrar ficha</Button>
+            {savingAction
+              ? <Button className="min-h-11" variant="outline" disabled><ExternalLink className="mr-2 h-4 w-4" /> Abrir en Codex</Button>
+              : <Button className="min-h-11" asChild variant="outline"><a href={task.codexUrl}><ExternalLink className="mr-2 h-4 w-4" /> Abrir en Codex</a></Button>}
+          </DialogFooter>
+        </>}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -190,39 +373,92 @@ export function CompanyOsHumanDashboard() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [savingThreadId, setSavingThreadId] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<SectionId | null>(null);
   const [navigationRequest, setNavigationRequest] = useState(0);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [moveTarget, setMoveTarget] = useState("PENDING");
+  const [projectTarget, setProjectTarget] = useState("");
+  const [savingAction, setSavingAction] = useState<ManagementAction | null>(null);
+  const [confirmation, setConfirmation] = useState<"ARCHIVE" | "CLOSE" | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
       const response = await fetch(URL, { cache: "no-store" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      setSnapshot(await response.json());
+      const freshSnapshot = await response.json() as Snapshot;
+      setSnapshot(freshSnapshot);
       setError(null);
+      return freshSnapshot;
     } catch {
       setError("No pude leer el inventario de tareas. El diagnóstico técnico sigue disponible abajo.");
+      return null;
     } finally {
       setLoading(false);
     }
   }, []);
 
-  const markDone = useCallback(async (threadId: string) => {
-    setSavingThreadId(threadId);
+  const openTask = useCallback((task: Task) => {
+    setSelectedTask(task);
+    setMoveTarget(moveTargetForTask(task));
+    setProjectTarget(task.projectName);
+    setConfirmation(null);
+    setActionError(null);
+    setActionNotice(null);
+  }, []);
+
+  const manageTask = useCallback(async (action: ManagementAction, targetStatus?: string, confirmed?: boolean, targetProjectName?: string) => {
+    if (!selectedTask || savingAction) return;
+    setSavingAction(action);
+    setActionError(null);
+    setActionNotice(null);
     try {
       const response = await fetch(URL, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "MARK_DONE", threadId }),
+        body: JSON.stringify({
+          action,
+          threadId: selectedTask.threadId,
+          targetStatus,
+          targetProjectName,
+          confirmed,
+          expectedFingerprint: selectedTask.fingerprint,
+          expectedVersion: selectedTask.boardVersion,
+          idempotencyKey: `dashboard:${window.crypto.randomUUID()}`,
+        }),
       });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json().catch(() => null) as null | { error?: string; task?: Task };
+      if (!response.ok) {
+        let recoveredConflict = false;
+        if (response.status === 409) {
+          const freshSnapshot = await refresh();
+          const freshTask = freshSnapshot ? findSnapshotTask(freshSnapshot, selectedTask.threadId) : null;
+          if (freshTask) {
+            setSelectedTask(freshTask);
+            setProjectTarget(freshTask.projectName);
+            setMoveTarget(moveTargetForTask(freshTask));
+            setConfirmation(null);
+            recoveredConflict = true;
+          }
+        }
+        const baseMessage = payload?.error || `No se pudo guardar (HTTP ${response.status})`;
+        throw new Error(recoveredConflict ? `${baseMessage} La ficha ya fue actualizada; revisala y volvé a guardar.` : baseMessage);
+      }
+      if (payload?.task) {
+        setSelectedTask(payload.task);
+        setProjectTarget(payload.task.projectName);
+        setMoveTarget(moveTargetForTask(payload.task));
+      }
+      setActionNotice(action === "MOVE" ? "La tarea se movió de lista." : action === "MOVE_PROJECT" ? "El chat se movió de proyecto en el tablero." : action === "ARCHIVE" ? "La tarea quedó archivada." : action === "CLOSE" ? "La tarea quedó cerrada como realizada." : "La tarea quedó abierta nuevamente.");
+      setConfirmation(null);
       await refresh();
-    } catch {
-      setError("No pude marcar la tarea como realizada. Abrila para revisar el resultado e intentá nuevamente.");
+    } catch (managementError) {
+      setActionError(managementError instanceof Error ? managementError.message : "No pude guardar el cambio. Actualizá la ficha e intentá nuevamente.");
     } finally {
-      setSavingThreadId(null);
+      setSavingAction(null);
     }
-  }, [refresh]);
+  }, [refresh, savingAction, selectedTask]);
 
   useEffect(() => {
     void refresh();
@@ -279,20 +515,22 @@ export function CompanyOsHumanDashboard() {
     { section: "blocked" as const, label: "Con problemas", value: snapshot?.summary.blocked ?? 0, className: "text-rose-300" },
     { section: "readyReview" as const, label: "Listas para revisar", value: snapshot?.summary.readyReview ?? 0, className: "text-violet-300" },
     { section: "done" as const, label: "Realizadas", value: snapshot?.summary.done ?? 0, className: "text-emerald-300" },
+    { section: "archived" as const, label: "Archivadas", value: snapshot?.summary.archived ?? 0, className: "text-slate-400" },
     { section: "monitoring" as const, label: "Monitoreos activos", value: snapshot?.monitoring.length ?? 0, className: "text-cyan-200" },
     { section: "commercial" as const, label: "Ideas y ofertas", value: snapshot ? Math.max(snapshot.commercialIdeas.length, snapshot.commercialNextAction ? 1 : 0) : 0, className: "text-emerald-200" },
   ], [snapshot]);
 
   const activePanel = (() => {
     switch (activeSection) {
-      case "now": return <TaskSection title="Trabajando ahora" description="Tareas que tienen una ejecución activa." tasks={snapshot?.now ?? []} empty="No hay una tarea activa en este momento." accent="border-cyan-500/25" />;
-      case "needsDiego": return <TaskSection title="Necesito que decidas" description="Decisiones, permisos o datos que sólo vos podés dar." tasks={snapshot?.needsDiego ?? []} empty="No hay decisiones tuyas pendientes." accent="border-amber-500/25" />;
-      case "pending": return <TaskSection title="El agente puede trabajar ahora" description="Backlog priorizado para retomar sin una acción externa." tasks={snapshot?.pending ?? []} empty="No hay tareas listas para tomar." />;
-      case "blocked": return <TaskSection title="Con problemas" description="Bloqueos por accesos, proveedores o dependencias externas." tasks={snapshot?.blocked ?? []} empty="No hay bloqueos detectados." accent="border-rose-500/25" />;
-      case "readyReview": return <TaskSection title="Listas para que revises" description="Hay resultado y evidencia; abrí la tarea y, si está bien, marcala realizada." tasks={snapshot?.readyReview ?? []} empty="No hay resultados esperando revisión." accent="border-violet-500/25" onDone={markDone} savingThreadId={savingThreadId} />;
-      case "monitoring": return <TaskSection title="Monitoreos activos" description="Controles recurrentes que el agente mantiene bajo observación." tasks={snapshot?.monitoring ?? []} empty="No hay monitoreos activos." accent="border-cyan-500/20" />;
+      case "now": return <TaskSection title="Trabajando ahora" description="Tareas que tienen una ejecución activa." tasks={snapshot?.now ?? []} empty="No hay una tarea activa en este momento." accent="border-cyan-500/25" onOpenTask={openTask} />;
+      case "needsDiego": return <TaskSection title="Necesito que decidas" description="Decisiones, permisos o datos que sólo vos podés dar." tasks={snapshot?.needsDiego ?? []} empty="No hay decisiones tuyas pendientes." accent="border-amber-500/25" onOpenTask={openTask} />;
+      case "pending": return <TaskSection title="El agente puede trabajar ahora" description="Backlog priorizado para retomar sin una acción externa." tasks={snapshot?.pending ?? []} empty="No hay tareas listas para tomar." onOpenTask={openTask} />;
+      case "blocked": return <TaskSection title="Con problemas" description="Bloqueos por accesos, proveedores o dependencias externas." tasks={snapshot?.blocked ?? []} empty="No hay bloqueos detectados." accent="border-rose-500/25" onOpenTask={openTask} />;
+      case "readyReview": return <TaskSection title="Listas para que revises" description="Hay resultado y evidencia; abrí la ficha y, si está bien, cerrala como realizada." tasks={snapshot?.readyReview ?? []} empty="No hay resultados esperando revisión." accent="border-violet-500/25" onOpenTask={openTask} />;
+      case "monitoring": return <TaskSection title="Monitoreos activos" description="Controles recurrentes que el agente mantiene bajo observación." tasks={snapshot?.monitoring ?? []} empty="No hay monitoreos activos." accent="border-cyan-500/20" onOpenTask={openTask} />;
       case "commercial": return <CommercialSection snapshot={snapshot} />;
-      case "done": return <TaskSection title="Realizadas" description="Sólo resultados validados; una respuesta de Codex no alcanza para entrar acá." tasks={snapshot?.done ?? []} empty="Todavía no hay tareas marcadas como realizadas con validación." accent="border-emerald-500/25" />;
+      case "done": return <TaskSection title="Realizadas" description="Sólo resultados validados; una respuesta de Codex no alcanza para entrar acá." tasks={snapshot?.done ?? []} empty="Todavía no hay tareas marcadas como realizadas con validación." accent="border-emerald-500/25" onOpenTask={openTask} />;
+      case "archived": return <TaskSection title="Archivadas" description="Tareas fuera de las listas activas, con su historial preservado." tasks={snapshot?.archived ?? []} empty="No hay tareas archivadas." accent="border-slate-700" onOpenTask={openTask} />;
       default: return null;
     }
   })();
@@ -301,6 +539,28 @@ export function CompanyOsHumanDashboard() {
 
   return (
     <div className="space-y-6">
+      <TaskManagerDialog
+        task={selectedTask}
+        projects={snapshot?.projects ?? []}
+        moveTarget={moveTarget}
+        setMoveTarget={setMoveTarget}
+        projectTarget={projectTarget}
+        setProjectTarget={setProjectTarget}
+        savingAction={savingAction}
+        confirmation={confirmation}
+        setConfirmation={setConfirmation}
+        error={actionError}
+        notice={actionNotice}
+        onOpenChange={(open) => {
+          if (!open && !savingAction) {
+            setSelectedTask(null);
+            setConfirmation(null);
+            setActionError(null);
+            setActionNotice(null);
+          }
+        }}
+        onAction={(action, targetStatus, confirmed, targetProjectName) => void manageTask(action, targetStatus, confirmed, targetProjectName)}
+      />
       {error && <div role="alert" className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">{error}</div>}
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Resumen de tareas">
