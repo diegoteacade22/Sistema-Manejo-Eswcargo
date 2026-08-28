@@ -1,4 +1,4 @@
-# Codex Task Collector
+# Codex Task Collector y reanudador seguro
 
 Proyecta cada cinco minutos el inventario raíz de Codex al tablero humano de Company OS.
 
@@ -6,8 +6,20 @@ Proyecta cada cinco minutos el inventario raíz de Codex al tablero humano de Co
 - Excluye subagentes y no copia prompts ni conversaciones.
 - Usa el registro canónico de proyectos para mostrar nombres humanos, nunca paths locales.
 - `task_complete` sólo puede producir `READY_REVIEW`; nunca marca una tarea como realizada.
+- Separa las tareas antiguas `UNREVIEWED` de las que Diego movió explícitamente a `PENDING` (`Para el agente`).
 - Firma cada lote con HMAC v2, nonce y timestamp.
+- La instalación sólo se confirma tras observar un inventario fresco y una respuesta válida del polling de despacho firmado.
+- Un lock de kernel de macOS impide dos ejecuciones simultáneas; instalación y desinstalación usan además un lock de control separado.
+- La instalación deja un journal durable antes de detener el servicio: una interrupción restaura la versión previa al reintentar, y el rollback también exige readback operativo.
+- La desinstalación usa su propio journal, se niega ante un despacho sin reconciliar y conserva el estado para recuperarlo sin duplicar trabajo.
+- Un start-gate impide que el collector escanee o reclame tareas antes de publicar su identidad en el lock compatible con la versión anterior.
+- Un collector legacy huérfano bloquea instalación y desinstalación hasta desaparecer; nunca se interpreta como un lock obsoleto.
 - Usa una credencial dedicada `com.esw.company-os-codex-intake.hmac`; no comparte la autoridad del worker.
 - Conserva todo estado en `~/.company-os-codex-collector` y se puede desinstalar sin borrar evidencia.
+- Limita el endpoint a la URL HTTPS productiva y sólo ejecuta hilos cuya proyección y carpeta coincidan con un proyecto local canónico.
+- Cuando la reanudación está habilitada, reclama como máximo una tarea autorizada por vez y la continúa con `codex exec resume` bajo sandbox `workspace-write`, revisión automática de permisos y sin cargar plugins/MCP del perfil interactivo.
+- El secreto HMAC se elimina del entorno antes de iniciar Codex y no copia stdout ni stderr del hilo. Ante fallo, conserva sólo exit code, señal, cantidad de bytes y hash de stderr en un archivo local `0600`.
+- Un journal atómico distingue `CLAIMING`, `RUNNING` y `EXECUTED`: tras un reinicio reenvía el reporte o detiene la ejecución anterior, pero nunca vuelve a lanzar el mismo claim.
+- Un proceso sin cambio verificable, fallido o vencido queda `BLOCKED`; no se reintenta hasta una nueva acción humana.
 
-La clasificación y el inventario son A0. La ejecución queda separada y fail-closed.
+La clasificación y el inventario son A0. La ejecución sólo nace de una transición humana durable a `PENDING`, queda serializada por host y se detiene ante decisiones, credenciales o efectos externos no autorizados.

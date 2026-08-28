@@ -11,6 +11,8 @@ const AUTONOMY_LEVELS = new Set(['A0', 'A1', 'A2', 'HUMAN']);
 const MANAGED_TARGET_STATUSES = new Set(['PENDING', 'NEEDS_DIEGO', 'BLOCKED', 'READY_REVIEW', 'MONITORING']);
 const REOPEN_TARGET_STATUSES = new Set(['PENDING', 'NEEDS_DIEGO']);
 const MANAGEMENT_ACTIONS = new Set(['MOVE', 'MOVE_PROJECT', 'ARCHIVE', 'CLOSE', 'REOPEN']);
+const CODEX_AUTO_RESUME_ACTOR = 'codex-intake-ai-v1';
+const CODEX_AUTO_RESUME_STALE_MS = 2 * 60 * 60_000;
 
 export class CodexTaskStoreError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -50,6 +52,32 @@ function safeFingerprint(value: unknown) {
   const valueString = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (!/^[0-9a-f]{64}$/.test(valueString)) throw new CodexTaskStoreError('La versión de la tarea es inválida');
   return valueString;
+}
+
+function safeDispatchToken(value: unknown) {
+  const token = typeof value === 'string' ? value.trim() : '';
+  if (!/^[A-Za-z0-9_-]{24,128}$/.test(token)) throw new CodexTaskStoreError('Token de despacho inválido');
+  return token;
+}
+
+function dispatchBinding(sourceHost: string, instanceId: string, claimToken: string) {
+  return createHash('sha256').update(`${sourceHost}\n${instanceId}\n${claimToken}`).digest('hex');
+}
+
+function claimBaselineToken(lastCompletedAt: Date | null) {
+  return lastCompletedAt ? `ms-${lastCompletedAt.getTime().toString(36)}` : 'none';
+}
+
+function claimBaselineFromKey(idempotencyKey: string, claimKeyPrefix: string) {
+  if (!idempotencyKey.startsWith(claimKeyPrefix)) return { valid: false, value: null as Date | null };
+  const token = idempotencyKey.slice(claimKeyPrefix.length).split(':', 1)[0];
+  if (token === 'none') return { valid: true, value: null as Date | null };
+  if (!/^ms-[0-9a-z]{1,16}$/.test(token)) return { valid: false, value: null as Date | null };
+  const milliseconds = Number.parseInt(token.slice(3), 36);
+  const value = new Date(milliseconds);
+  return Number.isFinite(milliseconds) && !Number.isNaN(value.getTime())
+    ? { valid: true, value }
+    : { valid: false, value: null as Date | null };
 }
 
 function enumValue(value: unknown, allowed: Set<string>, fallback: string) {
@@ -135,8 +163,8 @@ export async function ingestCodexTaskChunk(raw: unknown, actorRef: string) {
         create: persistedTask,
       });
       if (!previous || previous.fingerprint !== task.fingerprint) {
-        await tx.companyOsCodexTaskObservation.create({
-          data: {
+        await tx.companyOsCodexTaskObservation.createMany({
+          data: [{
             id: `codex-observation:${randomUUID()}`,
             taskId: task.id,
             fingerprint: task.fingerprint,
@@ -144,7 +172,8 @@ export async function ingestCodexTaskChunk(raw: unknown, actorRef: string) {
             sourceStatus: task.sourceStatus,
             actorRef,
             observedAt,
-          },
+          }],
+          skipDuplicates: true,
         });
       }
     }
@@ -172,7 +201,7 @@ export async function ingestCodexTaskChunk(raw: unknown, actorRef: string) {
 export async function markCodexTaskDone(rawThreadId: unknown, actorRef: string) {
   const threadId = safeThreadId(rawThreadId);
   const db = companyOsV3Prisma();
-  const task = await db.companyOsCodexTask.findUnique({ where: { threadId }, include: { boardState: true } });
+  const task = await db.companyOsCodexTask.findUnique({ where: { threadId }, include: { boardState: true, actions: { orderBy: { newVersion: 'desc' }, take: 1 } } });
   if (!task) throw new CodexTaskStoreError('La tarea no existe', 404);
   const current = effectiveCodexTaskState(task, task.boardState);
   if (current.lifecycle === 'CLOSED' && current.humanStatus === 'DONE') {
@@ -199,17 +228,58 @@ type BoardStateLike = {
   updatedBy: string;
   updatedAt: Date;
 } | null;
-type TaskWithBoardState = Prisma.CompanyOsCodexTaskGetPayload<{ include: { boardState: true } }>;
+type TaskWithBoardState = Prisma.CompanyOsCodexTaskGetPayload<{ include: { boardState: true } }> & {
+  actions?: Array<{ idempotencyKey: string; newVersion: number }>;
+};
+type DispatchCandidateLike = {
+  archived: boolean;
+  attentionReason: string | null;
+  fingerprint: string;
+  sourceStatus: string;
+  boardState: null | {
+    workflowStatus: string;
+    lifecycle: string;
+    sourceFingerprint: string;
+    version: number;
+    updatedBy: string;
+  };
+  actions: Array<{
+    action: string;
+    actorRef: string;
+    idempotencyKey: string;
+    newHumanStatus: string;
+    newVersion: number;
+  }>;
+};
+
+export function isApprovedCodexTaskDispatchCandidate(task: DispatchCandidateLike, machineActor = CODEX_AUTO_RESUME_ACTOR) {
+  const board = task.boardState;
+  const approval = task.actions[0];
+  return !task.archived
+    && task.attentionReason == null
+    && ['IDLE', 'NOT_LOADED'].includes(task.sourceStatus)
+    && board?.workflowStatus === 'PENDING'
+    && board.lifecycle === 'OPEN'
+    && board.sourceFingerprint === task.fingerprint
+    && board.updatedBy !== machineActor
+    && approval?.newVersion === board.version
+    && approval.actorRef === board.updatedBy
+    && approval.idempotencyKey.startsWith('dashboard:auto-resume:')
+    && approval.newHumanStatus === 'PENDING'
+    && ['MOVE', 'REOPEN'].includes(approval.action);
+}
 
 export function effectiveCodexTaskState(
   source: { humanStatus: string; archived: boolean; fingerprint?: string; projectName?: string },
-  boardState: Pick<NonNullable<BoardStateLike>, 'workflowStatus' | 'lifecycle' | 'sourceFingerprint' | 'projectNameOverride' | 'version'> | null,
+  boardState: (Pick<NonNullable<BoardStateLike>, 'workflowStatus' | 'lifecycle' | 'sourceFingerprint' | 'projectNameOverride' | 'version'> & { updatedBy?: string }) | null,
 ) {
+  const durableAutoResumeInProgress = boardState?.workflowStatus === 'IN_PROGRESS' && boardState.updatedBy === CODEX_AUTO_RESUME_ACTOR;
   const workflowDecisionIsStale = Boolean(
     boardState
     && boardState.lifecycle !== 'ARCHIVED'
     && source.fingerprint
-    && boardState.sourceFingerprint !== source.fingerprint,
+    && boardState.sourceFingerprint !== source.fingerprint
+    && !durableAutoResumeInProgress,
   );
   const humanStatus = workflowDecisionIsStale
     ? source.humanStatus
@@ -260,14 +330,21 @@ export async function manageCodexTask(raw: unknown, actorRef: string) {
       const existingAction = await tx.companyOsCodexTaskAction.findUnique({ where: { idempotencyKey } });
       if (existingAction) {
         if (existingAction.requestHash !== requestHash) throw new CodexTaskStoreError('La clave idempotente ya fue usada para otra acción', 409);
-        const existingTask = await tx.companyOsCodexTask.findUnique({ where: { id: existingAction.taskId }, include: { boardState: true } });
+        const existingTask = await tx.companyOsCodexTask.findUnique({ where: { id: existingAction.taskId }, include: { boardState: true, actions: { orderBy: { newVersion: 'desc' }, take: 1 } } });
         if (!existingTask || existingTask.threadId !== threadId) throw new CodexTaskStoreError('La clave idempotente pertenece a otra tarea', 409);
         return { task: taskView(existingTask), action: existingAction.action, replay: existingAction.resultSnapshot, unchanged: true };
       }
 
-      const task = await tx.companyOsCodexTask.findUnique({ where: { threadId }, include: { boardState: true } });
+      const task = await tx.companyOsCodexTask.findUnique({ where: { threadId }, include: { boardState: true, actions: { orderBy: { newVersion: 'desc' }, take: 1 } } });
       if (!task) throw new CodexTaskStoreError('La tarea no existe', 404);
       const current = effectiveCodexTaskState(task, task.boardState);
+      const autoResumeRunning = Boolean(
+        task.boardState
+        && task.boardState.workflowStatus === 'IN_PROGRESS'
+        && task.boardState.lifecycle === 'OPEN'
+        && task.boardState.updatedBy === CODEX_AUTO_RESUME_ACTOR,
+      );
+      if (autoResumeRunning) throw new CodexTaskStoreError('Codex está ejecutando esta tarea; esperá a que termine o venza su límite de seguridad', 409);
       if (task.fingerprint !== expectedFingerprint || current.boardVersion !== expectedVersion) {
         throw new CodexTaskStoreError('La tarea cambió desde que la abriste. La ficha debe actualizarse antes de guardar.', 409);
       }
@@ -279,6 +356,10 @@ export async function manageCodexTask(raw: unknown, actorRef: string) {
       if (action === 'MOVE') {
         if (current.lifecycle !== 'OPEN') throw new CodexTaskStoreError('La tarea no está abierta. Reabrila antes de moverla.', 409);
         if (!MANAGED_TARGET_STATUSES.has(targetStatus)) throw new CodexTaskStoreError('Destino de tarea no permitido');
+        if (targetStatus === 'PENDING' && input.confirmed !== true) throw new CodexTaskStoreError('Confirmá explícitamente la reanudación automática');
+        if (targetStatus === 'PENDING' && (task.archived || task.attentionReason || !['IDLE', 'NOT_LOADED'].includes(task.sourceStatus))) {
+          throw new CodexTaskStoreError('La tarea está archivada, necesita una decisión o no está inactiva; no puede autorizarse automáticamente', 409);
+        }
         newHumanStatus = targetStatus;
       } else if (action === 'MOVE_PROJECT') {
         if (!targetProjectName) throw new CodexTaskStoreError('Elegí un proyecto de destino');
@@ -304,6 +385,10 @@ export async function manageCodexTask(raw: unknown, actorRef: string) {
       } else if (action === 'REOPEN') {
         if (current.lifecycle === 'OPEN' && !['DONE', 'DISCARDED'].includes(current.humanStatus)) throw new CodexTaskStoreError('Esta tarea ya está abierta', 409);
         if (!REOPEN_TARGET_STATUSES.has(targetStatus)) throw new CodexTaskStoreError('Elegí si vuelve para el agente o necesita una decisión tuya');
+        if (targetStatus === 'PENDING' && input.confirmed !== true) throw new CodexTaskStoreError('Confirmá explícitamente la reanudación automática');
+        if (targetStatus === 'PENDING' && (task.archived || task.attentionReason || !['IDLE', 'NOT_LOADED'].includes(task.sourceStatus))) {
+          throw new CodexTaskStoreError('La tarea está archivada, necesita una decisión o no está inactiva; no puede autorizarse automáticamente', 409);
+        }
         newHumanStatus = targetStatus;
         newLifecycle = 'OPEN';
       }
@@ -354,8 +439,11 @@ export async function manageCodexTask(raw: unknown, actorRef: string) {
         if (expectedVersion !== 0) throw new CodexTaskStoreError('La versión inicial de la tarea no coincide', 409);
         await tx.companyOsCodexTaskBoardState.create({ data: { taskId: task.id, ...boardData, version: newVersion } });
       }
-      const updatedBoard = await tx.companyOsCodexTaskBoardState.findUniqueOrThrow({ where: { taskId: task.id } });
-      return { task: taskView({ ...task, boardState: updatedBoard }), action, replay: resultSnapshot, unchanged: false };
+      const updatedTask = await tx.companyOsCodexTask.findUniqueOrThrow({
+        where: { id: task.id },
+        include: { boardState: true, actions: { orderBy: { newVersion: 'desc' }, take: 1 } },
+      });
+      return { task: taskView(updatedTask), action, replay: resultSnapshot, unchanged: false };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10_000 });
   } catch (error) {
     if (error instanceof CodexTaskStoreError) throw error;
@@ -369,6 +457,34 @@ export async function manageCodexTask(raw: unknown, actorRef: string) {
 function taskView(task: TaskWithBoardState) {
   const effective = effectiveCodexTaskState(task, task.boardState);
   const reopened = Boolean(task.boardState && ['DONE', 'DISCARDED'].includes(task.humanStatus) && effective.lifecycle === 'OPEN');
+  const lastActionKey = task.actions?.[0]?.idempotencyKey ?? '';
+  const autoResumeApproved = Boolean(
+    task.boardState
+    && task.boardState.workflowStatus === 'PENDING'
+    && task.boardState.lifecycle === 'OPEN'
+    && task.boardState.sourceFingerprint === task.fingerprint
+    && task.boardState.updatedBy !== CODEX_AUTO_RESUME_ACTOR
+    && !task.archived
+    && task.attentionReason == null
+    && ['IDLE', 'NOT_LOADED'].includes(task.sourceStatus)
+    && task.actions?.[0]?.newVersion === task.boardState.version
+    && lastActionKey.startsWith('dashboard:auto-resume:'),
+  );
+  const autoResumeRunning = Boolean(
+    task.boardState
+    && task.boardState.workflowStatus === 'IN_PROGRESS'
+    && task.boardState.lifecycle === 'OPEN'
+    && task.boardState.updatedBy === CODEX_AUTO_RESUME_ACTOR,
+  );
+  const autoResumeFailure = lastActionKey.startsWith('codex-auto:report-failed:')
+    ? 'La ejecución automática terminó con error.'
+    : lastActionKey.startsWith('codex-auto:report-timed_out:')
+      ? 'La ejecución automática superó el tiempo máximo.'
+      : lastActionKey.startsWith('codex-auto:report-succeeded:')
+        ? 'Codex terminó, pero el hilo no mostró un cambio verificable.'
+        : lastActionKey.startsWith('codex-auto:stale:')
+          ? 'La ejecución automática perdió su heartbeat y fue detenida por seguridad.'
+          : null;
   return {
     threadId: task.threadId,
     title: task.title,
@@ -377,17 +493,24 @@ function taskView(task: TaskWithBoardState) {
     category: task.category,
     humanStatus: effective.humanStatus,
     sourceHumanStatus: task.humanStatus,
+    sourceArchived: task.archived,
     lifecycle: effective.lifecycle,
     priority: task.priority,
     nextAction: effective.lifecycle === 'CLOSED'
       ? 'Realizada y validada por Diego.'
+      : effective.humanStatus === 'BLOCKED' && autoResumeFailure
+        ? 'Abrir la tarea, revisar el último intento y volver a autorizar sólo después de resolver la causa.'
       : reopened ? 'Retomar y definir el próximo resultado verificable.' : task.nextAction,
     attentionReason: effective.lifecycle === 'CLOSED'
       ? null
       : effective.humanStatus === 'NEEDS_DIEGO' && !task.attentionReason
         ? 'Necesita una decisión de Diego para continuar.'
+        : effective.humanStatus === 'BLOCKED' && !task.attentionReason
+          ? autoResumeFailure ?? 'La tarea quedó bloqueada y necesita revisión antes de continuar.'
         : task.attentionReason,
-    autonomyLevel: task.autonomyLevel,
+    autonomyLevel: autoResumeApproved || autoResumeRunning ? 'A1' : task.autonomyLevel,
+    autoResumeApproved,
+    autoResumeRunning,
     codexUrl: task.codexUrl,
     sourceStatus: task.sourceStatus,
     fingerprint: task.fingerprint,
@@ -402,13 +525,257 @@ function taskView(task: TaskWithBoardState) {
   };
 }
 
+async function appendDispatchTransition(
+  tx: Prisma.TransactionClient,
+  task: TaskWithBoardState,
+  nextHumanStatus: 'UNREVIEWED' | 'PENDING' | 'IN_PROGRESS' | 'NEEDS_DIEGO' | 'BLOCKED' | 'READY_REVIEW' | 'MONITORING' | 'DISCARDED',
+  actorRef: string,
+  suffix: string,
+  nextLifecycle: 'OPEN' | 'ARCHIVED' = 'OPEN',
+) {
+  if (!task.boardState) throw new CodexTaskStoreError('La tarea no tiene autorización durable para reanudarse', 409);
+  const current = effectiveCodexTaskState(task, task.boardState);
+  const sourceChangedAfterBoardUpdate = task.boardState.lifecycle !== 'ARCHIVED' && task.boardState.sourceFingerprint !== task.fingerprint;
+  const transitionPreviousHumanStatus = sourceChangedAfterBoardUpdate ? task.humanStatus : current.humanStatus;
+  const transitionPreviousLifecycle = sourceChangedAfterBoardUpdate
+    ? task.archived ? 'ARCHIVED' : ['DONE', 'DISCARDED'].includes(task.humanStatus) ? 'CLOSED' : 'OPEN'
+    : current.lifecycle;
+  const newVersion = current.boardVersion + 1;
+  const resultSnapshot = {
+    threadId: task.threadId,
+    humanStatus: nextHumanStatus,
+    lifecycle: nextLifecycle,
+    projectName: current.projectName,
+    boardVersion: newVersion,
+  };
+  const requestHash = createHash('sha256').update(JSON.stringify({
+    threadId: task.threadId,
+    fingerprint: task.fingerprint,
+    previousVersion: current.boardVersion,
+    nextHumanStatus,
+    nextLifecycle,
+    actorRef,
+    suffix,
+  })).digest('hex');
+  const idempotencyKey = `codex-auto:${suffix}:${requestHash}`;
+  await tx.companyOsCodexTaskAction.create({
+    data: {
+      id: `codex-action:${randomUUID()}`,
+      taskId: task.id,
+      idempotencyKey,
+      action: 'MOVE',
+      fingerprint: task.fingerprint,
+      requestHash,
+      previousVersion: current.boardVersion,
+      newVersion,
+      previousHumanStatus: transitionPreviousHumanStatus,
+      newHumanStatus: nextHumanStatus,
+      previousLifecycle: transitionPreviousLifecycle,
+      newLifecycle: nextLifecycle,
+      previousProjectName: current.projectName,
+      newProjectName: current.projectName,
+      resultSnapshot,
+      actorRef,
+    },
+  });
+  const updated = await tx.companyOsCodexTaskBoardState.updateMany({
+    where: { taskId: task.id, version: current.boardVersion },
+    data: {
+      workflowStatus: nextHumanStatus,
+      lifecycle: nextLifecycle,
+      previousLifecycle: current.lifecycle,
+      sourceFingerprint: task.fingerprint,
+      projectNameOverride: current.projectName === task.projectName ? null : current.projectName,
+      version: { increment: 1 },
+      updatedBy: actorRef,
+    },
+  });
+  if (updated.count !== 1) throw new CodexTaskStoreError('Otra acción tomó esta tarea antes que el agente', 409);
+  return resultSnapshot;
+}
+
+export async function claimApprovedCodexTask(raw: unknown, actorRef: string) {
+  const input = record(raw);
+  const sourceHost = safeText(input.sourceHost, 120);
+  const instanceId = safeText(input.instanceId, 200);
+  const claimToken = safeDispatchToken(input.claimToken);
+  const binding = dispatchBinding(sourceHost, instanceId, claimToken);
+  const claimKeyPrefix = `codex-auto:claim-${binding}:`;
+  const safeActorRef = safeText(actorRef, 160);
+  const db = companyOsV3Prisma();
+  try {
+    return await db.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtext(${`company-os-codex-dispatch:${sourceHost}`}))`);
+      const replayAction = await tx.companyOsCodexTaskAction.findFirst({
+        where: {
+          actorRef: safeActorRef,
+          newHumanStatus: 'IN_PROGRESS',
+          idempotencyKey: { startsWith: claimKeyPrefix },
+        },
+        include: { task: { include: { boardState: true } } },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (replayAction?.task.boardState
+        && replayAction.task.sourceHost === sourceHost
+        && replayAction.task.boardState.version === replayAction.newVersion
+        && replayAction.task.boardState.workflowStatus === 'IN_PROGRESS'
+        && replayAction.task.boardState.updatedBy === safeActorRef) {
+        if (replayAction.task.fingerprint !== replayAction.fingerprint) {
+          const sourceArchived = replayAction.task.archived || replayAction.task.sourceStatus === 'ARCHIVED';
+          await appendDispatchTransition(tx, replayAction.task, sourceArchived ? 'DISCARDED' : 'UNREVIEWED', safeActorRef, 'source-changed', sourceArchived ? 'ARCHIVED' : 'OPEN');
+          return { claimed: false, replay: true, reconciled: true, reason: 'CLAIM_SOURCE_CHANGED', activeThreadId: replayAction.task.threadId };
+        }
+        const replayBaseline = claimBaselineFromKey(replayAction.idempotencyKey, claimKeyPrefix);
+        if (!replayBaseline.valid) throw new CodexTaskStoreError('El claim durable no contiene un baseline válido', 409);
+        return {
+          claimed: true,
+          replay: true,
+          reason: 'APPROVED_TASK_CLAIM_REPLAYED',
+          dispatch: {
+            threadId: replayAction.task.threadId,
+            fingerprint: replayAction.fingerprint,
+            title: replayAction.task.title,
+            projectName: effectiveCodexTaskState(replayAction.task, replayAction.task.boardState).projectName,
+            sourceProjectName: replayAction.task.projectName,
+            boardVersion: replayAction.newVersion,
+            lastCompletedAt: replayBaseline.value?.toISOString() ?? null,
+          },
+        };
+      }
+      if (replayAction) {
+        return { claimed: false, replay: true, reason: 'CLAIM_ALREADY_CONSUMED', activeThreadId: replayAction.task.threadId };
+      }
+      const active = await tx.companyOsCodexTask.findFirst({
+        where: {
+          sourceHost,
+          archived: false,
+          boardState: { is: { workflowStatus: 'IN_PROGRESS', lifecycle: 'OPEN', updatedBy: safeActorRef } },
+        },
+        include: { boardState: true },
+        orderBy: { sourceUpdatedAt: 'asc' },
+      });
+      if (active?.boardState) {
+        if (Date.now() - active.boardState.updatedAt.getTime() <= CODEX_AUTO_RESUME_STALE_MS) {
+          return { claimed: false, reason: 'DISPATCH_ALREADY_ACTIVE', activeThreadId: active.threadId };
+        } else {
+          await appendDispatchTransition(tx, active, 'BLOCKED', safeActorRef, 'stale');
+          return { claimed: false, reason: 'STALE_DISPATCH_BLOCKED', activeThreadId: active.threadId };
+        }
+      }
+
+      const candidates = await tx.companyOsCodexTask.findMany({
+        where: {
+          sourceHost,
+          archived: false,
+          attentionReason: null,
+          sourceStatus: { in: ['IDLE', 'NOT_LOADED'] },
+          boardState: { is: { workflowStatus: 'PENDING', lifecycle: 'OPEN' } },
+        },
+        include: {
+          boardState: true,
+          actions: { orderBy: { newVersion: 'desc' }, take: 1 },
+        },
+        orderBy: [{ priority: 'asc' }, { sourceUpdatedAt: 'asc' }],
+        take: 2_000,
+      });
+      const candidate = candidates.find((task) => isApprovedCodexTaskDispatchCandidate(task, safeActorRef));
+      if (!candidate) return { claimed: false, reason: 'NO_APPROVED_TASK' };
+      const baselineToken = claimBaselineToken(candidate.lastCompletedAt);
+      const snapshot = await appendDispatchTransition(tx, candidate, 'IN_PROGRESS', safeActorRef, `claim-${binding}:${baselineToken}`);
+      return {
+        claimed: true,
+        reason: 'APPROVED_TASK_CLAIMED',
+        dispatch: {
+          threadId: candidate.threadId,
+          fingerprint: candidate.fingerprint,
+          title: candidate.title,
+          projectName: effectiveCodexTaskState(candidate, candidate.boardState).projectName,
+          sourceProjectName: candidate.projectName,
+          boardVersion: snapshot.boardVersion,
+          lastCompletedAt: candidate.lastCompletedAt?.toISOString() ?? null,
+        },
+      };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10_000 });
+  } catch (error) {
+    if (error instanceof CodexTaskStoreError) throw error;
+    if (error instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2034'].includes(error.code)) {
+      throw new CodexTaskStoreError('Otra instancia actualizó el despacho; se reintentará en el próximo ciclo', 409);
+    }
+    throw error;
+  }
+}
+
+export async function reportCodexTaskDispatch(raw: unknown, actorRef: string) {
+  const input = record(raw);
+  const sourceHost = safeText(input.sourceHost, 120);
+  const instanceId = safeText(input.instanceId, 200);
+  const claimToken = safeDispatchToken(input.claimToken);
+  const binding = dispatchBinding(sourceHost, instanceId, claimToken);
+  const claimKeyPrefix = `codex-auto:claim-${binding}:`;
+  const threadId = safeThreadId(input.threadId);
+  const claimedFingerprint = safeFingerprint(input.fingerprint);
+  const claimedLastCompletedAt = input.claimedLastCompletedAt == null ? null : nullableDate(input.claimedLastCompletedAt);
+  const outcome = enumValue(input.outcome, new Set(['SUCCEEDED', 'FAILED', 'TIMED_OUT']), '');
+  if (!outcome) throw new CodexTaskStoreError('Resultado de reanudación inválido');
+  const safeActorRef = safeText(actorRef, 160);
+  const db = companyOsV3Prisma();
+  return db.$transaction(async (tx) => {
+    await tx.$queryRaw(Prisma.sql`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtext(${`company-os-codex-dispatch:${sourceHost}`}))`);
+    const task = await tx.companyOsCodexTask.findUnique({
+      where: { threadId },
+      include: { boardState: true, actions: { orderBy: { newVersion: 'desc' }, take: 1 } },
+    });
+    if (!task || task.sourceHost !== sourceHost) throw new CodexTaskStoreError('La tarea reportada no pertenece a este host', 404);
+    if (!task.boardState
+      || task.boardState.workflowStatus !== 'IN_PROGRESS'
+      || task.boardState.updatedBy !== safeActorRef
+      || task.actions[0]?.newVersion !== task.boardState.version
+      || !task.actions[0].idempotencyKey.startsWith(claimKeyPrefix)) {
+      return { reported: true, changed: false, outcome, reason: 'DISPATCH_STATE_CHANGED' };
+    }
+    const claimAction = task.actions[0];
+    const durableBaseline = claimBaselineFromKey(claimAction.idempotencyKey, claimKeyPrefix);
+    if (!durableBaseline.valid
+      || claimedFingerprint !== claimAction.fingerprint
+      || (claimedLastCompletedAt?.toISOString() ?? null) !== (durableBaseline.value?.toISOString() ?? null)) {
+      throw new CodexTaskStoreError('El reporte no coincide con el claim durable', 409);
+    }
+    if (task.archived || task.sourceStatus === 'ARCHIVED') {
+      await appendDispatchTransition(tx, task, 'DISCARDED', safeActorRef, 'source-archived', 'ARCHIVED');
+      return { reported: true, changed: true, verifiedCompletion: false, outcome, humanStatus: 'DISCARDED', lifecycle: 'ARCHIVED', reason: 'SOURCE_ARCHIVED' };
+    }
+    const completedAfterClaim = Boolean(
+      task.lastCompletedAt
+      && (!claimedLastCompletedAt || task.lastCompletedAt > claimedLastCompletedAt)
+      && task.fingerprint !== claimedFingerprint
+      && task.sourceStatus !== 'ACTIVE',
+    );
+    if (outcome === 'SUCCEEDED' && completedAfterClaim) {
+      const verifiedStatus = ['UNREVIEWED', 'NEEDS_DIEGO', 'BLOCKED', 'READY_REVIEW', 'MONITORING'].includes(task.humanStatus)
+        ? task.humanStatus as 'UNREVIEWED' | 'NEEDS_DIEGO' | 'BLOCKED' | 'READY_REVIEW' | 'MONITORING'
+        : 'UNREVIEWED';
+      await appendDispatchTransition(tx, task, verifiedStatus, safeActorRef, 'complete');
+      return { reported: true, changed: true, verifiedCompletion: true, outcome, humanStatus: verifiedStatus };
+    }
+    await appendDispatchTransition(tx, task, 'BLOCKED', safeActorRef, `report-${outcome.toLowerCase()}`);
+    return {
+      reported: true,
+      changed: task.fingerprint !== claimedFingerprint,
+      verifiedCompletion: false,
+      outcome,
+      humanStatus: 'BLOCKED',
+      reason: outcome === 'SUCCEEDED' ? 'NO_VERIFIABLE_COMPLETION' : 'EXECUTION_DID_NOT_SUCCEED',
+    };
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10_000 });
+}
+
 export async function getHumanWorkCenter() {
   const db = companyOsV3Prisma();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const [tasks, lastSync, recentChanges] = await Promise.all([
     db.companyOsCodexTask.findMany({
-      include: { boardState: true },
+      include: { boardState: true, actions: { orderBy: { newVersion: 'desc' }, take: 1 } },
       orderBy: [{ priority: 'asc' }, { sourceUpdatedAt: 'desc' }],
     }),
     db.companyOsCodexInventorySync.findFirst({ orderBy: { completedAt: 'desc' } }),
@@ -435,6 +802,8 @@ export async function getHumanWorkCenter() {
   const taskViews = tasks.map(taskView);
   const activeTasks = taskViews.filter((task) => task.lifecycle !== 'ARCHIVED');
   const archivedTasks = taskViews.filter((task) => task.lifecycle === 'ARCHIVED');
+  const approvedPendingTasks = activeTasks.filter((task) => task.humanStatus === 'PENDING' && task.autoResumeApproved);
+  const unapprovedTasks = activeTasks.filter((task) => task.humanStatus === 'UNREVIEWED' || (task.humanStatus === 'PENDING' && !task.autoResumeApproved));
   const byStatus = new Map<string, number>();
   for (const task of activeTasks) byStatus.set(task.humanStatus, (byStatus.get(task.humanStatus) ?? 0) + 1);
   const projects = Array.from(taskViews.reduce((projectCounts, task) => {
@@ -478,8 +847,8 @@ export async function getHumanWorkCenter() {
     generatedAt: new Date().toISOString(),
     summary: {
       inProgress: byStatus.get('IN_PROGRESS') ?? 0,
-      unreviewed: byStatus.get('UNREVIEWED') ?? 0,
-      pending: byStatus.get('PENDING') ?? 0,
+      unreviewed: unapprovedTasks.length,
+      pending: approvedPendingTasks.length,
       needsDiego: byStatus.get('NEEDS_DIEGO') ?? 0,
       blocked: byStatus.get('BLOCKED') ?? 0,
       readyReview: byStatus.get('READY_REVIEW') ?? 0,
@@ -489,7 +858,8 @@ export async function getHumanWorkCenter() {
       total: activeTasks.length,
     },
     now: select(['IN_PROGRESS']),
-    pending: select(['PENDING', 'UNREVIEWED']),
+    unreviewed: unapprovedTasks,
+    pending: approvedPendingTasks,
     needsDiego: select(['NEEDS_DIEGO']),
     blocked: select(['BLOCKED']),
     readyReview: select(['READY_REVIEW']),
@@ -506,6 +876,7 @@ export async function getHumanWorkCenter() {
       changedInLastScan: lastSync.changedCount,
       changesToday: recentChanges,
       fresh: Date.now() - lastSync.completedAt.getTime() < 20 * 60_000,
+      autoResumeEnabled: lastSync.scanId.startsWith('auto-'),
     } : null,
   };
 }
