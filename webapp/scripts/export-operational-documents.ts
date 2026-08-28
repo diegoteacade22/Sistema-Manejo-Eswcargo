@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import dotenv from 'dotenv';
 import type {
+    DocumentExportPilot,
     DocumentExportState,
     DrivePutOptions,
     DrivePutResult,
@@ -74,6 +75,7 @@ type ExportTarget = {
     loadState(): Promise<DocumentExportState | null>;
     saveDocument(fileName: string, contents: Uint8Array, options: DrivePutOptions): Promise<DrivePutResult | { action: 'UPDATED'; destination: string }>;
     saveState(state: DocumentExportState): Promise<unknown>;
+    verifyPilot?(pilot: DocumentExportPilot): Promise<DrivePutResult>;
     probe?(): Promise<unknown>;
 };
 
@@ -134,6 +136,7 @@ async function createExportTarget(): Promise<ExportTarget> {
         loadState: () => store.loadState(),
         saveDocument: (fileName, contents, options) => store.put(fileName, contents, 'application/pdf', options),
         saveState: (state) => store.saveState(state),
+        verifyPilot: (pilot) => store.verifyPilot(pilot),
         probe: () => store.probe(),
     };
 }
@@ -168,9 +171,19 @@ async function main() {
 
     await mkdir(runtimeDir, { recursive: true });
     const previous = await target.loadState();
+    let hasVerifiedPilot = false;
+    const requiresPilotReadback = target.name === 'drive'
+        && !dryRun
+        && selectedOrderId === null
+        && selectedShipmentId === null;
+    if (requiresPilotReadback && previous?.pilotCompleted) {
+        if (!target.verifyPilot) throw new Error('El target Drive no puede verificar el artefacto piloto.');
+        await target.verifyPilot(previous.pilotCompleted);
+        hasVerifiedPilot = true;
+    }
     assertDriveBootstrapReady({
         targetName: target.name,
-        hasVerifiedPilot: Boolean(previous?.pilotCompleted),
+        hasVerifiedPilot,
         dryRun,
         selectedOrderId,
         selectedShipmentId,
@@ -269,6 +282,24 @@ async function main() {
     const writes = { created: 0, updated: 0, unchanged: 0 };
     const artifactReadbacks: Array<{ action: string; kind: string; size?: number; idSuffix?: string; sha256Prefix?: string }> = [];
     const failures: Array<{ type: string; number: number; message: string }> = [];
+    let observedPilot: DocumentExportPilot | undefined;
+
+    function rememberPilotArtifact(options: DrivePutOptions, destination: DrivePutResult | { action: 'UPDATED'; destination: string }) {
+        if (target.name !== 'drive' || options.kind !== 'INVOICE' || !('sha256' in destination)) return;
+        const isSelectedRun = selectedOrderId !== null || selectedShipmentId !== null;
+        const refreshesPreviousPilot = previous?.pilotCompleted?.identity === options.identity;
+        if ((!isSelectedRun || observedPilot) && !refreshesPreviousPilot) return;
+        observedPilot = {
+            completed: true,
+            kind: options.kind,
+            identity: options.identity,
+            name: destination.name,
+            contentFingerprint: options.contentFingerprint,
+            payloadSha256: destination.sha256,
+            size: destination.size,
+            completedAt: next.updatedAt,
+        };
+    }
 
     for (const order of orders) {
         const key = String(order.id);
@@ -290,7 +321,10 @@ async function main() {
             if (!isWithinLookback && !isRequestedDate && previous?.orders[key] !== currentFingerprint) {
                 ignoredOutsideLookback += 1;
             }
-            next.orders[key] = currentFingerprint;
+            const isPilotArtifact = previous?.pilotCompleted?.identity === `order:${order.id}`;
+            next.orders[key] = isPilotArtifact
+                ? previous.orders[key]
+                : currentFingerprint;
             continue;
         }
         planned += 1;
@@ -298,12 +332,14 @@ async function main() {
 
         try {
             const document = await buildInvoiceDocument(order.id);
-            const destination = await target.saveDocument(document.fileName, document.pdfBuffer, {
+            const documentOptions: DrivePutOptions = {
                 kind: 'INVOICE',
                 identity: `order:${order.id}`,
-                contentFingerprint: currentFingerprint,
-            });
-            next.orders[key] = currentFingerprint;
+                contentFingerprint: document.contentFingerprint,
+            };
+            const destination = await target.saveDocument(document.fileName, document.pdfBuffer, documentOptions);
+            rememberPilotArtifact(documentOptions, destination);
+            next.orders[key] = document.contentFingerprint;
             exported += 1;
             writes[destination.action.toLowerCase() as keyof typeof writes] += 1;
             artifactReadbacks.push({
@@ -383,11 +419,13 @@ async function main() {
 
             try {
                 const document = await buildPackingListDocument(shipment.id, segment.clientId);
-                const destination = await target.saveDocument(document.fileName, document.pdfBuffer, {
+                const documentOptions: DrivePutOptions = {
                     kind: 'PACKING_LIST',
                     identity: `shipment:${shipment.id}:client:${segment.clientId}`,
                     contentFingerprint: segmentFingerprint,
-                });
+                };
+                const destination = await target.saveDocument(document.fileName, document.pdfBuffer, documentOptions);
+                rememberPilotArtifact(documentOptions, destination);
                 next.shipments[segmentKey] = segmentFingerprint;
                 exported += 1;
                 writes[destination.action.toLowerCase() as keyof typeof writes] += 1;
@@ -429,14 +467,8 @@ async function main() {
     });
     if (target.name === 'drive'
         && shouldPersistState
-        && !next.pilotCompleted
-        && (selectedOrderId !== null || selectedShipmentId !== null)) {
-        next.pilotCompleted = {
-            completed: true,
-            kind: selectedOrderId !== null ? 'ORDER' : 'SHIPMENT',
-            identity: selectedOrderId !== null ? `order:${selectedOrderId}` : `shipment:${selectedShipmentId}`,
-            completedAt: next.updatedAt,
-        };
+        && observedPilot) {
+        next.pilotCompleted = observedPilot;
     }
     if (shouldPersistState) await target.saveState(next);
     const summaryFailures = target.name === 'drive'

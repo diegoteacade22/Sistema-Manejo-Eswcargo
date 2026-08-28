@@ -4,10 +4,16 @@ import { GoogleAuth } from 'google-auth-library';
 
 export const DOCUMENT_EXPORT_STATE_FILE = '.eswcargo-document-export-state.v1.json';
 
+export type DocumentExportArtifactKind = 'INVOICE' | 'PACKING_LIST';
+
 export type DocumentExportPilot = {
     completed: true;
-    kind: 'ORDER' | 'SHIPMENT';
+    kind: 'INVOICE';
     identity: string;
+    name: string;
+    contentFingerprint: string;
+    payloadSha256: string;
+    size: number;
     completedAt: string;
 };
 
@@ -53,7 +59,7 @@ export type DrivePutResult = {
 };
 
 export type DrivePutOptions = {
-    kind: 'INVOICE' | 'PACKING_LIST' | 'STATE';
+    kind: DocumentExportArtifactKind | 'STATE';
     identity: string;
     contentFingerprint: string;
 };
@@ -110,21 +116,33 @@ function assertDriveState(state: unknown): asserts state is DocumentExportState 
         || state.version !== 1
         || !isCanonicalIso(state.updatedAt)
         || !isFingerprintMap(state.orders, /^[1-9]\d*$/)
-        || !isFingerprintMap(state.shipments, /^[1-9]\d*(?::[1-9]\d*)?$/)
-        || !isPlainObject(state.pilotCompleted)
+        || !isFingerprintMap(state.shipments, /^[1-9]\d*(?::[1-9]\d*)?$/)) {
+        throw new Error('El manifiesto Drive del exportador tiene formato inválido.');
+    }
+    if (state.pilotCompleted === undefined) return;
+    if (!isPlainObject(state.pilotCompleted)
         || state.pilotCompleted.completed !== true
         || !isCanonicalIso(state.pilotCompleted.completedAt)
-        || (state.pilotCompleted.kind !== 'ORDER' && state.pilotCompleted.kind !== 'SHIPMENT')
-        || typeof state.pilotCompleted.identity !== 'string') {
+        || state.pilotCompleted.kind !== 'INVOICE'
+        || typeof state.pilotCompleted.identity !== 'string'
+        || typeof state.pilotCompleted.name !== 'string'
+        || !state.pilotCompleted.name
+        || !state.pilotCompleted.name.toLowerCase().endsWith('.pdf')
+        || state.pilotCompleted.name.includes('/')
+        || state.pilotCompleted.name.includes('\\')
+        || typeof state.pilotCompleted.contentFingerprint !== 'string'
+        || !/^[a-f0-9]{64}$/.test(state.pilotCompleted.contentFingerprint)
+        || typeof state.pilotCompleted.payloadSha256 !== 'string'
+        || !/^[a-f0-9]{64}$/.test(state.pilotCompleted.payloadSha256)
+        || typeof state.pilotCompleted.size !== 'number'
+        || !Number.isSafeInteger(state.pilotCompleted.size)
+        || state.pilotCompleted.size <= 0) {
         throw new Error('El manifiesto Drive del exportador tiene formato inválido.');
     }
 
-    const identityPattern = state.pilotCompleted.kind === 'ORDER'
-        ? /^order:([1-9]\d*)$/
-        : /^shipment:([1-9]\d*)$/;
-    const identityMatch = state.pilotCompleted.identity.match(identityPattern);
-    const pilotMap = state.pilotCompleted.kind === 'ORDER' ? state.orders : state.shipments;
-    if (!identityMatch || !pilotMap[identityMatch[1]]) {
+    const identityMatch = state.pilotCompleted.identity.match(/^order:([1-9]\d*)$/);
+    const pilotKey = identityMatch?.[1];
+    if (!pilotKey || state.orders[pilotKey] !== state.pilotCompleted.contentFingerprint) {
         throw new Error('El manifiesto Drive no contiene una prueba de piloto válida.');
     }
 }
@@ -221,6 +239,27 @@ export class GoogleDriveDocumentStore {
             },
         });
         return response.data.files ?? [];
+    }
+
+    async verifyPilot(pilot: DocumentExportPilot): Promise<DrivePutResult> {
+        const options: DrivePutOptions = {
+            kind: pilot.kind,
+            identity: pilot.identity,
+            contentFingerprint: pilot.contentFingerprint,
+        };
+        const existing = await this.resolveExisting(pilot.name, options);
+        if (!existing) throw new Error(`Drive no contiene el artefacto piloto ${pilot.identity}.`);
+        const readback = await this.readbackArtifact(existing.id);
+        return this.result(
+            'UNCHANGED',
+            readback.file,
+            readback.contents,
+            pilot.name,
+            'application/pdf',
+            options,
+            pilot.payloadSha256,
+            pilot.size,
+        );
     }
 
     private async resolveExisting(name: string, options: DrivePutOptions) {
@@ -419,6 +458,9 @@ export class GoogleDriveDocumentStore {
 
     async saveState(state: DocumentExportState) {
         assertDriveState(state);
+        if (!state.pilotCompleted) {
+            throw new Error('Drive no guarda estado sin una prueba de piloto verificada.');
+        }
         const contents = Buffer.from(JSON.stringify(state, null, 2));
         return this.put(
             DOCUMENT_EXPORT_STATE_FILE,

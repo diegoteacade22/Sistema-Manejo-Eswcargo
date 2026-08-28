@@ -5,6 +5,7 @@ import {
     projectShipmentForPacking,
     type PackingSegment,
 } from './packing-segments';
+import { isCancelledOrderItem } from './order-totals';
 import { buildShipmentItems, getShipmentCargoDescription } from './shipment-items';
 
 export const INVOICE_DOCUMENT_RENDER_VERSION = 'invoice-pdf-v1';
@@ -42,16 +43,38 @@ export function invoiceDocumentContentFingerprint(
     order: InvoiceFingerprintSource,
     renderVersion = INVOICE_DOCUMENT_RENDER_VERSION,
 ) {
+    const numberFormatter = new Intl.NumberFormat('en-US');
+    const invoiceItems = order.items
+        .filter((item) => !isCancelledOrderItem(item.status))
+        .map((item) => ({
+            quantity: item.quantity,
+            productName: item.productName,
+            colorGrade: item.product?.color_grade || '-',
+            unitValue: numberFormatter.format(item.unit_price),
+            totalValue: numberFormatter.format(item.unit_price * item.quantity),
+        }));
+    const totalPcs = invoiceItems.reduce((total, item) => total + item.quantity, 0);
+    const shipmentWeight = Number(order.shipment?.weight_cli || 0);
+    const weightLabel = shipmentWeight > 0
+        ? `${new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(shipmentWeight)} KG`
+        : '- KG';
+
     return fingerprint({
         renderVersion,
         invoice: {
-            id: order.id,
-            order_number: order.order_number,
-            date: order.date,
-            total_amount: order.total_amount,
-            client: order.client,
-            shipment: { weight_cli: order.shipment?.weight_cli ?? null },
-            items: order.items,
+            number: String(order.order_number),
+            businessDate: new Intl.DateTimeFormat('en-US', { timeZone: 'UTC' }).format(new Date(order.date)),
+            client: {
+                name: order.client.name,
+                address: order.client.address || 'NO ADDRESS',
+                city: order.client.city || 'MIAMI',
+                country: order.client.country || 'USA',
+                code: String(order.client.old_id || order.client.id),
+            },
+            items: invoiceItems,
+            totalPcs,
+            weightLabel,
+            totalAmount: numberFormatter.format(order.total_amount ?? 0),
         },
     });
 }

@@ -27,6 +27,13 @@ test('export completo Drive falla cerrado hasta que exista un manifiesto piloto'
         selectedOrderId: 42,
         selectedShipmentId: null,
     }));
+    assert.throws(() => assertDriveBootstrapReady({
+        targetName: 'drive',
+        hasVerifiedPilot: false,
+        dryRun: false,
+        selectedOrderId: null,
+        selectedShipmentId: 42,
+    }), /requiere una única orden/);
     assert.doesNotThrow(() => assertDriveBootstrapReady({
         targetName: 'drive',
         hasVerifiedPilot: false,

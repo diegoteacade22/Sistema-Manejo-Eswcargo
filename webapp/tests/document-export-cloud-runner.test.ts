@@ -62,13 +62,23 @@ test('export-one conserva cualquier salida parcial como error', async () => {
 test('el runner aplica el gate de bootstrap antes de consultar o persistir un export completo', async () => {
     const exporter = await readFile(exporterPath, 'utf8');
     const loadState = exporter.indexOf('const previous = await target.loadState()');
+    const pilotReadback = exporter.indexOf('await target.verifyPilot(previous.pilotCompleted)');
     const bootstrap = exporter.indexOf('assertDriveBootstrapReady({');
     const query = exporter.indexOf('const orders = await prisma.order.findMany({');
     const persist = exporter.indexOf('if (shouldPersistState) await target.saveState(next)');
     assert.ok(loadState >= 0);
+    assert.ok(pilotReadback > loadState);
+    assert.doesNotMatch(exporter, /hasVerifiedPilot:\s*Boolean\(previous\?\.pilotCompleted\)/);
     assert.ok(bootstrap > loadState);
+    assert.ok(bootstrap > pilotReadback);
     assert.ok(query > bootstrap);
     assert.ok(persist > query);
+    assert.match(exporter, /payloadSha256:\s*destination\.sha256/);
+    assert.match(exporter, /contentFingerprint:\s*options\.contentFingerprint/);
+    assert.match(exporter, /contentFingerprint:\s*document\.contentFingerprint/);
+    assert.match(exporter, /next\.orders\[key\] = document\.contentFingerprint/);
+    assert.match(exporter, /next\.pilotCompleted = observedPilot/);
+    assert.doesNotMatch(exporter, /&&\s*!next\.pilotCompleted/);
 });
 
 test('invoice carga weight_cli y usa el contrato de render en huella y HTML', async () => {
@@ -81,6 +91,9 @@ test('invoice carga weight_cli y usa el contrato de render en huella y HTML', as
     assert.doesNotMatch(exporter, /date_arrived:\s*true|updatedAt:\s*true/);
     assert.match(builders, /INVOICE_DOCUMENT_RENDER_VERSION/);
     assert.match(builders, /PACKING_LIST_DOCUMENT_RENDER_VERSION/);
+    assert.match(builders, /const contentFingerprint = invoiceDocumentContentFingerprint\(order\)/);
+    assert.match(builders, /fileName,\s*contentFingerprint/);
+    assert.match(builders, /where:\s*\{ id: orderId \}[\s\S]*?items:\s*\{\s*orderBy:\s*\{ id: 'asc' \}/);
     assert.match(builders, /shipment\.date_shipped \|\| shipment\.createdAt/);
     assert.doesNotMatch(builders, /new Date\(\)\.toLocaleDateString\(\)/);
 });

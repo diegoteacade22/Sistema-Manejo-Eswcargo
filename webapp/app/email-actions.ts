@@ -17,6 +17,7 @@ import { PACKING_LIST_TYPOGRAPHY } from '@/lib/packing-list-typography';
 import {
     INVOICE_DOCUMENT_RENDER_VERSION,
     PACKING_LIST_DOCUMENT_RENDER_VERSION,
+    invoiceDocumentContentFingerprint,
 } from '@/lib/document-export-fingerprint';
 
 type PackingListDocument = {
@@ -31,6 +32,7 @@ type InvoiceDocument = {
     htmlBody: string;
     pdfBuffer: Uint8Array;
     fileName: string;
+    contentFingerprint: string;
 };
 
 function formatBusinessDate(value: Date | string) {
@@ -310,6 +312,7 @@ export async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocu
         where: { id: orderId },
         include: {
             items: {
+                orderBy: { id: 'asc' },
                 include: {
                     product: true
                 }
@@ -330,6 +333,7 @@ export async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocu
 
     const invoiceItems = order.items.filter(item => !isCancelledOrderItem(item.status));
     assertInvoiceIsReady({ ...order, items: invoiceItems });
+    const contentFingerprint = invoiceDocumentContentFingerprint(order);
 
     const totalPcs = invoiceItems.reduce((sum, item) => sum + item.quantity, 0);
     const itemsHtml = invoiceItems.map((item, index) => `
@@ -500,7 +504,8 @@ export async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocu
         order,
         htmlBody,
         pdfBuffer,
-        fileName
+        fileName,
+        contentFingerprint,
     };
 }
 

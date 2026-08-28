@@ -25,6 +25,9 @@ export function assertDriveBootstrapReady({
     selectedOrderId: number | null;
     selectedShipmentId: number | null;
 }) {
+    if (targetName === 'drive' && !dryRun && selectedShipmentId !== null) {
+        throw new Error('El piloto Drive requiere una única orden mediante export-one.');
+    }
     const isFullDriveExport = targetName === 'drive'
         && !dryRun
         && selectedOrderId === null

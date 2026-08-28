@@ -113,6 +113,7 @@ const invoiceSource = {
         product: { color_grade: 'BLACK' },
     }],
 };
+const pilotContents = Buffer.from('pdf-piloto-verificado');
 
 test('valida credenciales sin exponer su contenido', async () => {
     const credentials = await loadGoogleServiceAccountCredentials({
@@ -371,6 +372,47 @@ test('cambio de render version cambia la huella y actualiza el mismo file ID', a
     await assertFingerprintUpdatesSameFile(previousFingerprint, nextFingerprint, Buffer.from('pdf-nuevo-template'));
 });
 
+test('cambiar un item cancelado deja la huella invoice UNCHANGED', () => {
+    const cancelledItem = {
+        id: 81,
+        productName: 'Producto cancelado',
+        quantity: 1,
+        unit_price: 100,
+        status: '  cancelado  ',
+        product: { color_grade: 'WHITE' },
+    };
+    const previousFingerprint = invoiceDocumentContentFingerprint({
+        ...invoiceSource,
+        items: [...invoiceSource.items, cancelledItem],
+    });
+    const nextFingerprint = invoiceDocumentContentFingerprint({
+        ...invoiceSource,
+        items: [...invoiceSource.items, {
+            ...cancelledItem,
+            productName: 'Cambio que no se imprime',
+            quantity: 99,
+            unit_price: 9999,
+            product: { color_grade: 'RED' },
+        }],
+    });
+    assert.equal(nextFingerprint, previousFingerprint);
+
+    const reactivatedFingerprint = invoiceDocumentContentFingerprint({
+        ...invoiceSource,
+        items: [...invoiceSource.items, { ...cancelledItem, status: 'CONFIRMED' }],
+    });
+    assert.notEqual(reactivatedFingerprint, previousFingerprint);
+});
+
+test('cambiar el status de un item activo no altera el PDF lógico', () => {
+    const previousFingerprint = invoiceDocumentContentFingerprint(invoiceSource);
+    const nextFingerprint = invoiceDocumentContentFingerprint({
+        ...invoiceSource,
+        items: invoiceSource.items.map((item) => ({ ...item, status: 'SHIPPED' })),
+    });
+    assert.equal(nextFingerprint, previousFingerprint);
+});
+
 test('packing compartido sin shipment_number actualiza el mismo file ID al cambiar el subtotal', async () => {
     const previousFingerprint = packingFingerprint(sharedPackingSource, 50);
     const nextFingerprint = packingFingerprint(sharedPackingSource, 60);
@@ -425,14 +467,18 @@ function validState() {
         updatedAt: '2026-08-27T00:00:00.000Z',
         pilotCompleted: {
             completed: true as const,
-            kind: 'ORDER' as const,
+            kind: 'INVOICE' as const,
             identity: 'order:42',
+            name: 'INV-PILOTO.pdf',
+            contentFingerprint: 'a'.repeat(64),
+            payloadSha256: sha256(pilotContents),
+            size: pilotContents.byteLength,
             completedAt: '2026-08-27T00:00:00.000Z',
         },
     };
 }
 
-function stateReadbackClient(state: unknown) {
+function stateReadbackClient(state: unknown, extraResponses: unknown[] = []) {
     const contents = Buffer.from(JSON.stringify(state));
     const stateOptions: DrivePutOptions = {
         kind: 'STATE',
@@ -440,7 +486,11 @@ function stateReadbackClient(state: unknown) {
         contentFingerprint: sha256(contents),
     };
     const manifest = driveFile({ contents, name: DOCUMENT_EXPORT_STATE_FILE, fileOptions: stateOptions });
-    return { contents, manifest, client: new FakeDriveClient([{ files: [manifest] }, manifest, contents]) };
+    return {
+        contents,
+        manifest,
+        client: new FakeDriveClient([{ files: [manifest] }, manifest, contents, ...extraResponses]),
+    };
 }
 
 test('manifiesto de estado también exige MIME, tamaño y hashes reales antes de usarlo', async () => {
@@ -470,12 +520,15 @@ test('manifiesto de estado también exige MIME, tamaño y hashes reales antes de
 });
 
 for (const invalidState of [
-    { name: 'state vacío', value: { ...validState(), orders: {}, shipments: {} } },
+    { name: 'piloto sin fingerprint enlazado', value: { ...validState(), orders: {}, shipments: {} } },
     { name: 'versión distinta', value: { ...validState(), version: 2 } },
     { name: 'fecha no válida', value: { ...validState(), updatedAt: 'not-a-date' } },
     { name: 'fecha no canónica', value: { ...validState(), updatedAt: '2026-08-27' } },
     { name: 'fingerprint corto', value: { ...validState(), orders: { '42': '123' } } },
     { name: 'fingerprint null', value: { ...validState(), orders: { '42': null } } },
+    { name: 'SHA piloto corto', value: { ...validState(), pilotCompleted: { ...validState().pilotCompleted, payloadSha256: '123' } } },
+    { name: 'tamaño piloto cero', value: { ...validState(), pilotCompleted: { ...validState().pilotCompleted, size: 0 } } },
+    { name: 'nombre piloto no PDF', value: { ...validState(), pilotCompleted: { ...validState().pilotCompleted, name: 'pilot.json' } } },
     { name: 'clave order cero', value: { ...validState(), orders: { '0': 'a'.repeat(64) } } },
     { name: 'clave shipment inválida', value: { ...validState(), shipments: { bad: 'b'.repeat(64) } } },
     { name: 'orders array', value: { ...validState(), orders: ['a'.repeat(64)] } },
@@ -490,6 +543,27 @@ for (const invalidState of [
     });
 }
 
+test('manifiesto legado sin piloto puede cargarse pero no contiene prueba para full', async () => {
+    const state = validState();
+    const legacyState = {
+        version: state.version,
+        orders: state.orders,
+        shipments: state.shipments,
+        updatedAt: state.updatedAt,
+    };
+    const { client } = stateReadbackClient(legacyState);
+    const loaded = await new GoogleDriveDocumentStore(client, folderId).loadState();
+    assert.equal(loaded?.pilotCompleted, undefined);
+    assert.deepEqual(loaded, legacyState);
+
+    const saveClient = new FakeDriveClient([]);
+    await assert.rejects(
+        new GoogleDriveDocumentStore(saveClient, folderId).saveState(legacyState),
+        /no guarda estado sin una prueba de piloto/,
+    );
+    assert.equal(saveClient.calls.length, 0);
+});
+
 test('manifiesto Drive acepta sólo un piloto explícito enlazado a su fingerprint', async () => {
     const state = validState();
     const { client } = stateReadbackClient(state);
@@ -503,6 +577,118 @@ test('manifiesto Drive acepta sólo un piloto explícito enlazado a su fingerpri
     await assert.rejects(
         new GoogleDriveDocumentStore(fabricatedClient, folderId).loadState(),
         /prueba de piloto válida/,
+    );
+});
+
+test('full sólo acepta un piloto cuyo PDF existe y pasa readback real por identidad', async () => {
+    const state = validState();
+    const pilotOptions: DrivePutOptions = {
+        kind: 'INVOICE',
+        identity: state.pilotCompleted.identity,
+        contentFingerprint: state.pilotCompleted.contentFingerprint,
+    };
+    const pilotFile = driveFile({ contents: pilotContents, name: state.pilotCompleted.name, fileOptions: pilotOptions });
+    const { client } = stateReadbackClient(state, [{ files: [pilotFile] }, pilotFile, pilotContents]);
+    const store = new GoogleDriveDocumentStore(client, folderId);
+    const loaded = await store.loadState();
+    assert.ok(loaded?.pilotCompleted);
+
+    const result = await store.verifyPilot(loaded.pilotCompleted);
+
+    assert.equal(result.action, 'UNCHANGED');
+    assert.equal(result.sha256, state.pilotCompleted.payloadSha256);
+    assert.equal(result.size, state.pilotCompleted.size);
+    assert.match(String((client.calls[3]?.params as Record<string, unknown>)?.q), /name = 'INV-PILOTO\.pdf'.*eswIdentity/);
+    assert.equal(client.calls.at(-1)?.responseType, 'arraybuffer');
+    assert.equal(client.calls.some((call) => call.method === 'POST' || call.method === 'PATCH'), false);
+});
+
+test('manifiesto inventado no habilita full cuando no existe su PDF piloto', async () => {
+    const state = validState();
+    const { client } = stateReadbackClient(state, [{ files: [] }]);
+    const store = new GoogleDriveDocumentStore(client, folderId);
+    const loaded = await store.loadState();
+    assert.ok(loaded?.pilotCompleted);
+
+    await assert.rejects(
+        store.verifyPilot(loaded.pilotCompleted),
+        /no contiene el artefacto piloto/,
+    );
+});
+
+test('piloto falla ante un archivo ajeno con el mismo nombre aunque la identidad sea única', async () => {
+    const state = validState();
+    const pilotOptions: DrivePutOptions = {
+        kind: 'INVOICE',
+        identity: state.pilotCompleted.identity,
+        contentFingerprint: state.pilotCompleted.contentFingerprint,
+    };
+    const pilotFile = driveFile({ contents: pilotContents, name: state.pilotCompleted.name, fileOptions: pilotOptions });
+    const unmanagedCollision = {
+        ...pilotFile,
+        id: 'external-file-abcdefgh',
+        appProperties: {},
+    };
+    const { client } = stateReadbackClient(state, [{ files: [pilotFile, unmanagedCollision] }]);
+    const store = new GoogleDriveDocumentStore(client, folderId);
+    const loaded = await store.loadState();
+    assert.ok(loaded?.pilotCompleted);
+
+    await assert.rejects(
+        store.verifyPilot(loaded.pilotCompleted),
+        /más de un artefacto activo con el nombre/,
+    );
+    assert.equal(client.calls.some((call) => call.method === 'POST' || call.method === 'PATCH'), false);
+});
+
+test('piloto corrupto falla cerrado aunque el manifiesto tenga formato válido', async () => {
+    const state = validState();
+    const pilotOptions: DrivePutOptions = {
+        kind: 'INVOICE',
+        identity: state.pilotCompleted.identity,
+        contentFingerprint: state.pilotCompleted.contentFingerprint,
+    };
+    const pilotFile = driveFile({ contents: pilotContents, name: state.pilotCompleted.name, fileOptions: pilotOptions });
+    const corruptBytes = Buffer.from(pilotContents);
+    corruptBytes[0] = corruptBytes[0] ^ 1;
+    assert.equal(corruptBytes.byteLength, pilotContents.byteLength);
+    const { client } = stateReadbackClient(state, [{ files: [pilotFile] }, pilotFile, corruptBytes]);
+    const store = new GoogleDriveDocumentStore(client, folderId);
+    const loaded = await store.loadState();
+    assert.ok(loaded?.pilotCompleted);
+
+    await assert.rejects(
+        store.verifyPilot(loaded.pilotCompleted),
+        /SHA-256 real|MD5 real/,
+    );
+});
+
+test('fingerprint inventado en el manifiesto falla contra metadata y bytes del PDF real', async () => {
+    const state = validState();
+    const claimedFingerprint = 'c'.repeat(64);
+    const fabricatedState = {
+        ...state,
+        orders: { '42': claimedFingerprint },
+        pilotCompleted: { ...state.pilotCompleted, contentFingerprint: claimedFingerprint },
+    };
+    const actualOptions: DrivePutOptions = {
+        kind: 'INVOICE',
+        identity: state.pilotCompleted.identity,
+        contentFingerprint: state.pilotCompleted.contentFingerprint,
+    };
+    const actualFile = driveFile({
+        contents: pilotContents,
+        name: state.pilotCompleted.name,
+        fileOptions: actualOptions,
+    });
+    const { client } = stateReadbackClient(fabricatedState, [{ files: [actualFile] }, actualFile, pilotContents]);
+    const store = new GoogleDriveDocumentStore(client, folderId);
+    const loaded = await store.loadState();
+    assert.ok(loaded?.pilotCompleted);
+
+    await assert.rejects(
+        store.verifyPilot(loaded.pilotCompleted),
+        /identidad y huella lógica/,
     );
 });
 
