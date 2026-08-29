@@ -142,13 +142,15 @@ test('stale source is durably reported and does not poison the remaining goals',
 
 test('authority observation uses an isolated bare cache and the exact HTTPS repository', async () => {
   const commands = [];
+  const environments = [];
   const reconciler = new EngineeringGoalReconciler({
-    config,
+    config: { ...config, githubReadToken: 'read-only-token', githubToken: 'write-token' },
     api: {},
     logger: { error() {} },
-    processRunner: async (_command, args) => {
+    processRunner: async (_command, args, options = {}) => {
       const gitArgs = commandArgs(args);
       commands.push(gitArgs);
+      environments.push(options.env || {});
       if (gitArgs[0] === 'init' || gitArgs[0] === 'fetch') return { stdout: '', stderr: '', exitCode: 0 };
       if (gitArgs[0] === 'rev-parse') return { stdout: `${baseCommit}\n`, stderr: '', exitCode: 0 };
       throw new Error(`unexpected git args: ${gitArgs.join(' ')}`);
@@ -156,7 +158,12 @@ test('authority observation uses an isolated bare cache and the exact HTTPS repo
   });
   assert.equal(await reconciler.fetchAuthoritativeBase(), baseCommit);
   const fetch = commands.find((args) => args[0] === 'fetch');
+  const fetchIndex = commands.findIndex((args) => args[0] === 'fetch');
   assert.equal(fetch.includes('https://github.com/owner/repo.git'), true);
+  assert.equal(
+    Buffer.from(environments[fetchIndex].GIT_CONFIG_VALUE_0.split(' ').at(-1), 'base64').toString('utf8'),
+    'x-access-token:read-only-token',
+  );
   assert.equal(commands.some((args) => args[0] === 'remote'), false);
   await reconciler.cleanupAuthorityCache();
 });

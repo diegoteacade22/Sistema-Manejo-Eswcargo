@@ -15,6 +15,7 @@ LABEL="com.esw.company-os-engineering-v2"
 HEALTH_PORT="${COMPANY_OS_ENGINEERING_HEALTH_PORT:-8795}"
 HMAC_SERVICE="${COMPANY_OS_ENGINEERING_HMAC_KEYCHAIN_SERVICE:-com.esw.company-os-engineering-v2.hmac}"
 GITHUB_SERVICE="${COMPANY_OS_ENGINEERING_GITHUB_KEYCHAIN_SERVICE:-com.esw.company-os-engineering-v2.github-token}"
+GITHUB_READ_SERVICE="${COMPANY_OS_ENGINEERING_GITHUB_READ_KEYCHAIN_SERVICE:-com.esw.company-os-engineering-v2.github-read-token}"
 GITHUB_KEYCHAIN_PATH="${COMPANY_OS_ENGINEERING_GITHUB_KEYCHAIN_PATH:-$STATE_DIR/engineering-secrets.keychain-db}"
 KEYCHAIN_ACCOUNT="${COMPANY_OS_ENGINEERING_KEYCHAIN_ACCOUNT:-$(id -un)}"
 NODE_BIN="${COMPANY_OS_ENGINEERING_NODE_BIN:-/opt/homebrew/bin/node}"
@@ -70,6 +71,13 @@ github_keychain_has() {
 github_keychain_get() {
   github_keychain_unlock || die "Falta Keychain GitHub A2 en $GITHUB_KEYCHAIN_PATH"
   /usr/bin/security find-generic-password -a "$KEYCHAIN_ACCOUNT" -s "$GITHUB_SERVICE" -w "$GITHUB_KEYCHAIN_PATH" 2>/dev/null || die "Falta token GitHub en Keychain service=$GITHUB_SERVICE account=$KEYCHAIN_ACCOUNT"
+}
+github_read_keychain_has() {
+  /usr/bin/security find-generic-password -a "$KEYCHAIN_ACCOUNT" -s "$GITHUB_READ_SERVICE" >/dev/null 2>&1
+}
+github_read_keychain_get() {
+  /usr/bin/security find-generic-password -a "$KEYCHAIN_ACCOUNT" -s "$GITHUB_READ_SERVICE" -w 2>/dev/null \
+    || die "Falta token GitHub read-only en Keychain service=$GITHUB_READ_SERVICE account=$KEYCHAIN_ACCOUNT"
 }
 
 provision_a2_gui() {
@@ -167,6 +175,7 @@ run_gui() {
 <key>COMPANY_OS_ENGINEERING_HEALTH_PORT</key><string>$HEALTH_PORT</string>
 <key>COMPANY_OS_ENGINEERING_HMAC_KEYCHAIN_SERVICE</key><string>$HMAC_SERVICE</string>
 <key>COMPANY_OS_ENGINEERING_GITHUB_KEYCHAIN_SERVICE</key><string>$GITHUB_SERVICE</string>
+<key>COMPANY_OS_ENGINEERING_GITHUB_READ_KEYCHAIN_SERVICE</key><string>$GITHUB_READ_SERVICE</string>
 <key>COMPANY_OS_ENGINEERING_GITHUB_KEYCHAIN_PATH</key><string>${GITHUB_KEYCHAIN_PATH:A}</string>
 <key>COMPANY_OS_ENGINEERING_KEYCHAIN_ACCOUNT</key><string>$KEYCHAIN_ACCOUNT</string>
 </dict>
@@ -263,6 +272,7 @@ render_plist() {
 <key>COMPANY_OS_ENGINEERING_HEALTH_PORT</key><string>$HEALTH_PORT</string>
 <key>COMPANY_OS_ENGINEERING_HMAC_KEYCHAIN_SERVICE</key><string>$HMAC_SERVICE</string>
 <key>COMPANY_OS_ENGINEERING_GITHUB_KEYCHAIN_SERVICE</key><string>$GITHUB_SERVICE</string>
+<key>COMPANY_OS_ENGINEERING_GITHUB_READ_KEYCHAIN_SERVICE</key><string>$GITHUB_READ_SERVICE</string>
 <key>COMPANY_OS_ENGINEERING_GITHUB_KEYCHAIN_PATH</key><string>${GITHUB_KEYCHAIN_PATH:A}</string>
 <key>COMPANY_OS_ENGINEERING_KEYCHAIN_ACCOUNT</key><string>$KEYCHAIN_ACCOUNT</string>
 </dict>
@@ -405,6 +415,11 @@ uninstall() {
 run() {
   validate_state; check_bins
   export COMPANY_OS_ENGINEERING_HMAC_SECRET="$(keychain_get)"
+  if github_read_keychain_has; then
+    export COMPANY_OS_ENGINEERING_GITHUB_READ_TOKEN="$(github_read_keychain_get)"
+  else
+    unset COMPANY_OS_ENGINEERING_GITHUB_READ_TOKEN
+  fi
   if [[ "${COMPANY_OS_ENGINEERING_MAX_AUTONOMY:-A1}" == "A2" ]]; then
     export COMPANY_OS_ENGINEERING_GITHUB_TOKEN="$(github_keychain_get)"
   else

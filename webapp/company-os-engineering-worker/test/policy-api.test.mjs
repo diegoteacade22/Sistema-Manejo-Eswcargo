@@ -192,6 +192,8 @@ test('A1 config does not require GitHub token while A2 does', () => {
     COMPANY_OS_ENGINEERING_STATE_DIR: `${homedir()}/.company-os-engineering-v2-test`,
   };
   assert.equal(loadConfig(base).githubToken, null);
+  assert.equal(loadConfig(base).githubReadToken, null);
+  assert.equal(loadConfig({ ...base, COMPANY_OS_ENGINEERING_GITHUB_READ_TOKEN: 'read-token' }).githubReadToken, 'read-token');
   assert.equal(loadConfig(base).binaryVersion, '2.0.0');
   assert.equal(loadConfig(base).contractVersion, '2.1.0');
   assert.throws(() => loadConfig({ ...base, COMPANY_OS_ENGINEERING_WORKER_ID: 'x' }), /ENGINEERING_WORKER_ID_INVALID/);

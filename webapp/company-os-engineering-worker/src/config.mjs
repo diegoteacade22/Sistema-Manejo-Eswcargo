@@ -51,6 +51,7 @@ export function loadConfig(env = process.env) {
     .split(',').map((item) => item.trim().toLowerCase()).filter(Boolean);
   const maxAutonomy = env.COMPANY_OS_ENGINEERING_MAX_AUTONOMY?.trim() || 'A1';
   if (!['A1', 'A2'].includes(maxAutonomy)) throw new Error('ENGINEERING_MAX_AUTONOMY_INVALID');
+  const githubReadToken = env.COMPANY_OS_ENGINEERING_GITHUB_READ_TOKEN?.trim() || null;
   const githubToken = env.COMPANY_OS_ENGINEERING_GITHUB_TOKEN?.trim() || null;
   if (maxAutonomy === 'A2' && !githubToken) throw new Error('COMPANY_OS_ENGINEERING_GITHUB_TOKEN_REQUIRED');
   return Object.freeze({
@@ -65,6 +66,7 @@ export function loadConfig(env = process.env) {
     repositorySlug,
     baseBranch,
     maxAutonomy,
+    githubReadToken,
     githubToken,
     stateDir,
     jobsDir: join(stateDir, 'jobs'),

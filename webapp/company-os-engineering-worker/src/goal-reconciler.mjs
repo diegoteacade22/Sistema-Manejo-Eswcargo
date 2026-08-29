@@ -28,8 +28,9 @@ function error(code) {
 }
 
 function secureGitHubEnvironment(config) {
-  const base = config.githubToken
-    ? githubGitEnvironment(config.githubToken)
+  const readToken = config.githubReadToken || config.githubToken;
+  const base = readToken
+    ? githubGitEnvironment(readToken)
     : nonSecretEnvironment();
   return {
     ...base,

@@ -53,6 +53,13 @@ separado criptográficamente del runtime advisory. A2 resuelve un token GitHub s
 sólo se entrega a los adapters Git/`gh`. Esto permite arranque no interactivo
 sin guardar el token en texto plano. Codex usa un auth dir dedicado RO.
 
+Para repositorios privados, los fetch de autoridad A1/A2 pueden resolver una
+credencial GitHub separada y de sólo lectura desde el Keychain de login, service
+`com.esw.company-os-engineering-v2.github-read-token`. Es opcional en repositorios
+públicos y nunca se entrega a Codex ni al adapter `gh`; autoriza únicamente los
+`git fetch` HTTPS determinísticos del host. El token A2 de escritura sigue siendo
+una credencial distinta y sólo se carga cuando el máximo local es A2.
+
 ```sh
 export COMPANY_OS_ENGINEERING_REPOSITORY_PATH=/ruta/al/repo-fijo
 export COMPANY_OS_ENGINEERING_REPOSITORY_SLUG=owner/repository

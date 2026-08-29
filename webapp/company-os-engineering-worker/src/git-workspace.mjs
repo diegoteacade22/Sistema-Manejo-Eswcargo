@@ -91,8 +91,9 @@ export class GitWorkspace {
     });
     if (repositorySlugFromRemote(sourceRemote.stdout) !== this.config.repositorySlug) throw new PolicyError('SOURCE_REMOTE_MISMATCH');
     if (this.config.fetchBaseCommit !== false) {
-      const fetchEnvironment = this.config.githubToken
-        ? githubGitEnvironment(this.config.githubToken)
+      const readToken = this.config.githubReadToken || this.config.githubToken;
+      const fetchEnvironment = readToken
+        ? githubGitEnvironment(readToken)
         : nonSecretEnvironment();
       await runProcess(this.config.gitBin, [
         '-c', 'core.hooksPath=/dev/null', '-C', this.config.repositoryPath,

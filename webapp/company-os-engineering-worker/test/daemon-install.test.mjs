@@ -187,9 +187,12 @@ test('installer references Keychain and local auth without embedding secrets', a
   assert.match(script, /COMPANY_OS_ENGINEERING_HMAC_SECRET="\$\(keychain_get\)"/);
   assert.match(script, /com\.esw\.company-os-engineering-v2\.hmac/);
   assert.match(script, /com\.esw\.company-os-engineering-v2\.github-token/);
+  assert.match(script, /com\.esw\.company-os-engineering-v2\.github-read-token/);
   assert.match(script, /COMPANY_OS_ENGINEERING_GITHUB_TOKEN="\$\(github_keychain_get\)"/);
+  assert.match(script, /COMPANY_OS_ENGINEERING_GITHUB_READ_TOKEN="\$\(github_read_keychain_get\)"/);
   assert.doesNotMatch(script, /<key>COMPANY_OS_ENGINEERING_HMAC_SECRET<\/key>/);
   assert.doesNotMatch(script, /<key>COMPANY_OS_ENGINEERING_GITHUB_TOKEN<\/key>/);
+  assert.doesNotMatch(script, /<key>COMPANY_OS_ENGINEERING_GITHUB_READ_TOKEN<\/key>/);
   assert.match(script, /rollback\)/);
   assert.match(script, /engineering-secrets\.keychain-db/);
   assert.doesNotMatch(script, /ABSENT_ENGINEERING_KEYCHAIN/);
