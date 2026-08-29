@@ -7,6 +7,7 @@
     "start": "node src/server.mjs serve",
     "daemon": "node src/server.mjs daemon",
     "recover": "node src/server.mjs recover",
+    "probe:ollama": "node scripts/probe-ollama.mjs",
     "test": "node --test test/*.test.mjs"
   },
   "engines": {

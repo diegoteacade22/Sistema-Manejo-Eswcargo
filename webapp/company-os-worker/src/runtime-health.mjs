@@ -1,4 +1,8 @@
 import { createServer } from 'node:http';
+import {
+  COMPANY_OS_RUNTIME_BINARY_VERSION,
+  COMPANY_OS_RUNTIME_CONTRACT_VERSION,
+} from './runtime-config.mjs';
 
 export function createRuntimeHealthServer({ host = '127.0.0.1', port = 8794, snapshot }) {
   if (host !== '127.0.0.1') throw new Error('Runtime health server must bind to 127.0.0.1');
@@ -16,8 +20,10 @@ export function createRuntimeHealthServer({ host = '127.0.0.1', port = 8794, sna
     response.end(JSON.stringify({
       ok: healthy,
       service: 'company-os-runtime',
-      contract: 'runtime-v1',
+      contract: COMPANY_OS_RUNTIME_CONTRACT_VERSION,
       ...state,
+      binaryVersion: COMPANY_OS_RUNTIME_BINARY_VERSION,
+      contractVersion: COMPANY_OS_RUNTIME_CONTRACT_VERSION,
     }));
   });
 

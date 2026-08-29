@@ -1,5 +1,6 @@
 import { loadConfig } from './config.mjs';
 import { EngineeringDaemon } from './daemon.mjs';
+import { ENGINEERING_BINARY_VERSION, ENGINEERING_CONTRACT_VERSION } from './version.mjs';
 
 async function main() {
   const daemon = new EngineeringDaemon({ config: loadConfig() });
@@ -7,7 +8,12 @@ async function main() {
   process.once('SIGTERM', shutdown);
   process.once('SIGINT', shutdown);
   await daemon.start();
-  process.stdout.write(JSON.stringify({ event: 'ENGINEERING_V2_RUNNER_READY', health: '127.0.0.1' }) + '\n');
+  process.stdout.write(JSON.stringify({
+    event: 'ENGINEERING_V2_RUNNER_READY',
+    health: '127.0.0.1',
+    binaryVersion: ENGINEERING_BINARY_VERSION,
+    contractVersion: ENGINEERING_CONTRACT_VERSION,
+  }) + '\n');
 }
 
 main().catch((error) => {

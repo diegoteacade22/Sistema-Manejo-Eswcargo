@@ -5,6 +5,8 @@ import {
   assertEngineeringTransition,
   authorizeEngineeringEffect,
   calculateEngineeringPriority,
+  engineeringGoalEpochResetObserved,
+  engineeringGoalRequestId,
   engineeringHash,
   engineeringMissionHash,
   engineeringProgressFingerprint,
@@ -18,8 +20,102 @@ import {
   type EngineeringProofEvent,
   type EngineeringRuntimeControl,
 } from '../lib/company-os/autonomous-engineering-v2';
+import { validateEngineeringRemoteReadback } from '../lib/company-os/engineering-store';
 
 const NOW = '2026-08-27T12:00:00.000Z';
+
+test('Goal epochs reopen only after a satisfaction newer than mission creation', () => {
+  const missionCreated = new Date('2026-08-29T12:00:00.000Z');
+  assert.equal(engineeringGoalEpochResetObserved(
+    new Date('2026-08-29T12:01:00.000Z'),
+    missionCreated,
+  ), true, 'active -> satisfied -> terminal must permit the next drift mission');
+  assert.equal(engineeringGoalEpochResetObserved(
+    new Date('2026-08-29T11:59:00.000Z'),
+    missionCreated,
+  ), false, 'an older satisfaction must not reopen a newer terminal mission');
+  assert.equal(engineeringGoalEpochResetObserved(null, missionCreated), false);
+});
+
+test('Goal request IDs remain inside durable idempotency limits at maximum inputs', () => {
+  const requestId = engineeringGoalRequestId({
+    goalId: `goal:${'g'.repeat(175)}`,
+    goalKey: 'k'.repeat(120),
+    version: 2_147_483_647,
+    baseCommit: 'a'.repeat(40),
+    evidenceHash: 'b'.repeat(64),
+    observationEpoch: 'c'.repeat(16),
+  });
+  assert.match(requestId, /^goal:[a-f0-9]{64}$/);
+  assert.ok(`${requestId}:discovered`.length <= 200);
+});
+
+test('remote effect readback is exact, GitHub-only and bound to the planned commit', () => {
+  const branch = 'codex/engineering-v2-mission-1-aaaaaaaa';
+  const commitSha = 'b'.repeat(40);
+  const common = {
+    targetRepository: 'owner/repo',
+    targetHeadBranch: branch,
+    targetCommitSha: commitSha,
+  };
+  assert.deepEqual(validateEngineeringRemoteReadback(
+    { ...common, verb: 'PUSH_BRANCH' },
+    {
+      remoteProvider: 'github',
+      remoteId: branch,
+      remoteUrl: `https://github.com/owner/repo/tree/${branch}`,
+      remoteReadback: { branch, commitSha },
+    },
+  ).remoteId, branch);
+  assert.throws(() => validateEngineeringRemoteReadback(
+    { ...common, verb: 'PUSH_BRANCH' },
+    {
+      remoteProvider: 'github',
+      remoteId: branch,
+      remoteUrl: `https://github.com/owner/repo/tree/${branch}?forged=1`,
+      remoteReadback: { branch, commitSha },
+    },
+  ), /URL remota fuera de policy|Readback de branch/);
+  assert.throws(() => validateEngineeringRemoteReadback(
+    { ...common, verb: 'PUSH_BRANCH' },
+    {
+      remoteProvider: 'github',
+      remoteId: branch,
+      remoteUrl: `https://github.com/owner/repo/tree/${branch}`,
+      remoteReadback: { branch, commitSha: 'c'.repeat(40), injected: true },
+    },
+  ), /Readback de branch/);
+  assert.equal(validateEngineeringRemoteReadback(
+    { ...common, verb: 'CREATE_DRAFT_PR' },
+    {
+      remoteProvider: 'github',
+      remoteId: '7',
+      remoteUrl: 'https://github.com/owner/repo/pull/7',
+      remoteReadback: {
+        number: 7,
+        url: 'https://github.com/owner/repo/pull/7',
+        isDraft: true,
+        branch,
+        commitSha,
+      },
+    },
+  ).remoteId, '7');
+  assert.throws(() => validateEngineeringRemoteReadback(
+    { ...common, verb: 'CREATE_DRAFT_PR' },
+    {
+      remoteProvider: 'github',
+      remoteId: '7',
+      remoteUrl: 'https://github.com/owner/repo/pull/7',
+      remoteReadback: {
+        number: 7,
+        url: 'https://github.com/owner/repo/pull/7',
+        isDraft: false,
+        branch,
+        commitSha,
+      },
+    },
+  ), /Readback de Draft PR/);
+});
 
 function mission(overrides: Partial<EngineeringMissionContract> = {}): EngineeringMissionContract {
   return {

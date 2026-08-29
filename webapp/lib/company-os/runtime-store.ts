@@ -170,10 +170,17 @@ export class CompanyOsRuntimeRequestError extends Error {
 
 export async function acceptCompanyOsRuntimeNonce(workerId: string, nonce: string, endpoint: string) {
   const db = companyOsV3Prisma();
-  const now = new Date();
-  const minuteAgo = new Date(now.getTime() - 60_000);
   return db.$transaction(async (tx) => {
-    await tx.companyOsWorkerRequestNonce.deleteMany({ where: { expiresAt: { lte: now } } });
+    await tx.$queryRaw(Prisma.sql`
+      SELECT pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended(${`company-os-worker-rate:${workerId}`}, 0)
+      )
+    `);
+    const [clock] = await tx.$queryRaw<Array<{ now: Date }>>(Prisma.sql`SELECT now() AS now`);
+    if (!clock?.now) throw new Error('DATABASE_CLOCK_UNOBSERVED');
+    const now = clock.now;
+    const minuteAgo = new Date(now.getTime() - 60_000);
+    await tx.companyOsWorkerRequestNonce.deleteMany({ where: { workerId, expiresAt: { lte: now } } });
     const recent = await tx.companyOsWorkerRequestNonce.count({ where: { workerId, createdAt: { gte: minuteAgo } } });
     if (recent >= REQUESTS_PER_MINUTE) throw new CompanyOsRuntimeRequestError('Límite de solicitudes del worker excedido', 429);
     try {
@@ -188,7 +195,7 @@ export async function acceptCompanyOsRuntimeNonce(workerId: string, nonce: strin
       throw error;
     }
     return { accepted: true } as const;
-  });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
 type ExpiredLeaseRow = {
@@ -573,7 +580,8 @@ export async function heartbeatCompanyOsRuntimeWork(input: {
   });
 }
 
-function estimateRuntimeCost(usage: CompanyOsWorkerUsage) {
+export function estimateRuntimeCost(usage: CompanyOsWorkerUsage) {
+  if (usage.provider === 'ollama') return 0;
   const nonCachedInput = Math.max(0, usage.inputTokens - usage.cachedTokens - usage.cacheWriteTokens);
   return (nonCachedInput * 5 + usage.cachedTokens * 0.5 + usage.cacheWriteTokens * 6.25 + usage.outputTokens * 30) / 1_000_000;
 }
@@ -599,9 +607,9 @@ async function runtimeUsageTotals(tx: Tx, agentId: string, since: Date) {
   };
 }
 
-function normalizeUsageForPersistence(usage: CompanyOsWorkerUsage) {
+export function normalizeUsageForPersistence(usage: CompanyOsWorkerUsage) {
   return {
-    provider: usage.provider === 'openai' ? 'openai' : 'openai',
+    provider: usage.provider === 'ollama' ? 'ollama' : 'openai',
     model: cleanText(usage.model || 'unknown', 120),
     inputTokens: Math.max(0, Math.trunc(usage.inputTokens || 0)),
     cachedTokens: Math.max(0, Math.trunc(usage.cachedTokens || 0)),
@@ -1359,7 +1367,7 @@ export async function getCompanyOsRuntimeControlCenter() {
     monthlyCostUsd: Number(row.monthlyCostUsd),
   }));
   const dependencyByKey = new Map(dependencyRows.map((row) => [row.dependencyKey, row]));
-  const dependencyKeys = ['network', 'vercel-api', 'supabase-postgres', 'openai-api', 'openclaw-optional'];
+  const dependencyKeys = ['network', 'vercel-api', 'supabase-postgres', 'inference-router', 'openai-api', 'ollama-local', 'openclaw-optional'];
   const dependencies = [...new Set([...dependencyKeys, ...dependencyRows.map((row) => row.dependencyKey)])].map((key) => {
     const observation = dependencyByKey.get(key);
     return observation ? {
@@ -1371,7 +1379,8 @@ export async function getCompanyOsRuntimeControlCenter() {
       latencyMs: observation.latencyMs,
     } : { key, status: 'UNOBSERVED', observedAt: null, latencyMs: null };
   });
-  const requiredDependencies = dependencies.filter((dependency) => dependency.key !== 'openclaw-optional');
+  const optionalDependencyKeys = new Set(['openai-api', 'ollama-local', 'openclaw-optional']);
+  const requiredDependencies = dependencies.filter((dependency) => !optionalDependencyKeys.has(dependency.key));
   const hasExplicitCriticalState = workers.some((worker) => worker.state === 'STOPPED')
     || incidents.some((incident) => incident.status === 'OPEN' && incident.severity === 'CRITICAL')
     || requiredDependencies.some((dependency) => dependency.status === 'UNAVAILABLE');

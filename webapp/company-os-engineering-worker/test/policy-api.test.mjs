@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import test from 'node:test';
 import { EngineeringApiClient } from '../src/api-client.mjs';
 import { assertChangedPaths, branchName, isProhibitedPath, missionHash, validateClaim } from '../src/policy.mjs';
-import { signedHeaders } from '../src/signing.mjs';
+import { engineeringSignatureMessage, signedHeaders } from '../src/signing.mjs';
 import { githubEnvironment, githubGitEnvironment, nonSecretEnvironment } from '../src/process.mjs';
 import { loadConfig } from '../src/config.mjs';
 import { homedir } from 'node:os';
@@ -23,17 +23,34 @@ const lease = {
 };
 const claimed = (selectedMission = mission, selectedLease = lease, effects = [], mode = 'EXECUTE') => ({ mode, mission: selectedMission, lease: selectedLease, effects });
 
-test('HMAC v2 binds worker, nonce, timestamp and exact body', () => {
+function canonicalJsonV20(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJsonV20).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value).filter(([, nested]) => nested !== undefined).sort(([left], [right]) => left.localeCompare(right)).map(([key, nested]) => `${JSON.stringify(key)}:${canonicalJsonV20(nested)}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+test('Engineering HMAC v3 binds domain, version, method, path, worker, nonce, timestamp and exact body', () => {
   const rawBody = '{"workerId":"worker-1"}';
-  const headers = signedHeaders({ secret: 'secret', workerId: 'worker-1', rawBody, nowMs: 1_800_000_000_000, nonce: 'abcdefghijklmnop' });
-  const expected = createHmac('sha256', 'secret').update(`worker-1.abcdefghijklmnop.1800000000.${rawBody}`).digest('hex');
-  assert.equal(headers['x-company-os-signature-version'], 'v2');
+  const input = {
+    secret: 'secret', method: 'POST', pathname: '/api/company-os/engineering/v2/claim',
+    workerId: 'worker-1', rawBody, nowMs: 1_800_000_000_000, nonce: 'abcdefghijklmnop',
+  };
+  const headers = signedHeaders(input);
+  const expected = createHmac('sha256', 'secret').update(engineeringSignatureMessage({
+    method: input.method, pathname: input.pathname, workerId: input.workerId,
+    nonce: input.nonce, timestamp: '1800000000', rawBody,
+  })).digest('hex');
+  assert.equal(headers['x-company-os-signature-version'], 'engineering-v3');
   assert.equal(headers['x-company-os-signature'], `sha256=${expected}`);
+  const crossRoute = signedHeaders({ ...input, pathname: '/api/company-os/engineering/v2/heartbeat' });
+  assert.notEqual(crossRoute['x-company-os-signature'], headers['x-company-os-signature']);
 });
 
 test('claim validates fixed repository, authority and time', () => {
   const validated = validateClaim(claimed(), config, new Date('2028-01-01T00:00:00.000Z'));
-  assert.deepEqual(validated, { missionPaths: ['docs'], leasePaths: ['docs'] });
+  assert.deepEqual(validated, { missionPaths: ['docs'], leasePaths: ['docs'], desiredState: null });
   assert.throws(() => validateClaim(claimed({ ...mission, repository: 'owner/other' }, lease), config, new Date('2028-01-01')), /REPOSITORY_NOT_ALLOWLISTED/);
   const prohibitedMission = { ...mission, allowedPaths: ['.github'] };
   assert.throws(() => validateClaim(claimed(prohibitedMission, { ...lease, missionHash: missionHash(prohibitedMission) }), config, new Date('2028-01-01')), /PROHIBITED_PATH_AUTHORITY/);
@@ -42,6 +59,21 @@ test('claim validates fixed repository, authority and time', () => {
   assert.throws(() => validateClaim(claimed(mission, { ...lease, issuedAt: '2028-01-01T00:00:05.001Z' }), config, new Date('2028-01-01T00:00:00Z')), /LEASE_NOT_ACTIVE/);
   assert.throws(() => validateClaim(claimed(mission, { ...lease, missionHash: 'b'.repeat(64) }), config, new Date('2028-01-01')), /LEASE_BINDING_MISMATCH/);
   assert.throws(() => validateClaim(claimed(mission, { ...lease, actor: 'other-worker' }), config, new Date('2028-01-01')), /ACTOR_MISMATCH/);
+});
+
+test('worker nuevo acepta payload legacy 2.0 sin contractVersion ni desiredState con el mismo hash', () => {
+  const legacyMission = { ...mission };
+  delete legacyMission.contractVersion;
+  delete legacyMission.desiredState;
+  const { expectedStateVersion: _mutableStateVersion, ...immutableMission } = legacyMission;
+  const worker20Hash = createHash('sha256')
+    .update(canonicalJsonV20({ contractVersion: '2.0.0', ...immutableMission }))
+    .digest('hex');
+  assert.equal(missionHash(legacyMission), worker20Hash);
+  assert.deepEqual(
+    validateClaim(claimed(legacyMission, { ...lease, missionHash: worker20Hash }), config, new Date('2028-01-01T00:00:00.000Z')),
+    { missionPaths: ['docs'], leasePaths: ['docs'], desiredState: null },
+  );
 });
 
 test('A2 needs explicit local maximum and effect verbs', () => {
@@ -56,6 +88,45 @@ test('A2 needs explicit local maximum and effect verbs', () => {
   }));
   assert.doesNotThrow(() => validateClaim(claimed(a2Mission, a2Lease, effects, 'RECONCILE'), { ...config, maxAutonomy: 'A2' }, new Date('2028-01-01')));
   assert.throws(() => validateClaim(claimed(a2Mission, a2Lease, effects, 'EXECUTE'), { ...config, maxAutonomy: 'A2' }, new Date('2028-01-01')), /EXECUTE_EFFECTS_MUST_BE_EMPTY/);
+});
+
+test('reconciliation-only tolerates an expired mission only with an exact read-only lease', () => {
+  const a2Mission = {
+    ...mission,
+    autonomyLevel: 'A2',
+    deadline: '2027-12-31T23:59:00.000Z',
+  };
+  const effect = {
+    effectId: 'effect-unknown', idempotencyKey: 'unknown-key',
+    targetRepository: a2Mission.repository, targetBaseBranch: 'main',
+    targetHeadBranch: 'codex/engineering-v2-mission-1-aaaaaaaa',
+    targetCommitSha: 'b'.repeat(40), verb: 'PUSH_BRANCH', status: 'UNKNOWN_OUTCOME',
+  };
+  const safetyLease = {
+    ...lease,
+    missionHash: missionHash(a2Mission),
+    autonomyLevel: 'A2',
+    allowedVerbs: ['READ_REPOSITORY'],
+  };
+  const safetyClaim = {
+    ...claimed(a2Mission, safetyLease, [effect], 'RECONCILE'),
+    reconciliationOnly: true,
+  };
+  assert.doesNotThrow(() => validateClaim(
+    safetyClaim,
+    { ...config, maxAutonomy: 'A2' },
+    new Date('2028-01-01T00:00:00.000Z'),
+  ));
+  assert.throws(() => validateClaim(
+    { ...safetyClaim, lease: { ...safetyLease, allowedVerbs: ['READ_REPOSITORY', 'PUSH_BRANCH'] } },
+    { ...config, maxAutonomy: 'A2' },
+    new Date('2028-01-01T00:00:00.000Z'),
+  ), /RECONCILIATION_AUTHORITY_ESCALATION/);
+  assert.throws(() => validateClaim(
+    { ...safetyClaim, mode: 'EXECUTE' },
+    { ...config, maxAutonomy: 'A2' },
+    new Date('2028-01-01T00:00:00.000Z'),
+  ), /RECONCILIATION_MODE_INVALID/);
 });
 
 test('paths fail closed for traversal and prohibited surfaces', () => {
@@ -121,6 +192,9 @@ test('A1 config does not require GitHub token while A2 does', () => {
     COMPANY_OS_ENGINEERING_STATE_DIR: `${homedir()}/.company-os-engineering-v2-test`,
   };
   assert.equal(loadConfig(base).githubToken, null);
+  assert.equal(loadConfig(base).binaryVersion, '2.0.0');
+  assert.equal(loadConfig(base).contractVersion, '2.1.0');
+  assert.throws(() => loadConfig({ ...base, COMPANY_OS_ENGINEERING_WORKER_ID: 'x' }), /ENGINEERING_WORKER_ID_INVALID/);
   assert.throws(() => loadConfig({ ...base, COMPANY_OS_ENGINEERING_MAX_AUTONOMY: 'A2' }), /GITHUB_TOKEN_REQUIRED/);
   assert.equal(loadConfig({ ...base, COMPANY_OS_ENGINEERING_MAX_AUTONOMY: 'A2', COMPANY_OS_ENGINEERING_GITHUB_TOKEN: 'token' }).githubToken, 'token');
 });

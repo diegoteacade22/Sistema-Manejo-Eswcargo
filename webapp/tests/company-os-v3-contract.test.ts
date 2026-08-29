@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { signCompanyOsWorkerPayload, verifyCompanyOsWorkerRequest } from '../lib/company-os/v3-auth';
 import { estimateCompanyOsCost, startOfCompanyOsDay } from '../lib/company-os/v3-store';
-import { deterministicRiskScore } from '../lib/company-os/systems-snapshot';
+import { buildSystemsSnapshot, deterministicRiskScore } from '../lib/company-os/systems-snapshot';
 import {
   COMPANY_OS_MISSION_STATUSES,
   COMPANY_OS_REQUEST_STATUSES,
@@ -65,6 +65,10 @@ test('costo separa input ordinario, cache read y cache write sin doble conteo', 
     cacheWriteTokens: 100, outputTokens: 50, reasoningTokens: 10, totalTokens: 1050,
   });
   assert.equal(cost, (700 * 5 + 200 * 0.5 + 100 * 6.25 + 50 * 30) / 1_000_000);
+  assert.equal(estimateCompanyOsCost({
+    provider: 'ollama', model: 'qwen3:14b-q4_K_M', inputTokens: 1000, cachedTokens: 0,
+    cacheWriteTokens: 0, outputTokens: 50, reasoningTokens: 0, totalTokens: 1050,
+  }), 0);
 });
 
 test('acumulado diario respeta medianoche America/New_York con DST', () => {
@@ -160,12 +164,22 @@ test('store selecciona agente persistido, materializa snapshot y no tiene DML em
   assert.doesNotMatch(source, /(?:INSERT INTO|UPDATE|DELETE FROM)\s+public\."?(?:Order|Product|Shipment|Purchase|Expense)/i);
 });
 
-test('inventario declara AWS archivado, Mac mini futura y no materializa secretos', () => {
+test('inventario declara Hostinger y DiegoServer activos, AWS archivado y Qwen local sin materializar secretos', async () => {
   const source = readFileSync('lib/company-os/systems-snapshot.ts', 'utf8');
   assert.match(source, /assetId:'aws-archive'[\s\S]*lifecycleStatus:'ARCHIVED'/);
-  assert.match(source, /assetId:'mac-mini-future'[\s\S]*lifecycleStatus:'FUTURE'/);
+  assert.match(source, /assetId:'company-os-worker'[\s\S]*provider:'Hostinger'[\s\S]*lifecycleStatus:'ACTIVE'/);
+  assert.match(source, /assetId:'diegoserver-node'[\s\S]*lifecycleStatus:'ACTIVE'/);
+  assert.match(source, /assetId:'ollama-qwen-local'[\s\S]*runtime:'qwen3:14b-q4_K_M'/);
   assert.match(source, /valueIncluded:false/);
   assert.doesNotMatch(source, /process\.env\.COMPANY_OS_V3_HMAC_SECRET\s*[),]/);
+  const priorWorkerUrl = process.env.COMPANY_OS_V3_WORKER_URL;
+  delete process.env.COMPANY_OS_V3_WORKER_URL;
+  const snapshot = await buildSystemsSnapshot();
+  if (priorWorkerUrl === undefined) delete process.env.COMPANY_OS_V3_WORKER_URL;
+  else process.env.COMPANY_OS_V3_WORKER_URL = priorWorkerUrl;
+  assert.deepEqual(snapshot.lifecycle, { aws: 'ARCHIVED', diegoServer: 'ACTIVE', macMini: 'ACTIVE' });
+  assert.equal(snapshot.assets.find((asset) => asset.assetId === 'diegoserver-node')?.lifecycleStatus, 'ACTIVE');
+  assert.equal(snapshot.assets.find((asset) => asset.assetId === 'aws-archive')?.lifecycleStatus, 'ARCHIVED');
 });
 
 test('score técnico es determinístico y responde a todos los factores requeridos', () => {

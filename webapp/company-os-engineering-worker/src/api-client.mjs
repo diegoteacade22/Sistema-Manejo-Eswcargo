@@ -35,16 +35,19 @@ export class EngineeringApiClient {
 
   async post(path, payload = {}) {
     const rawBody = JSON.stringify({ ...payload, workerId: this.workerId, instanceId: this.instanceId });
+    const pathname = `${PREFIX}/${path}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     timer.unref?.();
     try {
-      const response = await this.fetchImpl(`${this.baseUrl}${PREFIX}/${path}`, {
+      const response = await this.fetchImpl(`${this.baseUrl}${pathname}`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
           ...signedHeaders({
             secret: this.secret,
+            method: 'POST',
+            pathname,
             workerId: this.workerId,
             rawBody,
             nowMs: this.now(),
@@ -79,6 +82,8 @@ export class EngineeringApiClient {
   }
 
   claim() { return this.post('claim'); }
+  goals(cursor = null) { return this.post('autonomy/goals', cursor ? { cursor } : {}); }
+  observeGoal(observation) { return this.post('autonomy/observe', observation); }
   heartbeat(claim, phase) { return this.post('heartbeat', { ...identity(claim), phase }); }
   transition(claim, toStatus, eventType, payload, idempotencyKey) {
     return this.post('transition', { ...identity(claim), toStatus, eventType, payload, idempotencyKey });

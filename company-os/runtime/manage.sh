@@ -18,6 +18,9 @@ RUNTIME_HEALTH_PORT="${COMPANY_OS_RUNTIME_HEALTH_PORT:-8794}"
 RUNTIME_ALLOWED_AGENT_IDS="${COMPANY_OS_RUNTIME_ALLOWED_AGENT_IDS:-general-manager-ai-v3,systems-manager-ai-v1}"
 RUNTIME_HMAC_KEYCHAIN_SERVICE="${COMPANY_OS_RUNTIME_HMAC_KEYCHAIN_SERVICE:-com.esw.company-os-runtime.hmac}"
 RUNTIME_OPENAI_KEYCHAIN_SERVICE="${COMPANY_OS_RUNTIME_OPENAI_KEYCHAIN_SERVICE:-OPENAI_API_KEY}"
+RUNTIME_OLLAMA_FALLBACK_ENABLED="${COMPANY_OS_RUNTIME_OLLAMA_FALLBACK_ENABLED:-true}"
+RUNTIME_OLLAMA_BASE_URL="${COMPANY_OS_RUNTIME_OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
+RUNTIME_OLLAMA_MODEL="${COMPANY_OS_RUNTIME_OLLAMA_MODEL:-qwen3:14b-q4_K_M}"
 RUNTIME_KEYCHAIN_ACCOUNT="${COMPANY_OS_RUNTIME_KEYCHAIN_ACCOUNT:-$(id -un)}"
 EXTERNAL_NOTIFICATIONS_ENABLED="${COMPANY_OS_RUNTIME_EXTERNAL_NOTIFICATIONS_ENABLED:-false}"
 NODE_BIN="${COMPANY_OS_RUNTIME_NODE_BIN:-$(command -v node 2>/dev/null || true)}"
@@ -87,6 +90,43 @@ validate_api_origin() {
   ' "$RUNTIME_API_BASE_URL" "$RUNTIME_ALLOWED_HOSTS" || die "COMPANY_OS_RUNTIME_API_BASE_URL debe ser un origen HTTPS incluido en COMPANY_OS_RUNTIME_ALLOWED_HOSTS"
 }
 
+check_ollama_fallback() {
+  case "${RUNTIME_OLLAMA_FALLBACK_ENABLED:l}" in
+    false|0|no)
+      RUNTIME_OLLAMA_FALLBACK_ENABLED=false
+      return
+      ;;
+    true|1|yes) RUNTIME_OLLAMA_FALLBACK_ENABLED=true ;;
+    *) die "COMPANY_OS_RUNTIME_OLLAMA_FALLBACK_ENABLED debe ser true o false" ;;
+  esac
+
+  "$NODE_BIN" -e '
+    try {
+      const url = new URL(process.argv[1]);
+      const loopback = url.hostname === "127.0.0.1" || url.hostname === "[::1]";
+      if (url.protocol !== "http:" || !loopback || url.username || url.password
+        || (url.pathname !== "/" && url.pathname !== "") || url.search || url.hash) process.exit(1);
+    } catch { process.exit(1); }
+  ' "$RUNTIME_OLLAMA_BASE_URL" \
+    || die "COMPANY_OS_RUNTIME_OLLAMA_BASE_URL debe ser un origen HTTP loopback puro"
+
+  local tags
+  tags="$(/usr/bin/curl -sS --fail --location --max-redirs 0 --max-time 5 \
+    --proto '=http' --proto-redir '=http' "$RUNTIME_OLLAMA_BASE_URL/api/tags" 2>/dev/null)" \
+    || die "Ollama local no respondió de forma válida en /api/tags"
+  print -rn -- "$tags" | "$NODE_BIN" -e '
+    let input=""; process.stdin.on("data", (chunk) => input += chunk); process.stdin.on("end", () => {
+      try {
+        const value = JSON.parse(input);
+        const expected = process.argv[1];
+        const exact = Array.isArray(value.models) && value.models.some((item) => item && item.name === expected);
+        process.exit(exact ? 0 : 1);
+      } catch { process.exit(1); }
+    });
+  ' "$RUNTIME_OLLAMA_MODEL" \
+    || die "Ollama local no contiene el modelo exacto requerido: $RUNTIME_OLLAMA_MODEL"
+}
+
 keychain_has() {
   /usr/bin/security find-generic-password -a "$RUNTIME_KEYCHAIN_ACCOUNT" -s "$1" -w >/dev/null 2>&1
 }
@@ -120,23 +160,47 @@ service_loaded() {
   launchctl print "gui/$(id -u)/$LAUNCH_LABEL" >/dev/null 2>&1
 }
 
+launchd_pid() {
+  launchctl print "gui/$(id -u)/$LAUNCH_LABEL" 2>/dev/null | /usr/bin/awk '
+    $1 == "pid" && $2 == "=" && $3 ~ /^[0-9]+$/ { print $3; exit }
+  '
+}
+
+listener_pids() {
+  /usr/sbin/lsof -nP -tiTCP:"$RUNTIME_HEALTH_PORT" -sTCP:LISTEN 2>/dev/null \
+    | /usr/bin/awk '!seen[$0]++ { print }'
+}
+
+port_has_listener() {
+  [[ -n "$(listener_pids || true)" ]]
+}
+
+runtime_listener_is_owned() {
+  local service_pid listeners
+  service_loaded || return 1
+  service_pid="$(launchd_pid || true)"
+  [[ "$service_pid" == <-> && "$service_pid" -gt 1 ]] || return 1
+  listeners="$(listener_pids || true)"
+  [[ "$listeners" == "$service_pid" ]]
+}
+
 health_body() {
   /usr/bin/curl -sS --max-time 3 "http://127.0.0.1:$RUNTIME_HEALTH_PORT/health" 2>/dev/null
 }
 
-health_is_runtime() {
+health_is_own_runtime() {
   local body
   body="$(health_body || true)"
   [[ -n "$body" ]] || return 1
   print -rn -- "$body" | "$NODE_BIN" -e '
     let input=""; process.stdin.on("data", (chunk) => input += chunk); process.stdin.on("end", () => {
-      try { const value=JSON.parse(input); process.exit(value.service === "company-os-runtime" && value.contract === "runtime-v1" ? 0 : 1); }
+      try { const value=JSON.parse(input); process.exit(value.service === "company-os-runtime" ? 0 : 1); }
       catch { process.exit(1); }
     });
   '
 }
 
-health_is_healthy_runtime() {
+health_is_own_operational() {
   local body
   body="$(health_body || true)"
   [[ -n "$body" ]] || return 1
@@ -146,11 +210,60 @@ health_is_healthy_runtime() {
         const value=JSON.parse(input);
         const remoteHeartbeatConfirmed = typeof value.lastWorkerHeartbeatAt === "string" && !Number.isNaN(Date.parse(value.lastWorkerHeartbeatAt));
         const operational = value.acceptingWork === true && ["IDLE", "BUSY"].includes(value.state);
-        process.exit(value.service === "company-os-runtime" && value.contract === "runtime-v1" && value.ok === true && remoteHeartbeatConfirmed && operational ? 0 : 1);
+        process.exit(value.service === "company-os-runtime" && value.ok === true && remoteHeartbeatConfirmed && operational ? 0 : 1);
       }
       catch { process.exit(1); }
     });
   '
+}
+
+health_is_target_runtime() {
+  local body
+  body="$(health_body || true)"
+  [[ -n "$body" ]] || return 1
+  print -rn -- "$body" | "$NODE_BIN" -e '
+    let input=""; process.stdin.on("data", (chunk) => input += chunk); process.stdin.on("end", () => {
+      try {
+        const value=JSON.parse(input);
+        process.exit(value.service === "company-os-runtime" && value.binaryVersion === "1.1.0" && value.contractVersion === "runtime-v1" ? 0 : 1);
+      }
+      catch { process.exit(1); }
+    });
+  '
+}
+
+health_is_target_operational() {
+  local body
+  body="$(health_body || true)"
+  [[ -n "$body" ]] || return 1
+  print -rn -- "$body" | "$NODE_BIN" -e '
+    let input=""; process.stdin.on("data", (chunk) => input += chunk); process.stdin.on("end", () => {
+      try {
+        const value=JSON.parse(input);
+        const remoteHeartbeatConfirmed = typeof value.lastWorkerHeartbeatAt === "string" && !Number.isNaN(Date.parse(value.lastWorkerHeartbeatAt));
+        const operational = value.acceptingWork === true && ["IDLE", "BUSY"].includes(value.state);
+        const target = value.binaryVersion === "1.1.0" && value.contractVersion === "runtime-v1";
+        process.exit(value.service === "company-os-runtime" && target && value.ok === true && remoteHeartbeatConfirmed && operational ? 0 : 1);
+      }
+      catch { process.exit(1); }
+    });
+  '
+}
+
+runtime_own_is_operational() {
+  health_is_own_operational && runtime_listener_is_owned
+}
+
+runtime_own_is_identified() {
+  health_is_own_runtime && runtime_listener_is_owned
+}
+
+runtime_target_is_identified() {
+  health_is_target_runtime && runtime_listener_is_owned
+}
+
+runtime_target_is_operational() {
+  health_is_target_operational && runtime_listener_is_owned
 }
 
 xml_escape() {
@@ -197,6 +310,9 @@ render_plist() {
     <key>COMPANY_OS_RUNTIME_KEYCHAIN_ACCOUNT</key><string>$keychain_account</string>
     <key>COMPANY_OS_RUNTIME_HMAC_KEYCHAIN_SERVICE</key><string>$hmac_service</string>
     <key>COMPANY_OS_RUNTIME_OPENAI_KEYCHAIN_SERVICE</key><string>$openai_service</string>
+    <key>COMPANY_OS_RUNTIME_OLLAMA_FALLBACK_ENABLED</key><string>$RUNTIME_OLLAMA_FALLBACK_ENABLED</string>
+    <key>COMPANY_OS_RUNTIME_OLLAMA_BASE_URL</key><string>$(xml_escape "$RUNTIME_OLLAMA_BASE_URL")</string>
+    <key>COMPANY_OS_RUNTIME_OLLAMA_MODEL</key><string>$(xml_escape "$RUNTIME_OLLAMA_MODEL")</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
@@ -211,14 +327,11 @@ EOF
 }
 
 backup_snapshot() {
-  local label="$1" timestamp backup suffix=0
+  local label="$1" timestamp backup reference_tmp
+  [[ -n "$label" && "$label" != *[^A-Za-z0-9._-]* ]] || die "Label de snapshot inválido"
   timestamp="$(date '+%Y%m%dT%H%M%S')"
-  backup="$BACKUPS_DIR/$timestamp-$label"
-  while [[ -e "$backup" ]]; do
-    suffix=$((suffix + 1))
-    backup="$BACKUPS_DIR/$timestamp-$label-$suffix"
-  done
-  mkdir -p "$backup"
+  backup="$(mktemp -d "$BACKUPS_DIR/$timestamp-$label.XXXXXX")" \
+    || die "No se pudo crear snapshot único"
   if [[ -d "$CURRENT_DIR" ]]; then /usr/bin/ditto "$CURRENT_DIR" "$backup/current"; else touch "$backup/ABSENT_CURRENT"; fi
   if [[ -f "$PLIST" ]]; then cp -p "$PLIST" "$backup/launchd.plist"; else touch "$backup/ABSENT_PLIST"; fi
   {
@@ -226,15 +339,23 @@ backup_snapshot() {
     print -r -- "label=$label"
     print -r -- "workerId=$RUNTIME_WORKER_ID"
   } > "$backup/manifest.txt"
-  print -r -- "$backup" > "$RUNTIME_STATE_DIR/last-backup"
+  reference_tmp="$(mktemp "$RUNTIME_STATE_DIR/.last-backup.XXXXXX")" \
+    || die "No se pudo crear referencia temporal de snapshot"
+  print -r -- "$backup" > "$reference_tmp"
+  chmod 600 "$reference_tmp"
+  mv -f "$reference_tmp" "$RUNTIME_STATE_DIR/last-backup"
   print -r -- "$backup"
 }
 
 restore_snapshot() {
   local backup="$1"
-  [[ -d "$backup" ]] || die "Backup inexistente: $backup"
-  if [[ -d "$backup/current" ]]; then /usr/bin/ditto "$backup/current" "$CURRENT_DIR"; fi
-  if [[ -f "$backup/launchd.plist" ]]; then cp -p "$backup/launchd.plist" "$PLIST"; fi
+  [[ -d "$backup" ]] || return 1
+  if [[ -d "$backup/current" && -f "$backup/launchd.plist" ]]; then
+    /usr/bin/ditto "$backup/current" "$CURRENT_DIR"
+    cp -p "$backup/launchd.plist" "$PLIST"
+    return 0
+  fi
+  [[ -f "$backup/ABSENT_CURRENT" && -f "$backup/ABSENT_PLIST" ]] || return 1
 }
 
 bootout_if_loaded() {
@@ -253,13 +374,38 @@ bootstrap_service() {
   return 1
 }
 
-wait_for_health() {
+wait_for_target_health() {
   local attempt
   for attempt in {1..20}; do
-    health_is_healthy_runtime && return 0
+    runtime_target_is_operational && return 0
     sleep 1
   done
   return 1
+}
+
+wait_for_own_health() {
+  local attempt
+  for attempt in {1..20}; do
+    runtime_own_is_operational && return 0
+    sleep 1
+  done
+  return 1
+}
+
+restore_snapshot_and_verify() {
+  local backup="$1"
+  bootout_if_loaded
+  [[ ! -e "$CURRENT_DIR" && ! -e "$PLIST" ]] || return 1
+  restore_snapshot "$backup" || return 1
+  if [[ -d "$CURRENT_DIR" && -f "$PLIST" ]]; then
+    [[ -f "$CURRENT_DIR/worker/src/server.mjs" ]] || return 1
+    bootstrap_service || return 1
+    launchctl kickstart "gui/$(id -u)/$LAUNCH_LABEL" >/dev/null 2>&1 || return 1
+    wait_for_own_health
+    return
+  fi
+  [[ ! -e "$CURRENT_DIR" && ! -e "$PLIST" ]] || return 1
+  ! service_loaded && ! port_has_listener
 }
 
 doctor_action() {
@@ -269,34 +415,50 @@ doctor_action() {
   repo="$(detect_repo)"
   validate_api_origin
   check_keychain_credentials
+  check_ollama_fallback
   "$NODE_BIN" --check "$repo/webapp/company-os-worker/src/server.mjs"
   /bin/zsh -n "$repo/company-os/runtime/manage.sh"
-  if health_is_healthy_runtime; then
-    say "OK health=company-os-runtime port=$RUNTIME_HEALTH_PORT"
-  elif health_is_runtime; then
-    die "Runtime identificado en puerto $RUNTIME_HEALTH_PORT pero health no está OK; revisar status y logs JSON"
-  elif /usr/sbin/lsof -nP -iTCP:"$RUNTIME_HEALTH_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  if runtime_target_is_operational; then
+    say "OK health=company-os-runtime target=1.1.0 port=$RUNTIME_HEALTH_PORT owner=launchd"
+  elif runtime_target_is_identified; then
+    die "Runtime objetivo 1.1 identificado y propio en puerto $RUNTIME_HEALTH_PORT pero no está operativo"
+  elif runtime_own_is_identified; then
+    say "OK health=company-os-runtime target=previous port=$RUNTIME_HEALTH_PORT owner=launchd cutover_allowed=true"
+  elif port_has_listener; then
+    if health_is_own_runtime; then
+      die "Puerto $RUNTIME_HEALTH_PORT responde como runtime pero su listener no coincide con el PID de $LAUNCH_LABEL o no está operativo"
+    fi
     die "Puerto $RUNTIME_HEALTH_PORT ocupado por otro proceso"
+  elif service_loaded; then
+    die "Servicio $LAUNCH_LABEL cargado sin listener propio y operativo en puerto $RUNTIME_HEALTH_PORT"
   else
     say "OK port=$RUNTIME_HEALTH_PORT disponible; runtime no iniciado por doctor"
   fi
   say "OK repo=$repo"
   say "OK keychain services presentes: $RUNTIME_HMAC_KEYCHAIN_SERVICE, $RUNTIME_OPENAI_KEYCHAIN_SERVICE"
+  [[ "$RUNTIME_OLLAMA_FALLBACK_ENABLED" == true ]] \
+    && say "OK ollama=fallback-local model=$RUNTIME_OLLAMA_MODEL" \
+    || say "OK ollama=fallback-disabled"
   say "DOCTOR_OK"
 }
 
 status_action() {
   validate_state_dir
   ensure_node
-  local loaded=false healthy=false body=""
+  local loaded=false own_operational=false target_operational=false listener_owned=false body=""
   service_loaded && loaded=true
   body="$(health_body || true)"
-  health_is_healthy_runtime && healthy=true
+  runtime_listener_is_owned && listener_owned=true
+  runtime_own_is_operational && own_operational=true
+  runtime_target_is_operational && target_operational=true
   say "label=$LAUNCH_LABEL"
   say "loaded=$loaded"
+  say "listenerOwned=$listener_owned"
+  say "ownOperational=$own_operational"
+  say "targetOperational=$target_operational"
   say "installed=$([[ -f "$CURRENT_DIR/worker/src/server.mjs" ]] && print true || print false)"
   say "health=${body:-UNAVAILABLE}"
-  [[ "$loaded" == true && "$healthy" == true ]] || return 1
+  [[ "$loaded" == true && "$target_operational" == true ]] || return 1
 }
 
 install_action() {
@@ -304,6 +466,7 @@ install_action() {
   ensure_node
   validate_api_origin
   check_keychain_credentials
+  check_ollama_fallback
   ensure_dirs
   local repo stage backup
   repo="$(detect_repo)"
@@ -330,21 +493,20 @@ install_action() {
   if ! bootstrap_service; then
     [[ -d "$CURRENT_DIR" ]] && mv "$CURRENT_DIR" "$backup/failed-current"
     [[ -f "$PLIST" ]] && mv "$PLIST" "$backup/failed-launchd.plist"
-    restore_snapshot "$backup"
-    [[ -f "$PLIST" ]] && bootstrap_service >/dev/null 2>&1 || true
-    die "launchctl bootstrap falló; snapshot anterior restaurado desde $backup"
+    if restore_snapshot_and_verify "$backup"; then
+      die "launchctl bootstrap falló; snapshot anterior restaurado y verificado desde $backup"
+    fi
+    die "launchctl bootstrap falló y el snapshot anterior no quedó como servicio propio operativo: $backup"
   fi
   launchctl kickstart "gui/$(id -u)/$LAUNCH_LABEL"
-  if ! wait_for_health; then
+  if ! wait_for_target_health; then
     bootout_if_loaded
     [[ -d "$CURRENT_DIR" ]] && mv "$CURRENT_DIR" "$backup/failed-health-current"
     [[ -f "$PLIST" ]] && mv "$PLIST" "$backup/failed-health-launchd.plist"
-    restore_snapshot "$backup"
-    if [[ -f "$PLIST" && -f "$CURRENT_DIR/worker/src/server.mjs" ]]; then
-      bootstrap_service >/dev/null 2>&1 || true
-      launchctl kickstart "gui/$(id -u)/$LAUNCH_LABEL" >/dev/null 2>&1 || true
+    if restore_snapshot_and_verify "$backup"; then
+      die "launchd cargó pero no confirmó runtime objetivo 1.1 operativo; snapshot anterior restaurado y verificado desde $backup"
     fi
-    die "launchd cargó pero no confirmó heartbeat remoto y estado operativo; snapshot anterior restaurado desde $backup"
+    die "launchd cargó pero no confirmó runtime objetivo 1.1 y el snapshot anterior no quedó como servicio propio operativo: $backup"
   fi
   say "INSTALL_OK repo=$repo backup=$backup label=$LAUNCH_LABEL"
 }
@@ -354,7 +516,7 @@ restart_action() {
   service_loaded || die "Servicio no cargado: $LAUNCH_LABEL"
   [[ -f "$PLIST" ]] || die "Falta plist instalado: $PLIST"
   launchctl kickstart -k "gui/$(id -u)/$LAUNCH_LABEL"
-  wait_for_health || die "Restart ejecutado pero no confirmó heartbeat remoto y estado operativo en puerto $RUNTIME_HEALTH_PORT"
+  wait_for_target_health || die "Restart ejecutado pero no confirmó runtime objetivo 1.1, listener propio y heartbeat operativo en puerto $RUNTIME_HEALTH_PORT"
   say "RESTART_OK"
 }
 
@@ -388,26 +550,30 @@ rollback_action() {
   bootout_if_loaded
   [[ -d "$CURRENT_DIR" ]] && mv "$CURRENT_DIR" "$safety/displaced-current"
   [[ -f "$PLIST" ]] && mv "$PLIST" "$safety/displaced-launchd.plist"
-  restore_snapshot "$target"
+  if ! restore_snapshot "$target"; then
+    if restore_snapshot_and_verify "$safety"; then
+      die "Snapshot de rollback inconsistente; estado previo restaurado y verificado desde $safety"
+    fi
+    die "Snapshot de rollback inconsistente y el estado previo no quedó como servicio propio operativo: $safety"
+  fi
   if [[ -f "$PLIST" && -f "$CURRENT_DIR/worker/src/server.mjs" ]]; then
     if ! bootstrap_service; then
       [[ -d "$CURRENT_DIR" ]] && mv "$CURRENT_DIR" "$safety/failed-rollback-current"
       [[ -f "$PLIST" ]] && mv "$PLIST" "$safety/failed-rollback-launchd.plist"
-      restore_snapshot "$safety"
-      [[ -f "$PLIST" ]] && bootstrap_service >/dev/null 2>&1 || true
-      die "Rollback no pudo cargar launchd; estado previo restaurado desde $safety"
+      if restore_snapshot_and_verify "$safety"; then
+        die "Rollback no pudo cargar launchd; estado previo restaurado y verificado desde $safety"
+      fi
+      die "Rollback no pudo cargar launchd y el estado previo no quedó como servicio propio operativo: $safety"
     fi
     launchctl kickstart "gui/$(id -u)/$LAUNCH_LABEL"
-    if ! wait_for_health; then
+    if ! wait_for_own_health; then
       bootout_if_loaded
       [[ -d "$CURRENT_DIR" ]] && mv "$CURRENT_DIR" "$safety/failed-rollback-health-current"
       [[ -f "$PLIST" ]] && mv "$PLIST" "$safety/failed-rollback-health-launchd.plist"
-      restore_snapshot "$safety"
-      if [[ -f "$PLIST" && -f "$CURRENT_DIR/worker/src/server.mjs" ]]; then
-        bootstrap_service >/dev/null 2>&1 || true
-        launchctl kickstart "gui/$(id -u)/$LAUNCH_LABEL" >/dev/null 2>&1 || true
+      if restore_snapshot_and_verify "$safety"; then
+        die "Rollback sin health propio operativo; estado previo restaurado y verificado desde $safety"
       fi
-      die "Rollback sin health; estado previo restaurado desde $safety"
+      die "Rollback sin health propio operativo y el estado previo tampoco pudo verificarse: $safety"
     fi
     say "ROLLBACK_OK restored=$target safety=$safety"
   else

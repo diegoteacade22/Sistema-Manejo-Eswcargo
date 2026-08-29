@@ -13,7 +13,7 @@ LOGS="$STATE_DIR/logs"
 PLIST="$HOME/Library/LaunchAgents/com.esw.company-os-engineering-v2.plist"
 LABEL="com.esw.company-os-engineering-v2"
 HEALTH_PORT="${COMPANY_OS_ENGINEERING_HEALTH_PORT:-8795}"
-HMAC_SERVICE="${COMPANY_OS_ENGINEERING_HMAC_KEYCHAIN_SERVICE:-com.esw.company-os-runtime.hmac}"
+HMAC_SERVICE="${COMPANY_OS_ENGINEERING_HMAC_KEYCHAIN_SERVICE:-com.esw.company-os-engineering-v2.hmac}"
 GITHUB_SERVICE="${COMPANY_OS_ENGINEERING_GITHUB_KEYCHAIN_SERVICE:-com.esw.company-os-engineering-v2.github-token}"
 GITHUB_KEYCHAIN_PATH="${COMPANY_OS_ENGINEERING_GITHUB_KEYCHAIN_PATH:-$STATE_DIR/engineering-secrets.keychain-db}"
 KEYCHAIN_ACCOUNT="${COMPANY_OS_ENGINEERING_KEYCHAIN_ACCOUNT:-$(id -un)}"
@@ -28,8 +28,11 @@ say() { print -r -- "$*"; }
 die() { print -r -- "ERROR: $*" >&2; exit 1; }
 
 validate_state() {
-  local resolved="${STATE_DIR:A}"
+  local resolved="${STATE_DIR:A}" keychain_resolved="${GITHUB_KEYCHAIN_PATH:A}"
   [[ "$resolved" == "$HOME"/* && "$resolved" != "$HOME" ]] || die "STATE_DIR inseguro"
+  [[ "$keychain_resolved" == "$resolved"/* && "$keychain_resolved" != "$resolved" ]] \
+    || die "GITHUB_KEYCHAIN_PATH debe permanecer dentro de STATE_DIR"
+  [[ ! -L "$GITHUB_KEYCHAIN_PATH" ]] || die "GITHUB_KEYCHAIN_PATH no puede ser symlink"
 }
 
 source_repo() {
@@ -199,10 +202,11 @@ docker_sandbox_ready() {
     --tmpfs /tmp:rw,noexec,nosuid,size=64m \
     --tmpfs "/codex-home:rw,noexec,nosuid,size=64m,uid=$(id -u),gid=$(id -g),mode=0700" \
     --mount "type=bind,src=${probe:A},dst=/workspace" \
+    --mount "type=bind,src=${probe:A}/.git,dst=/workspace/.git,readonly" \
     --mount "type=bind,src=${CODEX_AUTH_DIR:A}/auth.json,dst=/codex-home/auth.json,readonly" \
     --mount "type=bind,src=${sandbox_config:A},dst=/codex-home/config.toml,readonly" \
     -e CODEX_HOME=/codex-home "$CODEX_IMAGE" \
-    codex sandbox -P engineering -C /workspace -- /bin/bash -c 'set -eu; test ! -r /codex-home/auth.json; node -e '\''fetch("https://example.com").then(()=>process.exit(42)).catch(()=>process.exit(0))'\''; touch /workspace/write-ok; test -f /workspace/write-ok; ! touch /etc/company-os-probe 2>/dev/null' \
+    codex sandbox -P engineering -C /workspace -- /bin/bash -c 'set -eu; test ! -r /codex-home/auth.json; node -e '\''fetch("https://example.com").then(()=>process.exit(42)).catch(()=>process.exit(0))'\''; ! touch /workspace/.git/company-os-write-probe 2>/dev/null; touch /workspace/write-ok; test -f /workspace/write-ok; GIT_OPTIONAL_LOCKS=0 git -C /workspace status --porcelain=v1 >/dev/null; ! touch /etc/company-os-probe 2>/dev/null' \
     >/dev/null 2>&1; then
     rm -rf "$probe"
     die "Sandbox no confirmó límites de lectura, escritura y red"
@@ -211,9 +215,26 @@ docker_sandbox_ready() {
 }
 
 loaded() { launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1; }
+launchd_pid() {
+  launchctl print "gui/$(id -u)/$LABEL" 2>/dev/null \
+    | /usr/bin/awk '$1 == "pid" && $2 == "=" && $3 ~ /^[0-9]+$/ { print $3; exit }'
+}
+listener_owned_by_launchd() {
+  local expected_pid listener_pids
+  expected_pid="$(launchd_pid)"
+  [[ "$expected_pid" == <-> ]] || return 1
+  listener_pids="$(/usr/sbin/lsof -nP -t -iTCP:"$HEALTH_PORT" -sTCP:LISTEN 2>/dev/null)" || return 1
+  print -r -- "$listener_pids" | /usr/bin/grep -Fxq "$expected_pid"
+}
+service_responding() {
+  /usr/bin/curl -fsS --max-time 3 "http://127.0.0.1:$HEALTH_PORT/health" 2>/dev/null | "$NODE_BIN" -e '
+    let s=""; process.stdin.on("data",c=>s+=c).on("end",()=>{try{const v=JSON.parse(s);process.exit(v.service==="company-os-engineering-v2"?0:1)}catch{process.exit(1)}})
+  '
+}
+owned_service_responding() { loaded && listener_owned_by_launchd && service_responding; }
 healthy() {
   /usr/bin/curl -fsS --max-time 3 "http://127.0.0.1:$HEALTH_PORT/health" 2>/dev/null | "$NODE_BIN" -e '
-    let s=""; process.stdin.on("data",c=>s+=c).on("end",()=>{try{const v=JSON.parse(s);process.exit(v.service==="company-os-engineering-v2"&&v.ok===true?0:1)}catch{process.exit(1)}})
+    let s=""; process.stdin.on("data",c=>s+=c).on("end",()=>{try{const v=JSON.parse(s);process.exit(v.service==="company-os-engineering-v2"&&v.binaryVersion==="2.0.0"&&v.contractVersion==="2.1.0"&&v.ok===true?0:1)}catch{process.exit(1)}})
   '
 }
 
@@ -253,24 +274,68 @@ EOF
 }
 
 snapshot() {
-  local label="$1" stamp backup
-  stamp="$(date '+%Y%m%dT%H%M%S')"; backup="$BACKUPS/$stamp-$label"
-  mkdir -p "$backup"
+  local label="$1" stamp backup last_backup_tmp
+  mkdir -p "$BACKUPS"
+  stamp="$(date '+%Y%m%dT%H%M%S')"
+  backup="$(mktemp -d "$BACKUPS/$stamp-$label.XXXXXX")"
+  chmod 700 "$backup"
   [[ -d "$CURRENT" ]] && /usr/bin/ditto "$CURRENT" "$backup/current" || touch "$backup/ABSENT_CURRENT"
   [[ -f "$PLIST" ]] && cp -p "$PLIST" "$backup/launchd.plist" || touch "$backup/ABSENT_PLIST"
-  print -r -- "$backup" > "$STATE_DIR/last-backup"
+  last_backup_tmp="$(mktemp "$STATE_DIR/.last-backup.XXXXXX")"
+  print -r -- "$backup" > "$last_backup_tmp"
+  chmod 600 "$last_backup_tmp"
+  mv "$last_backup_tmp" "$STATE_DIR/last-backup"
   print -r -- "$backup"
 }
 
 bootout() { launchctl bootout "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || true; }
 bootstrap() { launchctl bootstrap "gui/$(id -u)" "$PLIST"; launchctl kickstart "gui/$(id -u)/$LABEL"; }
 
+wait_owned_service() {
+  local attempt
+  # The first target heartbeat may include a bounded remote GoalSpec fetch.
+  # Wait through that 120-second budget before declaring cutover failure.
+  for attempt in {1..150}; do
+    owned_service_responding && return 0
+    sleep 1
+  done
+  return 1
+}
+
+restore_snapshot() {
+  local target="$1" failed_store="$2"
+  bootout
+  [[ -d "$CURRENT" ]] && mv "$CURRENT" "$failed_store/failed-current"
+  [[ -f "$PLIST" ]] && mv "$PLIST" "$failed_store/failed-launchd.plist"
+  [[ -d "$target/current" ]] && /usr/bin/ditto "$target/current" "$CURRENT"
+  [[ -f "$target/launchd.plist" ]] && cp -p "$target/launchd.plist" "$PLIST"
+  if [[ -f "$target/launchd.plist" ]]; then
+    bootstrap && wait_owned_service
+  else
+    ! loaded
+  fi
+}
+
+backup_supports_goal_contract() {
+  local target="$1"
+  [[ ! -d "$target/current" ]] && return 0
+  [[ -f "$target/current/worker/src/version.mjs" ]] || return 1
+  /usr/bin/grep -Fq "ENGINEERING_CONTRACT_VERSION = '2.1.0'" "$target/current/worker/src/version.mjs"
+}
+
 doctor() {
   validate_state; check_bins; check_target_repo; keychain_has || die "Falta HMAC en Keychain service=$HMAC_SERVICE"; auth_ready; docker_sandbox_ready
   local repo; repo="$(source_repo)"
   "$NODE_BIN" --check "$repo/webapp/company-os-engineering-worker/src/server.mjs"
   (cd "$repo/webapp/company-os-engineering-worker" && "$NODE_BIN" --test test/*.test.mjs)
-  if /usr/sbin/lsof -nP -iTCP:"$HEALTH_PORT" -sTCP:LISTEN >/dev/null 2>&1 && ! healthy; then die "Puerto $HEALTH_PORT ocupado"; fi
+  if /usr/sbin/lsof -nP -iTCP:"$HEALTH_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+    owned_service_responding || die "Puerto $HEALTH_PORT ocupado por un servicio ajeno o no verificable"
+    if healthy; then
+      say "DOCTOR_SERVICE targetVersion=true port=$HEALTH_PORT"
+    else
+      say "DOCTOR_SERVICE previousVersion=true cutoverAllowed=true port=$HEALTH_PORT"
+    fi
+  fi
   say "DOCTOR_OK repo=$repo target=${COMPANY_OS_ENGINEERING_REPOSITORY_SLUG} maxAutonomy=${COMPANY_OS_ENGINEERING_MAX_AUTONOMY:-A1}"
 }
 
@@ -285,9 +350,13 @@ install() {
   [[ -d "$CURRENT" ]] && mv "$CURRENT" "$backup/displaced-current"
   [[ -f "$PLIST" ]] && mv "$PLIST" "$backup/displaced-launchd.plist"
   mv "$stage/current" "$CURRENT"; mv "$stage/launchd.plist" "$PLIST"
-  if ! bootstrap; then die "bootstrap falló; usar rollback"; fi
-  local attempt; for attempt in {1..20}; do healthy && { say "INSTALL_OK backup=$backup"; return; }; sleep 1; done
-  die "Instalado sin health; ejecutar rollback"
+  if ! bootstrap; then
+    restore_snapshot "$backup" "$backup" || die "INSTALL_FAILED_AUTO_ROLLBACK_FAILED stage=bootstrap backup=$backup"
+    die "INSTALL_FAILED_AUTO_ROLLBACK_OK stage=bootstrap restored=$backup"
+  fi
+  local attempt; for attempt in {1..150}; do healthy && { say "INSTALL_OK backup=$backup"; return; }; sleep 1; done
+  restore_snapshot "$backup" "$backup" || die "INSTALL_FAILED_AUTO_ROLLBACK_FAILED stage=health backup=$backup"
+  die "INSTALL_FAILED_AUTO_ROLLBACK_OK stage=health restored=$backup"
 }
 
 status() {
@@ -298,14 +367,31 @@ status() {
 
 rollback() {
   validate_state; [[ -f "$STATE_DIR/last-backup" ]] || die "No hay backup"
-  local target safety; target="$(<"$STATE_DIR/last-backup")"
+  local target safety allow_contract_downgrade; target="$(<"$STATE_DIR/last-backup")"
+  allow_contract_downgrade="${COMPANY_OS_ENGINEERING_ALLOW_CONTRACT_DOWNGRADE:-false}"
   [[ "${target:A}" == "${BACKUPS:A}"/* && -d "$target" ]] || die "Backup inválido"
+  if ! backup_supports_goal_contract "$target"; then
+    [[ "${allow_contract_downgrade:l}" == "true" ]] \
+      || die "Rollback bloqueado: el backup no soporta contrato 2.1.0; pausar intake/ejecución, drenar misiones y usar COMPANY_OS_ENGINEERING_ALLOW_CONTRACT_DOWNGRADE=true sólo con readback administrativo"
+  fi
   safety="$(snapshot pre-rollback)"; bootout
   [[ -d "$CURRENT" ]] && mv "$CURRENT" "$safety/displaced-current"
   [[ -f "$PLIST" ]] && mv "$PLIST" "$safety/displaced-launchd.plist"
   [[ -d "$target/current" ]] && /usr/bin/ditto "$target/current" "$CURRENT"
   [[ -f "$target/launchd.plist" ]] && cp -p "$target/launchd.plist" "$PLIST"
-  [[ -f "$PLIST" ]] && bootstrap
+  if [[ -f "$PLIST" ]]; then
+    if ! (bootstrap && wait_owned_service); then
+      restore_snapshot "$safety" "$safety" \
+        || die "ROLLBACK_FAILED_AUTO_RESTORE_FAILED target=$target safety=$safety"
+      die "ROLLBACK_FAILED_AUTO_RESTORE_OK target=$target restored=$safety"
+    fi
+  else
+    if loaded; then
+      restore_snapshot "$safety" "$safety" \
+        || die "ROLLBACK_FAILED_ABSENT_SERVICE_AUTO_RESTORE_FAILED target=$target safety=$safety"
+      die "ROLLBACK_FAILED_ABSENT_SERVICE_AUTO_RESTORE_OK target=$target restored=$safety"
+    fi
+  fi
   say "ROLLBACK_OK restored=$target safety=$safety"
 }
 
@@ -327,6 +413,34 @@ run() {
   exec "$NODE_BIN" "$CURRENT/worker/src/server.mjs"
 }
 
+require_test_mode() {
+  [[ "${COMPANY_OS_ENGINEERING_TEST_MODE:-0}" == "1" ]] || die "Acción interna disponible sólo en test mode"
+}
+
+test_snapshot() {
+  require_test_mode
+  validate_state
+  mkdir -p "$STATE_DIR" "$BACKUPS" "$LOGS" "$HOME/Library/LaunchAgents"
+  snapshot "${ACTION_ARG:-test}"
+}
+
+test_health_classification() {
+  require_test_mode
+  local generic=false owned=false target=false
+  service_responding && generic=true
+  owned_service_responding && owned=true
+  healthy && target=true
+  say "serviceResponding=$generic ownedService=$owned targetHealthy=$target"
+}
+
+test_docker_sandbox() {
+  require_test_mode
+  validate_state
+  mkdir -p "$STATE_DIR" "$BACKUPS" "$LOGS"
+  docker_sandbox_ready
+  say "DOCKER_SANDBOX_TEST_OK"
+}
+
 case "$ACTION" in
   provision-a2) provision_a2 ;;
   gui) run_gui ;;
@@ -338,5 +452,8 @@ case "$ACTION" in
   __run) run ;;
   __provision_a2_gui) provision_a2_gui ;;
   __gui_dispatch) gui_dispatch ;;
+  __test_snapshot) test_snapshot ;;
+  __test_health) test_health_classification ;;
+  __test_docker_sandbox) test_docker_sandbox ;;
   *) die "Uso: manage.sh provision-a2|gui doctor|gui install|gui status|doctor|install|status|rollback|uninstall" ;;
 esac

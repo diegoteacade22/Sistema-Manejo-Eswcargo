@@ -32,6 +32,7 @@ export class EngineeringRunner {
     const policy = validateClaim(claim, this.config);
     const workspace = new GitWorkspace({ config: this.config, claim, policy });
     let heartbeat = null;
+    let heartbeatPhase = 'RUNNING';
     const executionAbort = new AbortController();
     const requireStatus = (value, status, code) => {
       if (value?.status !== status) throw Object.assign(new Error(code), { code });
@@ -39,12 +40,12 @@ export class EngineeringRunner {
     };
     try {
       requireStatus(await this.api.transition(claim, 'RUNNING', 'ENGINEERING_RUNNER_STARTED', { runner: 'temporary-v2', externalEffects: 0 }, `runner-started:${claim.lease.leaseId}`), 'RUNNING', 'RUN_TRANSITION_REJECTED');
-      await workspace.prepare();
       if ((await this.api.heartbeat(claim, 'RUNNING'))?.renewed !== true) throw Object.assign(new Error('INITIAL_HEARTBEAT_REJECTED'), { code: 'INITIAL_HEARTBEAT_REJECTED' });
-      heartbeat = setInterval(() => void this.api.heartbeat(claim, 'RUNNING').then((result) => {
+      heartbeat = setInterval(() => void this.api.heartbeat(claim, heartbeatPhase).then((result) => {
         if (result?.renewed !== true) executionAbort.abort();
       }).catch(() => executionAbort.abort()), this.config.heartbeatIntervalMs);
       heartbeat.unref?.();
+      await workspace.prepare({ signal: executionAbort.signal });
       const codexRun = await runProcess(this.config.dockerBin, [
         'run', '--rm', '-i', '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
         '--security-opt', 'seccomp=unconfined',
@@ -53,6 +54,7 @@ export class EngineeringRunner {
         '--tmpfs', '/tmp:rw,noexec,nosuid,size=512m',
         '--tmpfs', `/codex-home:rw,noexec,nosuid,size=128m,uid=${process.getuid()},gid=${process.getgid()},mode=0700`,
         '--mount', `type=bind,src=${workspace.repo},dst=/workspace`,
+        '--mount', `type=bind,src=${workspace.repo}/.git,dst=/workspace/.git,readonly`,
         '--mount', `type=bind,src=${this.config.codexAuthDir}/auth.json,dst=/codex-home/auth.json,readonly`,
         '--mount', `type=bind,src=${SANDBOX_CONFIG},dst=/codex-home/config.toml,readonly`,
         '-e', 'CODEX_HOME=/codex-home', this.config.codexImage,
@@ -64,10 +66,11 @@ export class EngineeringRunner {
         timeoutMs: this.config.commandTimeoutMs,
         stdin: promptFor(claim),
         signal: executionAbort.signal,
+        stdoutLimitBytes: 1024 * 1024,
+        failOnStdoutLimit: true,
       });
       await workspace.assertNoSecretMaterial(codexRun.stdout, this.config.codexAuthDir);
-      clearInterval(heartbeat);
-      heartbeat = null;
+      heartbeatPhase = 'VERIFYING';
       requireStatus(await this.api.transition(claim, 'VERIFYING', 'ENGINEERING_VERIFYING', { modelRunCompleted: true }, `verifying:${claim.lease.leaseId}`), 'VERIFYING', 'VERIFY_TRANSITION_REJECTED');
       const receipt = await workspace.verifyAndCommit();
       if (claim.mission.autonomyLevel === 'A1') {
@@ -76,6 +79,7 @@ export class EngineeringRunner {
         return { ...receipt, autonomyLevel: 'A1', externalEffects: 0 };
       }
       requireStatus(await this.api.transition(claim, 'READY_FOR_EFFECT', 'ENGINEERING_READY_FOR_EFFECT', receipt, `ready-effect:${claim.lease.leaseId}`), 'READY_FOR_EFFECT', 'EFFECT_TRANSITION_REJECTED');
+      heartbeatPhase = 'READY_FOR_EFFECT';
       const effects = new GitHubEffects({ config: this.config, api: this.api, claim, workspace });
       const push = await effects.push(receipt);
       const draftPr = await effects.draftPr(receipt);
@@ -91,6 +95,7 @@ export class EngineeringRunner {
       }
       throw error;
     } finally {
+      if (heartbeat) clearInterval(heartbeat);
       await workspace.cleanup();
     }
   }

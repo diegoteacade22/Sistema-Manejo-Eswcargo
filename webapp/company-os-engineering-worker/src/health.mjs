@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { ENGINEERING_BINARY_VERSION, ENGINEERING_CONTRACT_VERSION } from './version.mjs';
 
 export function createHealthServer({ port, snapshot }) {
   const server = createServer((request, response) => {
@@ -10,9 +11,19 @@ export function createHealthServer({ port, snapshot }) {
       return;
     }
     const state = snapshot();
-    const ok = ['IDLE', 'BUSY'].includes(state.state) && typeof state.controlPlaneObservedAt === 'string';
+    const ok = ['IDLE', 'BUSY'].includes(state.state)
+      && typeof state.controlPlaneObservedAt === 'string'
+      && state.goalReconcilerHealthy === true
+      && typeof state.lastGoalReconcileAt === 'string';
     response.statusCode = ok ? 200 : 503;
-    response.end(JSON.stringify({ ok, service: 'company-os-engineering-v2', contract: 'engineering-v2-runner', ...state }));
+    response.end(JSON.stringify({
+      ok,
+      service: 'company-os-engineering-v2',
+      contract: 'engineering-v2-runner',
+      ...state,
+      binaryVersion: ENGINEERING_BINARY_VERSION,
+      contractVersion: ENGINEERING_CONTRACT_VERSION,
+    }));
   });
   return {
     listen: () => new Promise((resolve, reject) => {
