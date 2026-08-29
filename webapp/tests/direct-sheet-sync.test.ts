@@ -52,6 +52,28 @@ test('parsea las tres hojas operativas y conserva estados en blanco', () => {
   assert.equal(source.orders[0].items[0].purchaseInvoice, 'FC-1');
 });
 
+test('acepta PL Nro como cabecera actual del numero de Packing List', () => {
+  const source = parseOperationalSheets({
+    cabeEnvios: [
+      ['', '', 'ARRAYFORMULA(...)'],
+      ['PL Nro', 'CLIENTE', 'COD CLI', 'FORWARDER', 'FECHA SAL', 'FECHA LLEG', 'PESO', 'PESO', 'TIPO CARGA', 'CANT ART', 'COSTO TOT', 'ENVIO COB', 'GANANCIA', 'LLEGO?', 'OBSERVACION'],
+      [1290, 'Pedro iTech', 292, 'MARCELO HM', '08/28/2026', '', 2.1, 2.3, 'CELLS', 6, 74, 196, 122, '', ''],
+    ],
+    cabeVentas: [
+      ['INVOICE', 'NRO CLI', 'CLIENTE', 'FECHA', 'METODO', 'ESTADO'],
+      [2618, 292, 'Pedro iTech', '08/28/2026', 'Zelle', ''],
+    ],
+    detaVentas: [
+      ['INV-REM', 'SKU', 'CANT', 'VTA UNI', 'COSTO', 'GANANCIA', 'DETALLE', 'ENVIO NRO', 'ESTADO', 'COD CLI', 'NOMBRE', 'ENVIO', 'SUPPLIER', 'INVOICE'],
+      [2618, 'SKU-2618', 6, 100, 80, 120, 'Telefono', 1290, '', 292, 'Pedro iTech', 0, 'Proveedor', 'FC-2618'],
+    ],
+  });
+
+  assert.equal(source.shipments[0].shipmentNumber, 1290);
+  assert.equal(source.orders[0].orderNumber, 2618);
+  assert.equal(source.orders[0].items[0].shipmentNumber, 1290);
+});
+
 test('una fila con cantidad cero se interpreta como eliminación, no como línea imprimible', () => {
   const source = parseOperationalSheets({
     cabeEnvios: [['NUMERO', 'FORWARDER', 'FECHA SAL', 'FECHA LLEG', 'LLEGO?', 'OBSERVACION'], [1, 'FW', 46240, '', '', '']],
