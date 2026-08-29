@@ -58,9 +58,10 @@ export function normalizeRuntimeUsage(raw: unknown): CompanyOsWorkerUsage {
   const outputDetails = source.output_tokens_details && typeof source.output_tokens_details === 'object'
     ? source.output_tokens_details as Record<string, unknown> : {};
   const rules = source.rulesApplied ?? source.rules_applied;
+  const provider = source.provider === 'ollama' ? 'ollama' : 'openai';
   return {
-    provider: 'openai',
-    model: String(source.model ?? process.env.COMPANY_OS_V3_MODEL ?? 'gpt-5.6-sol'),
+    provider,
+    model: String(source.model ?? (provider === 'ollama' ? 'qwen3:14b-q4_K_M' : process.env.COMPANY_OS_V3_MODEL ?? 'gpt-5.6-sol')),
     inputTokens: integer(source.inputTokens ?? source.input_tokens),
     cachedTokens: integer(source.cachedTokens ?? inputDetails.cached_tokens),
     cacheWriteTokens: integer(source.cacheWriteTokens ?? inputDetails.cache_write_tokens),

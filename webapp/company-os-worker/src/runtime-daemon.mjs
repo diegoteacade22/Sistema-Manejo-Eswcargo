@@ -77,7 +77,9 @@ export class CompanyOsRuntimeDaemon {
     this.lastWorkerHeartbeatAt = null;
     this.lastState = 'STARTING';
     this.apiDependency = { status: 'UNOBSERVED', observedAt: null, detail: null };
-    this.modelDependency = { status: 'UNOBSERVED', observedAt: null, detail: null };
+    this.modelRouterDependency = { status: 'UNOBSERVED', observedAt: null, detail: null };
+    this.openAiDependency = { status: 'UNOBSERVED', observedAt: null, detail: null };
+    this.ollamaDependency = { status: 'UNOBSERVED', observedAt: null, detail: null };
   }
 
   effectiveState() {
@@ -115,15 +117,30 @@ export class CompanyOsRuntimeDaemon {
   observeModelResult(result) {
     if (result?.status === 'COMPLETED') {
       this.failures.delete('openai');
-      this.modelDependency = { status: 'HEALTHY', observedAt: this.now().toISOString(), detail: null };
-      this.transitionIfNeeded('openai:ok');
+      this.failures.delete('model');
+      const observedAt = this.now().toISOString();
+      const provider = result.modelProvider === 'ollama' ? 'ollama' : 'openai';
+      this.modelRouterDependency = { status: 'HEALTHY', observedAt, detail: `${provider}:${result.model || 'unknown'}` };
+      if (provider === 'ollama') {
+        this.ollamaDependency = { status: 'HEALTHY', observedAt, detail: result.model || 'qwen-local' };
+        this.openAiDependency = { status: 'DEGRADED', observedAt, detail: result.fallbackReason || 'OPENAI_RETRYABLE_FAILURE' };
+      } else {
+        this.openAiDependency = { status: 'HEALTHY', observedAt, detail: result.model || null };
+      }
+      this.transitionIfNeeded('model:ok');
       return;
     }
     const code = result?.error?.code;
-    if (typeof code === 'string' && code.startsWith('OPENAI_')) {
-      this.failures.set('openai', code);
-      this.modelDependency = { status: 'DEGRADED', observedAt: this.now().toISOString(), detail: code };
-      this.transitionIfNeeded('openai:failed');
+    if (typeof code === 'string' && (code.startsWith('OPENAI_') || code.startsWith('OLLAMA_') || code.startsWith('MODEL_ROUTER_'))) {
+      const observedAt = this.now().toISOString();
+      this.failures.set('model', code);
+      this.modelRouterDependency = { status: 'DEGRADED', observedAt, detail: code };
+      if (code === 'MODEL_ROUTER_FALLBACK_FAILED') {
+        this.openAiDependency = { status: 'DEGRADED', observedAt, detail: result.error.primaryCode || 'OPENAI_UNKNOWN_ERROR' };
+        this.ollamaDependency = { status: 'DEGRADED', observedAt, detail: result.error.fallbackCode || 'OLLAMA_UNKNOWN_ERROR' };
+      } else if (code.startsWith('OPENAI_')) this.openAiDependency = { status: 'DEGRADED', observedAt, detail: code };
+      else if (code.startsWith('OLLAMA_')) this.ollamaDependency = { status: 'DEGRADED', observedAt, detail: code };
+      this.transitionIfNeeded('model:failed');
     }
   }
 
@@ -142,6 +159,8 @@ export class CompanyOsRuntimeDaemon {
       workerId: this.config.workerId,
       instanceId: this.instanceId,
       version: this.config.version,
+      binaryVersion: this.config.binaryVersion || this.config.version,
+      contractVersion: this.config.contractVersion || 'runtime-v1',
       state: this.effectiveState(),
       startedAt: this.startedAt,
       lastWorkerHeartbeatAt: this.lastWorkerHeartbeatAt,
@@ -159,6 +178,8 @@ export class CompanyOsRuntimeDaemon {
       state,
       host: this.config.hostName,
       version: this.config.version,
+      binaryVersion: this.config.binaryVersion || this.config.version,
+      contractVersion: this.config.contractVersion || 'runtime-v1',
       startedAt: this.startedAt,
       observedAt,
       capacity: this.config.globalConcurrency,
@@ -169,7 +190,9 @@ export class CompanyOsRuntimeDaemon {
         { key: 'network', ...this.apiDependency },
         { key: 'vercel-api', ...this.apiDependency },
         { key: 'supabase-postgres', status: 'UNOBSERVED', observedAt: null, detail: 'Observed only through the signed Vercel API' },
-        { key: 'openai-api', ...this.modelDependency },
+        { key: 'inference-router', ...this.modelRouterDependency },
+        { key: 'openai-api', ...this.openAiDependency },
+        { key: 'ollama-local', ...this.ollamaDependency },
         { key: 'openclaw-optional', status: 'UNOBSERVED', observedAt: null, detail: 'Optional dependency not configured' },
       ],
     };
@@ -210,6 +233,8 @@ export class CompanyOsRuntimeDaemon {
         workerId: this.config.workerId,
         instanceId: this.instanceId,
         version: this.config.version,
+        binaryVersion: this.config.binaryVersion || this.config.version,
+        contractVersion: this.config.contractVersion || 'runtime-v1',
         healthHost: this.config.healthHost,
         healthPort: address?.port || this.config.healthPort,
         globalConcurrency: this.config.globalConcurrency,

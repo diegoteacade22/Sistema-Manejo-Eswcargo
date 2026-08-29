@@ -1034,12 +1034,70 @@ model CompanyOsEngineeringMission {
   completedAt        DateTime?
   createdAt          DateTime                              @default(now())
   updatedAt          DateTime                              @updatedAt
+  goalId             String?
+  goal               CompanyOsEngineeringGoal?             @relation(fields: [goalId], references: [id], onDelete: Restrict)
+  contractVersion    String                                @default("2.0.0")
+  desiredState       Json?
+  attemptCount       Int                                   @default(0)
+  maxAttempts        Int                                   @default(3)
+  nextAttemptAt      DateTime                              @default(now())
   capabilityLeases   CompanyOsEngineeringCapabilityLease[]
   events             CompanyOsEngineeringEvent[]
   effects            CompanyOsEngineeringEffect[]
+  goalSignals        CompanyOsEngineeringGoalSignal[]
 
   @@index([status, createdAt])
   @@index([repository, status, createdAt])
+  @@index([goalId])
+  @@index([status, nextAttemptAt, deadline], map: "CompanyOsEngineeringMission_retry_due_idx")
+}
+
+model CompanyOsEngineeringGoal {
+  id                 String                           @id
+  goalKey            String
+  version            Int
+  sourceKind         String
+  sourceRef          String
+  sourceHash         String
+  objective          String
+  repository         String
+  baseBranch         String
+  desiredState       Json
+  allowedPaths       Json
+  acceptanceCriteria Json
+  autonomyLevel      String
+  budgetUsd          Decimal                          @db.Decimal(12, 6)
+  missionTtlMinutes  Int
+  policyHash         String
+  priority           Int                              @default(0)
+  status             String                           @default("ACTIVE")
+  createdBy          String
+  createdAt          DateTime                         @default(now())
+  updatedAt          DateTime                         @updatedAt
+  missions           CompanyOsEngineeringMission[]
+  signals            CompanyOsEngineeringGoalSignal[]
+
+  @@unique([goalKey, version])
+  @@index([status, priority(sort: Desc), createdAt])
+}
+
+model CompanyOsEngineeringGoalSignal {
+  id                String                       @id
+  goalId            String
+  workerId          String
+  instanceId        String
+  baseCommit        String
+  observedSatisfied Boolean
+  observedState     Json
+  evidenceHash      String
+  idempotencyKey    String                       @unique
+  missionId         String?
+  createdAt         DateTime                     @default(now())
+  goal              CompanyOsEngineeringGoal     @relation(fields: [goalId], references: [id], onDelete: Restrict)
+  mission           CompanyOsEngineeringMission? @relation(fields: [missionId], references: [id], onDelete: Restrict)
+
+  @@index([goalId, createdAt(sort: Desc)])
+  @@index([missionId])
 }
 
 model CompanyOsEngineeringCapabilityLease {

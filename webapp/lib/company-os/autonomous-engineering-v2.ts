@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { posix } from 'node:path';
 
-export const ENGINEERING_V2_CONTRACT_VERSION = '2.0.0' as const;
+export const ENGINEERING_V2_CONTRACT_VERSION = '2.1.0' as const;
 
 export const ENGINEERING_MISSION_STATES = [
   'DISCOVERED',
@@ -46,12 +46,14 @@ export type EngineeringRuntimeControl = Readonly<{
 }>;
 
 export type EngineeringMissionContract = Readonly<{
+  contractVersion?: '2.0.0' | '2.1.0';
   missionId: string;
   objective: string;
   repository: string;
   baseCommit: string;
   allowedPaths: readonly string[];
   acceptanceCriteria: readonly string[];
+  desiredState?: Readonly<{ type: 'FILE_CONTAINS_ALL'; path: string; needles: readonly string[] }> | null;
   autonomyLevel: EngineeringAutonomyLevel;
   budgetUsd: number;
   deadline: string;
@@ -111,8 +113,8 @@ export type EngineeringEffectRequest = Readonly<{
 const TRANSITIONS: Readonly<Record<EngineeringMissionState, readonly EngineeringMissionState[]>> = {
   DISCOVERED: ['TRIAGED', 'CANCELLED'],
   TRIAGED: ['READY', 'BLOCKED_INPUT', 'BLOCKED_AUTHORITY', 'CANCELLED'],
-  READY: ['LEASED', 'BLOCKED_AUTHORITY', 'CANCELLED'],
-  LEASED: ['RUNNING', 'FAILED_RETRYABLE', 'CANCELLED'],
+  READY: ['LEASED', 'FAILED_FINAL', 'BLOCKED_AUTHORITY', 'CANCELLED'],
+  LEASED: ['RUNNING', 'FAILED_RETRYABLE', 'FAILED_FINAL', 'CANCELLED'],
   RUNNING: ['VERIFYING', 'FAILED_RETRYABLE', 'FAILED_FINAL', 'BLOCKED_INPUT', 'BLOCKED_AUTHORITY', 'CANCELLED'],
   VERIFYING: ['REVIEWING', 'READY_FOR_EFFECT', 'READY_FOR_HUMAN', 'FAILED_RETRYABLE', 'FAILED_FINAL', 'BLOCKED_INPUT'],
   REVIEWING: ['AWAITING_APPROVAL', 'READY_FOR_EFFECT', 'READY_FOR_HUMAN', 'FAILED_RETRYABLE', 'FAILED_FINAL', 'BLOCKED_INPUT'],
@@ -146,11 +148,38 @@ export function engineeringHash(value: unknown) {
   return createHash('sha256').update(canonicalJson(value)).digest('hex');
 }
 
-export function engineeringMissionHash(mission: EngineeringMissionContract) {
-  const immutableContract = Object.fromEntries(
-    Object.entries(mission).filter(([key]) => key !== 'expectedStateVersion'),
+export function engineeringGoalRequestId(input: {
+  goalId: string;
+  goalKey: string;
+  version: number;
+  baseCommit: string;
+  evidenceHash: string;
+  observationEpoch: string;
+}) {
+  return `goal:${engineeringHash(input)}`;
+}
+
+export function engineeringGoalEpochResetObserved(
+  latestSatisfiedSignalAt: Date | null,
+  terminalMissionCreatedAt: Date | null,
+) {
+  return Boolean(
+    latestSatisfiedSignalAt
+    && terminalMissionCreatedAt
+    && latestSatisfiedSignalAt.getTime() > terminalMissionCreatedAt.getTime(),
   );
-  return engineeringHash({ contractVersion: ENGINEERING_V2_CONTRACT_VERSION, ...immutableContract });
+}
+
+export function engineeringMissionHash(mission: EngineeringMissionContract) {
+  const { contractVersion = '2.0.0', desiredState, ...rest } = mission;
+  const immutableContract = Object.fromEntries(
+    Object.entries(rest).filter(([key]) => key !== 'expectedStateVersion'),
+  );
+  return engineeringHash({
+    contractVersion,
+    ...immutableContract,
+    ...(contractVersion === '2.1.0' ? { desiredState } : {}),
+  });
 }
 
 export function assertEngineeringTransition(from: EngineeringMissionState, to: EngineeringMissionState) {

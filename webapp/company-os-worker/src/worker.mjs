@@ -16,7 +16,16 @@ export function safeFailure(error) {
   const message = typeof error?.message === 'string'
     ? redactExternalText(error.message, 500)
     : 'Worker failed';
-  return { code, message, retryable: error?.retryable === true };
+  const failure = { code, message, retryable: error?.retryable === true };
+  if (code === 'MODEL_ROUTER_FALLBACK_FAILED') {
+    failure.primaryCode = typeof error?.primaryCode === 'string' && /^[A-Z0-9_]{1,80}$/.test(error.primaryCode)
+      ? error.primaryCode : 'OPENAI_UNKNOWN_ERROR';
+    failure.fallbackCode = typeof error?.fallbackCode === 'string' && /^[A-Z0-9_]{1,80}$/.test(error.fallbackCode)
+      ? error.fallbackCode : 'OLLAMA_UNKNOWN_ERROR';
+    failure.retries = Number.isSafeInteger(error?.retries) && error.retries >= 0 ? error.retries : 0;
+    failure.durationMs = Number.isSafeInteger(error?.durationMs) && error.durationMs >= 0 ? error.durationMs : 0;
+  }
+  return failure;
 }
 
 export class CompanyOsWorker {
@@ -92,7 +101,14 @@ export class CompanyOsWorker {
           this.onError(notificationError);
         }
       }
-      return { status: 'COMPLETED', requestId: claim.requestId, caseId: claim.caseId };
+      return {
+        status: 'COMPLETED',
+        requestId: claim.requestId,
+        caseId: claim.caseId,
+        modelProvider: usage.provider === 'ollama' ? 'ollama' : 'openai',
+        model: typeof usage.model === 'string' ? usage.model : null,
+        fallbackReason: typeof usage.fallback_reason === 'string' ? usage.fallback_reason : null,
+      };
     } catch (error) {
       const reportedError = leaseFailure ?? error;
       const failure = {

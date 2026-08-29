@@ -37,12 +37,23 @@ export class ProcessError extends Error {
   }
 }
 
-function appendBounded(current, chunk) {
-  const next = current + chunk.toString('utf8');
-  return next.length > OUTPUT_LIMIT ? next.slice(-OUTPUT_LIMIT) : next;
+function appendBounded(current, chunk, limit) {
+  const next = Buffer.concat([current, Buffer.from(chunk)]);
+  return {
+    value: next.length > limit ? next.subarray(next.length - limit) : next,
+    truncated: next.length > limit,
+  };
 }
 
-export function runProcess(command, args, { cwd, env = process.env, timeoutMs = 120_000, stdin = null, signal: abortSignal = null } = {}) {
+export function runProcess(command, args, {
+  cwd,
+  env = process.env,
+  timeoutMs = 120_000,
+  stdin = null,
+  signal: abortSignal = null,
+  stdoutLimitBytes = OUTPUT_LIMIT,
+  failOnStdoutLimit = false,
+} = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
@@ -50,8 +61,9 @@ export function runProcess(command, args, { cwd, env = process.env, timeoutMs = 
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
     });
-    let stdout = '';
-    let stderr = '';
+    let stdout = Buffer.alloc(0);
+    let stderr = Buffer.alloc(0);
+    let stdoutTruncated = false;
     let timedOut = false;
     let aborted = false;
     const terminateTree = () => {
@@ -61,8 +73,12 @@ export function runProcess(command, args, { cwd, env = process.env, timeoutMs = 
       }, 5_000);
       killer.unref?.();
     };
-    child.stdout.on('data', (chunk) => { stdout = appendBounded(stdout, chunk); });
-    child.stderr.on('data', (chunk) => { stderr = appendBounded(stderr, chunk); });
+    child.stdout.on('data', (chunk) => {
+      const appended = appendBounded(stdout, chunk, stdoutLimitBytes);
+      stdout = appended.value;
+      stdoutTruncated ||= appended.truncated;
+    });
+    child.stderr.on('data', (chunk) => { stderr = appendBounded(stderr, chunk, OUTPUT_LIMIT).value; });
     child.on('error', () => reject(new ProcessError('PROCESS_SPAWN_FAILED')));
     if (stdin !== null) child.stdin.end(stdin); else child.stdin.end();
     const onAbort = () => { aborted = true; terminateTree(); };
@@ -78,7 +94,8 @@ export function runProcess(command, args, { cwd, env = process.env, timeoutMs = 
       if (aborted) return reject(new ProcessError('PROCESS_ABORTED_BY_LEASE_CONTROL', { exitCode, signal }));
       if (timedOut) return reject(new ProcessError('PROCESS_TIMEOUT', { exitCode, signal, timedOut: true, uncertain: true }));
       if (exitCode !== 0) return reject(new ProcessError('PROCESS_FAILED', { exitCode, signal }));
-      resolve({ stdout, stderr, exitCode: 0 });
+      if (stdoutTruncated && failOnStdoutLimit) return reject(new ProcessError('PROCESS_STDOUT_LIMIT', { exitCode, signal }));
+      resolve({ stdout: stdout.toString('utf8'), stderr: stderr.toString('utf8'), exitCode: 0 });
     });
   });
 }

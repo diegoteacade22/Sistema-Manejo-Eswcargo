@@ -6,17 +6,23 @@ import test from 'node:test';
 import { mkdtempSync } from 'node:fs';
 import { InstanceLock } from '../src/instance-lock.mjs';
 import { JsonRotatingLogger } from '../src/json-logger.mjs';
-import { OpenAiAdvisoryClient, validateRuntimeContractOutput } from '../src/openai-client.mjs';
+import { OpenAiAdvisoryClient, OpenAiWorkerError, validateRuntimeContractOutput } from '../src/openai-client.mjs';
+import {
+  OllamaAdvisoryClient,
+  RetryableModelFallbackClient,
+  validateOllamaBaseUrl,
+} from '../src/ollama-client.mjs';
 import { CompanyOsRuntimeApiClient } from '../src/runtime-api-client.mjs';
 import { loadRuntimeConfig, validateRuntimeApiBaseUrl } from '../src/runtime-config.mjs';
 import { CompanyOsRuntimeDaemon } from '../src/runtime-daemon.mjs';
 import { createRuntimeHealthServer } from '../src/runtime-health.mjs';
+import { buildDaemonRuntime } from '../src/server.mjs';
 import {
   runtimeSignatureMessage,
   runtimeSignedHeaders,
   verifyRuntimeSignedBody,
 } from '../src/runtime-signing.mjs';
-import { CompanyOsWorker } from '../src/worker.mjs';
+import { CompanyOsWorker, safeFailure } from '../src/worker.mjs';
 
 const silentLogger = {
   info() {},
@@ -261,6 +267,356 @@ test('runtime OpenAI usa contract.outputSchema y valida campos nuevos localmente
   assert.match(result.usage.rules_applied[0], /general-manager-ai-v3@3\.1\.1/);
 });
 
+test('Ollama usa sólo loopback, JSON schema firmado y reporta usage local honesta', async () => {
+  let request;
+  const ollama = new OllamaAdvisoryClient({
+    baseUrl: 'http://127.0.0.1:11434',
+    model: 'qwen3:14b-q4_K_M',
+    timeoutMs: 1_000,
+    requireClaimOutputSchema: true,
+    fetchImpl: async (url, init) => {
+      request = { url, init };
+      return new Response(JSON.stringify({
+        model: 'qwen3:14b-q4_K_M',
+        done: true,
+        message: { role: 'assistant', content: JSON.stringify(runtimeOutput) },
+        prompt_eval_count: 111,
+        eval_count: 37,
+        total_duration: 1_500_000_000,
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    },
+  });
+
+  const result = await ollama.generate(claim);
+  const body = JSON.parse(request.init.body);
+  assert.equal(request.url, 'http://127.0.0.1:11434/api/chat');
+  assert.equal(request.init.redirect, 'error');
+  assert.equal(body.model, 'qwen3:14b-q4_K_M');
+  assert.equal(body.stream, false);
+  assert.equal(body.think, false);
+  assert.equal(body.options.temperature, 0);
+  assert.equal(body.options.num_predict, 3_000);
+  assert.deepEqual(body.format.properties.evidenceRefs.items.enum, ['refs']);
+  assert.deepEqual(result.output, runtimeOutput);
+  assert.equal(result.usage.provider, 'ollama');
+  assert.equal(result.usage.model, 'qwen3:14b-q4_K_M');
+  assert.equal(result.usage.input_tokens, 111);
+  assert.equal(result.usage.output_tokens, 37);
+  assert.equal(result.usage.total_tokens, 148);
+  assert.equal(result.usage.duration_ms, 1_500);
+  assert.match(result.usage.rules_applied.join(','), /signed-runtime-contract/);
+  assert.match(result.usage.rules_applied.join(','), /local-loopback-inference/);
+});
+
+test('Ollama exige model exacto y done=true antes de atribuir usage', async () => {
+  const cases = [
+    {
+      raw: {
+        done: true,
+        message: { role: 'assistant', content: JSON.stringify(runtimeOutput) },
+        prompt_eval_count: 20,
+        eval_count: 5,
+      },
+      code: 'OLLAMA_MODEL_MISMATCH',
+    },
+    {
+      raw: {
+        model: 'qwen3:14b-q4_K_M',
+        done: false,
+        message: { role: 'assistant', content: JSON.stringify(runtimeOutput) },
+        prompt_eval_count: 20,
+        eval_count: 5,
+      },
+      code: 'OLLAMA_INCOMPLETE_RESPONSE',
+    },
+  ];
+
+  for (const { raw, code } of cases) {
+    const ollama = new OllamaAdvisoryClient({
+      fetchImpl: async () => new Response(JSON.stringify(raw), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    });
+    await assert.rejects(
+      () => ollama.generate(claim),
+      (error) => error.code === code && error.usage === undefined,
+    );
+  }
+});
+
+test('Ollama bloquea redirects HTTP sin efectuar un segundo fetch', async () => {
+  let fetchCalls = 0;
+  let redirectMode = null;
+  const ollama = new OllamaAdvisoryClient({
+    fetchImpl: async (_url, init) => {
+      fetchCalls += 1;
+      redirectMode = init.redirect;
+      return new Response(null, {
+        status: 302,
+        headers: { location: 'http://127.0.0.1:11434/redirected' },
+      });
+    },
+  });
+  await assert.rejects(
+    () => ollama.generate(claim),
+    (error) => error.code === 'OLLAMA_HTTP_ERROR' && error.status === 302 && error.retryable === false,
+  );
+  assert.equal(redirectMode, 'error');
+  assert.equal(fetchCalls, 1);
+});
+
+test('Ollama rechaza endpoints no-loopback y vuelve a validar la salida con el contrato runtime', async () => {
+  assert.equal(validateOllamaBaseUrl('http://127.0.0.1:11434'), 'http://127.0.0.1:11434');
+  assert.equal(validateOllamaBaseUrl('http://[::1]:11434'), 'http://[::1]:11434');
+  assert.throws(() => validateOllamaBaseUrl('http://localhost:11434'), /loopback/);
+  assert.throws(() => validateOllamaBaseUrl('https://127.0.0.1:11434'), /loopback/);
+  assert.throws(() => validateOllamaBaseUrl('http://127.0.0.1:11434/api'), /loopback/);
+  assert.throws(() => validateOllamaBaseUrl('http://192.168.1.10:11434'), /loopback/);
+
+  const invalid = { ...runtimeOutput, evidenceRefs: ['outside-snapshot'] };
+  const ollama = new OllamaAdvisoryClient({
+    fetchImpl: async () => new Response(JSON.stringify({
+      model: 'qwen3:14b-q4_K_M',
+      done: true,
+      message: { role: 'assistant', content: JSON.stringify(invalid) },
+      prompt_eval_count: 20,
+      eval_count: 5,
+    }), { status: 200, headers: { 'content-type': 'application/json' } }),
+  });
+  await assert.rejects(
+    () => ollama.generate(claim),
+    (error) => error.code === 'OLLAMA_INVALID_RUNTIME_OUTPUT' && error.usage?.provider === 'ollama'
+      && error.cause?.code === 'OPENAI_INVALID_RUNTIME_OUTPUT',
+  );
+});
+
+test('fallback llama Qwen sólo después de agotar un error OpenAI permitido', async () => {
+  let openAiCalls = 0;
+  let ollamaCalls = 0;
+  const primary = new OpenAiAdvisoryClient({
+    apiKey: 'test-key',
+    timeoutMs: 1_000,
+    requireClaimOutputSchema: true,
+    sleep: async () => {},
+    fetchImpl: async () => {
+      openAiCalls += 1;
+      return new Response(JSON.stringify({ error: 'rate limited' }), {
+        status: 429,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+  const client = new RetryableModelFallbackClient({
+    primary,
+    fallback: {
+      generate: async () => {
+        ollamaCalls += 1;
+        return { output: runtimeOutput, usage: { provider: 'ollama', model: 'qwen3:14b-q4_K_M', retry_count: 0 } };
+      },
+    },
+  });
+
+  const result = await client.generate(claim);
+  assert.equal(openAiCalls, 2);
+  assert.equal(ollamaCalls, 1);
+  assert.equal(result.usage.provider, 'ollama');
+  assert.equal(result.usage.retry_count, 2);
+  assert.equal(result.usage.fallback_from_provider, 'openai');
+  assert.equal(result.usage.fallback_reason, 'OPENAI_HTTP_ERROR');
+});
+
+test('fallback reserva su slice dentro del deadline absoluto y persiste latencia end-to-end', async () => {
+  let clock = 1_800_000_000_000;
+  let fallbackDeadline = null;
+  const primaryError = new OpenAiWorkerError('rate limited', {
+    retryable: true, code: 'OPENAI_HTTP_ERROR', status: 429,
+  });
+  primaryError.retryCount = 1;
+  const client = new RetryableModelFallbackClient({
+    now: () => clock,
+    primary: {
+      generate: async (_claim, options) => {
+        assert.equal(options.deadlineAt, 1_800_000_090_000);
+        clock += 75_000;
+        throw primaryError;
+      },
+    },
+    fallback: {
+      generate: async (_claim, options) => {
+        fallbackDeadline = options.deadlineAt;
+        clock += 20_000;
+        return { output: runtimeOutput, usage: { provider: 'ollama', model: 'qwen3:14b-q4_K_M', duration_ms: 20_000 } };
+      },
+    },
+  });
+  const result = await client.generate({ ...claim, timeoutMs: 120_000 });
+  assert.equal(fallbackDeadline, 1_800_000_120_000);
+  assert.equal(result.usage.duration_ms, 95_000);
+  assert.equal(result.usage.fallback_provider_duration_ms, 20_000);
+});
+
+test('OpenAI colgado vence en su slice y Qwen termina dentro del deadline total', async () => {
+  let primaryDeadline = null;
+  let fallbackDeadline = null;
+  const primary = new OpenAiAdvisoryClient({
+    apiKey: 'test-key',
+    timeoutMs: 1_000,
+    requireClaimOutputSchema: true,
+    sleep: async () => {},
+    fetchImpl: async (_url, { signal }) => new Promise((_resolve, reject) => {
+      const abort = () => {
+        const error = new Error('hung OpenAI request timed out');
+        error.name = 'AbortError';
+        reject(error);
+      };
+      if (signal.aborted) abort();
+      else signal.addEventListener('abort', abort, { once: true });
+    }),
+  });
+  const router = new RetryableModelFallbackClient({
+    fallbackReserveMs: 750,
+    primary: {
+      generate: async (value, options) => {
+        primaryDeadline = options.deadlineAt;
+        return primary.generate(value, options);
+      },
+    },
+    fallback: {
+      generate: async (_value, options) => {
+        fallbackDeadline = options.deadlineAt;
+        return {
+          output: runtimeOutput,
+          usage: { provider: 'ollama', model: 'qwen3:14b-q4_K_M', duration_ms: 1 },
+        };
+      },
+    },
+  });
+
+  const wallStartedAt = Date.now();
+  const result = await router.generate({ ...claim, timeoutMs: 1_000 });
+  const elapsedMs = Date.now() - wallStartedAt;
+  assert.ok(primaryDeadline - wallStartedAt <= 510);
+  assert.ok(fallbackDeadline - primaryDeadline >= 490);
+  assert.ok(elapsedMs < 1_000);
+  assert.equal(result.usage.provider, 'ollama');
+  assert.equal(result.usage.fallback_reason, 'OPENAI_TIMEOUT');
+});
+
+test('fallo compuesto conserva retryable del primario aunque Qwen falle schema cerrado', async () => {
+  const primaryError = new OpenAiWorkerError('OpenAI unavailable', {
+    retryable: true,
+    code: 'OPENAI_NETWORK_ERROR',
+  });
+  primaryError.retryCount = 1;
+  const fallback = new OllamaAdvisoryClient({
+    fetchImpl: async () => new Response(JSON.stringify({
+      model: 'qwen3:14b-q4_K_M',
+      done: true,
+      message: { role: 'assistant', content: JSON.stringify({ ...runtimeOutput, evidenceRefs: ['forged'] }) },
+      prompt_eval_count: 20,
+      eval_count: 5,
+    }), { status: 200, headers: { 'content-type': 'application/json' } }),
+  });
+  const router = new RetryableModelFallbackClient({
+    primary: { generate: async () => { throw primaryError; } },
+    fallback,
+  });
+
+  await assert.rejects(
+    () => router.generate(claim),
+    (error) => error.code === 'MODEL_ROUTER_FALLBACK_FAILED'
+      && error.primaryCode === 'OPENAI_NETWORK_ERROR'
+      && error.fallbackCode === 'OLLAMA_INVALID_RUNTIME_OUTPUT'
+      && error.retryable === true
+      && safeFailure(error).retryable === true,
+  );
+});
+
+test('OpenAI 429 agotado más timeout Ollama emite fallo compuesto y degrada ambos providers', async (t) => {
+  let openAiCalls = 0;
+  const primary = new OpenAiAdvisoryClient({
+    apiKey: 'test-key',
+    timeoutMs: 1_000,
+    requireClaimOutputSchema: true,
+    sleep: async () => {},
+    fetchImpl: async () => {
+      openAiCalls += 1;
+      return new Response(JSON.stringify({ error: 'rate limited' }), {
+        status: 429,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+  const fallback = new OllamaAdvisoryClient({
+    timeoutMs: 5,
+    fetchImpl: async (_url, { signal }) => new Promise((_resolve, reject) => {
+      const abort = () => {
+        const error = new Error('local timeout');
+        error.name = 'AbortError';
+        reject(error);
+      };
+      if (signal.aborted) abort();
+      else signal.addEventListener('abort', abort, { once: true });
+    }),
+  });
+  const router = new RetryableModelFallbackClient({ primary, fallback });
+  let composed;
+  await assert.rejects(
+    () => router.generate(claim),
+    (error) => {
+      composed = error;
+      return error.code === 'MODEL_ROUTER_FALLBACK_FAILED';
+    },
+  );
+  assert.equal(openAiCalls, 2);
+  assert.equal(composed.primaryCode, 'OPENAI_HTTP_ERROR');
+  assert.equal(composed.fallbackCode, 'OLLAMA_TIMEOUT');
+  assert.equal(composed.retries, 2);
+  assert.ok(composed.durationMs >= 0);
+  assert.equal(composed.usage.provider, 'ollama');
+  assert.equal(composed.usage.retry_count, 2);
+  assert.equal(composed.usage.duration_ms, composed.durationMs);
+
+  const emitted = safeFailure(composed);
+  assert.deepEqual(emitted, {
+    code: 'MODEL_ROUTER_FALLBACK_FAILED',
+    message: 'Model router fallback failed: primary=OPENAI_HTTP_ERROR; fallback=OLLAMA_TIMEOUT',
+    retryable: true,
+    primaryCode: 'OPENAI_HTTP_ERROR',
+    fallbackCode: 'OLLAMA_TIMEOUT',
+    retries: 2,
+    durationMs: composed.durationMs,
+  });
+  const daemon = createDaemon({ stateDir: tempDirectory(t), api: fakeApi([]), processor: { runClaim: async () => ({}) } });
+  daemon.starting = false;
+  daemon.observeModelResult({ status: 'FAILED', error: emitted });
+  const dependencies = daemon.heartbeatPayload().dependencies;
+  assert.equal(dependencies.find(({ key }) => key === 'inference-router').status, 'DEGRADED');
+  assert.deepEqual(
+    dependencies.filter(({ key }) => ['openai-api', 'ollama-local'].includes(key)).map(({ key, status, detail }) => ({ key, status, detail })),
+    [
+      { key: 'openai-api', status: 'DEGRADED', detail: 'OPENAI_HTTP_ERROR' },
+      { key: 'ollama-local', status: 'DEGRADED', detail: 'OLLAMA_TIMEOUT' },
+    ],
+  );
+});
+
+test('fallback no oculta errores OpenAI no elegibles aunque sean marcados retryable', async () => {
+  let fallbackCalls = 0;
+  const conflict = new OpenAiWorkerError('conflict', {
+    retryable: true,
+    code: 'OPENAI_HTTP_ERROR',
+    status: 409,
+  });
+  const client = new RetryableModelFallbackClient({
+    primary: { generate: async () => { throw conflict; } },
+    fallback: { generate: async () => { fallbackCalls += 1; } },
+  });
+  await assert.rejects(() => client.generate(claim), (error) => error === conflict);
+  assert.equal(fallbackCalls, 0);
+});
+
 test('runtime OpenAI falla cerrado sin schema y con baja confianza no escalada', async () => {
   let fetchCalls = 0;
   const openai = new OpenAiAdvisoryClient({
@@ -343,7 +699,13 @@ test('config runtime fija intervalos, concurrencia, health local y notificacione
   assert.equal(config.shutdownGraceMs, 30_000);
   assert.equal(config.healthHost, '127.0.0.1');
   assert.equal(config.healthPort, 8794);
+  assert.equal(config.version, '1.1.0');
+  assert.equal(config.binaryVersion, '1.1.0');
+  assert.equal(config.contractVersion, 'runtime-v1');
   assert.equal(config.externalNotificationsEnabled, false);
+  assert.equal(config.ollamaFallbackEnabled, true);
+  assert.equal(config.ollamaBaseUrl, 'http://127.0.0.1:11434');
+  assert.equal(config.ollamaModel, 'qwen3:14b-q4_K_M');
   assert.throws(() => validateRuntimeApiBaseUrl('http://webapp-weld-psi.vercel.app'), /pure HTTPS origin/);
   assert.throws(() => validateRuntimeApiBaseUrl('https://webapp-weld-psi.vercel.app:8443'), /pure HTTPS origin/);
   assert.throws(() => validateRuntimeApiBaseUrl('https://attacker.example'), /not allowlisted/);
@@ -351,6 +713,24 @@ test('config runtime fija intervalos, concurrencia, health local y notificacione
     COMPANY_OS_RUNTIME_HMAC_SECRET: 'runtime-secret', OPENAI_API_KEY: 'openai-test',
     COMPANY_OS_RUNTIME_EXTERNAL_NOTIFICATIONS_ENABLED: 'true',
   }), /must remain false/);
+});
+
+test('daemon runtime cablea el fallback Ollama sin habilitarlo como proveedor primario', (t) => {
+  const stateDir = tempDirectory(t);
+  const config = loadRuntimeConfig({
+    COMPANY_OS_RUNTIME_HMAC_SECRET: 'runtime-secret',
+    OPENAI_API_KEY: 'openai-test',
+    COMPANY_OS_RUNTIME_STATE_DIR: stateDir,
+  });
+  const runtime = buildDaemonRuntime(config, {
+    api: {},
+    logger: silentLogger,
+    instanceId: 'instance-fallback-test',
+  });
+  assert.ok(runtime.processor.openai instanceof RetryableModelFallbackClient);
+  assert.ok(runtime.processor.openai.primary instanceof OpenAiAdvisoryClient);
+  assert.ok(runtime.processor.openai.fallback instanceof OllamaAdvisoryClient);
+  assert.equal(runtime.processor.openai.enabled, true);
 });
 
 test('queue vacía no invoca el procesador ni un modelo', async (t) => {
@@ -440,10 +820,10 @@ test('heartbeat idle, reconcile y schedule corren aunque no haya trabajo', async
   await daemon.tickSchedule();
   assert.deepEqual(api.calls.workerHeartbeats.map(({ state }) => state), ['STARTING', 'IDLE']);
   assert.deepEqual(api.calls.workerHeartbeats[0].dependencies.map(({ key }) => key), [
-    'network', 'vercel-api', 'supabase-postgres', 'openai-api', 'openclaw-optional',
+    'network', 'vercel-api', 'supabase-postgres', 'inference-router', 'openai-api', 'ollama-local', 'openclaw-optional',
   ]);
   assert.deepEqual(api.calls.workerHeartbeats[0].dependencies.map(({ status }) => status), [
-    'UNOBSERVED', 'UNOBSERVED', 'UNOBSERVED', 'UNOBSERVED', 'UNOBSERVED',
+    'UNOBSERVED', 'UNOBSERVED', 'UNOBSERVED', 'UNOBSERVED', 'UNOBSERVED', 'UNOBSERVED', 'UNOBSERVED',
   ]);
   assert.equal(api.calls.workerHeartbeats[1].dependencies.find(({ key }) => key === 'vercel-api').status, 'HEALTHY');
   assert.equal(api.calls.reconcile, 1);
@@ -463,8 +843,33 @@ test('un fallo OpenAI observable deja runtime y dependencia en DEGRADED', async 
   await daemon.tickPoll();
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(daemon.snapshot().state, 'DEGRADED');
+  assert.equal(daemon.heartbeatPayload().dependencies.find(({ key }) => key === 'inference-router').status, 'DEGRADED');
   assert.equal(daemon.heartbeatPayload().dependencies.find(({ key }) => key === 'openai-api').status, 'DEGRADED');
   assert.equal(daemon.snapshot().lastErrorCode, 'OPENAI_TIMEOUT');
+  await daemon.stop('TEST');
+});
+
+test('fallback Qwen deja el router saludable y conserva OpenAI degradado como dependencia opcional', async (t) => {
+  const stateDir = tempDirectory(t);
+  const api = fakeApi([claim]);
+  const daemon = createDaemon({
+    stateDir,
+    api,
+    processor: { runClaim: async () => ({
+      status: 'COMPLETED',
+      modelProvider: 'ollama',
+      model: 'qwen3:14b-q4_K_M',
+      fallbackReason: 'OPENAI_HTTP_ERROR',
+    }) },
+  });
+  await daemon.start({ runImmediately: false });
+  await daemon.tickPoll();
+  await new Promise((resolve) => setImmediate(resolve));
+  const dependencies = daemon.heartbeatPayload().dependencies;
+  assert.equal(daemon.snapshot().state, 'IDLE');
+  assert.equal(dependencies.find(({ key }) => key === 'inference-router').status, 'HEALTHY');
+  assert.equal(dependencies.find(({ key }) => key === 'openai-api').status, 'DEGRADED');
+  assert.equal(dependencies.find(({ key }) => key === 'ollama-local').status, 'HEALTHY');
   await daemon.stop('TEST');
 });
 
@@ -514,7 +919,10 @@ test('health sólo liga loopback y refleja estado degradado', async (t) => {
   assert.equal(address.address, '127.0.0.1');
   let response = await fetch(`http://127.0.0.1:${address.port}/health`);
   assert.equal(response.status, 200);
-  assert.equal((await response.json()).contract, 'runtime-v1');
+  const healthBody = await response.json();
+  assert.equal(healthBody.contract, 'runtime-v1');
+  assert.equal(healthBody.binaryVersion, '1.1.0');
+  assert.equal(healthBody.contractVersion, 'runtime-v1');
   state = 'DEGRADED';
   response = await fetch(`http://127.0.0.1:${address.port}/health`);
   assert.equal(response.status, 503);

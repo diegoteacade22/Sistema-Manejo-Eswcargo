@@ -1,0 +1,2 @@
+export const ENGINEERING_BINARY_VERSION = '2.0.0';
+export const ENGINEERING_CONTRACT_VERSION = '2.1.0';

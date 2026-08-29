@@ -13,6 +13,7 @@ cuando la cola está vacía.
 - heartbeat del lease activo: 30 segundos;
 - concurrencia global: 2; concurrencia por agente: 1;
 - health local: `http://127.0.0.1:8794/health`;
+- fallback local: Ollama sólo en loopback y modelo exacto `qwen3:14b-q4_K_M`;
 - apagado: `DRAINING`, espera máxima 30 segundos y `STOPPED`;
 - lock local: `~/.company-os-runtime/runtime.lock`;
 - logs JSONL saneados y rotados en `~/.company-os-runtime/logs/`;
@@ -74,7 +75,18 @@ zsh company-os/runtime/manage.sh uninstall
 instala una copia aislada en `~/.company-os-runtime/current` y recién entonces
 recarga `com.esw.company-os-runtime`. `uninstall` mueve lo instalado a un backup;
 no borra logs ni evidencia. `rollback` restaura el último snapshot y deja otro
-snapshot de seguridad.
+snapshot de seguridad. Los snapshots tienen nombres únicos y `last-backup` se
+actualiza por reemplazo atómico. `install` y `restart` sólo terminan bien cuando
+la versión objetivo 1.1 confirma heartbeat, estado operativo y que el PID del
+listener pertenece al LaunchAgent. Un rollback acepta una versión propia previa,
+pero exige el mismo readback operativo; si un cutover falla, la restauración se
+verifica antes de informar que el estado anterior fue recuperado.
+
+Con el fallback habilitado (valor por defecto), `doctor` exige un origen Ollama
+HTTP loopback puro y verifica mediante `/api/tags` que exista exactamente
+`qwen3:14b-q4_K_M`. No imprime la respuesta ni datos de credenciales. Un runtime
+propio de versión previa puede ocupar el puerto durante un cutover; cualquier
+listener cuyo PID no coincida con `com.esw.company-os-runtime` se rechaza.
 
 El origen API por defecto es `https://webapp-weld-psi.vercel.app`. Para otro
 origen HTTPS debe configurarse también su hostname en

@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { signCompanyOsRuntimePayload, verifyCompanyOsRuntimeRequest } from '../lib/company-os/v3-auth';
+import { normalizeRuntimeUsage } from '../app/api/company-os/runtime/v1/_request';
+import { estimateRuntimeCost, normalizeUsageForPersistence } from '../lib/company-os/runtime-store';
+import {
+  signCompanyOsEngineeringPayload,
+  signCompanyOsRuntimePayload,
+  verifyCompanyOsEngineeringRequest,
+  verifyCompanyOsRuntimeRequest,
+} from '../lib/company-os/v3-auth';
 
 test('HMAC v2 vincula identidad, nonce, timestamp y body exacto', () => {
   process.env.COMPANY_OS_RUNTIME_HMAC_SECRET = 'runtime-test-secret';
@@ -52,6 +59,42 @@ test('HMAC runtime no acepta secreto legado ni worker fuera de allowlist', () =>
   delete process.env.COMPANY_OS_V3_HMAC_SECRET;
 });
 
+test('Engineering V2 usa secreto, dominio y allowlist separados del runtime advisory', () => {
+  const rawBody = JSON.stringify({ workerId: 'engineering-test-01', instanceId: 'instance-test' });
+  const now = Math.floor(Date.now() / 1000);
+  process.env.COMPANY_OS_RUNTIME_HMAC_SECRET = 'same-value-still-domain-separated';
+  process.env.COMPANY_OS_ENGINEERING_HMAC_SECRET = 'same-value-still-domain-separated';
+  process.env.COMPANY_OS_RUNTIME_ALLOWED_WORKER_IDS = 'engineering-test-01';
+  process.env.COMPANY_OS_ENGINEERING_ALLOWED_WORKER_IDS = 'engineering-test-01';
+  const signed = signCompanyOsEngineeringPayload(rawBody, {
+    method: 'POST', pathname: '/api/company-os/engineering/v2/claim',
+    workerId: 'engineering-test-01', nonce: 'nonce-engineering-0001', timestamp: now,
+  });
+  const request = new Request('https://example.test/api/company-os/engineering/v2/claim', {
+    method: 'POST',
+    headers: {
+      'x-company-os-worker-id': signed.workerId,
+      'x-company-os-nonce': signed.nonce,
+      'x-company-os-timestamp': signed.timestamp,
+      'x-company-os-signature': signed.signature,
+      'x-company-os-signature-version': signed.signatureVersion,
+    },
+    body: rawBody,
+  });
+  assert.deepEqual(verifyCompanyOsEngineeringRequest(request, rawBody), {
+    workerId: signed.workerId, nonce: signed.nonce, timestamp: now, signatureVersion: 'engineering-v3',
+  });
+  const crossRoute = new Request('https://example.test/api/company-os/engineering/v2/heartbeat', {
+    method: 'POST', headers: request.headers, body: rawBody,
+  });
+  assert.equal(verifyCompanyOsEngineeringRequest(crossRoute, rawBody), null);
+  assert.equal(verifyCompanyOsRuntimeRequest(request, rawBody), null);
+  delete process.env.COMPANY_OS_RUNTIME_HMAC_SECRET;
+  delete process.env.COMPANY_OS_ENGINEERING_HMAC_SECRET;
+  delete process.env.COMPANY_OS_RUNTIME_ALLOWED_WORKER_IDS;
+  delete process.env.COMPANY_OS_ENGINEERING_ALLOWED_WORKER_IDS;
+});
+
 test('runtime durable contiene concurrencia, leases, retry, heartbeat idle y no-model-on-empty', () => {
   const migration = readFileSync('../supabase/migrations/20260826003811_company_os_runtime_24x7.sql', 'utf8');
   const store = readFileSync('lib/company-os/runtime-store.ts', 'utf8');
@@ -65,6 +108,24 @@ test('runtime durable contiene concurrencia, leases, retry, heartbeat idle y no-
   assert.match(store, /WORKER_STALE_MS = 150_000/);
   assert.match(daemon, /if \(claim === null\) break/);
   assert.match(daemon, /globalConcurrency/);
+});
+
+test('usage local conserva provider Ollama y el servidor asigna costo cero', () => {
+  const usage = normalizeRuntimeUsage({
+    provider: 'ollama',
+    model: 'qwen3:14b-q4_K_M',
+    input_tokens: 120,
+    output_tokens: 30,
+    total_tokens: 150,
+    retry_count: 1,
+    rules_applied: ['signed-runtime-contract', 'local-loopback-inference'],
+  });
+  assert.equal(usage.provider, 'ollama');
+  assert.equal(usage.model, 'qwen3:14b-q4_K_M');
+  assert.equal(usage.totalTokens, 150);
+  assert.equal(estimateRuntimeCost(usage), 0);
+  assert.equal(normalizeUsageForPersistence(usage).provider, 'ollama');
+  assert.equal(normalizeRuntimeUsage({ provider: 'remote-unknown' }).provider, 'openai');
 });
 
 test('un lease vencido puede volver de FAILED_RETRYABLE a CLAIMED', () => {
@@ -96,6 +157,15 @@ test('rutas runtime exigen anti-replay y controles humanos separados', () => {
   assert.match(humanControl, /requireHumanCompanyAdmin/);
   assert.match(humanControl, /hasTrustedHumanRequestOrigin/);
   assert.doesNotMatch(humanControl, /verifyCompanyOsRuntimeRequest/);
+});
+
+test('anti-replay serializa por worker y usa el reloj autoritativo de la base', () => {
+  const store = readFileSync('lib/company-os/runtime-store.ts', 'utf8');
+  assert.match(store, /pg_advisory_xact_lock/);
+  assert.match(store, /company-os-worker-rate:\$\{workerId\}/);
+  assert.match(store, /SELECT now\(\) AS now/);
+  assert.match(store, /Prisma\.TransactionIsolationLevel\.Serializable/);
+  assert.ok(store.indexOf('pg_advisory_xact_lock') < store.indexOf('companyOsWorkerRequestNonce.count'));
 });
 
 test('estado desconocido no se infiere como offline', () => {

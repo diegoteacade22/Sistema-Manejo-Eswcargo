@@ -97,6 +97,12 @@ export class CompanyOsRuntimeApiClient {
       errorCode: error?.code || error?.errorCode || 'RUNTIME_FAILURE',
       detail: error?.message || error?.detail || 'Runtime failure',
       retryable: error?.retryable === true,
+      ...(error?.code === 'MODEL_ROUTER_FALLBACK_FAILED' ? {
+        primaryCode: error.primaryCode,
+        fallbackCode: error.fallbackCode,
+        retries: error.retries,
+        durationMs: error.durationMs,
+      } : {}),
       ...(error?.usage ? { usage: error.usage } : {}),
     });
   }
