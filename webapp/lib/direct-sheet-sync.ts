@@ -198,6 +198,11 @@ function dateKey(value: SheetValue) {
 
 type Table = { headers: string[]; rows: SheetMatrix };
 
+// The operational sheet labels the shipment identifier as "PL Nro" (Packing
+// List number). Keep the legacy aliases because older exports and tests still
+// use NUMERO/NRO ENVIO.
+const SHIPMENT_NUMBER_HEADERS = ['PL NRO', 'NRO ENVIO', 'NUMERO'];
+
 function tableFromMatrix(matrix: SheetMatrix, requiredHeaderAliases: string[][]): Table {
   const headerIndex = matrix.findIndex((row) => requiredHeaderAliases.every((aliases) =>
     aliases.some((alias) => row.map(normalizedHeader).includes(normalizedHeader(alias))),
@@ -234,11 +239,11 @@ export function parseOperationalSheets(input: {
   cabeVentas: SheetMatrix;
   detaVentas: SheetMatrix;
 }): DirectOperationalSource {
-  const shipmentTable = tableFromMatrix(input.cabeEnvios, [['NRO ENVIO', 'NUMERO']]);
+  const shipmentTable = tableFromMatrix(input.cabeEnvios, [SHIPMENT_NUMBER_HEADERS]);
   const orderTable = tableFromMatrix(input.cabeVentas, [['INVOICE', 'INV', 'NRO_PEDIDO', 'PEDIDO']]);
   const itemTable = tableFromMatrix(input.detaVentas, [['INV-REM', 'NRO_PEDIDO'], ['SKU']]);
   assertRequiredColumns(shipmentTable, 'CABE_ENVIOS', [
-    ['NRO ENVIO', 'NUMERO'], ['FORWARDER'], ['FECHA SAL', 'FECHA SALIDA'],
+    SHIPMENT_NUMBER_HEADERS, ['FORWARDER'], ['FECHA SAL', 'FECHA SALIDA'],
     ['FECHA LLEG', 'FECHA LLEGADA'], ['LLEGO?'], ['OBSERVACION', 'OBSERVACIONES'],
   ]);
   assertRequiredColumns(orderTable, 'CABE_VENTAS', [
@@ -253,7 +258,7 @@ export function parseOperationalSheets(input: {
   ]);
 
   const shipments = shipmentTable.rows.flatMap((row): DirectShipmentSource[] => {
-    const shipmentNumber = integer(cell(shipmentTable, row, ['NRO ENVIO', 'NUMERO']));
+    const shipmentNumber = integer(cell(shipmentTable, row, SHIPMENT_NUMBER_HEADERS));
     if (!shipmentNumber) return [];
     const explicitStatus = sourceShipmentStatus(cell(shipmentTable, row, ['LLEGO?']));
     return [{
