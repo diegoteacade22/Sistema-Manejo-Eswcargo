@@ -87,7 +87,6 @@ export default function NewPurchaseForm({ suppliers, products }: { suppliers: Su
       const result = await createPurchase({
         supplierId: Number(supplierId),
         date: new Date(date),
-        due_date: dueDate ? new Date(dueDate) : null,
         invoice_number: invoiceNumber,
         payment_method: paymentMethod,
         notes,
