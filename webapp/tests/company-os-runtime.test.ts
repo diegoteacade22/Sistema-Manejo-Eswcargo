@@ -161,7 +161,8 @@ test('rutas runtime exigen anti-replay y controles humanos separados', () => {
 
 test('anti-replay serializa por worker y usa el reloj autoritativo de la base', () => {
   const store = readFileSync('lib/company-os/runtime-store.ts', 'utf8');
-  assert.match(store, /pg_advisory_xact_lock/);
+  assert.match(store, /SELECT 1 AS locked\s+FROM pg_catalog\.pg_advisory_xact_lock/);
+  assert.doesNotMatch(store, /SELECT\s+pg_catalog\.pg_advisory_xact_lock/);
   assert.match(store, /company-os-worker-rate:\$\{workerId\}/);
   assert.match(store, /SELECT now\(\) AS now/);
   assert.match(store, /Prisma\.TransactionIsolationLevel\.Serializable/);

@@ -172,7 +172,8 @@ export async function acceptCompanyOsRuntimeNonce(workerId: string, nonce: strin
   const db = companyOsV3Prisma();
   return db.$transaction(async (tx) => {
     await tx.$queryRaw(Prisma.sql`
-      SELECT pg_catalog.pg_advisory_xact_lock(
+      SELECT 1 AS locked
+      FROM pg_catalog.pg_advisory_xact_lock(
         pg_catalog.hashtextextended(${`company-os-worker-rate:${workerId}`}, 0)
       )
     `);
