@@ -18,8 +18,10 @@ Proyecta cada cinco minutos el inventario raíz de Codex al tablero humano de Co
 - Conserva todo estado en `~/.company-os-codex-collector` y se puede desinstalar sin borrar evidencia.
 - Limita el endpoint a la URL HTTPS productiva y sólo ejecuta hilos cuya proyección y carpeta coincidan con un proyecto local canónico.
 - Cuando la reanudación está habilitada, reclama como máximo una tarea autorizada por vez y la continúa con `codex exec resume` bajo sandbox `workspace-write`, revisión automática de permisos y sin cargar plugins/MCP del perfil interactivo.
+- Una respuesta escrita en el tablero crea una revisión inmutable y una única entrega confirmada. El claim verifica tarea, fingerprint y hash antes de incorporarla al hilo; modificarla antes del claim reemplaza la entrega pendiente sin borrar el historial.
+- La ficha distingue `respuesta guardada`, `Codex trabajando`, `entregada` y `resultado verificado`; guardar nunca se presenta como tarea resuelta.
 - El secreto HMAC se elimina del entorno antes de iniciar Codex y no copia stdout ni stderr del hilo. Ante fallo, conserva sólo exit code, señal, cantidad de bytes y hash de stderr en un archivo local `0600`.
 - Un journal atómico distingue `CLAIMING`, `RUNNING` y `EXECUTED`: tras un reinicio reenvía el reporte o detiene la ejecución anterior, pero nunca vuelve a lanzar el mismo claim.
 - Un proceso sin cambio verificable, fallido o vencido queda `BLOCKED`; no se reintenta hasta una nueva acción humana.
 
-La clasificación y el inventario son A0. La ejecución sólo nace de una transición humana durable a `PENDING`, queda serializada por host y se detiene ante decisiones, credenciales o efectos externos no autorizados.
+La clasificación y el inventario son A0. La ejecución sólo nace de una transición humana durable a `PENDING` o de una revisión humana explícitamente confirmada, queda serializada por host y se detiene ante credenciales o efectos externos no autorizados.

@@ -7,7 +7,7 @@ import { createHmac } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { CompanyOsHumanDashboard, SECTION_HASHES, sectionFromHash } from '../components/company-os-human-dashboard';
 import { verifyCodexIntakeRequest } from '../lib/company-os/codex-task-auth';
-import { effectiveCodexTaskState, isApprovedCodexTaskDispatchCandidate } from '../lib/company-os/codex-task-store';
+import { effectiveCodexTaskState, isApprovedCodexTaskDispatchCandidate, safeCodexTaskReply } from '../lib/company-os/codex-task-store';
 
 const page = readFileSync('app/company-os/operations/page.tsx', 'utf8');
 const component = readFileSync('components/company-os-human-dashboard.tsx', 'utf8');
@@ -15,6 +15,7 @@ const collector = readFileSync('../company-os/codex-task-collector/collector.mjs
 const collectorManager = readFileSync('../company-os/codex-task-collector/manage.sh', 'utf8');
 const migration = readFileSync('../supabase/migrations/20260827142708_company_os_codex_task_inventory.sql', 'utf8');
 const managementMigration = readFileSync('../supabase/migrations/20260827162112_company_os_codex_task_management.sql', 'utf8');
+const replyMigration = readFileSync('../supabase/migrations/20260830023000_company_os_codex_task_replies.sql', 'utf8');
 const store = readFileSync('lib/company-os/codex-task-store.ts', 'utf8');
 const route = readFileSync('app/api/company-os/dashboard/human/route.ts', 'utf8');
 const dispatchRoute = readFileSync('app/api/company-os/codex/v1/dispatch/route.ts', 'utf8');
@@ -121,15 +122,31 @@ test('la síntesis del pedido concreto es determinística y oculta datos sensibl
 
 test('la ficha explica la función de Diego y ofrece una acción visible para destrabar', () => {
   assert.match(component, /Tu función para destrabar/);
-  assert.match(component, /Respondé exactamente ese pedido en la tarea original/);
+  assert.match(component, /Resumen de la tarea/);
+  assert.match(component, /Tu decisión o respuesta/);
   assert.match(component, /No pude identificar el pedido exacto con seguridad/);
-  assert.match(component, /Abrí la tarea y respondé el último pedido/);
-  assert.match(component, /El próximo escaneo actualizará el estado; recién entonces autorizá “Para el agente”/);
+  assert.match(component, /Guardar respuesta y continuar/);
+  assert.match(component, /Guardar modificación y continuar/);
+  assert.match(component, /Codex está trabajando con tu respuesta/);
+  assert.match(component, /La tarea salió del bloqueo/);
   assert.match(component, /Abrir en Codex para responder/);
-  assert.match(component, /Este botón sólo abre la tarea original/);
   assert.match(component, /Pedido confirmado por el último escaneo/);
-  assert.doesNotMatch(component, /Responder y destrabar/);
-  assert.match(component, /No pegues contraseñas, tokens ni códigos de acceso en el tablero/);
+  assert.match(component, /No pegues contraseñas, tokens, códigos, correos, teléfonos, enlaces ni rutas/);
+  assert.match(route, /SUBMIT_REPLY/);
+  assert.match(store, /submitCodexTaskReply/);
+});
+
+test('la respuesta humana se valida antes de persistir o despachar', () => {
+  assert.deepEqual(safeCodexTaskReply('Elegí la opción B y dejalo listo para revisar.'), {
+    responseText: 'Elegí la opción B y dejalo listo para revisar.',
+    responseHash: 'e1ce59fd299ef6326541d49a8948692b5b0c2f48b0b703969b3eb208abddd353',
+  });
+  for (const unsafe of ['token=abc123456', 'PIN 4829', 'password is abc123', 'passcode is 4821', 'secreto es abc123', 'diego@example.com', '+1 305 555 1212', 'https://example.com', '/Users/diego/secreto']) {
+    assert.throws(() => safeCodexTaskReply(unsafe), /No guardes contraseñas/);
+  }
+  assert.match(collector, /validateHumanResponse/);
+  assert.match(collector, /createHash\('sha256'\)\.update\(response\)/);
+  assert.match(collector, /Aplicala únicamente al objetivo original/);
 });
 
 test('sin revisar queda separado de la cola autorizada para el agente', () => {
@@ -160,6 +177,22 @@ test('el despacho sólo acepta una transición humana vigente y sin bloqueos', (
   assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, boardState: { ...base.boardState, updatedBy: 'codex-intake-ai-v1' } }), false);
   assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, actions: [{ ...base.actions[0], newVersion: 2 }] }), false);
   assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, actions: [{ ...base.actions[0], idempotencyKey: 'dashboard:legacy-action-1234567890' }] }), false);
+  const responseText = 'Elegí la opción B.';
+  const replyApproved = {
+    ...base,
+    attentionReason: '¿Preferís la opción A o B?',
+    boardState: null,
+    actions: [],
+    replyRevisions: [{
+      sourceFingerprint: base.fingerprint,
+      responseText,
+      responseHash: safeCodexTaskReply(responseText).responseHash,
+      delivery: { state: 'CONFIRMED' },
+    }],
+  };
+  assert.equal(isApprovedCodexTaskDispatchCandidate(replyApproved), true);
+  assert.equal(isApprovedCodexTaskDispatchCandidate({ ...replyApproved, fingerprint: 'b'.repeat(64) }), false);
+  assert.equal(isApprovedCodexTaskDispatchCandidate({ ...replyApproved, boardState: { ...base.boardState, lifecycle: 'ARCHIVED' } }), false);
   assert.match(store, /Confirmá explícitamente la reanudación automática/);
   assert.match(component, /dashboard:auto-resume/);
 });
@@ -174,7 +207,9 @@ test('la reanudación usa HMAC, journal durable, sandbox y no hereda el secreto'
   assert.match(collector, /'exec', '--ignore-user-config', '--approve-for-me', '--sandbox', 'workspace-write'/);
   assert.match(collector, /delete process\.env\.COMPANY_OS_CODEX_INTAKE_SECRET/);
   assert.match(collector, /function childEnvironment/);
-  assert.match(collector, /stdio: \['ignore', 'ignore', 'pipe'\]/);
+  assert.match(collector, /stdio: \['pipe', 'ignore', 'pipe'\]/);
+  assert.match(collector, /'resume', '--all', threadId, '-'/);
+  assert.match(collector, /child\.stdin\.end\(prompt\)/);
   assert.match(collector, /AUTO_RESUME_TIMEOUT_MS/);
   assert.match(collector, /AbortSignal\.timeout\(HTTP_TIMEOUT_MS\)/);
   assert.match(collector, /dispatch-state\.json/);
@@ -204,8 +239,12 @@ test('la reanudación usa HMAC, journal durable, sandbox y no hereda el secreto'
   assert.match(collector, /UNCLAIMED_REASONS/);
   assert.match(collector, /process\.kill\(-child\.pid/);
   assert.match(collector, /'--cd', cwd, '--skip-git-repo-check'/);
+  assert.match(collector, /observeDispatchPrompt/);
+  assert.match(collector, /promptObserved: promptProof\.promptObserved/);
+  assert.match(collector, /humanResponseHash: claim\.dispatch\.humanResponseHash \|\| null,\s+promptHash: null,/);
   assert.match(store, /claimKeyPrefix/);
-  assert.match(store, /outcome === 'SUCCEEDED' && completedAfterClaim/);
+  assert.match(store, /outcome === 'SUCCEEDED' && promptObserved && completedAfterClaim/);
+  assert.match(store, /state: 'UNKNOWN_OUTCOME'/);
   assert.match(collectorManager, /StartInterval<\/key><integer>300/);
   assert.match(collectorManager, /COMPANY_OS_CODEX_AUTO_RESUME<\/key><string>1/);
   assert.match(collectorManager, /Falta Codex CLI para reanudación automática/);
@@ -368,6 +407,15 @@ test('inventario durable es interno, saneado y append-only para observaciones', 
   assert.match(managementMigration, /source_fingerprint/);
   assert.match(managementMigration, /previousProjectName/);
   assert.match(managementMigration, /resultSnapshot/);
+  assert.match(replyMigration, /CREATE TABLE public\."CompanyOsCodexTaskReplyRevision"/);
+  assert.match(replyMigration, /CREATE TABLE public\."CompanyOsCodexTaskReplyDelivery"/);
+  assert.match(replyMigration, /one_active_per_task/);
+  assert.match(replyMigration, /reply_revision_append_only/);
+  assert.match(replyMigration, /FOREIGN KEY \("replyRevisionId", "taskId"\)/);
+  assert.match(replyMigration, /company_os_codex_task_reply_delivery_guard/);
+  assert.match(replyMigration, /OLD\.state = 'CONFIRMED' AND NEW\.state IN \('CLAIMED', 'SUPERSEDED'\)/);
+  assert.match(replyMigration, /OLD\.state = 'CLAIMED' AND NEW\.state IN \('DELIVERED', 'FAILED', 'UNKNOWN_OUTCOME'\)/);
+  assert.match(replyMigration, /FORCE ROW LEVEL SECURITY/);
   assert.doesNotMatch(managementMigration, /rawText|prompt|conversation|cwd/);
   assert.doesNotMatch(migration, /rawText|prompt|conversation|cwd/);
 });

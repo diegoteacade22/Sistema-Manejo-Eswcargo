@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { hasTrustedHumanRequestOrigin, requireHumanCompanyAdmin } from '@/lib/company-os/human-admin';
-import { CodexTaskStoreError, getHumanWorkCenter, manageCodexTask, markCodexTaskDone } from '@/lib/company-os/codex-task-store';
+import { CodexTaskStoreError, getHumanWorkCenter, manageCodexTask, markCodexTaskDone, submitCodexTaskReply } from '@/lib/company-os/codex-task-store';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +33,9 @@ export async function POST(request: Request) {
     const body = JSON.parse(rawBody) as Record<string, unknown>;
     if (body.action === 'MARK_DONE') {
       return NextResponse.json(await markCodexTaskDone(body.threadId, authorization.identity.actorRef));
+    }
+    if (body.action === 'SUBMIT_REPLY') {
+      return NextResponse.json(await submitCodexTaskReply(body, authorization.identity.actorRef));
     }
     return NextResponse.json(await manageCodexTask(body, authorization.identity.actorRef));
   } catch (error) {
