@@ -51,9 +51,13 @@ test('probe, credenciales y readback son gates obligatorios', async () => {
 
 test('diagnose-charges es read-only y no filtra descripciones libres', async () => {
     const audit = await readFile(chargeAuditPath, 'utf8');
-    assert.match(audit, /prisma\.shipment\.findFirst/);
+    assert.match(audit, /prisma\.shipment\.findUnique/);
+    assert.match(audit, /where:\s*\{ shipment_number: shipmentNumber \}/);
     assert.match(audit, /prisma\.transaction\.findMany/);
     assert.match(audit, /confirmedCharge/);
+    assert.match(audit, /chargeStatus/);
+    assert.match(audit, /NOT_APPLICABLE/);
+    assert.match(audit, /confirmed\.description/);
     assert.match(audit, /nearbyCandidates/);
     assert.match(audit, /referenceKind/);
     assert.doesNotMatch(audit, /prisma\.(transaction|shipment)\.(create|update|delete|upsert)/);

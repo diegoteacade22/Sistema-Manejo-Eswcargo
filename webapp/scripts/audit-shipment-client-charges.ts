@@ -35,8 +35,8 @@ async function main() {
         throw new Error('--shipment-number debe ser un entero positivo.');
     }
 
-    const shipment = await prisma.shipment.findFirst({
-        where: { OR: [{ shipment_number: shipmentNumber }, { id: shipmentNumber }] },
+    const shipment = await prisma.shipment.findUnique({
+        where: { shipment_number: shipmentNumber },
         select: {
             id: true,
             shipment_number: true,
@@ -83,7 +83,8 @@ async function main() {
     const windowEnd = new Date(operationalDate.getTime() + 45 * 24 * 60 * 60 * 1000);
     const segments = getPackingSegments(shipment);
     const clients = await Promise.all(segments.map(async (segment) => {
-        const confirmed = segments.length > 1
+        const sharedShipment = segments.length > 1;
+        const confirmed = sharedShipment
             ? await getShipmentClientCharge(key, segment.clientId)
             : null;
         const candidates = await prisma.transaction.findMany({
@@ -102,7 +103,11 @@ async function main() {
             clientCode: segment.client.old_id,
             clientName: segment.client.name,
             itemCount: segment.itemCount,
-            confirmedCharge: confirmed ? { amount: confirmed.amount, referenceKind: chargeReferenceKind(confirmed.reference, null, key, segment.clientId) } : null,
+            chargeStatus: sharedShipment ? (confirmed ? 'CONFIRMED' : 'MISSING') : 'NOT_APPLICABLE',
+            confirmedCharge: confirmed ? {
+                amount: confirmed.amount,
+                referenceKind: chargeReferenceKind(confirmed.reference, confirmed.description, key, segment.clientId),
+            } : null,
             nearbyCandidates: candidates.map((candidate) => ({
                 id: candidate.id,
                 date: candidate.date.toISOString().slice(0, 10),
@@ -117,8 +122,9 @@ async function main() {
         status: 'DIAGNOSED',
         shipment: { id: shipment.id, number: key, operationalDate: operationalDate.toISOString().slice(0, 10) },
         segmentCount: clients.length,
-        confirmedCount: clients.filter((client) => client.confirmedCharge).length,
-        missingCount: clients.filter((client) => !client.confirmedCharge).length,
+        confirmedCount: clients.filter((client) => client.chargeStatus === 'CONFIRMED').length,
+        missingCount: clients.filter((client) => client.chargeStatus === 'MISSING').length,
+        notApplicableCount: clients.filter((client) => client.chargeStatus === 'NOT_APPLICABLE').length,
         clients,
     };
     await writeSummary(summary);
