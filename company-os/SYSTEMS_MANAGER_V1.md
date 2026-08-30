@@ -5,8 +5,8 @@
 - Reporta a: `general-manager-ai-v3`.
 - Autoridad: advisory-only. No ejecuta misiones, deploys, rollbacks, cambios de infraestructura, rotaciones, compras ni escrituras empresariales.
 - Runtime: Company OS V3 común; Vercel API/UI, PostgreSQL Supabase, worker Hostinger, HMAC, locks, leases, heartbeat, recovery y bot de Telegram existentes.
-- Modelo: Responses API, `store:false`, razonamiento low, timeout 120 s, un reintento, máximo 3000 tokens de salida y objetivo total 12000.
-- Inventario: snapshots append-only con activos, salud, cobertura, dependencias, riesgos e historial. AWS permanece `ARCHIVED`; Mac mini permanece `FUTURE`.
+- Modelo: Responses API, `store:false`, razonamiento low, timeout 120 s, un reintento, máximo 3000 tokens de salida y objetivo total 12000. Ante un fallo OpenAI reintentable, el router puede usar Ollama/Qwen local con el mismo JSON Schema y validación fail-closed.
+- Inventario: snapshots append-only con activos, salud, cobertura, dependencias, riesgos e historial. Hostinger y DiegoServer permanecen `ACTIVE`, Ollama/Qwen es local y AWS permanece `ARCHIVED`.
 - Evidencia: cerrada por caso, sin secretos. Falta de telemetría produce `UNOBSERVED` o `UNKNOWN`, nunca `OFFLINE_CONFIRMED`.
 - Riesgos: clasificación determinística; máximo cinco `ACTION_REQUIRED`. El modelo sólo sintetiza IDs materializados.
 - Agenda: registro genérico por `agentId`; baseline diario 08:00 `America/New_York`; semanal deshabilitado hasta que una revisión humana confirme valor.

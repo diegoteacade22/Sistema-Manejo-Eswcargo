@@ -106,7 +106,7 @@ export type CompanyOsSystemsWorkerResult = {
 };
 
 export type CompanyOsWorkerUsage = {
-  provider: 'openai';
+  provider: 'openai' | 'ollama';
   model: string;
   inputTokens: number;
   cachedTokens: number;

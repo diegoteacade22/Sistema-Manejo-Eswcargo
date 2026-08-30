@@ -82,12 +82,16 @@ test('state guards exigen evento previo y bloquean completar efectos inciertos',
   assert.match(migration, /Confirmed engineering effect requires destination readback/);
 });
 
-test('recovery reclama todo READY_FOR_EFFECT y convierte dispatch vencido en outcome incierto', () => {
+test('recovery reclama efectos persistidos y separa reconciliación de nueva ejecución', () => {
   assert.match(recoveryMigration, /mission_row\.status NOT IN \('READY','READY_FOR_EFFECT'\)/);
-  assert.doesNotMatch(recoveryMigration, /reconciliation lease requires an unknown effect/i);
-  assert.match(store, /OR mission\.status = 'READY_FOR_EFFECT'/);
+  assert.match(store, /mission\.status = 'READY_FOR_EFFECT'[\s\S]*EXISTS \([\s\S]*CompanyOsEngineeringEffect/);
+  assert.match(store, /const allowedVerbs = reconciliationOnly[\s\S]*\['READ_REPOSITORY'\]/);
+  assert.match(store, /if \(mode === 'EXECUTE'\)[\s\S]*attemptCount: \{ increment: 1 \}/);
   assert.match(store, /where: \{ capabilityLeaseId: lease\.id, status: 'DISPATCHING' \}/);
   assert.match(store, /status: 'UNKNOWN_OUTCOME', lastErrorCode: 'LEASE_EXPIRED_DURING_EFFECT'/);
+  assert.match(store, /LEASE_EXPIRED_BEFORE_EFFECT_RESERVATION/);
+  assert.match(store, /ORPHANED_BEFORE_EFFECT_RESERVATION/);
+  assert.match(store, /effects: \{ none: \{\} \}/);
   assert.match(store, /where: \{ missionId: mission\.id \}, orderBy: \{ createdAt: 'asc' \}/);
   assert.match(store, /status: 'RELEASED', revokedAt: new Date\(\)/);
 });

@@ -22,7 +22,8 @@ efectos e idempotencia. El runner nunca es fuente de verdad.
 
 ## Protocolo esperado
 
-Todos los POST usan HMAC v2 con worker, nonce, timestamp y body exacto:
+Todos los POST usan HMAC `engineering-v3`, ligado a dominio, versión, método HTTP,
+pathname, worker, nonce, timestamp y body exacto. Una firma no se reutiliza entre rutas:
 
 ```text
 /api/company-os/engineering/v2/claim
@@ -45,11 +46,19 @@ despachar.
 ## Instalación
 
 Las credenciales no se copian al plist. HMAC se resuelve desde Keychain service
-`com.esw.company-os-runtime.hmac`. A2 resuelve un token GitHub separado desde
+`com.esw.company-os-engineering-v2.hmac`. Este secreto es exclusivo y está
+separado criptográficamente del runtime advisory. A2 resuelve un token GitHub separado desde
 `com.esw.company-os-engineering-v2.github-token` dentro de un Keychain dedicado
 `engineering-secrets.keychain-db`, desbloqueado por una derivación de la HMAC;
 sólo se entrega a los adapters Git/`gh`. Esto permite arranque no interactivo
 sin guardar el token en texto plano. Codex usa un auth dir dedicado RO.
+
+Para repositorios privados, los fetch de autoridad A1/A2 pueden resolver una
+credencial GitHub separada y de sólo lectura desde el Keychain de login, service
+`com.esw.company-os-engineering-v2.github-read-token`. Es opcional en repositorios
+públicos y nunca se entrega a Codex ni al adapter `gh`; autoriza únicamente los
+`git fetch` HTTPS determinísticos del host. El token A2 de escritura sigue siendo
+una credencial distinta y sólo se carga cuando el máximo local es A2.
 
 ```sh
 export COMPANY_OS_ENGINEERING_REPOSITORY_PATH=/ruta/al/repo-fijo
@@ -79,3 +88,10 @@ Rollback y desinstalación son recuperables:
 zsh company-os/engineering-runtime/manage.sh rollback
 zsh company-os/engineering-runtime/manage.sh uninstall
 ```
+
+Un rollback a un snapshot anterior al contrato `2.1.0` queda bloqueado por
+defecto: primero hay que pausar intake y ejecución en el control plane, drenar
+las misiones y comprobar que no quede autoridad `2.1.0` activa. Sólo después de
+ese readback administrativo puede habilitarse conscientemente
+`COMPANY_OS_ENGINEERING_ALLOW_CONTRACT_DOWNGRADE=true`. Restaurar una versión
+`2.1.0` o el estado desinstalado no requiere esa excepción.

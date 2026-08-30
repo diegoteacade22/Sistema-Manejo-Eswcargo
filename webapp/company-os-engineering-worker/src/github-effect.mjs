@@ -32,7 +32,7 @@ export class GitHubEffects {
       targetBaseBranch: this.config.baseBranch,
       targetHeadBranch: receipt.branch,
       targetCommitSha: receipt.commitSha,
-      idempotencyKey: `engineering-v2:${suffix}:${this.claim.lease.missionHash}:${receipt.branch}`,
+      idempotencyKey: `engineering-v2:${suffix}:${this.claim.lease.leaseId}`,
     };
   }
 
@@ -69,14 +69,21 @@ export class GitHubEffects {
       }
       throw error;
     }
-    const confirmed = await readback(bound);
-    if (!confirmed) {
-      await this.api.effect('unknown', this.claim, { effectId: bound.effectId, errorCode: 'EFFECT_READBACK_MISSING' });
-      throw failure('EFFECT_READBACK_MISSING', { uncertain: true });
+    try {
+      const confirmed = await readback(bound);
+      if (!confirmed) throw failure('EFFECT_READBACK_MISSING', { uncertain: true });
+      const confirmation = await this.api.effect('confirm', this.claim, { effectId: bound.effectId, ...remoteFields(confirmed) });
+      if (confirmation?.status !== 'CONFIRMED') throw failure('EFFECT_CONFIRM_REJECTED', { uncertain: true });
+      return confirmed;
+    } catch (error) {
+      try {
+        await this.api.effect('unknown', this.claim, {
+          effectId: bound.effectId,
+          errorCode: error?.code || 'EFFECT_POST_DISPATCH_UNCERTAIN',
+        });
+      } catch {}
+      throw Object.assign(error instanceof Error ? error : failure('EFFECT_POST_DISPATCH_UNCERTAIN'), { uncertain: true });
     }
-    const confirmation = await this.api.effect('confirm', this.claim, { effectId: bound.effectId, ...remoteFields(confirmed) });
-    if (confirmation?.status !== 'CONFIRMED') throw failure('EFFECT_CONFIRM_REJECTED', { uncertain: true });
-    return confirmed;
   }
 
   async push(receipt) {
@@ -84,25 +91,31 @@ export class GitHubEffects {
     return this.dispatch(effect,
       () => this.workspace.git(['push', '--porcelain', 'origin', `HEAD:refs/heads/${receipt.branch}`], { timeoutMs: 120_000, github: true }),
       async () => {
-        try {
-          const remote = (await this.workspace.git(['ls-remote', '--heads', 'origin', `refs/heads/${receipt.branch}`], { github: true })).stdout.trim();
-          const [sha] = remote.split(/\s+/);
-          return sha === receipt.commitSha ? {
-            remoteProvider: 'github', remoteId: receipt.branch,
-            remoteUrl: `https://github.com/${this.config.repositorySlug}/tree/${receipt.branch}`,
-            remoteReadback: { branch: receipt.branch, commitSha: sha },
-          } : null;
-        } catch { return null; }
+        const remote = (await this.workspace.git(['ls-remote', '--heads', 'origin', `refs/heads/${receipt.branch}`], { github: true })).stdout.trim();
+        if (!remote) return null;
+        const [sha] = remote.split(/\s+/);
+        if (sha !== receipt.commitSha) throw failure('REMOTE_READBACK_CONFLICT', { retryable: false });
+        return {
+          remoteProvider: 'github', remoteId: receipt.branch,
+          remoteUrl: `https://github.com/${this.config.repositorySlug}/tree/${receipt.branch}`,
+          remoteReadback: { branch: receipt.branch, commitSha: sha },
+        };
       });
   }
 
-  async findDraft(marker, branch) {
-    const result = await runProcess(this.config.ghBin, ['pr', 'list', '--repo', this.config.repositorySlug, '--head', branch, '--state', 'open', '--json', 'number,url,isDraft,body,headRefName'], { cwd: this.workspace.repo, timeoutMs: 30_000, env: githubEnvironment(this.config.githubToken) });
+  async findDraft(marker, branch, commitSha) {
+    const result = await runProcess(this.config.ghBin, ['pr', 'list', '--repo', this.config.repositorySlug, '--head', branch, '--state', 'open', '--json', 'number,url,isDraft,body,headRefName,headRefOid'], {
+      cwd: this.workspace.repo,
+      timeoutMs: 30_000,
+      env: githubEnvironment(this.config.githubToken),
+      signal: this.workspace.signal,
+    });
     const candidates = parseJson(result.stdout, 'GITHUB_READBACK_INVALID');
-    const found = candidates.find((item) => item.isDraft === true && item.headRefName === branch && typeof item.body === 'string' && item.body.includes(marker));
+    const found = candidates.find((item) => item.isDraft === true && item.headRefName === branch
+      && item.headRefOid === commitSha && typeof item.body === 'string' && item.body.includes(marker));
     return found ? {
       remoteProvider: 'github', remoteId: String(found.number), remoteUrl: found.url,
-      remoteReadback: { number: found.number, url: found.url, isDraft: true, branch },
+      remoteReadback: { number: found.number, url: found.url, isDraft: true, branch, commitSha },
     } : null;
   }
 
@@ -115,8 +128,13 @@ export class GitHubEffects {
         '--head', receipt.branch, '--base', this.config.baseBranch,
         '--title', `[Engineering V2] ${this.claim.mission.missionId}`,
         '--body', `${marker}\n\nAutomated bounded A2 draft. Human review required. Merge and deploy are not authorized.`,
-      ], { cwd: this.workspace.repo, timeoutMs: 60_000, env: githubEnvironment(this.config.githubToken) }),
-      () => this.findDraft(marker, receipt.branch));
+      ], {
+        cwd: this.workspace.repo,
+        timeoutMs: 60_000,
+        env: githubEnvironment(this.config.githubToken),
+        signal: this.workspace.signal,
+      }),
+      () => this.findDraft(marker, receipt.branch, receipt.commitSha));
   }
 }
 
@@ -125,32 +143,32 @@ export class EngineeringReconciler {
 
   async readback(effect) {
     if (effect.verb === 'PUSH_BRANCH') {
-      try {
-        const remoteUrl = `https://github.com/${effect.targetRepository}.git`;
-        const result = await runProcess(this.config.gitBin, ['ls-remote', '--heads', remoteUrl, `refs/heads/${effect.targetHeadBranch}`], {
-          cwd: this.config.repositoryPath, timeoutMs: 30_000, env: githubGitEnvironment(this.config.githubToken),
-        });
-        const [sha] = result.stdout.trim().split(/\s+/);
-        return sha === effect.targetCommitSha ? {
-          remoteProvider: 'github', remoteId: effect.targetHeadBranch,
-          remoteUrl: `https://github.com/${effect.targetRepository}/tree/${effect.targetHeadBranch}`,
-          remoteReadback: { branch: effect.targetHeadBranch, commitSha: sha },
-        } : null;
-      } catch { return null; }
+      const remoteUrl = `https://github.com/${effect.targetRepository}.git`;
+      const result = await runProcess(this.config.gitBin, ['ls-remote', '--heads', remoteUrl, `refs/heads/${effect.targetHeadBranch}`], {
+        cwd: this.config.repositoryPath, timeoutMs: 30_000, env: githubGitEnvironment(this.config.githubToken),
+      });
+      const output = result.stdout.trim();
+      if (!output) return null;
+      const [sha] = output.split(/\s+/);
+      if (sha !== effect.targetCommitSha) throw failure('REMOTE_READBACK_CONFLICT', { retryable: false });
+      return {
+        remoteProvider: 'github', remoteId: effect.targetHeadBranch,
+        remoteUrl: `https://github.com/${effect.targetRepository}/tree/${effect.targetHeadBranch}`,
+        remoteReadback: { branch: effect.targetHeadBranch, commitSha: sha },
+      };
     }
     if (effect.verb === 'CREATE_DRAFT_PR') {
-      try {
-        const marker = `<!-- company-os-engineering-v2:${effect.idempotencyKey} -->`;
-        const result = await runProcess(this.config.ghBin, ['pr', 'list', '--repo', effect.targetRepository, '--head', effect.targetHeadBranch, '--state', 'open', '--json', 'number,url,isDraft,body,headRefName'], {
-          cwd: this.config.repositoryPath, timeoutMs: 30_000, env: githubEnvironment(this.config.githubToken),
-        });
-        const candidates = parseJson(result.stdout, 'GITHUB_READBACK_INVALID');
-        const found = candidates.find((item) => item.isDraft === true && item.headRefName === effect.targetHeadBranch && typeof item.body === 'string' && item.body.includes(marker));
-        return found ? {
-          remoteProvider: 'github', remoteId: String(found.number), remoteUrl: found.url,
-          remoteReadback: { number: found.number, url: found.url, isDraft: true, branch: effect.targetHeadBranch },
-        } : null;
-      } catch { return null; }
+      const marker = `<!-- company-os-engineering-v2:${effect.idempotencyKey} -->`;
+      const result = await runProcess(this.config.ghBin, ['pr', 'list', '--repo', effect.targetRepository, '--head', effect.targetHeadBranch, '--state', 'open', '--json', 'number,url,isDraft,body,headRefName,headRefOid'], {
+        cwd: this.config.repositoryPath, timeoutMs: 30_000, env: githubEnvironment(this.config.githubToken),
+      });
+      const candidates = parseJson(result.stdout, 'GITHUB_READBACK_INVALID');
+      const found = candidates.find((item) => item.isDraft === true && item.headRefName === effect.targetHeadBranch
+        && item.headRefOid === effect.targetCommitSha && typeof item.body === 'string' && item.body.includes(marker));
+      return found ? {
+        remoteProvider: 'github', remoteId: String(found.number), remoteUrl: found.url,
+        remoteReadback: { number: found.number, url: found.url, isDraft: true, branch: effect.targetHeadBranch, commitSha: effect.targetCommitSha },
+      } : null;
     }
     throw failure('RECONCILE_VERB_DENIED');
   }
@@ -171,13 +189,24 @@ export class EngineeringReconciler {
       const result = await this.api.effect('reconcile', claim, payload);
       if (result?.retryDispatch !== false || result?.status !== payload.outcome) throw failure('EFFECT_RECONCILE_REJECTED');
       outcomes.push({ effectId: effect.effectId, verb: effect.verb, status: result.status, ...(readback ? { readback } : {}) });
-      if (result.status === 'FAILED') return { status: 'FAILED', outcomes };
+      if (result.status === 'FAILED') {
+        const retryable = claim.reconciliationOnly !== true;
+        const failed = await this.api.fail(claim, { code: 'REMOTE_NOT_FOUND_AFTER_READBACK', retryable });
+        return { status: failed?.status || (retryable ? 'FAILED_RETRYABLE' : 'FAILED_FINAL'), outcomes };
+      }
     }
     const effectiveEffects = claim.effects.map((effect) => {
       const outcome = outcomes.find((item) => item.effectId === effect.effectId);
       return outcome ? { ...effect, status: outcome.status } : effect;
     });
-    const unresolved = effectiveEffects.filter((effect) => effect.status !== 'CONFIRMED');
+    const unresolved = effectiveEffects.filter((effect) => !['CONFIRMED', 'FAILED'].includes(effect.status));
+    if (claim.reconciliationOnly === true) {
+      const failed = await this.api.fail(claim, {
+        code: unresolved.length > 0 ? 'RECONCILIATION_EFFECT_STATE_UNRESOLVED' : 'RECONCILIATION_AUTHORITY_ENDED',
+        retryable: false,
+      });
+      return { status: failed?.status || 'FAILED_FINAL', outcomes };
+    }
     if (unresolved.length > 0) {
       const failed = await this.api.fail(claim, { code: 'RECONCILE_EFFECT_STATE_UNRESOLVED', retryable: true });
       return { status: failed?.status || 'FAILED_RETRYABLE', outcomes };

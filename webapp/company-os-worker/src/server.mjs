@@ -5,6 +5,7 @@ import { loadConfig } from './config.mjs';
 import { CompanyOsApiClient } from './api-client.mjs';
 import { createJsonLogger } from './json-logger.mjs';
 import { OpenAiAdvisoryClient } from './openai-client.mjs';
+import { OllamaAdvisoryClient, RetryableModelFallbackClient } from './ollama-client.mjs';
 import { TelegramNotificationClient } from './notification-client.mjs';
 import { CompanyOsRuntimeApiClient } from './runtime-api-client.mjs';
 import { loadRuntimeConfig } from './runtime-config.mjs';
@@ -117,13 +118,23 @@ export function buildDaemonRuntime(config, overrides = {}) {
     timeoutMs: config.apiTimeoutMs,
     fetchImpl: overrides.fetchImpl,
   });
-  const openai = overrides.openai || new OpenAiAdvisoryClient({
-    apiKey: config.openAiApiKey,
-    baseUrl: config.openAiBaseUrl,
-    model: config.model,
-    timeoutMs: config.openAiTimeoutMs,
-    requireClaimOutputSchema: true,
-    fetchImpl: overrides.fetchImpl,
+  const openai = overrides.openai || new RetryableModelFallbackClient({
+    enabled: config.ollamaFallbackEnabled,
+    primary: new OpenAiAdvisoryClient({
+      apiKey: config.openAiApiKey,
+      baseUrl: config.openAiBaseUrl,
+      model: config.model,
+      timeoutMs: config.openAiTimeoutMs,
+      requireClaimOutputSchema: true,
+      fetchImpl: overrides.fetchImpl,
+    }),
+    fallback: new OllamaAdvisoryClient({
+      baseUrl: config.ollamaBaseUrl,
+      model: config.ollamaModel,
+      timeoutMs: config.ollamaTimeoutMs,
+      requireClaimOutputSchema: true,
+      fetchImpl: overrides.fetchImpl,
+    }),
   });
   const notifier = overrides.notifier !== undefined
     ? overrides.notifier

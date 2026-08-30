@@ -622,6 +622,7 @@ function validateSystemsWorkerResult(
 }
 
 export function estimateCompanyOsCost(usage: CompanyOsWorkerUsage) {
+  if (usage.provider === 'ollama') return 0;
   const nonCachedInput = Math.max(0, usage.inputTokens - usage.cachedTokens - usage.cacheWriteTokens);
   return (nonCachedInput * 5 + usage.cachedTokens * 0.5 + usage.cacheWriteTokens * 6.25 + usage.outputTokens * 30) / 1_000_000;
 }

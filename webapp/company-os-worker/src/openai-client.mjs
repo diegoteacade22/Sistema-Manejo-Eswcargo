@@ -78,11 +78,12 @@ export function systemsAdvisoryOutputSchemaFor(evidencePayload) {
 }
 
 export class OpenAiWorkerError extends Error {
-  constructor(message, { retryable = false, code = 'OPENAI_ERROR' } = {}) {
+  constructor(message, { retryable = false, code = 'OPENAI_ERROR', status = null } = {}) {
     super(message);
     this.name = 'OpenAiWorkerError';
     this.retryable = retryable;
     this.code = code;
+    this.status = Number.isInteger(status) ? status : null;
   }
 }
 
@@ -292,6 +293,55 @@ function retryableStatus(status) {
   return status === 408 || status === 409 || status === 429 || status >= 500;
 }
 
+export function advisoryRequestBody(claim, { model = 'gpt-5.6-sol', requireClaimOutputSchema = false } = {}) {
+  const systemsManager = claim.agentId === 'systems-manager-ai-v1';
+  const runtimeSchema = requireClaimOutputSchema ? runtimeOutputSchemaForClaim(claim) : null;
+  const confidenceThreshold = Number(claim.contract?.lowConfidencePolicy?.minConfidence);
+  const runtimePolicy = runtimeSchema
+    ? ` Follow the signed runtime output contract exactly. Set needsHumanDecision=true whenever confidence is below ${Number.isFinite(confidenceThreshold) ? confidenceThreshold : 0.75}.`
+    : '';
+  return {
+    model,
+    store: false,
+    reasoning: { effort: 'low' },
+    max_output_tokens: claim.budgets?.maxOutputTokens || 3000,
+    input: [
+      {
+        role: 'system',
+        content: (systemsManager
+          ? 'You are Gerente de Sistemas AI (systems-manager-ai-v1), reporting to general-manager-ai-v3 inside Company OS. Analyze only the supplied closed technical evidence. Distinguish a confirmed risk from a coverage gap. Never execute, claim execution, mutate business or infrastructure data, deploy, rotate credentials, expose secrets, or infer OFFLINE from missing telemetry. Deterministic risk classifications and scores in evidence are authoritative. Return at most five ACTION_REQUIRED risks. Every mission must remain PLANNED.'
+          : 'You are Company OS V3. Produce advisory analysis only. Never execute, claim execution, change business data, send messages, buy, pay, price, deploy, or expose secrets. Use only supplied evidence references. Every mission must remain PLANNED.') + runtimePolicy,
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({
+          caseId: claim.caseId,
+          agentId: claim.agentId || 'general-manager-ai-v3',
+          objective: claim.objective,
+          evidencePayload: claim.evidencePayload,
+          contextMessages: claim.contextMessages || [],
+        }),
+      },
+    ],
+    text: {
+      format: {
+        type: 'json_schema',
+        name: runtimeSchema ? 'company_os_runtime_advisory' : 'company_os_v3_advisory',
+        strict: true,
+        schema: runtimeSchema || (systemsManager ? systemsAdvisoryOutputSchemaFor(claim.evidencePayload) : advisoryOutputSchemaFor(claim.evidencePayload)),
+      },
+    },
+  };
+}
+
+export function advisoryRulesForClaim(claim, requireClaimOutputSchema = false) {
+  return requireClaimOutputSchema
+    ? [`${claim.agentId}@${claim.contractVersion || claim.contract?.version || 'unknown'}`, 'signed-runtime-contract', 'closed-evidence-only', 'advisory-only']
+    : claim.agentId === 'systems-manager-ai-v1'
+      ? ['systems-manager-ai-v1.0.0','closed-evidence-only','advisory-only','max-five-action-required']
+      : ['general-manager-ai-v3','closed-evidence-only','advisory-only'];
+}
+
 export class OpenAiAdvisoryClient {
   constructor({ apiKey, baseUrl = 'https://api.openai.com/v1', model = 'gpt-5.6-sol', timeoutMs = 120_000, requireClaimOutputSchema = false, fetchImpl = globalThis.fetch, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
     this.apiKey = apiKey;
@@ -304,51 +354,20 @@ export class OpenAiAdvisoryClient {
   }
 
   requestBody(claim) {
-    const systemsManager = claim.agentId === 'systems-manager-ai-v1';
-    const runtimeSchema = this.requireClaimOutputSchema ? runtimeOutputSchemaForClaim(claim) : null;
-    const confidenceThreshold = Number(claim.contract?.lowConfidencePolicy?.minConfidence);
-    const runtimePolicy = runtimeSchema
-      ? ` Follow the signed runtime output contract exactly. Set needsHumanDecision=true whenever confidence is below ${Number.isFinite(confidenceThreshold) ? confidenceThreshold : 0.75}.`
-      : '';
-    return {
+    return advisoryRequestBody(claim, {
       model: this.model,
-      store: false,
-      reasoning: { effort: 'low' },
-      max_output_tokens: claim.budgets?.maxOutputTokens || 3000,
-      input: [
-        {
-          role: 'system',
-          content: (systemsManager
-            ? 'You are Gerente de Sistemas AI (systems-manager-ai-v1), reporting to general-manager-ai-v3 inside Company OS. Analyze only the supplied closed technical evidence. Distinguish a confirmed risk from a coverage gap. Never execute, claim execution, mutate business or infrastructure data, deploy, rotate credentials, expose secrets, or infer OFFLINE from missing telemetry. Deterministic risk classifications and scores in evidence are authoritative. Return at most five ACTION_REQUIRED risks. Every mission must remain PLANNED.'
-            : 'You are Company OS V3. Produce advisory analysis only. Never execute, claim execution, change business data, send messages, buy, pay, price, deploy, or expose secrets. Use only supplied evidence references. Every mission must remain PLANNED.') + runtimePolicy,
-        },
-        {
-          role: 'user',
-          content: JSON.stringify({
-            caseId: claim.caseId,
-            agentId: claim.agentId || 'general-manager-ai-v3',
-            objective: claim.objective,
-            evidencePayload: claim.evidencePayload,
-            contextMessages: claim.contextMessages || [],
-          }),
-        },
-      ],
-      text: {
-        format: {
-          type: 'json_schema',
-          name: runtimeSchema ? 'company_os_runtime_advisory' : 'company_os_v3_advisory',
-          strict: true,
-          schema: runtimeSchema || (systemsManager ? systemsAdvisoryOutputSchemaFor(claim.evidencePayload) : advisoryOutputSchemaFor(claim.evidencePayload)),
-        },
-      },
-    };
+      requireClaimOutputSchema: this.requireClaimOutputSchema,
+    });
   }
 
-  async generate(claim, { signal: externalSignal } = {}) {
+  async generate(claim, { signal: externalSignal, deadlineAt = null } = {}) {
     let lastError;
     const startedAt = Date.now();
     const claimTimeoutMs = Number.isSafeInteger(claim.timeoutMs) && claim.timeoutMs > 0 ? claim.timeoutMs : this.timeoutMs;
-    const runtimeDeadline = this.requireClaimOutputSchema ? startedAt + Math.min(this.timeoutMs, claimTimeoutMs) : null;
+    const localDeadline = startedAt + Math.min(this.timeoutMs, claimTimeoutMs);
+    const runtimeDeadline = this.requireClaimOutputSchema
+      ? Math.min(localDeadline, Number.isFinite(deadlineAt) ? deadlineAt : localDeadline)
+      : null;
     for (let attempt = 1; attempt <= 2; attempt += 1) {
       const controller = new AbortController();
       const abortFromCaller = () => controller.abort();
@@ -375,6 +394,7 @@ export class OpenAiAdvisoryClient {
           throw new OpenAiWorkerError(`OpenAI returned HTTP ${response.status}`, {
             retryable: retryableStatus(response.status),
             code: 'OPENAI_HTTP_ERROR',
+            status: response.status,
           });
         }
         const raw = await response.json();
@@ -383,16 +403,13 @@ export class OpenAiAdvisoryClient {
         }
         const usage = {
           ...raw.usage,
+          provider: 'openai',
           model: this.model,
           response_id: typeof raw.id === 'string' ? raw.id : null,
           duration_ms: Date.now() - startedAt,
           retry_count: attempt - 1,
           snapshot_bytes: Buffer.byteLength(JSON.stringify(claim.evidencePayload ?? {}), 'utf8'),
-          rules_applied: this.requireClaimOutputSchema
-            ? [`${claim.agentId}@${claim.contractVersion || claim.contract?.version || 'unknown'}`, 'signed-runtime-contract', 'closed-evidence-only', 'advisory-only']
-            : claim.agentId === 'systems-manager-ai-v1'
-              ? ['systems-manager-ai-v1.0.0','closed-evidence-only','advisory-only','max-five-action-required']
-              : ['general-manager-ai-v3','closed-evidence-only','advisory-only'],
+          rules_applied: advisoryRulesForClaim(claim, this.requireClaimOutputSchema),
         };
         let parsed;
         try {
@@ -428,8 +445,18 @@ export class OpenAiAdvisoryClient {
             ? error
             : new OpenAiWorkerError('OpenAI network request failed', { retryable: true, code: 'OPENAI_NETWORK_ERROR' });
         lastError = normalized;
-        if (attempt === 2 || !normalized.retryable) throw normalized;
-        await this.sleep(250);
+        if (attempt === 2 || !normalized.retryable) {
+          normalized.attempts = attempt;
+          normalized.retryCount = attempt - 1;
+          throw normalized;
+        }
+        const retryDelayMs = runtimeDeadline === null ? 250 : Math.min(250, Math.max(0, runtimeDeadline - Date.now()));
+        if (retryDelayMs <= 0) {
+          normalized.attempts = attempt;
+          normalized.retryCount = attempt - 1;
+          throw normalized;
+        }
+        await this.sleep(retryDelayMs);
       } finally {
         clearTimeout(timer);
         externalSignal?.removeEventListener('abort', abortFromCaller);
