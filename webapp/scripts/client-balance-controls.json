@@ -66,6 +66,12 @@
       "oldId": 96,
       "nameHint": "Nahuel",
       "currentBalanceSource": "system"
+    },
+    {
+      "sheet": "JOLO CC",
+      "oldId": 269,
+      "nameHint": "Jose Lopez - Proimports.Ba",
+      "currentBalanceSource": "system"
     }
   ],
   "lockedBalances": [
