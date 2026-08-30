@@ -324,7 +324,15 @@ async function main() {
     const writes = { created: 0, updated: 0, unchanged: 0 };
     const retirements = { retired: 0, alreadyAbsent: 0 };
     const artifactReadbacks: Array<{ action: string; kind: string; size?: number; idSuffix?: string; sha256Prefix?: string }> = [];
-    const failures: Array<{ type: string; number: number; message: string; httpStatus?: number; apiReason?: string }> = [];
+    const failures: Array<{
+        type: string;
+        id: number;
+        number: number;
+        clientId?: number;
+        message: string;
+        httpStatus?: number;
+        apiReason?: string;
+    }> = [];
     let observedPilot: DocumentExportPilot | undefined;
 
     function rememberPilotArtifact(options: DrivePutOptions, destination: DrivePutResult | { action: 'UPDATED'; destination: string }) {
@@ -402,6 +410,7 @@ async function main() {
         } catch (error: unknown) {
             failures.push({
                 type: orderPhase,
+                id: order.id,
                 number: Number(order.order_number ?? order.id),
                 message: error instanceof Error ? error.message : String(error),
                 ...safeCloudErrorEvidence(error),
@@ -430,6 +439,7 @@ async function main() {
         if (segments.length === 0) {
             failures.push({
                 type: 'PACKING_LIST',
+                id: shipment.id,
                 number: Number(shipment.shipment_number ?? shipment.id),
                 message: 'El envío no tiene clientes o artículos confirmados.',
             });
@@ -498,7 +508,9 @@ async function main() {
                 segmentFailures += 1;
                 failures.push({
                     type: packingPhase,
+                    id: shipment.id,
                     number: Number(shipment.shipment_number ?? shipment.id),
+                    clientId: segment.clientId,
                     message: error instanceof Error ? error.message : String(error),
                     ...safeCloudErrorEvidence(error),
                 });
@@ -511,8 +523,8 @@ async function main() {
             for (const staleSegmentKey of staleSegmentKeys) {
                 planned += 1;
                 if (dryRun) continue;
+                const clientId = staleSegmentKey.slice(key.length + 1);
                 try {
-                    const clientId = staleSegmentKey.slice(key.length + 1);
                     const retirement = await target.retireDocument?.(
                         `shipment:${shipment.id}:client:${clientId}`,
                         'PACKING_LIST',
@@ -524,7 +536,9 @@ async function main() {
                     segmentFailures += 1;
                     failures.push({
                         type: 'PACKING_LIST_RETIREMENT',
+                        id: shipment.id,
                         number: Number(shipment.shipment_number ?? shipment.id),
+                        clientId: Number(clientId),
                         message: error instanceof Error ? error.message : String(error),
                         ...safeCloudErrorEvidence(error),
                     });
@@ -570,6 +584,15 @@ async function main() {
             return counts;
         }, {}))
         : failures;
+    const failureReadbacks = target.name === 'drive'
+        ? failures.map(({ type, id, number, clientId, message, httpStatus, apiReason }) => ({
+            reasonCode: cloudFailureReason(type, message, { httpStatus, apiReason }),
+            type,
+            id,
+            number,
+            ...(clientId ? { clientId } : {}),
+        }))
+        : [];
     const summary = {
         status: dryRun
             ? 'DRY_RUN'
@@ -585,6 +608,7 @@ async function main() {
         writes,
         retirements,
         failures: summaryFailures,
+        failureReadbacks,
         failureCount: failures.length,
         lookbackDays: DOCUMENT_EXPORT_LOOKBACK_DAYS,
         ignoredOutsideLookback,
