@@ -86,14 +86,39 @@ function utcDateKey(value: Date | string | null | undefined) {
     return new Date(value).toISOString().slice(0, 10);
 }
 
-function cloudFailureReason(type: string, message: string) {
+type SafeCloudErrorEvidence = { httpStatus?: number; apiReason?: string };
+
+function safeCloudErrorEvidence(error: unknown): SafeCloudErrorEvidence {
+    const candidate = error as {
+        response?: {
+            status?: unknown;
+            data?: { error?: { status?: unknown; errors?: Array<{ reason?: unknown }> } };
+        };
+    };
+    const rawStatus = Number(candidate?.response?.status);
+    const httpStatus = Number.isInteger(rawStatus) && rawStatus >= 400 && rawStatus <= 599
+        ? rawStatus
+        : undefined;
+    const rawReason = candidate?.response?.data?.error?.errors?.[0]?.reason
+        ?? candidate?.response?.data?.error?.status;
+    const apiReason = typeof rawReason === 'string' && /^[A-Za-z][A-Za-z0-9_]{1,63}$/.test(rawReason)
+        ? rawReason
+        : undefined;
+    return { ...(httpStatus ? { httpStatus } : {}), ...(apiReason ? { apiReason } : {}) };
+}
+
+function cloudFailureReason(type: string, message: string, evidence: SafeCloudErrorEvidence = {}) {
     if (type.endsWith('_DRIVE_WRITE')) {
-        if (/storage quota|quota.*exceed|service accounts do not have storage/i.test(message)) {
+        if (/quota/i.test(evidence.apiReason || '')
+            || /storage quota|quota.*exceed|service accounts do not have storage/i.test(message)) {
             return 'DRIVE_STORAGE_QUOTA';
         }
-        if (/permission|forbidden|insufficient|not authorized|\b403\b/i.test(message)) {
+        if (evidence.httpStatus === 401 || evidence.httpStatus === 403
+            || /permission|forbidden|insufficient|not authorized|\b403\b/i.test(message)) {
             return 'DRIVE_WRITE_PERMISSION';
         }
+        if (evidence.httpStatus === 400) return 'DRIVE_WRITE_BAD_REQUEST';
+        if (evidence.httpStatus && evidence.httpStatus >= 500) return 'DRIVE_SERVICE_UNAVAILABLE';
         return 'DRIVE_WRITE_FAILED';
     }
     if (type === 'PACKING_LIST_RETIREMENT') return 'DRIVE_RETIREMENT_FAILED';
@@ -297,7 +322,7 @@ async function main() {
     const writes = { created: 0, updated: 0, unchanged: 0 };
     const retirements = { retired: 0, alreadyAbsent: 0 };
     const artifactReadbacks: Array<{ action: string; kind: string; size?: number; idSuffix?: string; sha256Prefix?: string }> = [];
-    const failures: Array<{ type: string; number: number; message: string }> = [];
+    const failures: Array<{ type: string; number: number; message: string; httpStatus?: number; apiReason?: string }> = [];
     let observedPilot: DocumentExportPilot | undefined;
 
     function rememberPilotArtifact(options: DrivePutOptions, destination: DrivePutResult | { action: 'UPDATED'; destination: string }) {
@@ -373,7 +398,12 @@ async function main() {
                 ? { type: 'INVOICE', destination: artifactReadbacks.at(-1) }
                 : { type: 'INVOICE', id: order.id, number: order.order_number, fileName: document.fileName, destination });
         } catch (error: unknown) {
-            failures.push({ type: orderPhase, number: Number(order.order_number ?? order.id), message: error instanceof Error ? error.message : String(error) });
+            failures.push({
+                type: orderPhase,
+                number: Number(order.order_number ?? order.id),
+                message: error instanceof Error ? error.message : String(error),
+                ...safeCloudErrorEvidence(error),
+            });
         }
     }
 
@@ -464,7 +494,12 @@ async function main() {
                     : { type: 'PACKING_LIST', id: shipment.id, number: shipment.shipment_number, clientId: segment.clientId, fileName: document.fileName, destination });
             } catch (error: unknown) {
                 segmentFailures += 1;
-                failures.push({ type: packingPhase, number: Number(shipment.shipment_number ?? shipment.id), message: error instanceof Error ? error.message : String(error) });
+                failures.push({
+                    type: packingPhase,
+                    number: Number(shipment.shipment_number ?? shipment.id),
+                    message: error instanceof Error ? error.message : String(error),
+                    ...safeCloudErrorEvidence(error),
+                });
             }
         }
 
@@ -489,6 +524,7 @@ async function main() {
                         type: 'PACKING_LIST_RETIREMENT',
                         number: Number(shipment.shipment_number ?? shipment.id),
                         message: error instanceof Error ? error.message : String(error),
+                        ...safeCloudErrorEvidence(error),
                     });
                 }
             }
@@ -519,11 +555,18 @@ async function main() {
     }
     if (shouldPersistState) await target.saveState(next);
     const summaryFailures = target.name === 'drive'
-        ? Object.entries(failures.reduce<Record<string, number>>((counts, { type, message }) => {
-            const reason = cloudFailureReason(type, message);
-            counts[reason] = (counts[reason] || 0) + 1;
+        ? Object.values(failures.reduce<Record<string, { reasonCode: string; count: number; httpStatus?: number; apiReason?: string }>>((counts, { type, message, httpStatus, apiReason }) => {
+            const reasonCode = cloudFailureReason(type, message, { httpStatus, apiReason });
+            const key = `${reasonCode}:${httpStatus ?? ''}:${apiReason ?? ''}`;
+            counts[key] = counts[key] || {
+                reasonCode,
+                count: 0,
+                ...(httpStatus ? { httpStatus } : {}),
+                ...(apiReason ? { apiReason } : {}),
+            };
+            counts[key].count += 1;
             return counts;
-        }, {})).map(([reasonCode, count]) => ({ reasonCode, count }))
+        }, {}))
         : failures;
     const summary = {
         status: dryRun
