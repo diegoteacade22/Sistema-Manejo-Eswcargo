@@ -36,18 +36,19 @@ jobs:
           test -f "$migration"
           prerequisites="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM (VALUES (to_regclass('public.\"CompanyOsCodexTask\"')), (to_regclass('public.\"CompanyOsCodexTaskBoardState\"')), (to_regclass('public.\"CompanyOsCodexTaskAction\"'))) AS expected(table_name) WHERE table_name IS NOT NULL")"
           tables="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM (VALUES (to_regclass('public.\"CompanyOsCodexTaskReplyRevision\"')), (to_regclass('public.\"CompanyOsCodexTaskReplyDelivery\"'))) AS expected(table_name) WHERE table_name IS NOT NULL")"
+          projection_columns="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'CompanyOsCodexTask' AND column_name IN ('decisionRequest','resultSummary')")"
           history="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = '20260830023000'")"
           test "$prerequisites" = "3"
-          if [ "$tables" = "2" ] && [ "$history" = "1" ]; then
+          if [ "$tables" = "2" ] && [ "$projection_columns" = "2" ] && [ "$history" = "1" ]; then
             echo "La migración de respuestas Codex ya está aplicada y registrada."
             exit 0
           fi
-          if [ "$tables" = "2" ] && [ "$history" = "0" ]; then
+          if [ "$tables" = "2" ] && [ "$projection_columns" = "2" ] && [ "$history" = "0" ]; then
             echo "DDL aplicado con historial pendiente; Apply puede reparar únicamente 20260830023000."
             exit 0
           fi
-          if [ "$tables" != "0" ] || [ "$history" != "0" ]; then
-            echo "::error::Estado parcial inesperado: tablas=$tables historia=$history."
+          if [ "$tables" != "0" ] || [ "$projection_columns" != "0" ] || [ "$history" != "0" ]; then
+            echo "::error::Estado parcial inesperado: tablas=$tables columnas=$projection_columns historia=$history."
             exit 1
           fi
           {
@@ -57,12 +58,13 @@ jobs:
           INSERT INTO public."CompanyOsCodexTask" (
             id, "threadId", "sourceHost", title, "projectName", category, "humanStatus",
             "sourceStatus", priority, "nextAction", "autonomyLevel", "codexUrl", fingerprint,
-            "sourceUpdatedAt", "lastObservedAt", archived
+            "decisionRequest", "resultSummary", "sourceUpdatedAt", "lastObservedAt", archived
           ) VALUES (
             'codex-task:migration_reply_dry_run', 'migration_reply_dry_run', 'migration-dry-run',
             'Tarea sintética de respuesta', 'Proyecto sintético', 'SYSTEMS', 'NEEDS_DIEGO',
             'IDLE', 1, 'Elegir una opción segura.', 'HUMAN',
-            'codex://threads/migration_reply_dry_run', repeat('a', 64), now(), now(), false
+            'codex://threads/migration_reply_dry_run', repeat('a', 64), 'Elegí la opción A o B.',
+            'La tarea espera una decisión.', now(), now(), false
           );
 
           INSERT INTO public."CompanyOsCodexTaskReplyRevision" (
@@ -141,15 +143,17 @@ jobs:
           set -euo pipefail
           migration="supabase/migrations/20260830023000_company_os_codex_task_replies.sql"
           tables="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM (VALUES (to_regclass('public.\"CompanyOsCodexTaskReplyRevision\"')), (to_regclass('public.\"CompanyOsCodexTaskReplyDelivery\"'))) AS expected(table_name) WHERE table_name IS NOT NULL")"
+          projection_columns="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'CompanyOsCodexTask' AND column_name IN ('decisionRequest','resultSummary')")"
           history="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = '20260830023000'")"
-          if [ "$tables" = "0" ] && [ "$history" = "0" ]; then
+          if [ "$tables" = "0" ] && [ "$projection_columns" = "0" ] && [ "$history" = "0" ]; then
             psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -f "$migration" >/dev/null
             tables="2"
+            projection_columns="2"
           fi
-          if [ "$tables" = "2" ] && [ "$history" = "0" ]; then
+          if [ "$tables" = "2" ] && [ "$projection_columns" = "2" ] && [ "$history" = "0" ]; then
             supabase migration repair 20260830023000 --status applied --db-url "$DIRECT_URL" --yes >/dev/null
-          elif [ "$tables" != "2" ] || [ "$history" != "1" ]; then
-            echo "::error::Estado parcial inesperado: tablas=$tables historia=$history."
+          elif [ "$tables" != "2" ] || [ "$projection_columns" != "2" ] || [ "$history" != "1" ]; then
+            echo "::error::Estado parcial inesperado: tablas=$tables columnas=$projection_columns historia=$history."
             exit 1
           fi
 
@@ -160,6 +164,7 @@ jobs:
         run: |
           set -euo pipefail
           tables="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM (VALUES (to_regclass('public.\"CompanyOsCodexTaskReplyRevision\"')), (to_regclass('public.\"CompanyOsCodexTaskReplyDelivery\"'))) AS expected(table_name) WHERE table_name IS NOT NULL")"
+          projection_columns="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'CompanyOsCodexTask' AND column_name IN ('decisionRequest','resultSummary')")"
           history="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = '20260830023000'")"
           policies="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename IN ('CompanyOsCodexTaskReplyRevision','CompanyOsCodexTaskReplyDelivery')")"
           grants="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM information_schema.role_table_grants WHERE table_schema = 'public' AND table_name IN ('CompanyOsCodexTaskReplyRevision','CompanyOsCodexTaskReplyDelivery') AND grantee = 'company_os_v3' AND privilege_type IN ('SELECT','INSERT','UPDATE')")"
@@ -170,6 +175,7 @@ jobs:
           bypass="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT rolbypassrls FROM pg_roles WHERE rolname = 'company_os_v3'")"
           forbidden="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT has_table_privilege('company_os_v3', 'public.\"CompanyOsCodexTaskReplyRevision\"', 'UPDATE,DELETE') OR has_table_privilege('company_os_v3', 'public.\"CompanyOsCodexTaskReplyDelivery\"', 'DELETE')")"
           test "$tables" = "2"
+          test "$projection_columns" = "2"
           test "$history" = "1"
           test "$policies" = "5"
           test "$grants" = "5"
@@ -179,4 +185,4 @@ jobs:
           test "$proof_columns" = "4"
           test "$bypass" = "f"
           test "$forbidden" = "f"
-          echo "Migración aplicada: tablas, historial, RLS, permisos mínimos y guardas verificados."
+          echo "Migración aplicada: proyección humana, tablas, historial, RLS, permisos mínimos y guardas verificados."

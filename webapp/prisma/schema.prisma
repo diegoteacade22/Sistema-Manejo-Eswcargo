@@ -1209,6 +1209,8 @@ model CompanyOsCodexTask {
   priority         Int                             @default(3)
   nextAction       String
   attentionReason  String?
+  decisionRequest  String?
+  resultSummary    String?
   autonomyLevel    String                          @default("A0")
   codexUrl         String
   fingerprint      String

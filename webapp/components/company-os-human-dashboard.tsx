@@ -41,6 +41,10 @@ type Task = {
   priority: number;
   nextAction: string;
   attentionReason: string | null;
+  blockerReason: string | null;
+  decisionRequest: string | null;
+  resultSummary: string | null;
+  resultObservedAt: string | null;
   taskSummary: string;
   humanResponse: string | null;
   humanResponseRevision: number | null;
@@ -164,27 +168,27 @@ function moveTargetForTask(task: Task) {
   return WORKFLOW_OPTIONS.some((option) => option.value === task.humanStatus) ? task.humanStatus : "PENDING";
 }
 
-function humanAttentionState(task: Task) {
-  if (!task.attentionReason) return { copy: null, concrete: false, canAnswerHere: false };
-  const generic = /^(?:hace falta una decisión|necesita una decisión de diego|no pude resumir la decisión)/i.test(task.attentionReason);
-  if (task.humanStatus === "NEEDS_DIEGO" && generic) {
-    return {
-      copy: "No pude identificar el pedido exacto con seguridad. Abrí la tarea original para verificarlo antes de responder.",
-      concrete: false,
-      canAnswerHere: false,
-    };
-  }
-  const requiresOriginal = /^(?:la tarea pide una decisión con datos sensibles|elegí una opción en la tarea original)/i.test(task.attentionReason);
-  return { copy: task.attentionReason, concrete: task.humanStatus === "NEEDS_DIEGO" && !requiresOriginal, canAnswerHere: task.humanStatus === "NEEDS_DIEGO" && !requiresOriginal };
+function replyDraftForTask(task: Task) {
+  return task.humanResponseProgress === "NEEDS_FOLLOWUP" ? "" : task.humanResponse ?? "";
+}
+
+function humanAttentionState(task: Task, includeQueuedReply = false) {
+  const queuedReplyIsEditable = includeQueuedReply && task.humanResponseProgress === "CONFIRMED";
+  if (!["NEEDS_DIEGO", "BLOCKED"].includes(task.humanStatus) && !queuedReplyIsEditable) return { blocker: null, request: null, canAnswerHere: false };
+  const blocker = task.blockerReason ?? task.attentionReason;
+  const request = task.decisionRequest ?? (task.humanStatus === "NEEDS_DIEGO" || queuedReplyIsEditable
+    ? "Respondé “Autorizo continuar” o “No autorizo”. Si el paso requiere una credencial o código, completalo en el servicio correspondiente y confirmá sólo “Paso seguro completado”; no pegues el dato."
+    : null);
+  return { blocker, request, canAnswerHere: task.humanStatus === "NEEDS_DIEGO" || queuedReplyIsEditable };
 }
 
 const REPLY_PROGRESS: Record<string, { title: string; detail: string; className: string }> = {
-  CONFIRMED: { title: "Respuesta guardada", detail: "Está confirmada y esperando que el agente la tome.", className: "border-emerald-500/25 bg-emerald-500/10 text-emerald-100" },
+  CONFIRMED: { title: "Respuesta guardada · En cola", detail: "Está confirmada y esperando que el agente la tome una sola vez.", className: "border-emerald-500/25 bg-emerald-500/10 text-emerald-100" },
   IN_PROGRESS: { title: "Codex está trabajando con tu respuesta", detail: "La tarea fue tomada; el tablero espera el resultado verificable.", className: "border-cyan-500/30 bg-cyan-500/10 text-cyan-100" },
-  READY_REVIEW: { title: "La tarea salió del bloqueo", detail: "Codex avanzó y dejó un resultado listo para que lo revises.", className: "border-violet-500/30 bg-violet-500/10 text-violet-100" },
-  NEEDS_FOLLOWUP: { title: "Codex avanzó y necesita otra decisión", detail: "La respuesta anterior fue entregada, pero apareció un pedido nuevo.", className: "border-amber-500/30 bg-amber-500/10 text-amber-100" },
-  DELIVERED: { title: "Codex recibió la respuesta y terminó", detail: "El tablero comprobó el mensaje exacto y una finalización posterior en la tarea original.", className: "border-cyan-500/25 bg-cyan-500/10 text-cyan-100" },
-  UNKNOWN_OUTCOME: { title: "Entrega sin resultado confirmado", detail: "No se reenviará sola para evitar duplicados. Abrí la tarea original y verificá qué ocurrió.", className: "border-rose-500/30 bg-rose-500/10 text-rose-100" },
+  READY_REVIEW: { title: "La tarea salió del bloqueo", detail: "Codex avanzó y el resultado verificado aparece en esta ficha.", className: "border-violet-500/30 bg-violet-500/10 text-violet-100" },
+  NEEDS_FOLLOWUP: { title: "Codex avanzó y necesita otra decisión", detail: "La tarea cambió y apareció un pedido nuevo. Respondelo acá; el tablero no reenviará la respuesta anterior.", className: "border-amber-500/30 bg-amber-500/10 text-amber-100" },
+  DELIVERED: { title: "Codex recibió la respuesta y terminó", detail: "El tablero verificó la ejecución y muestra abajo el resultado obtenido.", className: "border-cyan-500/25 bg-cyan-500/10 text-cyan-100" },
+  UNKNOWN_OUTCOME: { title: "Resultado todavía no confirmado", detail: "El tablero la mantiene bloqueada y no reenvía la respuesta para evitar duplicados. Podés gestionar el próximo intento acá.", className: "border-rose-500/30 bg-rose-500/10 text-rose-100" },
   FAILED: { title: "La respuesta no pudo entregarse", detail: "Revisá el estado de la tarea antes de volver a guardarla.", className: "border-rose-500/30 bg-rose-500/10 text-rose-100" },
   SUPERSEDED: { title: "La tarea cambió antes del envío", detail: "La respuesta quedó en el historial, pero no se enviará. Revisá el pedido actualizado antes de responder de nuevo.", className: "border-amber-500/30 bg-amber-500/10 text-amber-100" },
 };
@@ -203,7 +207,8 @@ function TaskCard({ task, accent = "border-slate-800", onOpen }: {
         </div>
         <MoveRight aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 text-slate-600" />
         </div>
-        {attention.copy && <p className="mt-3 text-sm text-amber-200"><span className="font-semibold">Tu acción:</span> {attention.copy}</p>}
+        {attention.blocker && <p className="mt-3 text-sm text-amber-100"><span className="font-semibold">Motivo:</span> {attention.blocker}</p>}
+        {attention.request && <p className="mt-2 text-sm text-amber-200"><span className="font-semibold">Necesito de vos:</span> {attention.request}</p>}
         {task.humanStatus === "NEEDS_DIEGO" && <p className="mt-2 text-xs text-amber-100/60">Pedido observado {relativeTime(task.lastObservedAt)}</p>}
         <p className="mt-3 text-sm text-slate-300"><span className="text-slate-500">Próximo paso:</span> {task.nextAction}</p>
         <p className="mt-3 text-sm font-medium text-cyan-300">Ver y gestionar acá →</p>
@@ -281,7 +286,8 @@ function TaskManagerDialog({
   const canReopen = Boolean(task && (!isOpen || ["DONE", "DISCARDED"].includes(task.humanStatus)));
   const canAuthorizeAutoResume = Boolean(task && !task.sourceArchived && !task.attentionReason && ["IDLE", "NOT_LOADED"].includes(task.sourceStatus) && !task.autoResumeRunning);
   const needsHumanDecision = task?.humanStatus === "NEEDS_DIEGO";
-  const attention = task ? humanAttentionState(task) : { copy: null, concrete: false, canAnswerHere: false };
+  const queuedReplyIsEditable = task?.humanResponseProgress === "CONFIRMED";
+  const attention = task ? humanAttentionState(task, true) : { blocker: null, request: null, canAnswerHere: false };
   const replyProgress = task?.humanResponseProgress ? REPLY_PROGRESS[task.humanResponseProgress] : null;
   const options = canReopen ? WORKFLOW_OPTIONS.filter((option) => ["PENDING", "NEEDS_DIEGO"].includes(option.value)) : WORKFLOW_OPTIONS;
   const projectOptions = task && !projects.some((project) => project.name === task.projectName)
@@ -317,20 +323,21 @@ function TaskManagerDialog({
             <p className="mt-2 text-sm leading-relaxed text-slate-100">{task.taskSummary}</p>
           </div>
 
-          {attention.copy && (
+          {(attention.blocker || attention.request) && (
             <div className="rounded-xl border border-amber-400/40 bg-amber-500/10 p-4 text-amber-50">
-              <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-300">Tu función para destrabar</p>
-              <p className="mt-2 text-base font-semibold leading-relaxed whitespace-pre-line">{attention.copy}</p>
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-300">Motivo del bloqueo</p>
+              <p className="mt-2 text-sm leading-relaxed whitespace-pre-line">{attention.blocker ?? "Codex necesita una intervención antes de continuar."}</p>
+              {attention.request && <><p className="mt-4 text-xs font-bold uppercase tracking-[0.16em] text-amber-300">Qué necesito de vos</p><p className="mt-2 text-base font-semibold leading-relaxed whitespace-pre-line">{attention.request}</p></>}
               {needsHumanDecision && <p className="mt-2 text-xs text-amber-100/60">Pedido confirmado por el último escaneo {relativeTime(task.lastObservedAt)}.</p>}
-              {needsHumanDecision && (
+              {(needsHumanDecision || queuedReplyIsEditable) && (
                 <div className="mt-4 space-y-3 border-t border-amber-400/20 pt-4">
                   <div className="grid gap-2 text-sm sm:grid-cols-2">
-                    <p><span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-400/15 font-bold text-amber-200">1</span>{attention.concrete ? "Escribí abajo la decisión concreta." : "Verificá el pedido en la tarea original."}</p>
-                    <p><span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-400/15 font-bold text-amber-200">2</span>Guardarla confirma que Codex puede continuar sólo con ese dato.</p>
+                    <p><span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-400/15 font-bold text-amber-200">1</span>{queuedReplyIsEditable ? "La respuesta sigue en cola: todavía podés modificarla." : "Escribí abajo la autorización o decisión concreta."}</p>
+                    <p><span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-400/15 font-bold text-amber-200">2</span>{queuedReplyIsEditable ? "Al guardar, la nueva versión reemplaza sólo la entrega pendiente." : "Guardarla pone la tarea en cola para que Codex continúe."}</p>
                   </div>
-                  {attention.canAnswerHere ? (
+                  {attention.canAnswerHere && (
                     <div className="space-y-2">
-                      <Label htmlFor="task-human-response" className="text-amber-50">Tu decisión o respuesta</Label>
+                      <Label htmlFor="task-human-response" className="text-amber-50">Tu autorización o decisión</Label>
                       <Textarea
                         id="task-human-response"
                         value={replyDraft}
@@ -352,16 +359,23 @@ function TaskManagerDialog({
                         onClick={onSubmitReply}
                       >
                         {savingAction === "SUBMIT_REPLY" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Bot className="mr-2 h-4 w-4" />}
-                        {task.humanResponse ? "Guardar modificación y continuar" : "Guardar respuesta y continuar"}
+                        {task.humanResponseProgress === "NEEDS_FOLLOWUP" ? "Guardar nueva respuesta y continuar" : task.humanResponse ? "Guardar modificación y continuar" : "Guardar autorización y continuar"}
                       </Button>
-                      <p className="text-xs text-amber-100/70">El estado no se marcará como resuelto por guardar: verás cuándo queda en espera, cuándo Codex la toma y cuándo el próximo escaneo confirma el resultado.</p>
+                      <p className="text-xs text-amber-100/70">No tenés que volver a Codex: esta ficha mostrará Respuesta guardada → En cola → Codex trabajando → Resultado.</p>
                     </div>
-                  ) : <p className="text-xs text-amber-100/70">Por seguridad, este pedido se responde en la tarea original porque puede incluir datos sensibles u opciones que no se pudieron mostrar.</p>}
+                  )}
                 </div>
               )}
             </div>
           )}
           {replyProgress && <div role="status" aria-live="polite" className={`rounded-xl border p-3 text-sm ${replyProgress.className}`}><span className="font-semibold">{replyProgress.title}.</span> {replyProgress.detail}{task.humanResponseUpdatedAt ? ` Último cambio ${relativeTime(task.humanResponseUpdatedAt)}.` : ""}</div>}
+          {(task.resultSummary || task.humanStatus === "READY_REVIEW") && (
+            <div className="rounded-xl border border-violet-500/30 bg-violet-500/10 p-4 text-violet-50">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-violet-300">Resultado de Codex</p>
+              <p className="mt-2 text-sm leading-relaxed">{task.resultSummary ?? "Codex terminó, pero el resumen todavía no quedó confirmado. La tarea seguirá visible para revisión."}</p>
+              {task.resultObservedAt && <p className="mt-2 text-xs text-violet-200/60">Resultado observado {relativeTime(task.resultObservedAt)}.</p>}
+            </div>
+          )}
           {task.autoResumeApproved && <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-100"><span className="font-semibold">Autorizada para reanudación automática.</span> {autoResumeReady ? "El modo autónomo está habilitado y la tomará en un próximo ciclo, de a una tarea por vez." : "La autorización quedó guardada, pero todavía no hay un inventario autónomo reciente."}</div>}
           {task.changedSinceManaged && <div className="rounded-xl border border-violet-500/30 bg-violet-500/10 p-3 text-sm text-violet-100"><span className="font-semibold">Codex agregó actividad después del último cambio manual.</span> La clasificación automática volvió a actualizarse para que no se pierda nada.</div>}
           <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
@@ -374,7 +388,7 @@ function TaskManagerDialog({
 
           {task.autoResumeRunning ? (
             <div className="rounded-xl border border-cyan-500/30 bg-cyan-500/10 p-4 text-sm text-cyan-100">
-              <span className="font-semibold">Codex está ejecutando esta tarea.</span> Para no confundir el estado ni perder el readback, mover, archivar y cerrar quedan bloqueados hasta que termine o venza el límite de seguridad.
+              <span className="font-semibold">Codex está ejecutando esta tarea.</span>{task.boardUpdatedAt ? ` La tomó ${relativeTime(task.boardUpdatedAt)}.` : ""} Para no confundir el estado ni perder el readback, mover, archivar y cerrar quedan bloqueados hasta que termine o venza el límite de seguridad.
             </div>
           ) : confirmation ? (
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
@@ -433,8 +447,8 @@ function TaskManagerDialog({
           <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 border-t border-slate-800 bg-slate-950 px-6 py-4">
             <Button className="min-h-11" variant="ghost" disabled={Boolean(savingAction)} onClick={() => onOpenChange(false)}>Cerrar ficha</Button>
             {savingAction
-              ? <Button className="min-h-11" variant="outline" disabled><ExternalLink className="mr-2 h-4 w-4" /> {needsHumanDecision ? "Abrir en Codex para responder" : "Abrir tarea original"}</Button>
-              : <Button className="min-h-11" asChild variant="outline"><a href={task.codexUrl}><ExternalLink className="mr-2 h-4 w-4" /> {needsHumanDecision ? "Abrir en Codex para responder" : "Abrir tarea original"}</a></Button>}
+              ? <Button className="min-h-11" variant="outline" disabled><ExternalLink className="mr-2 h-4 w-4" /> Ver historial técnico en Codex</Button>
+              : <Button className="min-h-11" asChild variant="outline"><a href={task.codexUrl}><ExternalLink className="mr-2 h-4 w-4" /> Ver historial técnico en Codex</a></Button>}
           </DialogFooter>
         </>}
       </DialogContent>
@@ -514,7 +528,7 @@ export function CompanyOsHumanDashboard() {
     setSelectedTask(task);
     setMoveTarget(moveTargetForTask(task));
     setProjectTarget(task.projectName);
-    setReplyDraft(task.humanResponse ?? "");
+    setReplyDraft(replyDraftForTask(task));
     setReplyDirty(false);
     setConfirmation(null);
     setActionError(null);
@@ -602,16 +616,20 @@ export function CompanyOsHumanDashboard() {
         if (response.status === 409) {
           const freshSnapshot = await refresh();
           const freshTask = freshSnapshot ? findSnapshotTask(freshSnapshot, selectedTask.threadId) : null;
-          if (freshTask) setSelectedTask(freshTask);
+          if (freshTask) {
+            setSelectedTask(freshTask);
+            setReplyDraft(replyDraftForTask(freshTask));
+            setReplyDirty(false);
+          }
         }
         throw new Error(payload?.error || `No se pudo guardar la respuesta (HTTP ${response.status})`);
       }
       if (payload?.task) {
         setSelectedTask(payload.task);
-        setReplyDraft(payload.task.humanResponse ?? replyDraft);
+        setReplyDraft(replyDraftForTask(payload.task));
       }
       setReplyDirty(false);
-      setActionNotice(selectedTask.humanResponse ? "La modificación quedó guardada y confirmada. Codex usará sólo esta última revisión." : "Tu respuesta quedó guardada y confirmada. Verás cuando Codex la tome.");
+      setActionNotice(selectedTask.humanResponseProgress === "NEEDS_FOLLOWUP" ? "La nueva respuesta quedó guardada para el pedido actualizado." : selectedTask.humanResponse ? "La modificación quedó guardada y confirmada. Codex usará sólo esta última revisión." : "Tu respuesta quedó guardada y confirmada. Verás cuando Codex la tome.");
       await refresh();
     } catch (replyError) {
       setActionError(replyError instanceof Error ? replyError.message : "No pude guardar la respuesta. El texto sigue acá para que vuelvas a intentar.");
@@ -631,7 +649,7 @@ export function CompanyOsHumanDashboard() {
     const freshTask = findSnapshotTask(snapshot, selectedTask.threadId);
     if (freshTask && freshTask !== selectedTask) {
       setSelectedTask(freshTask);
-      if (!replyDirty) setReplyDraft(freshTask.humanResponse ?? "");
+      if (!replyDirty) setReplyDraft(replyDraftForTask(freshTask));
     }
   }, [replyDirty, selectedTask, snapshot]);
 

@@ -3,7 +3,7 @@
 Proyecta cada cinco minutos el inventario raíz de Codex al tablero humano de Company OS.
 
 - Lee `session_index.jsonl` y rollouts en modo sólo lectura.
-- Excluye subagentes y no copia prompts ni conversaciones. Para tareas que esperan a Diego conserva sólo una síntesis saneada y acotada del pedido concreto. Si detecta secretos o datos personales/comerciales, descarta todo el fragmento y muestra una indicación segura para abrir la tarea original.
+- Excluye subagentes y no copia prompts ni conversaciones. Para tareas que esperan a Diego conserva por separado el motivo del bloqueo y la única autorización o decisión requerida. Si detecta secretos o datos personales/comerciales, descarta el fragmento sensible y pide sólo confirmar la autorización o el paso seguro, sin copiar credenciales ni códigos.
 - Usa el registro canónico de proyectos para mostrar nombres humanos, nunca paths locales.
 - Una tarea interrumpida en las últimas 72 horas entra automáticamente a `PENDING`; las antiguas siguen en `UNREVIEWED` para evitar reactivar todo el historial.
 - El reanudador exige un resultado estructurado. En tareas rutinarias sin respuesta humana, `AUTONOMY_RESULT: COMPLETED`, un nuevo `task_complete`, cambio de fingerprint y readback posterior permiten cerrar `DONE` sin revisión rutinaria; si Diego respondió desde el tablero, el resultado queda en `READY_REVIEW`.
@@ -19,7 +19,8 @@ Proyecta cada cinco minutos el inventario raíz de Codex al tablero humano de Co
 - Limita el endpoint a la URL HTTPS productiva y sólo ejecuta hilos cuya proyección y carpeta coincidan con un proyecto local canónico.
 - Cuando la reanudación está habilitada, reclama como máximo una tarea autorizada por vez y la continúa con `codex exec resume` bajo sandbox `workspace-write`, revisión automática de permisos y sin cargar plugins/MCP del perfil interactivo.
 - Una respuesta escrita en el tablero crea una revisión inmutable y una única entrega confirmada. El claim verifica tarea, fingerprint y hash antes de incorporarla al hilo; modificarla antes del claim reemplaza la entrega pendiente sin borrar el historial.
-- La ficha distingue `respuesta guardada`, `Codex trabajando`, `entregada` y `resultado verificado`; guardar nunca se presenta como tarea resuelta.
+- La ficha cierra todo el circuito sin obligar a volver a Codex: muestra resumen, motivo, autorización requerida, respuesta editable, `respuesta guardada`, `en cola`, `Codex trabajando` y el resultado humano verificado. Guardar nunca se presenta como tarea resuelta.
+- El agente emite `BLOCKER_REASON`, `DIEGO_DECISION` y `DASHBOARD_RESULT`; el collector proyecta sólo esas síntesis saneadas y el tablero conserva el enlace a Codex únicamente como historial técnico opcional.
 - El secreto HMAC se elimina del entorno antes de iniciar Codex y no copia stdout ni stderr del hilo. Ante fallo, conserva sólo exit code, señal, cantidad de bytes y hash de stderr en un archivo local `0600`.
 - Un journal atómico distingue `CLAIMING`, `RUNNING` y `EXECUTED`: tras un reinicio reenvía el reporte o detiene la ejecución anterior, pero nunca vuelve a lanzar el mismo claim.
 - Un fallo de proceso se reintenta hasta completar tres intentos seguros. Recién entonces queda `BLOCKED`; credenciales, OTP, CAPTCHA, decisiones irreversibles y dependencias externas se separan sin improvisar.

@@ -46,6 +46,8 @@ const AUTO_RESUME_PROMPT = [
   'No envíes, publiques, borres, migres ni cambies producción o servicios externos sin autorización explícita en el hilo.',
   'Si hace falta una decisión, credencial, OTP, CAPTCHA, acción física o un tercero, no improvises: explicá el bloqueo concreto.',
   'No reinicies trabajo que ya esté terminado y verificá por readback antes de cerrar.',
+  'Para que el tablero sea autosuficiente, antes de la última línea incluí una línea DASHBOARD_RESULT: con el resultado concreto en lenguaje humano, sin secretos, datos personales, enlaces ni rutas.',
+  'Si el resultado es NEEDS_USER, incluí también una línea BLOCKER_REASON: con el motivo concreto y una línea DIEGO_DECISION: con la única autorización o decisión que Diego debe escribir en el tablero.',
   'La última línea debe ser exactamente AUTONOMY_RESULT: COMPLETED si el objetivo quedó verificado, AUTONOMY_RESULT: NEEDS_USER si sólo Diego puede destrabarlo, o AUTONOMY_RESULT: BLOCKED_EXTERNAL si depende de un tercero o servicio externo.',
 ].join(' ');
 
@@ -134,8 +136,10 @@ function category(title, project) {
 
 const DIRECT_HUMAN_REQUEST_PATTERN = /^(?:(?:¿[^?]{0,320}(?:quer[eé]s|prefer[ií]s|autoriz[aá]s|aprob[aá]s|confirm[aá]s|eleg[ií]s|decid[ií]s|pod[eé]s|cu[aá]l\s+(?:prefer[ií]s|eleg[ií]s)|qu[eé]\s+(?:opci[oó]n|alternativa))(?=\s|[?:,;!]|$)[^?]{0,320}\?)|(?:(?:por favor,?\s+)?(?:necesito que|necesito (?:tu|la) (?:decisi[oó]n|autorizaci[oó]n|confirmaci[oó]n|aprobaci[oó]n|dato)|eleg[ií]|confirm[aá]|decid[ií]|autoriz[aá]|aprob[aá]|respond[eé]|indic[aá]|proporcion[aá]|compart[ií]|ingres[aá]|diego debe|falta que diego|falta (?:tu|la) (?:decisi[oó]n|autorizaci[oó]n|confirmaci[oó]n|aprobaci[oó]n|dato)|tu decisi[oó]n)(?=\s|[.:,;!?]|$)))/i;
 const OPTION_PREFIX_PATTERN = /^\s*(?:[-*+•]\s+|(?:opci[oó]n\s+)?[A-Ca-c1-3][).:-]\s*)/i;
-const SENSITIVE_REQUEST_FALLBACK = 'La tarea pide una decisión con datos sensibles. Abrí la tarea original para verla y no copies credenciales en el tablero.';
-const MISSING_OPTIONS_FALLBACK = 'Elegí una opción en la tarea original; las opciones no pudieron mostrarse con seguridad.';
+const SENSITIVE_REQUEST_FALLBACK = 'Respondé “Autorizo continuar con el paso indicado” o “No autorizo”. Si requiere credencial o código, completalo en el servicio correspondiente y escribí “Paso seguro completado”. No pegues credenciales, códigos ni datos sensibles.';
+const MISSING_OPTIONS_FALLBACK = 'Respondé “Elijo opción 1”, “Elijo opción 2” o “Elijo opción 3”. No copies datos sensibles de la opción.';
+const GENERIC_BLOCKER_FALLBACK = 'Codex se detuvo porque necesita una decisión o autorización tuya para continuar.';
+const PROTECTED_BLOCKER_FALLBACK = 'Codex se detuvo porque el detalle incluye información protegida que no debe copiarse en el tablero.';
 
 function normalizeHumanLine(raw) {
   return String(raw || '')
@@ -204,7 +208,19 @@ function sanitizeHumanRequest(raw) {
   return value;
 }
 
+function dashboardMarker(lastFinalText, marker) {
+  const prefix = `${marker}:`;
+  const line = String(lastFinalText || '').split(/\r?\n/).find((candidate) => candidate.trimStart().startsWith(prefix));
+  return line ? line.trimStart().slice(prefix.length).trim() : null;
+}
+
 function summarizeHumanRequest(lastFinalText) {
+  const markedDecision = dashboardMarker(lastFinalText, 'DIEGO_DECISION');
+  if (markedDecision) {
+    if (containsSensitiveHumanRequest(markedDecision)) return SENSITIVE_REQUEST_FALLBACK;
+    const safeDecision = sanitizeHumanRequest(markedDecision);
+    if (safeDecision) return safeDecision;
+  }
   const withoutCode = String(lastFinalText || '').replace(/```[\s\S]*?```/g, ' ');
   const sourceLines = withoutCode.split(/\r?\n/);
   const candidates = sourceLines
@@ -237,6 +253,63 @@ function summarizeHumanRequest(lastFinalText) {
   return sanitizeHumanRequest(`${request}\nOpciones: ${optionEntries.map((entry, index) => `${index + 1}) ${entry.text}`).join(' · ')}`);
 }
 
+function summarizeBlockerReason(lastFinalText) {
+  const markedReason = dashboardMarker(lastFinalText, 'BLOCKER_REASON');
+  if (markedReason) {
+    if (containsSensitiveHumanRequest(markedReason)) return PROTECTED_BLOCKER_FALLBACK;
+    const safeReason = sanitizeHumanRequest(markedReason);
+    if (safeReason) return safeReason;
+  }
+  const candidates = String(lastFinalText || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .split(/\r?\n/)
+    .flatMap((line) => line.split(/(?<=[.!?])\s+/))
+    .map(normalizeHumanLine)
+    .filter((line) => line.length >= 8
+      && !DIRECT_HUMAN_REQUEST_PATTERN.test(line)
+      && !/^(?:AUTONOMY_RESULT|DASHBOARD_RESULT|DIEGO_DECISION|BLOCKER_REASON):/i.test(line)
+      && /\b(?:bloquead|detenid|impide|falta|requiere|necesita|no (?:puede|pudo|se puede)|sin acceso|depende de|esperando)\b/i.test(line));
+  const selected = candidates.at(-1);
+  if (!selected) return GENERIC_BLOCKER_FALLBACK;
+  if (containsSensitiveHumanRequest(selected)) return PROTECTED_BLOCKER_FALLBACK;
+  return sanitizeHumanRequest(selected) || GENERIC_BLOCKER_FALLBACK;
+}
+
+function summarizeTaskResult(lastFinalText) {
+  const markedResult = dashboardMarker(lastFinalText, 'DASHBOARD_RESULT');
+  if (markedResult) {
+    if (containsSensitiveHumanRequest(markedResult)) return 'Codex terminó la ejecución, pero el detalle del resultado contiene información protegida y fue ocultado.';
+    const safeResult = sanitizeHumanRequest(markedResult);
+    if (safeResult) return safeResult;
+  }
+  const candidates = String(lastFinalText || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .split(/\r?\n/)
+    .flatMap((line) => line.split(/(?<=[.!?])\s+/))
+    .map(normalizeHumanLine)
+    .filter((line) => line.length >= 8
+      && !DIRECT_HUMAN_REQUEST_PATTERN.test(line)
+      && !/^(?:AUTONOMY_RESULT|DASHBOARD_RESULT|DIEGO_DECISION|BLOCKER_REASON):/i.test(line)
+      && /\b(?:resultado|complet|termin|verific|listo|implement|correg|actualiz|cread|despleg)\b/i.test(line));
+  const selected = candidates.at(-1);
+  if (selected) {
+    if (containsSensitiveHumanRequest(selected)) return 'Codex terminó la ejecución, pero el detalle del resultado contiene información protegida y fue ocultado.';
+    return sanitizeHumanRequest(selected) || null;
+  }
+  const safeFallback = String(lastFinalText || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .split(/\r?\n/)
+    .flatMap((line) => line.split(/(?<=[.!?])\s+/))
+    .map(normalizeHumanLine)
+    .filter((line) => line.length >= 8
+      && !DIRECT_HUMAN_REQUEST_PATTERN.test(line)
+      && !/^(?:AUTONOMY_RESULT|DASHBOARD_RESULT|DIEGO_DECISION|BLOCKER_REASON):/i.test(line))
+    .at(-1);
+  if (!safeFallback) return null;
+  if (containsSensitiveHumanRequest(safeFallback)) return 'Codex terminó la ejecución, pero el detalle del resultado contiene información protegida y fue ocultado.';
+  return sanitizeHumanRequest(safeFallback) || null;
+}
+
 if (SELF_TEST) {
   const cases = [
     {
@@ -259,6 +332,15 @@ if (SELF_TEST) {
   for (const entry of cases) {
     if (summarizeHumanRequest(entry.input) !== entry.expected) throw new Error('HUMAN_REQUEST_SUMMARY_SELF_TEST_FAILED');
   }
+  const marked = [
+    'BLOCKER_REASON: El despliegue está listo pero falta autorización para producción.',
+    'DIEGO_DECISION: Confirmá si autorizás desplegar esta versión.',
+    'DASHBOARD_RESULT: Se preparó y verificó el cambio; todavía no se desplegó.',
+    'AUTONOMY_RESULT: NEEDS_USER',
+  ].join('\n');
+  if (summarizeBlockerReason(marked) !== 'El despliegue está listo pero falta autorización para producción.') throw new Error('BLOCKER_REASON_SELF_TEST_FAILED');
+  if (summarizeHumanRequest(marked) !== 'Confirmá si autorizás desplegar esta versión.') throw new Error('DIEGO_DECISION_SELF_TEST_FAILED');
+  if (summarizeTaskResult(marked) !== 'Se preparó y verificó el cambio; todavía no se desplegó.') throw new Error('DASHBOARD_RESULT_SELF_TEST_FAILED');
   const redacted = summarizeHumanRequest('Confirmá si usamos el contacto ventas@example.com o el teléfono +1 305 555 1234.');
   if (redacted !== SENSITIVE_REQUEST_FALLBACK || redacted.includes('example.com') || redacted.includes('305 555')) throw new Error('HUMAN_REQUEST_REDACTION_SELF_TEST_FAILED');
   const redactedPath = summarizeHumanRequest('Confirmá si usamos /Users/diego/proyecto/credenciales.json para continuar.');
@@ -317,6 +399,8 @@ function classify({ title, lastStartedAt, lastCompletedAt, lastFinalAt, lastUser
   const autonomyResult = agentFinalIsLatest ? finalAutonomyResult(lastFinalText) : null;
   const recent = Date.now() - Math.max(started, Date.parse(updatedAt)) < 2 * 60 * 60_000;
   const humanRequest = agentFinalIsLatest ? summarizeHumanRequest(lastFinalText) : null;
+  const blockerReason = agentFinalIsLatest ? summarizeBlockerReason(lastFinalText) : null;
+  const resultSummary = agentFinalIsLatest ? summarizeTaskResult(lastFinalText) : null;
   const eligibleForAutonomousResume = started > completed
     && Date.now() - Math.max(started, Date.parse(updatedAt)) <= AUTO_RESUME_MAX_AGE_MS;
   if (/monitor|resumen diario|seguimiento|cada d[ií]a|semanal/.test(lowerTitle)) {
@@ -330,32 +414,36 @@ function classify({ title, lastStartedAt, lastCompletedAt, lastFinalAt, lastUser
       humanStatus: 'NEEDS_DIEGO',
       sourceStatus: 'IDLE',
       autonomyLevel: 'HUMAN',
-      attentionReason: humanRequest || 'Sólo Diego puede aportar el permiso, credencial o decisión faltante.',
-      nextAction: humanRequest
-        ? 'Respondé la decisión mostrada en la ficha y guardala para que Codex continúe.'
-        : 'Abrí la tarea original para ver y responder el bloqueo no delegable.',
+      attentionReason: blockerReason || GENERIC_BLOCKER_FALLBACK,
+      decisionRequest: humanRequest || 'Respondé “Autorizo continuar” o “No autorizo”, sin copiar credenciales ni códigos.',
+      resultSummary,
+      nextAction: 'Respondé la autorización o decisión en esta ficha y guardala para que Codex continúe.',
     };
   }
   if (autonomyResult === 'BLOCKED_EXTERNAL') {
-    return { humanStatus: 'BLOCKED', sourceStatus: 'IDLE', autonomyLevel: 'A0', attentionReason: 'La tarea depende de un tercero o servicio externo.', nextAction: 'Mantenerla en espera hasta que cambie la dependencia externa.' };
+    return { humanStatus: 'BLOCKED', sourceStatus: 'IDLE', autonomyLevel: 'A0', attentionReason: blockerReason || 'La tarea depende de un tercero o servicio externo.', resultSummary, nextAction: 'Mantenerla en espera hasta que cambie la dependencia externa.' };
   }
   if (autonomyResult === 'COMPLETED' && completed >= started && completed > 0) {
-    return { humanStatus: 'READY_REVIEW', sourceStatus: 'IDLE', autonomyLevel: 'A1', nextAction: 'Cierre automático tras verificar el reporte durable de ejecución.' };
+    return resultSummary
+      ? { humanStatus: 'READY_REVIEW', sourceStatus: 'IDLE', autonomyLevel: 'A1', resultSummary, nextAction: 'Revisar el resultado mostrado en esta ficha.' }
+      : { humanStatus: 'UNREVIEWED', sourceStatus: 'IDLE', autonomyLevel: 'A0', nextAction: 'El agente debe reconstruir un resumen seguro del resultado antes de presentarlo como listo.' };
   }
   if (humanRequest) {
     return {
       humanStatus: 'NEEDS_DIEGO',
       sourceStatus: 'IDLE',
       autonomyLevel: 'HUMAN',
-      attentionReason: humanRequest,
-      nextAction: 'Respondé la decisión mostrada en la ficha y guardala para que Codex continúe.',
+      attentionReason: blockerReason || GENERIC_BLOCKER_FALLBACK,
+      decisionRequest: humanRequest,
+      resultSummary,
+      nextAction: 'Respondé la autorización o decisión en esta ficha y guardala para que Codex continúe.',
     };
   }
   if (agentFinalIsLatest && /otp|contraseñ|credencial|autorizaci[oó]n|aprobaci[oó]n|necesito que|eleg[ií]|confirm[aá]|acci[oó]n tuya|diego debe/.test(finalText)) {
-    return { humanStatus: 'NEEDS_DIEGO', sourceStatus: 'IDLE', autonomyLevel: 'HUMAN', attentionReason: 'Hace falta una decisión, autorización o dato de Diego.', nextAction: 'Abrir la tarea y responder el pedido concreto para destrabarla.' };
+    return { humanStatus: 'NEEDS_DIEGO', sourceStatus: 'IDLE', autonomyLevel: 'HUMAN', attentionReason: blockerReason || GENERIC_BLOCKER_FALLBACK, decisionRequest: humanRequest || 'Respondé “Autorizo continuar” o “No autorizo”, sin copiar credenciales ni códigos.', resultSummary, nextAction: 'Respondé la autorización o decisión en esta ficha y guardala para que Codex continúe.' };
   }
   if (agentFinalIsLatest && /bloquead|sin acceso|access denied|permission denied|falta evento|depende de|no disponible|esperando proveedor/.test(finalText)) {
-    return { humanStatus: 'BLOCKED', sourceStatus: 'IDLE', autonomyLevel: 'A0', attentionReason: 'La tarea depende de un acceso, proveedor o evento externo.', nextAction: 'Revisar el bloqueo indicado y asignar el responsable de destrabe.' };
+    return { humanStatus: 'BLOCKED', sourceStatus: 'IDLE', autonomyLevel: 'A0', attentionReason: blockerReason || 'La tarea depende de un acceso, proveedor o evento externo.', resultSummary, nextAction: 'Revisar el bloqueo indicado y asignar el responsable de destrabe.' };
   }
   if (eligibleForAutonomousResume) {
     return { humanStatus: 'PENDING', sourceStatus: 'IDLE', autonomyLevel: 'A1', nextAction: 'El agente la reanudará automáticamente, sin pedir confirmación para pasos rutinarios.' };
@@ -364,7 +452,9 @@ function classify({ title, lastStartedAt, lastCompletedAt, lastFinalAt, lastUser
     return { humanStatus: 'UNREVIEWED', sourceStatus: 'IDLE', autonomyLevel: 'A0', nextAction: 'Auditar qué quedó pendiente y moverla a “Para el agente” sólo si puede retomarse sin una decisión externa.' };
   }
   if (agentFinalIsLatest && completed >= started && completed > 0 && /verificad|pr #|pull request|commit|tests? (ok|passed)|readback|resultado/.test(finalText)) {
-    return { humanStatus: 'READY_REVIEW', sourceStatus: 'IDLE', autonomyLevel: 'A0', nextAction: 'Revisar la evidencia y marcar como realizada si el resultado es correcto.' };
+    return resultSummary
+      ? { humanStatus: 'READY_REVIEW', sourceStatus: 'IDLE', autonomyLevel: 'A0', resultSummary, nextAction: 'Revisar el resultado mostrado en esta ficha y marcarla como realizada si es correcto.' }
+      : { humanStatus: 'UNREVIEWED', sourceStatus: 'IDLE', autonomyLevel: 'A0', nextAction: 'El agente debe reconstruir un resumen seguro del resultado antes de presentarlo como listo.' };
   }
   return { humanStatus: 'UNREVIEWED', sourceStatus: 'NOT_LOADED', autonomyLevel: 'A0', nextAction: 'Auditar qué quedó pendiente antes de decidir si el agente puede retomarla.' };
 }

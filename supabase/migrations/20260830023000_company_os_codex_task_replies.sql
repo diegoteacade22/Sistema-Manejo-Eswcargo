@@ -1,6 +1,12 @@
 -- Human replies for Codex tasks: immutable revisions plus a durable single-delivery outbox.
 BEGIN;
 
+ALTER TABLE public."CompanyOsCodexTask"
+  ADD COLUMN "decisionRequest" text,
+  ADD COLUMN "resultSummary" text,
+  ADD CONSTRAINT "CompanyOsCodexTask_decisionRequest_length" CHECK ("decisionRequest" IS NULL OR length("decisionRequest") <= 500),
+  ADD CONSTRAINT "CompanyOsCodexTask_resultSummary_length" CHECK ("resultSummary" IS NULL OR length("resultSummary") <= 500);
+
 CREATE TABLE public."CompanyOsCodexTaskReplyRevision" (
   id text PRIMARY KEY,
   "taskId" text NOT NULL REFERENCES public."CompanyOsCodexTask"(id) ON DELETE RESTRICT,

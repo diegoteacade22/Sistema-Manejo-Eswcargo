@@ -21,6 +21,8 @@ const CODEX_AUTO_RESUME_PROMPT = [
   'No envíes, publiques, borres, migres ni cambies producción o servicios externos sin autorización explícita en el hilo.',
   'Si hace falta una decisión, credencial, OTP, CAPTCHA, acción física o un tercero, no improvises: explicá el bloqueo concreto.',
   'No reinicies trabajo que ya esté terminado y verificá por readback antes de cerrar.',
+  'Para que el tablero sea autosuficiente, antes de la última línea incluí una línea DASHBOARD_RESULT: con el resultado concreto en lenguaje humano, sin secretos, datos personales, enlaces ni rutas.',
+  'Si el resultado es NEEDS_USER, incluí también una línea BLOCKER_REASON: con el motivo concreto y una línea DIEGO_DECISION: con la única autorización o decisión que Diego debe escribir en el tablero.',
   'La última línea debe ser exactamente AUTONOMY_RESULT: COMPLETED si el objetivo quedó verificado, AUTONOMY_RESULT: NEEDS_USER si sólo Diego puede destrabarlo, o AUTONOMY_RESULT: BLOCKED_EXTERNAL si depende de un tercero o servicio externo.',
 ].join(' ');
 const REPLY_DELIVERY_STATES = new Set(['CONFIRMED', 'CLAIMED', 'DELIVERED', 'FAILED', 'UNKNOWN_OUTCOME', 'SUPERSEDED']);
@@ -176,6 +178,8 @@ function taskInput(raw: unknown, sourceHost: string, observedAt: Date) {
     priority,
     nextAction: safeText(input.nextAction, 500, humanStatus === 'DONE' ? 'Revisar el resultado si hace falta.' : 'Retomar y definir el próximo resultado verificable.'),
     attentionReason: input.attentionReason == null ? null : safeText(input.attentionReason, 500),
+    decisionRequest: input.decisionRequest == null ? null : safeText(input.decisionRequest, 500),
+    resultSummary: input.resultSummary == null ? null : safeText(input.resultSummary, 500),
     autonomyLevel,
     codexUrl: `codex://threads/${threadId}`,
     fingerprint: fingerprint(input),
@@ -607,6 +611,9 @@ export async function submitCodexTaskReply(raw: unknown, actorRef: string) {
       if (task.fingerprint !== expectedFingerprint || current.boardVersion !== expectedVersion) {
         throw new CodexTaskStoreError('La tarea cambió desde que la abriste. Revisá el pedido actualizado antes de guardar.', 409);
       }
+      if (reusesReplyFromPreviousCodexRequest(task.replyRevisions[0], task.fingerprint, responseHash)) {
+        throw new CodexTaskStoreError('El pedido cambió y esta respuesta pertenece a la decisión anterior. Escribí una respuesta nueva para el pedido actualizado.', 409);
+      }
       if (current.lifecycle !== 'OPEN' || current.humanStatus !== 'NEEDS_DIEGO') {
         throw new CodexTaskStoreError('Esta tarea ya no está esperando una decisión tuya. Actualizá la ficha antes de responder.', 409);
       }
@@ -666,6 +673,48 @@ export async function submitCodexTaskReply(raw: unknown, actorRef: string) {
   }
 }
 
+export function codexReplyPresentationState(
+  replyDeliveryState: string | null,
+  replySourceChanged: boolean,
+  effectiveHumanStatus: string,
+) {
+  const replyProgress = replyDeliveryState === 'CONFIRMED' && !replySourceChanged
+    ? 'CONFIRMED'
+    : replyDeliveryState === 'CONFIRMED'
+      ? 'SUPERSEDED'
+      : replyDeliveryState === 'CLAIMED'
+        ? 'IN_PROGRESS'
+        : replyDeliveryState === 'DELIVERED' && replySourceChanged && effectiveHumanStatus === 'READY_REVIEW'
+          ? 'READY_REVIEW'
+          : replyDeliveryState === 'DELIVERED' && replySourceChanged && effectiveHumanStatus === 'NEEDS_DIEGO'
+            ? 'NEEDS_FOLLOWUP'
+            : replyDeliveryState === 'UNKNOWN_OUTCOME' && replySourceChanged && effectiveHumanStatus === 'NEEDS_DIEGO'
+              ? 'NEEDS_FOLLOWUP'
+              : replyDeliveryState;
+  const displayHumanStatus = replyProgress === 'CONFIRMED'
+    ? 'PENDING'
+    : replyProgress === 'IN_PROGRESS'
+      ? 'IN_PROGRESS'
+      : replyProgress === 'READY_REVIEW'
+        ? 'READY_REVIEW'
+        : replyProgress === 'NEEDS_FOLLOWUP'
+          ? 'NEEDS_DIEGO'
+          : ['FAILED', 'UNKNOWN_OUTCOME'].includes(replyProgress ?? '')
+            ? 'BLOCKED'
+            : effectiveHumanStatus;
+  return { replyProgress, displayHumanStatus };
+}
+
+export function reusesReplyFromPreviousCodexRequest(
+  previousReply: { sourceFingerprint: string; responseHash: string } | null | undefined,
+  currentFingerprint: string,
+  nextResponseHash: string,
+) {
+  return Boolean(previousReply
+    && previousReply.sourceFingerprint !== currentFingerprint
+    && previousReply.responseHash === nextResponseHash);
+}
+
 function taskView(task: TaskWithBoardState) {
   const effective = effectiveCodexTaskState(task, task.boardState);
   const reopened = Boolean(task.boardState && ['DONE', 'DISCARDED'].includes(task.humanStatus) && effective.lifecycle === 'OPEN');
@@ -699,6 +748,8 @@ function taskView(task: TaskWithBoardState) {
     ? 'La ejecución automática terminó con error.'
     : lastActionKey.startsWith('codex-auto:report-timed_out:')
       ? 'La ejecución automática superó el tiempo máximo.'
+      : lastActionKey.startsWith('codex-auto:report-missing-result:')
+        ? 'Codex terminó, pero no dejó un resumen seguro del resultado para mostrar en el tablero.'
       : lastActionKey.startsWith('codex-auto:report-succeeded:')
         ? 'Codex terminó, pero el hilo no mostró un cambio verificable.'
         : lastActionKey.startsWith('codex-auto:stale:')
@@ -708,41 +759,46 @@ function taskView(task: TaskWithBoardState) {
     ? latestReply.delivery.state
     : null;
   const replySourceChanged = Boolean(latestReply && latestReply.sourceFingerprint !== task.fingerprint);
-  const replyProgress = replyDeliveryState === 'CONFIRMED' && !replySourceChanged
-        ? 'CONFIRMED'
-    : replyDeliveryState === 'CONFIRMED'
-      ? 'SUPERSEDED'
-    : replyDeliveryState === 'CLAIMED'
-      ? 'IN_PROGRESS'
-      : replyDeliveryState === 'DELIVERED' && replySourceChanged && effective.humanStatus === 'READY_REVIEW'
-        ? 'READY_REVIEW'
-        : replyDeliveryState === 'DELIVERED' && replySourceChanged && effective.humanStatus === 'NEEDS_DIEGO'
-          ? 'NEEDS_FOLLOWUP'
-          : replyDeliveryState;
-  const taskSummary = `“${task.title}” pertenece a ${effective.projectName}. ${HUMAN_TASK_SUMMARIES[effective.humanStatus] ?? 'El tablero todavía no pudo resumir su estado.'}`;
+  const { replyProgress, displayHumanStatus } = codexReplyPresentationState(replyDeliveryState, replySourceChanged, effective.humanStatus);
+  const taskSummary = `“${task.title}” pertenece a ${effective.projectName}. ${HUMAN_TASK_SUMMARIES[displayHumanStatus] ?? 'El tablero todavía no pudo resumir su estado.'}`;
+  const nextAction = effective.lifecycle === 'CLOSED'
+    ? 'Realizada y validada por Diego.'
+    : replyProgress === 'CONFIRMED'
+      ? 'No tenés que hacer nada: la respuesta está en cola y Codex la tomará una sola vez.'
+      : replyProgress === 'IN_PROGRESS'
+        ? 'Codex está trabajando; el tablero mostrará el resultado cuando quede verificado.'
+        : ['READY_REVIEW', 'DELIVERED'].includes(replyProgress ?? '')
+          ? 'Leé el resultado mostrado en esta ficha y cerrala como realizada si es correcto.'
+          : replyProgress === 'NEEDS_FOLLOWUP'
+            ? 'Respondé en esta ficha la nueva autorización o decisión solicitada.'
+            : effective.humanStatus === 'BLOCKED' && autoResumeFailure
+              ? 'Revisá el motivo indicado y autorizá un nuevo intento sólo después de resolver la causa.'
+              : reopened ? 'Retomar y definir el próximo resultado verificable.' : task.nextAction;
   return {
     threadId: task.threadId,
     title: task.title,
     projectName: effective.projectName,
     sourceProjectName: task.projectName,
     category: task.category,
-    humanStatus: effective.humanStatus,
+    humanStatus: displayHumanStatus,
     sourceHumanStatus: task.humanStatus,
     sourceArchived: task.archived,
     lifecycle: effective.lifecycle,
     priority: task.priority,
-    nextAction: effective.lifecycle === 'CLOSED'
-      ? 'Realizada y validada por Diego.'
-      : effective.humanStatus === 'BLOCKED' && autoResumeFailure
-        ? 'Abrir la tarea, revisar el último intento y volver a autorizar sólo después de resolver la causa.'
-      : reopened ? 'Retomar y definir el próximo resultado verificable.' : task.nextAction,
+    nextAction,
     attentionReason: effective.lifecycle === 'CLOSED'
       ? null
-      : effective.humanStatus === 'NEEDS_DIEGO' && !task.attentionReason
+      : displayHumanStatus !== 'NEEDS_DIEGO' && displayHumanStatus !== 'BLOCKED'
+        ? null
+      : displayHumanStatus === 'NEEDS_DIEGO' && !task.attentionReason
         ? 'Necesita una decisión de Diego para continuar.'
-        : effective.humanStatus === 'BLOCKED' && !task.attentionReason
+        : displayHumanStatus === 'BLOCKED' && !task.attentionReason
           ? autoResumeFailure ?? 'La tarea quedó bloqueada y necesita revisión antes de continuar.'
         : task.attentionReason,
+    blockerReason: effective.lifecycle === 'CLOSED' ? null : task.attentionReason,
+    decisionRequest: effective.lifecycle === 'CLOSED' ? null : task.decisionRequest,
+    resultSummary: task.resultSummary,
+    resultObservedAt: task.lastCompletedAt?.toISOString() ?? null,
     taskSummary,
     humanResponse: latestReply?.responseText ?? null,
     humanResponseRevision: latestReply?.revision ?? null,
@@ -1074,7 +1130,8 @@ export async function reportCodexTaskDispatch(raw: unknown, actorRef: string) {
       && task.sourceStatus !== 'ACTIVE',
     );
     const completedAfterPrompt = Boolean(promptObservedAt && task.lastCompletedAt && task.lastCompletedAt > promptObservedAt);
-    if (outcome === 'SUCCEEDED' && promptObserved && completedAfterClaim && completedAfterPrompt) {
+    const hasDashboardResult = Boolean(task.resultSummary?.trim());
+    if (outcome === 'SUCCEEDED' && promptObserved && completedAfterClaim && completedAfterPrompt && hasDashboardResult) {
       const verifiedStatus = ['UNREVIEWED', 'NEEDS_DIEGO', 'BLOCKED', 'READY_REVIEW', 'MONITORING'].includes(task.humanStatus)
         ? task.humanStatus as 'UNREVIEWED' | 'NEEDS_DIEGO' | 'BLOCKED' | 'READY_REVIEW' | 'MONITORING'
         : 'UNREVIEWED';
@@ -1139,7 +1196,10 @@ export async function reportCodexTaskDispatch(raw: unknown, actorRef: string) {
         retryAttempt,
       };
     }
-    await appendDispatchTransition(tx, task, 'BLOCKED', safeActorRef, `report-${outcome.toLowerCase()}`);
+    const reportSuffix = outcome === 'SUCCEEDED' && promptObserved && completedAfterClaim && completedAfterPrompt && !hasDashboardResult
+      ? 'report-missing-result'
+      : `report-${outcome.toLowerCase()}`;
+    await appendDispatchTransition(tx, task, 'BLOCKED', safeActorRef, reportSuffix);
     if (replyDelivery?.state === 'CLAIMED') await tx.companyOsCodexTaskReplyDelivery.update({
       where: { id: replyDelivery.id },
       data: {
@@ -1156,7 +1216,13 @@ export async function reportCodexTaskDispatch(raw: unknown, actorRef: string) {
       verifiedCompletion: false,
       outcome,
       humanStatus: 'BLOCKED',
-      reason: !promptObserved ? 'PROMPT_NOT_OBSERVED' : !completedAfterPrompt ? 'COMPLETION_NOT_AFTER_PROMPT' : outcome === 'SUCCEEDED' ? 'NO_VERIFIABLE_COMPLETION' : 'EXECUTION_DID_NOT_SUCCEED',
+      reason: !promptObserved
+        ? 'PROMPT_NOT_OBSERVED'
+        : !completedAfterPrompt
+          ? 'COMPLETION_NOT_AFTER_PROMPT'
+          : !hasDashboardResult
+            ? 'RESULT_SUMMARY_NOT_OBSERVED'
+            : outcome === 'SUCCEEDED' ? 'NO_VERIFIABLE_COMPLETION' : 'EXECUTION_DID_NOT_SUCCEED',
     };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10_000 });
 }
