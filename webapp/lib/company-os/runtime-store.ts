@@ -171,8 +171,8 @@ export class CompanyOsRuntimeRequestError extends Error {
 export async function acceptCompanyOsRuntimeNonce(workerId: string, nonce: string, endpoint: string) {
   const db = companyOsV3Prisma();
   return db.$transaction(async (tx) => {
-    await tx.$queryRaw(Prisma.sql`
-      SELECT pg_catalog.pg_advisory_xact_lock(
+    await tx.$queryRaw<Array<{ locked: number }>>(Prisma.sql`
+      SELECT 1 AS locked FROM pg_catalog.pg_advisory_xact_lock(
         pg_catalog.hashtextextended(${`company-os-worker-rate:${workerId}`}, 0)
       )
     `);
