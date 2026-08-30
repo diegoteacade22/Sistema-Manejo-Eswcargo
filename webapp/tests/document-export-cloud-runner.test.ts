@@ -115,3 +115,13 @@ test('packing retira segmentos eliminados y sólo avanza estado con readback exi
     assert.match(exporter, /delete next\.shipments\[staleSegmentKey\]/);
     assert.match(exporter, /shouldAdvanceShipmentBaseFingerprint\(segmentFailures\)/);
 });
+
+test('el resumen Cloud separa fallos de build, escritura, permisos y cuota sin filtrar mensajes', async () => {
+    const exporter = await readFile(exporterPath, 'utf8');
+    assert.match(exporter, /orderPhase: 'INVOICE_BUILD' \| 'INVOICE_DRIVE_WRITE'/);
+    assert.match(exporter, /packingPhase: 'PACKING_LIST_BUILD' \| 'PACKING_LIST_DRIVE_WRITE'/);
+    assert.match(exporter, /DRIVE_STORAGE_QUOTA/);
+    assert.match(exporter, /DRIVE_WRITE_PERMISSION/);
+    assert.match(exporter, /DRIVE_WRITE_FAILED/);
+    assert.match(exporter, /cloudFailureReason\(type, message\)/);
+});
