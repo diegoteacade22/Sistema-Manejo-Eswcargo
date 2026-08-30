@@ -314,7 +314,7 @@ function TaskManagerDialog({
                   {moveTarget === "PENDING" ? "Autorizar y reanudar" : canReopen ? "Reabrir" : "Mover"}
                 </Button>
               </div>
-              <p className="text-xs text-slate-500">“Para el agente” requiere confirmación expresa y autoriza una nueva ejecución. “Trabajando ahora” aparecerá sólo cuando Codex la haya tomado.</p>
+              <p className="text-xs text-slate-500">Las tareas recientes interrumpidas entran solas. Mover una tarea antigua a “Para el agente” autoriza una nueva ejecución. “Trabajando ahora” aparece cuando Codex la toma.</p>
               {moveTarget === "PENDING" && !canAuthorizeAutoResume && <p className="text-xs text-amber-300">Primero resolvé la decisión o ejecución activa indicada arriba; el reanudador no la tomará mientras tanto.</p>}
               <div className="grid gap-2 border-t border-slate-800 pt-3 sm:grid-cols-[1fr_auto] sm:items-end">
                 <div className="space-y-2">
@@ -334,7 +334,7 @@ function TaskManagerDialog({
           )}
 
           <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3 text-xs text-slate-400">
-            Archivar, cerrar y cambiar de proyecto sólo organizan este tablero. Mover o reabrir en “Para el agente” autoriza explícitamente que Codex agregue una nueva ejecución al hilo.
+            Archivar, cerrar y cambiar de proyecto sólo organizan este tablero. Las interrupciones recientes se reanudan por política; mover o reabrir una tarea antigua en “Para el agente” autoriza una nueva ejecución.
           </div>
           {savingAction && <p role="status" className="text-center text-sm text-cyan-200"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" /> Guardando; esperá para cerrar.</p>}
           <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 border-t border-slate-800 bg-slate-950 px-6 py-4">
@@ -533,11 +533,11 @@ export function CompanyOsHumanDashboard() {
   const summary = useMemo(() => [
     { section: "now" as const, label: "Trabajando", value: snapshot?.summary.inProgress ?? 0, className: "text-cyan-300" },
     { section: "unreviewed" as const, label: "Sin revisar", value: snapshot?.summary.unreviewed ?? 0, className: "text-slate-400" },
-    { section: "pending" as const, label: "Para el agente", value: snapshot?.summary.pending ?? 0, className: "text-slate-100" },
+    { section: "pending" as const, label: "Cola automática", value: snapshot?.summary.pending ?? 0, className: "text-slate-100" },
     { section: "needsDiego" as const, label: "Necesito de vos", value: snapshot?.summary.needsDiego ?? 0, className: "text-amber-300" },
     { section: "blocked" as const, label: "Con problemas", value: snapshot?.summary.blocked ?? 0, className: "text-rose-300" },
-    { section: "readyReview" as const, label: "Listas para revisar", value: snapshot?.summary.readyReview ?? 0, className: "text-violet-300" },
-    { section: "done" as const, label: "Realizadas", value: snapshot?.summary.done ?? 0, className: "text-emerald-300" },
+    { section: "readyReview" as const, label: "Terminó sin cierre", value: snapshot?.summary.readyReview ?? 0, className: "text-violet-300" },
+    { section: "done" as const, label: "Terminadas", value: snapshot?.summary.done ?? 0, className: "text-emerald-300" },
     { section: "archived" as const, label: "Archivadas", value: snapshot?.summary.archived ?? 0, className: "text-slate-400" },
     { section: "monitoring" as const, label: "Monitoreos activos", value: snapshot?.monitoring.length ?? 0, className: "text-cyan-200" },
     { section: "commercial" as const, label: "Ideas y ofertas", value: snapshot ? Math.max(snapshot.commercialIdeas.length, snapshot.commercialNextAction ? 1 : 0) : 0, className: "text-emerald-200" },
@@ -546,14 +546,14 @@ export function CompanyOsHumanDashboard() {
   const activePanel = (() => {
     switch (activeSection) {
       case "now": return <TaskSection title="Trabajando ahora" description="Tareas que tienen una ejecución activa." tasks={snapshot?.now ?? []} empty="No hay una tarea activa en este momento." accent="border-cyan-500/25" onOpenTask={openTask} />;
-      case "unreviewed": return <TaskSection title="Sin revisar" description="Tareas antiguas o incompletas que todavía no están autorizadas para reanudarse." tasks={snapshot?.unreviewed ?? []} empty="No hay tareas pendientes de clasificación." accent="border-slate-700" onOpenTask={openTask} />;
+      case "unreviewed": return <TaskSection title="Sin revisar" description="Tareas antiguas que quedaron fuera de la ventana autónoma; no generan pedidos ni avisos." tasks={snapshot?.unreviewed ?? []} empty="No hay tareas pendientes de clasificación." accent="border-slate-700" onOpenTask={openTask} />;
       case "needsDiego": return <TaskSection title="Necesito que decidas" description="Decisiones, permisos o datos que sólo vos podés dar." tasks={snapshot?.needsDiego ?? []} empty="No hay decisiones tuyas pendientes." accent="border-amber-500/25" onOpenTask={openTask} />;
-      case "pending": return <TaskSection title="El agente puede trabajar ahora" description="Sólo tareas que vos autorizaste al moverlas acá; el agente toma una por vez y la reanuda automáticamente." tasks={snapshot?.pending ?? []} empty="No hay tareas autorizadas para reanudar." onOpenTask={openTask} />;
+      case "pending": return <TaskSection title="Cola automática" description="El agente toma una por vez: incluye interrupciones recientes y tareas antiguas que autorizaste manualmente." tasks={snapshot?.pending ?? []} empty="No hay tareas para reanudar." onOpenTask={openTask} />;
       case "blocked": return <TaskSection title="Con problemas" description="Bloqueos por accesos, dependencias externas, errores o tiempo agotado." tasks={snapshot?.blocked ?? []} empty="No hay bloqueos detectados." accent="border-rose-500/25" onOpenTask={openTask} />;
-      case "readyReview": return <TaskSection title="Listas para que revises" description="Hay resultado y evidencia; abrí la ficha y, si está bien, cerrala como realizada." tasks={snapshot?.readyReview ?? []} empty="No hay resultados esperando revisión." accent="border-violet-500/25" onOpenTask={openTask} />;
+      case "readyReview": return <TaskSection title="Terminó sin cierre automático" description="Son ejecuciones sin el marcador y readback suficientes; no se consideran terminadas." tasks={snapshot?.readyReview ?? []} empty="No hay resultados sin cierre automático." accent="border-violet-500/25" onOpenTask={openTask} />;
       case "monitoring": return <TaskSection title="Monitoreos activos" description="Controles recurrentes que el agente mantiene bajo observación." tasks={snapshot?.monitoring ?? []} empty="No hay monitoreos activos." accent="border-cyan-500/20" onOpenTask={openTask} />;
       case "commercial": return <CommercialSection snapshot={snapshot} />;
-      case "done": return <TaskSection title="Realizadas" description="Sólo resultados validados; una respuesta de Codex no alcanza para entrar acá." tasks={snapshot?.done ?? []} empty="Todavía no hay tareas marcadas como realizadas con validación." accent="border-emerald-500/25" onOpenTask={openTask} />;
+      case "done": return <TaskSection title="Terminadas" description="Resultado verificado por marcador estructurado, cambio durable y readback posterior." tasks={snapshot?.done ?? []} empty="Todavía no hay tareas terminadas con verificación." accent="border-emerald-500/25" onOpenTask={openTask} />;
       case "archived": return <TaskSection title="Archivadas" description="Tareas fuera de las listas activas, con su historial preservado." tasks={snapshot?.archived ?? []} empty="No hay tareas archivadas." accent="border-slate-700" onOpenTask={openTask} />;
       default: return null;
     }
@@ -629,7 +629,7 @@ export function CompanyOsHumanDashboard() {
               {snapshot?.activity?.fresh ? "AL DÍA" : "SIN DATOS FRESCOS"}
             </Badge>
             <Badge className={snapshot?.activity?.fresh && snapshot.activity.autoResumeEnabled ? "bg-cyan-500/15 text-cyan-200" : "bg-slate-800 text-slate-400"}>
-              {snapshot?.activity?.fresh && snapshot.activity.autoResumeEnabled ? "REANUDADOR HABILITADO" : "SÓLO INVENTARIO"}
+              {snapshot?.activity?.fresh && snapshot.activity.autoResumeEnabled ? "AUTÓNOMO ACTIVO" : "SÓLO INVENTARIO"}
             </Badge>
             <Button size="sm" variant="outline" onClick={() => void refresh()}><RefreshCw className="mr-2 h-4 w-4" /> Actualizar</Button>
           </div>
@@ -662,7 +662,7 @@ export function CompanyOsHumanDashboard() {
       <section className="grid gap-3 md:grid-cols-3">
         <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4 text-sm text-slate-400"><Clock3 className="mb-2 h-5 w-5 text-cyan-300" />Escaneo automático cada 5 minutos.</div>
         <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4 text-sm text-slate-400"><CircleHelp className="mb-2 h-5 w-5 text-amber-300" />Si falta una decisión, el agente no improvisa.</div>
-        <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4 text-sm text-slate-400"><CheckCircle2 className="mb-2 h-5 w-5 text-emerald-300" />“Realizada” exige evidencia y revisión.</div>
+        <div className="rounded-2xl border border-slate-800 bg-slate-950/50 p-4 text-sm text-slate-400"><CheckCircle2 className="mb-2 h-5 w-5 text-emerald-300" />“Terminada” exige evidencia, marcador estructurado y readback; no aprobación rutinaria.</div>
       </section>
     </div>
   );
