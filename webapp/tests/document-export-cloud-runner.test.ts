@@ -6,6 +6,7 @@ import test from 'node:test';
 const workflowPath = path.resolve(process.cwd(), '..', '.github', 'workflows', 'export-operational-documents-cloud.yml');
 const exporterPath = path.resolve(process.cwd(), 'scripts', 'export-operational-documents.ts');
 const buildersPath = path.resolve(process.cwd(), 'app', 'email-actions.ts');
+const chargeAuditPath = path.resolve(process.cwd(), 'scripts', 'audit-shipment-client-charges.ts');
 
 function jobLevelEnvBlocks(workflow: string) {
     const lines = workflow.split('\n');
@@ -36,6 +37,9 @@ test('probe, credenciales y readback son gates obligatorios', async () => {
     assert.match(workflow, /default: probe/);
     assert.match(workflow, /--drive-probe/);
     assert.match(workflow, /export-one/);
+    assert.match(workflow, /diagnose-charges/);
+    assert.match(workflow, /audit-shipment-client-charges\.ts/);
+    assert.match(workflow, /--shipment-number=\$SHIPMENT_NUMBER/);
     assert.match(workflow, /--order-id=\$ORDER_ID/);
     assert.match(workflow, /ESW_DOCUMENT_EXPORT_DRIVE_FOLDER_ID/);
     assert.match(workflow, /GOOGLE_CREDENTIALS/);
@@ -43,6 +47,17 @@ test('probe, credenciales y readback son gates obligatorios', async () => {
     assert.match(workflow, /authorized_user/);
     assert.match(workflow, /--summary-path/);
     assert.match(workflow, /actions\/upload-artifact@v4/);
+});
+
+test('diagnose-charges es read-only y no filtra descripciones libres', async () => {
+    const audit = await readFile(chargeAuditPath, 'utf8');
+    assert.match(audit, /prisma\.shipment\.findFirst/);
+    assert.match(audit, /prisma\.transaction\.findMany/);
+    assert.match(audit, /confirmedCharge/);
+    assert.match(audit, /nearbyCandidates/);
+    assert.match(audit, /referenceKind/);
+    assert.doesNotMatch(audit, /prisma\.(transaction|shipment)\.(create|update|delete|upsert)/);
+    assert.doesNotMatch(audit, /reference:\s*candidate\.reference|description:\s*candidate\.description/);
 });
 
 test('job env no usa runner context y las rutas nacen desde RUNNER_TEMP', async () => {
