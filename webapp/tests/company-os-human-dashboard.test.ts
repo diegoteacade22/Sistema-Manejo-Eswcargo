@@ -5,7 +5,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createHmac } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { CompanyOsHumanDashboard, SECTION_HASHES, sectionFromHash } from '../components/company-os-human-dashboard';
+import { CompanyOsHumanDashboard, SECTION_HASHES, diagnosisIsIncomplete, sectionFromHash } from '../components/company-os-human-dashboard';
 import { verifyCodexIntakeRequest } from '../lib/company-os/codex-task-auth';
 import { codexReplyPresentationState, effectiveCodexTaskState, isApprovedCodexTaskDispatchCandidate, isAutonomousCodexTaskDispatchCandidate, reusesReplyFromPreviousCodexRequest, safeCodexTaskReply } from '../lib/company-os/codex-task-store';
 
@@ -73,8 +73,13 @@ test('cada resultado abre una ficha interna y Codex queda como salida secundaria
   assert.match(component, /Ver y gestionar acá/);
   assert.match(component, /onClick=\{\(\) => onOpen\(task\)\}/);
   assert.match(component, /TaskManagerDialog/);
-  assert.match(component, /Mover en este tablero a/);
-  assert.match(component, /Mover chat a otro proyecto del tablero/);
+  assert.match(component, /Organización y derivación/);
+  assert.match(component, /Estado de resolución/);
+  assert.match(component, /Proyecto responsable/);
+  assert.match(component, /Cambios sin guardar/);
+  assert.match(component, /Guardar cambios/);
+  assert.match(component, /Cerrar sin guardar/);
+  assert.match(component, /onAction\("SAVE", moveTarget, false, projectTarget\)/);
   assert.match(component, /MOVE_PROJECT/);
   assert.match(component, /Cerrar como realizada/);
   assert.match(component, /Archivar/);
@@ -84,6 +89,21 @@ test('cada resultado abre una ficha interna y Codex queda como salida secundaria
   assert.doesNotMatch(component, /Abrir en Codex para responder/);
   assert.match(component, /mover o reabrir una tarea antigua en “Para el agente” autoriza una nueva ejecución/i);
   assert.match(store, /codex:\/\/threads\/\$\{threadId\}/);
+});
+
+test('la ficha distingue un diagnóstico real de un bloqueo genérico y muestra dónde derivar', () => {
+  assert.equal(diagnosisIsIncomplete('La tarea depende de un acceso, proveedor o evento externo.'), true);
+  assert.equal(diagnosisIsIncomplete('El proveedor rechazó el archivo porque falta la columna SKU.'), false);
+  assert.match(component, /Diagnóstico incompleto/);
+  assert.match(component, /Derivación recomendada/);
+  assert.match(component, /Responsable:/);
+  assert.match(component, /Destino sugerido:/);
+  assert.match(component, /Qué hacer ahora/);
+  assert.match(component, /Copiar instrucción para Codex/);
+  assert.match(component, /causa raíz concreta, quién puede resolverla y el único próximo paso verificable/);
+  assert.match(store, /MANAGEMENT_ACTIONS = new Set\(\['MOVE', 'MOVE_PROJECT', 'SAVE'/);
+  assert.match(store, /if \(action === 'SAVE'\)/);
+  assert.match(store, /No hay cambios pendientes para guardar/);
 });
 
 test('las ofertas exponen costo, precio sugerido, margen y fuente real', () => {
@@ -219,6 +239,7 @@ test('el despacho acepta autorización humana o política autónoma durable y nu
     actions: [{ action: 'MOVE', actorRef: 'human-actor-ref', idempotencyKey: 'dashboard:auto-resume:12345678-1234-1234-1234-123456789abc', newHumanStatus: 'PENDING', newVersion: 3 }],
   };
   assert.equal(isApprovedCodexTaskDispatchCandidate(base), true);
+  assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, actions: [{ ...base.actions[0], action: 'SAVE' }] }), true);
   assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, attentionReason: 'Falta OTP' }), false);
   assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, fingerprint: 'b'.repeat(64) }), false);
   const policyApproved = {

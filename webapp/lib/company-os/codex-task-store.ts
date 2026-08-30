@@ -10,7 +10,7 @@ const CATEGORIES = new Set(['GENERAL', 'SYSTEMS', 'OPERATIONS', 'COMMERCIAL', 'F
 const AUTONOMY_LEVELS = new Set(['A0', 'A1', 'A2', 'HUMAN']);
 const MANAGED_TARGET_STATUSES = new Set(['PENDING', 'NEEDS_DIEGO', 'BLOCKED', 'READY_REVIEW', 'MONITORING']);
 const REOPEN_TARGET_STATUSES = new Set(['PENDING', 'NEEDS_DIEGO']);
-const MANAGEMENT_ACTIONS = new Set(['MOVE', 'MOVE_PROJECT', 'ARCHIVE', 'CLOSE', 'REOPEN']);
+const MANAGEMENT_ACTIONS = new Set(['MOVE', 'MOVE_PROJECT', 'SAVE', 'ARCHIVE', 'CLOSE', 'REOPEN']);
 const CODEX_AUTO_RESUME_ACTOR = 'codex-intake-ai-v1';
 const CODEX_AUTO_RESUME_STALE_MS = 2 * 60 * 60_000;
 const CODEX_AUTO_RESUME_PROMPT = [
@@ -360,7 +360,7 @@ export function isApprovedCodexTaskDispatchCandidate(task: DispatchCandidateLike
     && approval?.newVersion === board.version
     && (humanApproval || policyApproval)
     && approval.newHumanStatus === 'PENDING'
-    && ['MOVE', 'REOPEN'].includes(approval.action);
+    && ['MOVE', 'REOPEN', 'SAVE'].includes(approval.action);
   return !task.archived
     && ['IDLE', 'NOT_LOADED'].includes(task.sourceStatus)
     && board?.lifecycle !== 'ARCHIVED'
@@ -421,7 +421,7 @@ export async function manageCodexTask(raw: unknown, actorRef: string) {
   const expectedVersion = Math.trunc(Number(input.expectedVersion));
   if (!Number.isInteger(expectedVersion) || expectedVersion < 0) throw new CodexTaskStoreError('Versión de gestión inválida');
   const targetStatus = typeof input.targetStatus === 'string' ? input.targetStatus.trim().toUpperCase() : '';
-  const targetProjectName = action === 'MOVE_PROJECT' ? safeText(input.targetProjectName, 160) : null;
+  const targetProjectName = ['MOVE_PROJECT', 'SAVE'].includes(action) ? safeText(input.targetProjectName, 160) : null;
   const safeActorRef = safeText(actorRef, 160);
   const requestHash = createHash('sha256').update(JSON.stringify({
     threadId,
@@ -464,7 +464,32 @@ export async function manageCodexTask(raw: unknown, actorRef: string) {
       let newLifecycle = current.lifecycle;
       let newProjectName = current.projectName;
 
-      if (action === 'MOVE') {
+      if (action === 'SAVE') {
+        const reopening = current.lifecycle !== 'OPEN' || ['DONE', 'DISCARDED'].includes(current.humanStatus);
+        const allowedStatuses = reopening ? REOPEN_TARGET_STATUSES : MANAGED_TARGET_STATUSES;
+        if (!allowedStatuses.has(targetStatus)) throw new CodexTaskStoreError(reopening ? 'Elegí si vuelve para el agente o necesita una decisión tuya' : 'Destino de tarea no permitido');
+        if (!targetProjectName) throw new CodexTaskStoreError('Elegí un proyecto de destino');
+        const projectExists = targetProjectName === current.projectName || Boolean(await tx.companyOsCodexTask.findFirst({
+          where: {
+            OR: [
+              { projectName: targetProjectName },
+              { boardState: { is: { projectNameOverride: targetProjectName } } },
+            ],
+          },
+          select: { id: true },
+        }));
+        if (!projectExists) throw new CodexTaskStoreError('El proyecto de destino ya no está disponible', 409);
+        if (targetStatus === 'PENDING' && input.confirmed !== true) throw new CodexTaskStoreError('Confirmá explícitamente la reanudación automática');
+        if (targetStatus === 'PENDING' && (task.archived || task.attentionReason || !['IDLE', 'NOT_LOADED'].includes(task.sourceStatus))) {
+          throw new CodexTaskStoreError('La tarea está archivada, necesita una decisión o no está inactiva; no puede autorizarse automáticamente', 409);
+        }
+        if (targetStatus === current.humanStatus && targetProjectName === current.projectName && !reopening) {
+          throw new CodexTaskStoreError('No hay cambios pendientes para guardar');
+        }
+        newHumanStatus = targetStatus;
+        newProjectName = targetProjectName;
+        if (reopening) newLifecycle = 'OPEN';
+      } else if (action === 'MOVE') {
         if (current.lifecycle !== 'OPEN') throw new CodexTaskStoreError('La tarea no está abierta. Reabrila antes de moverla.', 409);
         if (!MANAGED_TARGET_STATUSES.has(targetStatus)) throw new CodexTaskStoreError('Destino de tarea no permitido');
         if (targetStatus === 'PENDING' && input.confirmed !== true) throw new CodexTaskStoreError('Confirmá explícitamente la reanudación automática');
