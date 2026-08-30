@@ -197,9 +197,11 @@ async function main() {
     if (driveProbe) {
         if (!target.probe) throw new Error('El probe Drive requiere --target=drive.');
         const probe = await target.probe();
-        const summary = { status: 'PROBED', target: target.name, probe };
+        const writable = Boolean((probe as { folderWritable?: boolean }).folderWritable);
+        const summary = { status: writable ? 'PROBED' : 'FAILED', target: target.name, probe };
         await writeSummary(summary);
         console.log(JSON.stringify(summary, null, 2));
+        if (!writable) process.exitCode = 1;
         return;
     }
 
