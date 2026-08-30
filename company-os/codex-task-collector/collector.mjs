@@ -30,6 +30,7 @@ const ENDPOINT = '/api/company-os/codex/v1/intake';
 const DISPATCH_ENDPOINT = '/api/company-os/codex/v1/dispatch';
 const MAX_TASKS = Math.min(2_000, Math.max(1, Number(process.env.COMPANY_OS_CODEX_MAX_TASKS) || 2_000));
 const DRY_RUN = process.env.COMPANY_OS_CODEX_DRY_RUN === '1';
+const SELF_TEST = process.env.COMPANY_OS_CODEX_SELF_TEST === '1';
 const AUTO_RESUME = process.env.COMPANY_OS_CODEX_AUTO_RESUME === '1';
 const CODEX_BIN = resolve(process.env.COMPANY_OS_CODEX_BIN || '/opt/homebrew/bin/codex');
 const AUTO_RESUME_TIMEOUT_MS = Math.min(3_600_000, Math.max(60_000, Number(process.env.COMPANY_OS_CODEX_AUTO_RESUME_TIMEOUT_MS) || 2_700_000));
@@ -44,7 +45,7 @@ const AUTO_RESUME_PROMPT = [
   'No reinicies trabajo que ya esté terminado y verificá por readback antes de cerrar.',
 ].join(' ');
 
-if (!SECRET && !DRY_RUN) throw new Error('COMPANY_OS_CODEX_INTAKE_SECRET_REQUIRED');
+if (!SECRET && !DRY_RUN && !SELF_TEST) throw new Error('COMPANY_OS_CODEX_INTAKE_SECRET_REQUIRED');
 
 async function waitForStartGate() {
   if (!START_GATE_PATH && !START_GATE_TOKEN) return;
@@ -127,6 +128,162 @@ function category(title, project) {
   return 'GENERAL';
 }
 
+const DIRECT_HUMAN_REQUEST_PATTERN = /^(?:(?:¿[^?]{0,320}(?:quer[eé]s|prefer[ií]s|autoriz[aá]s|aprob[aá]s|confirm[aá]s|eleg[ií]s|decid[ií]s|pod[eé]s|cu[aá]l\s+(?:prefer[ií]s|eleg[ií]s)|qu[eé]\s+(?:opci[oó]n|alternativa))(?=\s|[?:,;!]|$)[^?]{0,320}\?)|(?:(?:por favor,?\s+)?(?:necesito que|necesito (?:tu|la) (?:decisi[oó]n|autorizaci[oó]n|confirmaci[oó]n|aprobaci[oó]n|dato)|eleg[ií]|confirm[aá]|decid[ií]|autoriz[aá]|aprob[aá]|respond[eé]|indic[aá]|proporcion[aá]|compart[ií]|ingres[aá]|diego debe|falta que diego|falta (?:tu|la) (?:decisi[oó]n|autorizaci[oó]n|confirmaci[oó]n|aprobaci[oó]n|dato)|tu decisi[oó]n)(?=\s|[.:,;!?]|$)))/i;
+const OPTION_PREFIX_PATTERN = /^\s*(?:[-*+•]\s+|(?:opci[oó]n\s+)?[A-Ca-c1-3][).:-]\s*)/i;
+const SENSITIVE_REQUEST_FALLBACK = 'La tarea pide una decisión con datos sensibles. Abrí la tarea original para verla y no copies credenciales en el tablero.';
+const MISSING_OPTIONS_FALLBACK = 'Elegí una opción en la tarea original; las opciones no pudieron mostrarse con seguridad.';
+
+function normalizeHumanLine(raw) {
+  return String(raw || '')
+    .replace(/`[^`\n]+`/g, ' ')
+    .replace(/\[([^\]]+)]\([^)]+\)/g, '$1')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/^\s*(?:[-*+•]|(?:opci[oó]n\s*)?[A-Ca-c1-3][).:-])\s+/i, '')
+    .replace(/^\s*(?:pendiente|bloqueado|decisi[oó]n necesaria|necesito de vos|acci[oó]n de diego|siguiente paso)\s*:\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function containsSensitiveHumanRequest(raw) {
+  const value = String(raw || '');
+  if (
+    /https?:\/\/\S+/i.test(value)
+    || /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(value)
+    || /\+?\d[\d\s().-]{7,}\d/.test(value)
+    || /\/Users\/[^/\s]+(?:\/[^\s.,;:)]+)+/.test(value)
+    || /\b[A-Z]:\\(?:[^\\\s]+\\)*[^\\\s]+/i.test(value)
+    || /-----BEGIN [A-Z ]*PRIVATE KEY-----/i.test(value)
+    || /\b(?:sk[-_](?:live|test)[-_]?|sk-|rk_live_|pk_live_)[A-Za-z0-9_-]{12,}\b/i.test(value)
+    || /\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/.test(value)
+    || /\bAKIA[A-Z0-9]{16}\b/.test(value)
+    || /\bAIza[0-9A-Za-z_-]{20,}\b/.test(value)
+    || /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/i.test(value)
+    || /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/.test(value)
+    || /\bBearer\s+[A-Za-z0-9._~+/-]+=*\b/i.test(value)
+    || /\b(?:password|contrase[nñ]a|passcode|pin|clave(?: de acceso)?|token|api[_ -]?key|secret|client[_ -]?secret|private[_ -]?key|otp|c[oó]digo de acceso|credencial)\s*[:=]?\s*\S*/i.test(value)
+    || /\b(?:direcci[oó]n|domicilio|address|cliente|customer|contacto|cuenta bancaria|bank account|tarjeta|dni|pasaporte)\b/i.test(value)
+    || /\b(?:inv(?:oice)?|factura|orden|order|carga|tracking)\s*(?:#|n[°ºo]\.?)?\s*[A-Z0-9-]{3,}\b/i.test(value)
+    || /(?:\b(?:USD|US\$|U\$S|ARS|EUR|GBP)\s*|\$\s*)\d[\d.,]*(?:[kKmM])?/i.test(value)
+    || /\b\d[\d.,]*(?:[kKmM])?\s*(?:USD|US\$|U\$S|ARS|EUR|GBP|d[oó]lares?|pesos?)\b/i.test(value)
+    || /\b[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ0-9&.'-]*(?:\s+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ0-9&.'-]*)*\s+(?:LLC|INC|CORP|LTD|S\.?A\.?|S\.?R\.?L\.?)\b/i.test(value)
+    || /\b\d{1,6}\s+[A-ZÁÉÍÓÚÑ][\p{L}.'-]+(?:\s+[A-ZÁÉÍÓÚÑ]?[\p{L}.'-]+){0,4}\s+(?:street|st|avenue|ave|road|rd|boulevard|blvd|drive|dr|calle|avenida|ruta|camino)\b/iu.test(value)
+  ) return true;
+
+  const namesProbe = value.replace(/\b(?:Google Drive|Company OS|Mac Mini|Codex|Vercel|GitHub|ESWCARGO|ESWTECH|WhatsApp|Supabase)\b/gi, ' ');
+  return /\b[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]{2,}\b/.test(namesProbe)
+    || /\b[A-ZÁÉÍÓÚÑ]{2,}(?:\s+[A-ZÁÉÍÓÚÑ]{2,})+\b/.test(namesProbe)
+    || /\b(?:a|de|desde|con|para|proveedor(?:a)?|empresa|contraparte)\s+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñ0-9&.'-]{2,}\b/.test(namesProbe);
+}
+
+function sanitizeHumanRequest(raw) {
+  let value = String(raw || '')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`\n]+`/g, ' ')
+    .replace(/\[([^\]]+)]\([^)]+\)/g, '$1')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/https?:\/\/\S+/gi, '[ENLACE OCULTO]')
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[CORREO OCULTO]')
+    .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[DATO OCULTO]')
+    .replace(/\b(?:sk[-_](?:live|test)[-_]?|sk-|rk_live_|pk_live_)[A-Za-z0-9_-]{12,}\b/gi, '[DATO OCULTO]')
+    .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b/g, '[DATO OCULTO]')
+    .replace(/\bAKIA[A-Z0-9]{16}\b/g, '[DATO OCULTO]')
+    .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, '[DATO OCULTO]')
+    .replace(/\b\d{6,12}:[A-Za-z0-9_-]{20,}\b/g, '[DATO OCULTO]')
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*\b/gi, 'Bearer [DATO OCULTO]')
+    .replace(/\b(password|contrase[nñ]a|token|api[_ -]?key|secret|client[_ -]?secret|private[_ -]?key|otp|c[oó]digo)\s*[:=]\s*\S+/gi, '$1=[DATO OCULTO]')
+    .replace(/\+?\d[\d\s().-]{7,}\d/g, '[DATO OCULTO]')
+    .replace(/\/Users\/[^/\s]+(?:\/[^\s.,;:)]+)+/g, '[RUTA OCULTA]')
+    .replace(/\b[A-Z]:\\(?:[^\\\s]+\\)*[^\\\s]+/gi, '[RUTA OCULTA]')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (value.length > 480) value = `${value.slice(0, 477).trimEnd()}…`;
+  return value;
+}
+
+function summarizeHumanRequest(lastFinalText) {
+  const withoutCode = String(lastFinalText || '').replace(/```[\s\S]*?```/g, ' ');
+  const sourceLines = withoutCode.split(/\r?\n/);
+  const candidates = sourceLines
+    .flatMap((line, sourceIndex) => line.split(/(?<=[.!?])\s+/).map((sentence) => ({ raw: sentence, sourceIndex })))
+    .map((candidate, index) => ({ ...candidate, text: normalizeHumanLine(candidate.raw), index }))
+    .filter((candidate) => candidate.text.length >= 8 && DIRECT_HUMAN_REQUEST_PATTERN.test(candidate.text))
+    .map((candidate) => ({
+      ...candidate,
+      score:
+        (/[¿?]/.test(candidate.text) ? 8 : 0)
+        + (/^(?:autoriz|confirm|eleg|decid|indic|respond|necesito|¿)/i.test(candidate.text) ? 5 : 0)
+        + (/\b(?:producci[oó]n|deploy|publicar|activar|migrar|borrar|precio|oferta|proyecto|acceso|archivo|dato)\b/i.test(candidate.text) ? 2 : 0)
+    }))
+    .sort((left, right) => right.score - left.score || right.index - left.index);
+  const selected = candidates[0];
+  if (!selected) return null;
+
+  const optionEntries = sourceLines
+    .slice(selected.sourceIndex + 1, selected.sourceIndex + 5)
+    .filter((line) => OPTION_PREFIX_PATTERN.test(line))
+    .slice(0, 3)
+    .map((line) => ({ raw: line, text: normalizeHumanLine(line) }))
+    .filter((entry) => entry.text);
+  const combinedRaw = [selected.raw, ...optionEntries.map((entry) => entry.raw)].join('\n');
+  if (containsSensitiveHumanRequest(combinedRaw)) return SENSITIVE_REQUEST_FALLBACK;
+  if (/eleg[ií](?:\s+una)?\s+opci[oó]n/i.test(selected.text) && optionEntries.length === 0) return MISSING_OPTIONS_FALLBACK;
+
+  const request = sanitizeHumanRequest(selected.text);
+  if (!optionEntries.length) return request;
+  return sanitizeHumanRequest(`${request}\nOpciones: ${optionEntries.map((entry, index) => `${index + 1}) ${entry.text}`).join(' · ')}`);
+}
+
+if (SELF_TEST) {
+  const cases = [
+    {
+      input: 'Resultado listo. Pendiente: ¿Autorizás aplicar el parche y desplegarlo a producción?',
+      expected: '¿Autorizás aplicar el parche y desplegarlo a producción?',
+    },
+    {
+      input: 'Necesito que confirmes si conservamos el scheduler local como rollback durante 24 horas.',
+      expected: 'Necesito que confirmes si conservamos el scheduler local como rollback durante 24 horas.',
+    },
+    {
+      input: '¿Querés que lo despliegue?',
+      expected: '¿Querés que lo despliegue?',
+    },
+    {
+      input: 'Elegí una opción:\n1. Desplegar ahora\n2. Mantener el rollback',
+      expected: 'Elegí una opción: Opciones: 1) Desplegar ahora · 2) Mantener el rollback',
+    },
+  ];
+  for (const entry of cases) {
+    if (summarizeHumanRequest(entry.input) !== entry.expected) throw new Error('HUMAN_REQUEST_SUMMARY_SELF_TEST_FAILED');
+  }
+  const redacted = summarizeHumanRequest('Confirmá si usamos el contacto ventas@example.com o el teléfono +1 305 555 1234.');
+  if (redacted !== SENSITIVE_REQUEST_FALLBACK || redacted.includes('example.com') || redacted.includes('305 555')) throw new Error('HUMAN_REQUEST_REDACTION_SELF_TEST_FAILED');
+  const redactedPath = summarizeHumanRequest('Confirmá si usamos /Users/diego/proyecto/credenciales.json para continuar.');
+  if (redactedPath !== SENSITIVE_REQUEST_FALLBACK || redactedPath.includes('/Users/')) throw new Error('HUMAN_REQUEST_PATH_SELF_TEST_FAILED');
+  const fakeGithubToken = `ghp_${'x'.repeat(24)}`;
+  const secretRequest = summarizeHumanRequest(`Necesito que compartas token=${fakeGithubToken}.`);
+  if (secretRequest !== SENSITIVE_REQUEST_FALLBACK || secretRequest.includes('ghp_')) throw new Error('HUMAN_REQUEST_SECRET_SELF_TEST_FAILED');
+  const fakeGoogleApiKey = ['AI', 'za', 'x'.repeat(32)].join('');
+  if (summarizeHumanRequest(`Confirmá si seguimos con ${fakeGoogleApiKey}.`) !== SENSITIVE_REQUEST_FALLBACK) throw new Error('HUMAN_REQUEST_GOOGLE_SECRET_SELF_TEST_FAILED');
+  const fakeSlackToken = `xoxb-${'1'.repeat(12)}-${'x'.repeat(20)}`;
+  if (summarizeHumanRequest(`Confirmá si seguimos con ${fakeSlackToken}.`) !== SENSITIVE_REQUEST_FALLBACK) throw new Error('HUMAN_REQUEST_SLACK_SECRET_SELF_TEST_FAILED');
+  if (summarizeHumanRequest('Confirmá si la factura INV #A-9281 de Juan Perez está correcta.') !== SENSITIVE_REQUEST_FALLBACK) throw new Error('HUMAN_REQUEST_BUSINESS_DATA_SELF_TEST_FAILED');
+  if (summarizeHumanRequest('Confirmá clave=secreto-temporal.') !== SENSITIVE_REQUEST_FALLBACK) throw new Error('HUMAN_REQUEST_CLAVE_SELF_TEST_FAILED');
+  if (summarizeHumanRequest('Ingresá PIN 4829 para continuar.') !== SENSITIVE_REQUEST_FALLBACK) throw new Error('HUMAN_REQUEST_PIN_SELF_TEST_FAILED');
+  if (summarizeHumanRequest('Confirmá si seguimos con JUAN PEREZ.') !== SENSITIVE_REQUEST_FALLBACK) throw new Error('HUMAN_REQUEST_UPPERCASE_NAME_SELF_TEST_FAILED');
+  if (summarizeHumanRequest('Autorizá USD 20,000 para ACME LLC.') !== SENSITIVE_REQUEST_FALLBACK) throw new Error('HUMAN_REQUEST_COMMERCIAL_AMOUNT_SELF_TEST_FAILED');
+  if (summarizeHumanRequest('Confirmá si trabajamos con Amazon.') !== SENSITIVE_REQUEST_FALLBACK) throw new Error('HUMAN_REQUEST_COUNTERPARTY_SELF_TEST_FAILED');
+  if (summarizeHumanRequest('Autorizá U$S 20.000 para la compra.') !== SENSITIVE_REQUEST_FALLBACK) throw new Error('HUMAN_REQUEST_USD_VARIANT_SELF_TEST_FAILED');
+  if (summarizeHumanRequest('Autorizá 20k USD para la compra.') !== SENSITIVE_REQUEST_FALLBACK) throw new Error('HUMAN_REQUEST_ABBREVIATED_AMOUNT_SELF_TEST_FAILED');
+  if (summarizeHumanRequest('Confirmá si compramos a Amazon.') !== SENSITIVE_REQUEST_FALLBACK) throw new Error('HUMAN_REQUEST_COUNTERPARTY_PREPOSITION_SELF_TEST_FAILED');
+  if (summarizeHumanRequest('Confirmá si pagamos 20.000 U$S a Amazon.') !== SENSITIVE_REQUEST_FALLBACK) throw new Error('HUMAN_REQUEST_POSTFIX_USD_SELF_TEST_FAILED');
+  if (summarizeHumanRequest('Hace falta una decisión, autorización o dato de Diego.') !== null) throw new Error('HUMAN_REQUEST_GENERIC_SELF_TEST_FAILED');
+  if (summarizeHumanRequest('Autorización verificada; tarea completa.') !== null) throw new Error('HUMAN_REQUEST_FALSE_POSITIVE_SELF_TEST_FAILED');
+  if (summarizeHumanRequest('La prueba confirma que todo funciona.') !== null) throw new Error('HUMAN_REQUEST_CONFIRM_FALSE_POSITIVE_SELF_TEST_FAILED');
+  if (summarizeHumanRequest('El endpoint responde 200.') !== null) throw new Error('HUMAN_REQUEST_RESPONSE_FALSE_POSITIVE_SELF_TEST_FAILED');
+  process.stdout.write(`${JSON.stringify({ ok: true, selfTest: true })}\n`);
+  process.exit(0);
+}
+
 function classify({ title, lastStartedAt, lastCompletedAt, lastFinalAt, lastUserAt, lastFinalText, updatedAt, archived }) {
   if (archived) return { humanStatus: 'DISCARDED', sourceStatus: 'ARCHIVED', autonomyLevel: 'A0', nextAction: 'Conservar como historial; no reactivar automáticamente.' };
   const lowerTitle = title.toLowerCase();
@@ -137,14 +294,21 @@ function classify({ title, lastStartedAt, lastCompletedAt, lastFinalAt, lastUser
   const userAt = lastUserAt ? Date.parse(lastUserAt) : 0;
   const agentFinalIsLatest = finalAt >= userAt;
   const recent = Date.now() - Math.max(started, Date.parse(updatedAt)) < 2 * 60 * 60_000;
+  const humanRequest = agentFinalIsLatest ? summarizeHumanRequest(lastFinalText) : null;
   if (/monitor|resumen diario|seguimiento|cada d[ií]a|semanal/.test(lowerTitle)) {
     return { humanStatus: 'MONITORING', sourceStatus: 'IDLE', autonomyLevel: 'A0', nextAction: 'Seguir controlando y mostrar sólo cambios que requieran acción.' };
   }
   if (started > completed && recent) {
     return { humanStatus: 'IN_PROGRESS', sourceStatus: 'ACTIVE', autonomyLevel: 'A1', nextAction: 'Dejar que el agente termine y verificar el resultado.' };
   }
-  if (agentFinalIsLatest && /otp|contraseñ|credencial|autorizaci[oó]n|aprobaci[oó]n|necesito que|eleg[ií]|confirm[aá]|acci[oó]n tuya|diego debe/.test(finalText)) {
-    return { humanStatus: 'NEEDS_DIEGO', sourceStatus: 'IDLE', autonomyLevel: 'HUMAN', attentionReason: 'Hace falta una decisión, autorización o dato de Diego.', nextAction: 'Abrir la tarea y responder el pedido concreto para destrabarla.' };
+  if (humanRequest) {
+    return {
+      humanStatus: 'NEEDS_DIEGO',
+      sourceStatus: 'IDLE',
+      autonomyLevel: 'HUMAN',
+      attentionReason: humanRequest,
+      nextAction: 'Respondé la decisión mostrada en la ficha. Cuando Codex registre tu respuesta, actualizá y autorizá “Para el agente”.',
+    };
   }
   if (agentFinalIsLatest && /bloquead|sin acceso|access denied|permission denied|falta evento|depende de|no disponible|esperando proveedor/.test(finalText)) {
     return { humanStatus: 'BLOCKED', sourceStatus: 'IDLE', autonomyLevel: 'A0', attentionReason: 'La tarea depende de un acceso, proveedor o evento externo.', nextAction: 'Revisar el bloqueo indicado y asignar el responsable de destrabe.' };

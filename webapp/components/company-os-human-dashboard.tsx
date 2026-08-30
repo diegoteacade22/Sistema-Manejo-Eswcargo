@@ -50,6 +50,7 @@ type Task = {
   nativeMutationAvailable: boolean;
   autoResumeApproved: boolean;
   autoResumeRunning: boolean;
+  lastObservedAt: string;
   sourceUpdatedAt: string;
 };
 
@@ -156,9 +157,23 @@ function moveTargetForTask(task: Task) {
   return WORKFLOW_OPTIONS.some((option) => option.value === task.humanStatus) ? task.humanStatus : "PENDING";
 }
 
+function humanAttentionState(task: Task) {
+  if (!task.attentionReason) return { copy: null, concrete: false };
+  const generic = /^(?:hace falta una decisión|necesita una decisión de diego|no pude resumir la decisión)/i.test(task.attentionReason);
+  if (task.humanStatus === "NEEDS_DIEGO" && generic) {
+    return {
+      copy: "No pude identificar el pedido exacto con seguridad. Abrí la tarea original y respondé el último pedido de Codex.",
+      concrete: false,
+    };
+  }
+  const requiresOriginal = /^(?:la tarea pide una decisión con datos sensibles|elegí una opción en la tarea original)/i.test(task.attentionReason);
+  return { copy: task.attentionReason, concrete: task.humanStatus === "NEEDS_DIEGO" && !requiresOriginal };
+}
+
 function TaskCard({ task, accent = "border-slate-800", onOpen }: {
   task: Task; accent?: string; onOpen: (task: Task) => void;
 }) {
+  const attention = humanAttentionState(task);
   return (
     <div className={`rounded-2xl border ${accent} bg-slate-950/60 p-4 transition hover:border-cyan-400/50`}>
       <button type="button" onClick={() => onOpen(task)} className="block w-full rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400" aria-label={`Ver y gestionar ${task.title} en este tablero`}>
@@ -169,7 +184,8 @@ function TaskCard({ task, accent = "border-slate-800", onOpen }: {
         </div>
         <MoveRight aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 text-slate-600" />
         </div>
-        {task.attentionReason && <p className="mt-3 text-sm text-amber-200">{task.attentionReason}</p>}
+        {attention.copy && <p className="mt-3 text-sm text-amber-200"><span className="font-semibold">Tu acción:</span> {attention.copy}</p>}
+        {task.humanStatus === "NEEDS_DIEGO" && <p className="mt-2 text-xs text-amber-100/60">Pedido observado {relativeTime(task.lastObservedAt)}</p>}
         <p className="mt-3 text-sm text-slate-300"><span className="text-slate-500">Próximo paso:</span> {task.nextAction}</p>
         <p className="mt-3 text-sm font-medium text-cyan-300">Ver y gestionar acá →</p>
       </button>
@@ -239,6 +255,8 @@ function TaskManagerDialog({
   const canClose = isOpen && task?.humanStatus === "READY_REVIEW";
   const canReopen = Boolean(task && (!isOpen || ["DONE", "DISCARDED"].includes(task.humanStatus)));
   const canAuthorizeAutoResume = Boolean(task && !task.sourceArchived && !task.attentionReason && ["IDLE", "NOT_LOADED"].includes(task.sourceStatus) && !task.autoResumeRunning);
+  const needsHumanDecision = task?.humanStatus === "NEEDS_DIEGO";
+  const attention = task ? humanAttentionState(task) : { copy: null, concrete: false };
   const options = canReopen ? WORKFLOW_OPTIONS.filter((option) => ["PENDING", "NEEDS_DIEGO"].includes(option.value)) : WORKFLOW_OPTIONS;
   const projectOptions = task && !projects.some((project) => project.name === task.projectName)
     ? [{ name: task.projectName, count: 0 }, ...projects]
@@ -268,7 +286,26 @@ function TaskManagerDialog({
             </div>
           </div>
 
-          {task.attentionReason && <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-100"><span className="font-semibold">Qué necesita:</span> {task.attentionReason}</div>}
+          {attention.copy && (
+            <div className="rounded-xl border border-amber-400/40 bg-amber-500/10 p-4 text-amber-50">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-300">Tu función para destrabar</p>
+              <p className="mt-2 text-base font-semibold leading-relaxed whitespace-pre-line">{attention.copy}</p>
+              {needsHumanDecision && <p className="mt-2 text-xs text-amber-100/60">Pedido confirmado por el último escaneo {relativeTime(task.lastObservedAt)}.</p>}
+              {needsHumanDecision && (
+                <div className="mt-4 space-y-3 border-t border-amber-400/20 pt-4">
+                  <div className="grid gap-2 text-sm sm:grid-cols-2">
+                    <p><span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-400/15 font-bold text-amber-200">1</span>{attention.concrete ? "Respondé exactamente ese pedido en la tarea original." : "Abrí la tarea y respondé el último pedido."}</p>
+                    <p><span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-amber-400/15 font-bold text-amber-200">2</span>El próximo escaneo actualizará el estado; recién entonces autorizá “Para el agente”.</p>
+                  </div>
+                  {savingAction
+                    ? <Button className="min-h-11" disabled><ExternalLink className="mr-2 h-4 w-4" /> Abrir en Codex para responder</Button>
+                    : <Button className="min-h-11 bg-amber-400 text-slate-950 hover:bg-amber-300" asChild><a href={task.codexUrl}><ExternalLink className="mr-2 h-4 w-4" /> Abrir en Codex para responder</a></Button>}
+                  <p className="text-xs text-amber-100/70">Este botón sólo abre la tarea original; el tablero cambia cuando el recolector observa tu respuesta.</p>
+                  <p className="text-xs text-amber-100/70">No pegues contraseñas, tokens ni códigos de acceso en el tablero.</p>
+                </div>
+              )}
+            </div>
+          )}
           {task.autoResumeApproved && <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-100"><span className="font-semibold">Autorizada para reanudación automática.</span> {autoResumeReady ? "El modo autónomo está habilitado y la tomará en un próximo ciclo, de a una tarea por vez." : "La autorización quedó guardada, pero todavía no hay un inventario autónomo reciente."}</div>}
           {task.changedSinceManaged && <div className="rounded-xl border border-violet-500/30 bg-violet-500/10 p-3 text-sm text-violet-100"><span className="font-semibold">Codex agregó actividad después del último cambio manual.</span> La clasificación automática volvió a actualizarse para que no se pierda nada.</div>}
           <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
@@ -340,8 +377,8 @@ function TaskManagerDialog({
           <DialogFooter className="sticky bottom-0 -mx-6 -mb-6 border-t border-slate-800 bg-slate-950 px-6 py-4">
             <Button className="min-h-11" variant="ghost" disabled={Boolean(savingAction)} onClick={() => onOpenChange(false)}>Cerrar ficha</Button>
             {savingAction
-              ? <Button className="min-h-11" variant="outline" disabled><ExternalLink className="mr-2 h-4 w-4" /> Abrir en Codex</Button>
-              : <Button className="min-h-11" asChild variant="outline"><a href={task.codexUrl}><ExternalLink className="mr-2 h-4 w-4" /> Abrir en Codex</a></Button>}
+              ? <Button className="min-h-11" variant="outline" disabled><ExternalLink className="mr-2 h-4 w-4" /> {needsHumanDecision ? "Abrir en Codex para responder" : "Abrir tarea original"}</Button>
+              : <Button className="min-h-11" asChild variant="outline"><a href={task.codexUrl}><ExternalLink className="mr-2 h-4 w-4" /> {needsHumanDecision ? "Abrir en Codex para responder" : "Abrir tarea original"}</a></Button>}
           </DialogFooter>
         </>}
       </DialogContent>

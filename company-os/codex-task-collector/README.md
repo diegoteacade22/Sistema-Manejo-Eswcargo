@@ -3,7 +3,7 @@
 Proyecta cada cinco minutos el inventario raíz de Codex al tablero humano de Company OS.
 
 - Lee `session_index.jsonl` y rollouts en modo sólo lectura.
-- Excluye subagentes y no copia prompts ni conversaciones.
+- Excluye subagentes y no copia prompts ni conversaciones. Para tareas que esperan a Diego conserva sólo una síntesis saneada y acotada del pedido concreto. Si detecta secretos o datos personales/comerciales, descarta todo el fragmento y muestra una indicación segura para abrir la tarea original.
 - Usa el registro canónico de proyectos para mostrar nombres humanos, nunca paths locales.
 - `task_complete` sólo puede producir `READY_REVIEW`; nunca marca una tarea como realizada.
 - Separa las tareas antiguas `UNREVIEWED` de las que Diego movió explícitamente a `PENDING` (`Para el agente`).

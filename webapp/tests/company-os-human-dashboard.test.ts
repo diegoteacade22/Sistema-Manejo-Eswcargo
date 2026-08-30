@@ -4,6 +4,7 @@ import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createHmac } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { CompanyOsHumanDashboard, SECTION_HASHES, sectionFromHash } from '../components/company-os-human-dashboard';
 import { verifyCodexIntakeRequest } from '../lib/company-os/codex-task-auth';
 import { effectiveCodexTaskState, isApprovedCodexTaskDispatchCandidate } from '../lib/company-os/codex-task-store';
@@ -76,7 +77,7 @@ test('cada resultado abre una ficha interna y Codex queda como salida secundaria
   assert.match(component, /Archivar/);
   assert.match(component, /Reabrir/);
   assert.match(component, /href=\{task\.codexUrl\}/);
-  assert.match(component, /Abrir en Codex/);
+  assert.match(component, /Abrir tarea original/);
   assert.match(component, /Mover o reabrir en “Para el agente” autoriza explícitamente/);
   assert.match(store, /codex:\/\/threads\/\$\{threadId\}/);
 });
@@ -94,9 +95,12 @@ test('las ofertas exponen costo, precio sugerido, margen y fuente real', () => {
   assert.match(store, /Revisar precios sin margen positivo/);
 });
 
-test('collector excluye subagentes, no envía texto final y nunca convierte task_complete en DONE', () => {
+test('collector excluye subagentes, envía sólo una síntesis saneada y nunca convierte task_complete en DONE', () => {
   assert.match(collector, /header\.parent_thread_id \|\| header\.agent_path \|\| header\.forked_from_id/);
   assert.doesNotMatch(collector, /lastFinalText,\s*priority/);
+  assert.match(collector, /summarizeHumanRequest/);
+  assert.match(collector, /La tarea pide una decisión con datos sensibles/);
+  assert.match(collector, /\[DATO OCULTO\]/);
   assert.match(collector, /humanStatus: 'READY_REVIEW'/);
   assert.match(collector, /humanStatus: 'UNREVIEWED'.*moverla a “Para el agente”/);
   assert.doesNotMatch(collector, /humanStatus: 'DONE'/);
@@ -104,6 +108,28 @@ test('collector excluye subagentes, no envía texto final y nunca convierte task
   assert.match(store, /function safeThreadId/);
   assert.match(store, /\\u0000-\\u0008/);
   assert.match(collector, /if \(tasks\.length === 0\)/);
+});
+
+test('la síntesis del pedido concreto es determinística y oculta datos sensibles', () => {
+  const output = execFileSync(process.execPath, ['../company-os/codex-task-collector/collector.mjs'], {
+    cwd: process.cwd(),
+    env: { ...process.env, COMPANY_OS_CODEX_SELF_TEST: '1', COMPANY_OS_CODEX_INTAKE_SECRET: '' },
+    encoding: 'utf8',
+  });
+  assert.deepEqual(JSON.parse(output), { ok: true, selfTest: true });
+});
+
+test('la ficha explica la función de Diego y ofrece una acción visible para destrabar', () => {
+  assert.match(component, /Tu función para destrabar/);
+  assert.match(component, /Respondé exactamente ese pedido en la tarea original/);
+  assert.match(component, /No pude identificar el pedido exacto con seguridad/);
+  assert.match(component, /Abrí la tarea y respondé el último pedido/);
+  assert.match(component, /El próximo escaneo actualizará el estado; recién entonces autorizá “Para el agente”/);
+  assert.match(component, /Abrir en Codex para responder/);
+  assert.match(component, /Este botón sólo abre la tarea original/);
+  assert.match(component, /Pedido confirmado por el último escaneo/);
+  assert.doesNotMatch(component, /Responder y destrabar/);
+  assert.match(component, /No pegues contraseñas, tokens ni códigos de acceso en el tablero/);
 });
 
 test('sin revisar queda separado de la cola autorizada para el agente', () => {
