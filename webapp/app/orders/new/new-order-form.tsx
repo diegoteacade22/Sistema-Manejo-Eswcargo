@@ -59,6 +59,7 @@ export default function NewOrderForm({ clients, products, suppliers, shipments }
     const [type, setType] = useState<string>('CELL-NEW'); // Default type
     const [items, setItems] = useState<OrderItemRow[]>([]);
     const [notes, setNotes] = useState('');
+    const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
     const addItem = () => {
         setItems([...items, {
@@ -127,11 +128,13 @@ export default function NewOrderForm({ clients, products, suppliers, shipments }
                     shipment_number: i.shipment_number !== '' ? Number(i.shipment_number) : null,
                     status: i.status
                 })),
-                notes
+                notes,
+                idempotencyKey,
             };
 
             const result = await submitOrder(payload);
             if (result.success) {
+                setIdempotencyKey(crypto.randomUUID());
                 router.push('/orders');
             } else {
                 alert('Error: ' + result.message);

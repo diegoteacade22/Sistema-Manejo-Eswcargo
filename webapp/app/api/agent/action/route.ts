@@ -47,11 +47,13 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    let requestIdempotencyKey = "";
     try {
         const body = await req.json();
         const action = String(body?.action || "") as AgentAction;
         const data = body?.data || {};
         const dryRun = Boolean(body?.dryRun);
+        requestIdempotencyKey = String(body?.idempotencyKey || req.headers.get("idempotency-key") || "").trim();
 
         if (!action) {
             return NextResponse.json({ error: "action requerida" }, { status: 400 });
@@ -155,6 +157,9 @@ export async function POST(req: Request) {
             if (!payload.clientId) {
                 return NextResponse.json({ error: "clientId es obligatorio" }, { status: 400 });
             }
+            if (!dryRun && !requestIdempotencyKey) {
+                return NextResponse.json({ error: "idempotencyKey es obligatorio para createOrder" }, { status: 400 });
+            }
 
             const normalizedItems = items.map((item: any) => ({
                 productId: item?.productId ? parseNumber(item.productId, 0) : null,
@@ -177,8 +182,16 @@ export async function POST(req: Request) {
             }
 
             const created = await prisma.$transaction(async (tx) => {
+                if (requestIdempotencyKey) {
+                    const existingOrder = await tx.order.findUnique({
+                        where: { idempotencyKey: requestIdempotencyKey },
+                        include: { items: true },
+                    });
+                    if (existingOrder) return { order: existingOrder, replayed: true };
+                }
+
                 const order = await tx.order.create({
-                    data: payload,
+                    data: { ...payload, idempotencyKey: requestIdempotencyKey || null },
                 });
 
                 if (normalizedItems.length > 0) {
@@ -203,14 +216,18 @@ export async function POST(req: Request) {
                     date: order.date,
                 });
 
-                return fullOrder;
+                return { order: fullOrder, replayed: false };
             });
 
-            return NextResponse.json({ ok: true, action, created });
+            return NextResponse.json({ ok: true, action, created: created.order, replayed: created.replayed });
         }
 
         return NextResponse.json({ error: "Acción no implementada" }, { status: 400 });
-    } catch (error) {
+    } catch (error: any) {
+        if (error?.code === 'P2002' && requestIdempotencyKey) {
+            const existingOrder = await prisma.order.findUnique({ where: { idempotencyKey: requestIdempotencyKey } });
+            if (existingOrder) return NextResponse.json({ ok: true, action: "createOrder", created: existingOrder, replayed: true });
+        }
         console.error("Agent Action API Error:", error);
         return NextResponse.json({ error: "Ocurrió un error en el servidor" }, { status: 500 });
     }

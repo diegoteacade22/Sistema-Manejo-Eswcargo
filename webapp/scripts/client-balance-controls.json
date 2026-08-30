@@ -1,0 +1,103 @@
+{
+  "spreadsheetId": "1PFHlsVhP16Ge-qXF7qn16G2FPBnMVpF7TMkIjDorxc8",
+  "cashFlowAccounts": [
+    {
+      "sheet": "MARCOS CC",
+      "oldId": 162,
+      "nameHint": "Marcos Roku",
+      "currentBalanceSource": "system"
+    },
+    {
+      "sheet": "AYLEN CC",
+      "oldId": 70,
+      "nameHint": "Aylen Gentiletti",
+      "currentBalanceSource": "system"
+    },
+    {
+      "sheet": "FACU FABRI CC",
+      "oldId": 66,
+      "nameHint": "Facu Fabriccini",
+      "currentBalanceSource": "system"
+    },
+    {
+      "sheet": "MOLINA OCT",
+      "oldId": 273,
+      "nameHint": "Octavio Molina",
+      "currentBalanceSource": "system"
+    },
+    {
+      "sheet": "RAMIRO STRAR CC",
+      "oldId": 72,
+      "nameHint": "Ramiro Star Computacion",
+      "currentBalanceSource": "system"
+    },
+    {
+      "sheet": "LUCA CC",
+      "oldId": 214,
+      "nameHint": "Luca",
+      "currentBalanceSource": "system"
+    },
+    {
+      "sheet": "SEBAS LUC CC",
+      "oldId": 147,
+      "nameHint": "Sebas Luc",
+      "currentBalanceSource": "system"
+    },
+    {
+      "sheet": "MARTIN DUS",
+      "oldId": 275,
+      "nameHint": "Martin Duster",
+      "currentBalanceSource": "system"
+    },
+    {
+      "sheet": "TOMAS CC",
+      "oldId": 119,
+      "nameHint": "Tomas",
+      "currentBalanceSource": "system"
+    },
+    {
+      "sheet": "GONZALO CC",
+      "oldId": 174,
+      "nameHint": "Gonzalo",
+      "currentBalanceSource": "system"
+    },
+    {
+      "sheet": "NAHUEL CC",
+      "oldId": 96,
+      "nameHint": "Nahuel",
+      "currentBalanceSource": "system"
+    }
+  ],
+  "lockedBalances": [
+    {
+      "oldId": 146,
+      "name": "Leo X Lucas",
+      "targetBalance": 0,
+      "reason": "confirmado en cero por inactividad"
+    },
+    {
+      "oldId": 98,
+      "name": "Gonzalo Gl",
+      "targetBalance": 0,
+      "reason": "confirmado en cero por inactividad"
+    },
+    {
+      "oldId": 265,
+      "name": "Federico Esquivel - Canning",
+      "targetBalance": 0,
+      "reason": "confirmado en cero por inactividad"
+    },
+    {
+      "oldId": 69,
+      "name": "Facundo Madeira",
+      "targetBalance": 0,
+      "reason": "confirmado en cero por inactividad"
+    },
+    {
+      "oldId": 266,
+      "name": "Ariel Lencina - Ary-Shop",
+      "targetBalance": 0,
+      "reason": "confirmado en cero por inactividad"
+    }
+  ]
+}

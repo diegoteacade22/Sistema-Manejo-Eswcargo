@@ -3,6 +3,10 @@
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 import { requireAdminUser } from '@/lib/access';
+import { upsertOrderLedgerCharge } from '@/lib/client-ledger';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import crypto from 'node:crypto';
 
 type CreatePurchaseItemInput = {
   productId: number;
@@ -13,9 +17,9 @@ type CreatePurchaseItemInput = {
 type CreatePurchaseInput = {
   supplierId: number;
   date: Date;
-  due_date?: Date | null;
   invoice_number?: string;
   payment_method?: string;
+  receipt_url?: string | null;
   notes?: string;
   items: CreatePurchaseItemInput[];
 };
@@ -26,19 +30,34 @@ type AssignPurchaseInput = {
   quantity: number;
   unitPrice: number;
   notes?: string;
+  idempotencyKey?: string | null;
 };
 
-type RegisterPurchasePaymentInput = {
-  purchaseId: number;
-  amount: number;
-  payment_method?: string;
-  reference?: string;
-  notes?: string;
-  date?: Date;
-};
+async function savePurchaseReceipt(file: File | null) {
+  if (!file || file.size === 0) return null;
+
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+  if (!allowedTypes.includes(file.type)) {
+    throw new Error('El comprobante debe ser JPG, PNG, WEBP o PDF.');
+  }
+
+  const extension = file.name.split('.').pop()?.toLowerCase() || 'bin';
+  const safeName = `${new Date().toISOString().slice(0, 10)}-${crypto.randomUUID()}.${extension}`;
+  const relativeDir = '/purchase-receipts';
+  const absoluteDir = path.join(process.cwd(), 'public', relativeDir);
+  await mkdir(absoluteDir, { recursive: true });
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  await writeFile(path.join(absoluteDir, safeName), buffer);
+  return `${relativeDir}/${safeName}`;
+}
 
 async function getNextOrderNumber(tx: any) {
-  const lastOrder = await tx.order.findFirst({ orderBy: { order_number: 'desc' } });
+  // Exclude system-generated orders (900000+ series: VIRTUAL_SHIPMENT, SYSTEM_BALANCE, etc.)
+  const lastOrder = await tx.order.findFirst({
+    where: { order_number: { lt: 900000 } },
+    orderBy: { order_number: 'desc' }
+  });
   return (lastOrder?.order_number || 0) + 1;
 }
 
@@ -55,80 +74,6 @@ async function findOpenOrderForClient(tx: any, clientId: number) {
       { id: 'desc' }
     ]
   });
-}
-
-async function upsertOrderChargeTransaction(tx: any, order: { id: number; order_number: number | null; clientId: number; total_amount: number }) {
-  if (!order.order_number) return;
-
-  const txRef = String(order.order_number);
-  const existingCharge = await tx.transaction.findFirst({
-    where: {
-      clientId: order.clientId,
-      type: 'CARGO',
-      reference: txRef,
-    }
-  });
-
-  if (existingCharge) {
-    await tx.transaction.update({
-      where: { id: existingCharge.id },
-      data: {
-        amount: -Math.abs(order.total_amount),
-        description: `Pedido #${order.order_number}`,
-      }
-    });
-    return;
-  }
-
-  await tx.transaction.create({
-    data: {
-      clientId: order.clientId,
-      date: new Date(),
-      type: 'CARGO',
-      amount: -Math.abs(order.total_amount),
-      description: `Pedido #${order.order_number}`,
-      reference: txRef
-    }
-  });
-}
-
-async function recalculatePurchaseFinancials(tx: any, purchaseId: number) {
-  const purchase = await tx.purchase.findUnique({
-    where: { id: purchaseId },
-    select: { id: true, total_amount: true }
-  });
-
-  if (!purchase) {
-    throw new Error('Compra no encontrada.');
-  }
-
-  const payments = await tx.purchasePayment.aggregate({
-    where: { purchaseId },
-    _sum: { amount: true }
-  });
-
-  const paidAmount = Number(payments?._sum?.amount || 0);
-  const totalAmount = Number(purchase.total_amount || 0);
-  const balanceDue = Math.max(totalAmount - paidAmount, 0);
-
-  let paymentStatus = 'PENDIENTE';
-  if (paidAmount > 0 && balanceDue > 0) {
-    paymentStatus = 'PARCIAL';
-  } else if (balanceDue <= 0 && totalAmount > 0) {
-    paymentStatus = 'PAGADA';
-  }
-
-  await tx.purchase.update({
-    where: { id: purchaseId },
-    data: {
-      paid_amount: paidAmount,
-      balance_due: balanceDue,
-      payment_status: paymentStatus,
-      paid_at: paymentStatus === 'PAGADA' ? new Date() : null,
-    }
-  });
-
-  return { paidAmount, balanceDue, paymentStatus };
 }
 
 export async function createPurchase(data: CreatePurchaseInput) {
@@ -162,14 +107,11 @@ export async function createPurchase(data: CreatePurchaseInput) {
       data: {
         supplierId: data.supplierId,
         date: data.date,
-        due_date: data.due_date || null,
         invoice_number: data.invoice_number?.trim() || null,
         payment_method: data.payment_method?.trim() || null,
+        receipt_url: data.receipt_url || null,
         notes: data.notes?.trim() || null,
         total_amount,
-        paid_amount: 0,
-        balance_due: total_amount,
-        payment_status: total_amount > 0 ? 'PENDIENTE' : 'PAGADA',
         items: {
           create: validItems.map((item) => {
             const product = productMap.get(item.productId)!;
@@ -182,18 +124,6 @@ export async function createPurchase(data: CreatePurchaseInput) {
             };
           })
         }
-      }
-    });
-
-    await prisma.transaction.create({
-      data: {
-        supplierId: data.supplierId,
-        date: data.date,
-        type: 'CARGO',
-        amount: -Math.abs(total_amount),
-        description: `Compra #${purchase.id}`,
-        reference: data.invoice_number?.trim() || String(purchase.id),
-        paymentMethod: data.payment_method?.trim() || null,
       }
     });
 
@@ -210,6 +140,31 @@ export async function createPurchase(data: CreatePurchaseInput) {
   }
 }
 
+export async function createPurchaseFromForm(formData: FormData) {
+  await requireAdminUser();
+
+  try {
+    const receiptValue = formData.get('receipt');
+    const receiptFile = receiptValue instanceof File ? receiptValue : null;
+    const receiptUrl = await savePurchaseReceipt(receiptFile);
+    const rawItems = String(formData.get('items') || '[]');
+    const items = JSON.parse(rawItems) as CreatePurchaseItemInput[];
+
+    return createPurchase({
+      supplierId: Number(formData.get('supplierId')),
+      date: new Date(String(formData.get('date') || new Date().toISOString())),
+      invoice_number: String(formData.get('invoice_number') || ''),
+      payment_method: String(formData.get('payment_method') || ''),
+      receipt_url: receiptUrl,
+      notes: String(formData.get('notes') || ''),
+      items,
+    });
+  } catch (error: unknown) {
+    console.error('Error creating purchase from form', error);
+    return { success: false, message: error instanceof Error ? error.message : 'No se pudo crear la compra.' };
+  }
+}
+
 export async function assignPurchaseToClient(input: AssignPurchaseInput) {
   await requireAdminUser();
 
@@ -217,8 +172,18 @@ export async function assignPurchaseToClient(input: AssignPurchaseInput) {
     return { success: false, message: 'Datos de asignación inválidos.' };
   }
 
+  const idempotencyKey = input.idempotencyKey?.trim() || crypto.randomUUID();
+
   try {
     const result = await prisma.$transaction(async (tx: any) => {
+      const existingAllocation = await tx.purchaseAllocation.findUnique({
+        where: { idempotencyKey },
+        select: { id: true, orderId: true },
+      });
+      if (existingAllocation) {
+        return { allocationId: existingAllocation.id, orderId: existingAllocation.orderId, replayed: true };
+      }
+
       const purchaseItem = await tx.purchaseItem.findUnique({
         where: { id: input.purchaseItemId },
         include: {
@@ -290,7 +255,13 @@ export async function assignPurchaseToClient(input: AssignPurchaseInput) {
         }
       });
 
-      await upsertOrderChargeTransaction(tx, updatedOrder);
+      await upsertOrderLedgerCharge(tx, {
+        id: updatedOrder.id,
+        order_number: updatedOrder.order_number,
+        clientId: updatedOrder.clientId,
+        total_amount: updatedOrder.total_amount,
+        date: updatedOrder.date,
+      });
 
       const allocation = await tx.purchaseAllocation.create({
         data: {
@@ -302,93 +273,36 @@ export async function assignPurchaseToClient(input: AssignPurchaseInput) {
           unit_cost_snapshot: purchaseItem.unit_cost,
           unit_price_snapshot: input.unitPrice,
           notes: input.notes?.trim() || null,
+          idempotencyKey,
         }
       });
 
       return {
         allocationId: allocation.id,
         orderId: updatedOrder.id,
+        replayed: false,
       };
-    });
+    }, { isolationLevel: 'Serializable' });
 
     revalidatePath('/purchases');
     revalidatePath('/orders');
+    revalidatePath(`/clients/${input.clientId}`);
+    revalidatePath('/clients');
+    revalidatePath('/analytics/financial');
 
     return { success: true, ...result };
   } catch (error: any) {
+    if (error?.code === 'P2002' || error?.code === 'P2034') {
+      const existingAllocation = await prisma.purchaseAllocation.findUnique({
+        where: { idempotencyKey },
+        select: { id: true, orderId: true },
+      });
+      if (existingAllocation) {
+        return { success: true, allocationId: existingAllocation.id, orderId: existingAllocation.orderId, replayed: true };
+      }
+    }
     console.error('Error assigning purchase item', error);
     return { success: false, message: error?.message || 'No se pudo asignar el ítem.' };
-  }
-}
-
-export async function registerPurchasePayment(input: RegisterPurchasePaymentInput) {
-  await requireAdminUser();
-
-  if (!input.purchaseId || Number.isNaN(input.purchaseId)) {
-    return { success: false, message: 'Compra inválida.' };
-  }
-
-  if (!input.amount || input.amount <= 0) {
-    return { success: false, message: 'El monto del pago debe ser mayor a cero.' };
-  }
-
-  try {
-    const result = await prisma.$transaction(async (tx: any) => {
-      const purchase = await tx.purchase.findUnique({
-        where: { id: input.purchaseId },
-        include: { supplier: { select: { id: true, name: true } } }
-      });
-
-      if (!purchase) {
-        throw new Error('Compra no encontrada.');
-      }
-
-      await tx.purchasePayment.create({
-        data: {
-          purchaseId: purchase.id,
-          supplierId: purchase.supplierId,
-          amount: Number(input.amount),
-          date: input.date || new Date(),
-          payment_method: input.payment_method?.trim() || null,
-          reference: input.reference?.trim() || null,
-          notes: input.notes?.trim() || null,
-        }
-      });
-
-      await tx.transaction.create({
-        data: {
-          supplierId: purchase.supplierId,
-          date: input.date || new Date(),
-          type: 'PAGO',
-          amount: Math.abs(Number(input.amount)),
-          description: `Pago compra #${purchase.id}`,
-          reference: input.reference?.trim() || purchase.invoice_number || String(purchase.id),
-          paymentMethod: input.payment_method?.trim() || null,
-        }
-      });
-
-      const financial = await recalculatePurchaseFinancials(tx, purchase.id);
-
-      return {
-        purchaseId: purchase.id,
-        supplierId: purchase.supplierId,
-        supplierName: purchase.supplier.name,
-        ...financial,
-      };
-    });
-
-    revalidatePath('/purchases');
-    revalidatePath(`/purchases/${input.purchaseId}`);
-    revalidatePath(`/suppliers/${result.supplierId}`);
-
-    return {
-      success: true,
-      message: `Pago registrado. Estado financiero: ${result.paymentStatus}.`,
-      ...result,
-    };
-  } catch (error: any) {
-    console.error('Error registering purchase payment', error);
-    return { success: false, message: error?.message || 'No se pudo registrar el pago.' };
   }
 }
 
@@ -453,6 +367,6 @@ export async function markPurchaseAsPaid(purchaseId: number) {
     };
   } catch (error) {
     console.error('Error marking purchase as paid', error);
-    return { success: false, message: 'No se pudo actualizar estado logístico de la compra.' };
+    return { success: false, message: 'No se pudo marcar la compra como pagada.' };
   }
 }

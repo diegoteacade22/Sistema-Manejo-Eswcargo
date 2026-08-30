@@ -10,8 +10,8 @@ datasource db {
 }
 
 model Client {
-  id           Int           @id @default(autoincrement())
-  old_id       Int?          @unique
+  id           Int                  @id @default(autoincrement())
+  old_id       Int?                 @unique
   name         String
   document_id  String?
   email        String?
@@ -21,16 +21,16 @@ model Client {
   address      String?
   type         String?
   notes        String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
   city         String?
   country      String?
   state        String?
   zipCode      String?
-  userId       String?       @unique
+  userId       String?              @unique
   segment      String?
-  canAccess    Boolean       @default(true)
-  user         User?         @relation(fields: [userId], references: [id])
+  canAccess    Boolean              @default(true)
+  user         User?                @relation(fields: [userId], references: [id])
   orders       Order[]
   shipments    Shipment[]
   transactions Transaction[]
@@ -72,6 +72,8 @@ model Product {
   updatedAt          DateTime       @updatedAt
   orderItems         OrderItem[]
   purchaseItems      PurchaseItem[]
+  ingestionItems     IngestionItem[]
+  supplierOffers     SupplierOffer[]
 }
 
 model SparePart {
@@ -103,36 +105,38 @@ model Supplier {
   old_id       Int?          @unique
   orderItems   OrderItem[]
   purchases    Purchase[]
-  purchasePayments PurchasePayment[]
   transactions Transaction[]
+  ingestionRuns IngestionRun[]
+  supplierOffers SupplierOffer[]
 }
 
 model Order {
-  id              Int         @id @default(autoincrement())
-  order_number    Int?        @unique
+  id              Int                  @id @default(autoincrement())
+  order_number    Int?                 @unique
   clientId        Int
   date            DateTime
   status          String
   total_amount    Float
-  currency        String      @default("USD")
+  currency        String               @default("USD")
   notes           String?
   forwarder       String?
   tracking_number String?
   shipmentId      Int?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
   type            String?
   paymentMethod   String?
   email_sent_at   DateTime?
   source          String?
-  client          Client      @relation(fields: [clientId], references: [id])
-  shipment        Shipment?   @relation(fields: [shipmentId], references: [id])
+  idempotencyKey  String?              @unique
+  client          Client               @relation(fields: [clientId], references: [id])
+  shipment        Shipment?            @relation(fields: [shipmentId], references: [id])
   items           OrderItem[]
   allocations     PurchaseAllocation[]
 }
 
 model OrderItem {
-  id               Int       @id @default(autoincrement())
+  id               Int                  @id @default(autoincrement())
   orderId          Int
   productId        Int?
   productName      String
@@ -141,15 +145,15 @@ model OrderItem {
   unit_cost        Float
   shipping_cost    Float?
   subtotal         Float
-  profit           Float     @default(0)
+  profit           Float                @default(0)
   supplierId       Int?
   purchase_invoice String?
   shipmentId       Int?
   status           String?
-  order            Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product          Product?  @relation(fields: [productId], references: [id])
-  shipment         Shipment? @relation(fields: [shipmentId], references: [id])
-  supplier         Supplier? @relation(fields: [supplierId], references: [id])
+  order            Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product          Product?             @relation(fields: [productId], references: [id])
+  shipment         Shipment?            @relation(fields: [shipmentId], references: [id])
+  supplier         Supplier?            @relation(fields: [supplierId], references: [id])
   allocations      PurchaseAllocation[]
 }
 
@@ -166,84 +170,74 @@ model Transaction {
   supplierId    Int?
   client        Client?   @relation(fields: [clientId], references: [id])
   supplier      Supplier? @relation(fields: [supplierId], references: [id])
+  paymentGuard  ClientPaymentGuard?
+}
+
+model ClientPaymentGuard {
+  id           Int         @id @default(autoincrement())
+  clientId     Int
+  paymentDate  DateTime    @db.Date
+  amount       Float
+  referenceKey  String
+  idempotencyKey String?      @unique
+  transactionId Int        @unique
+  transaction  Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime    @default(now())
+
+  @@unique([clientId, paymentDate, amount, referenceKey])
 }
 
 model Shipment {
-  id              Int         @id @default(autoincrement())
-  shipment_number Int?        @unique
-  clientId        Int?
-  forwarder       String?
-  date_shipped    DateTime?
-  date_arrived    DateTime?
-  weight_fw       Float?
-  weight_cli      Float?
-  type_load       String?
-  item_count      Int?
-  cost_total      Float?
-  price_total     Float?
-  profit          Float?
-  invoice         String?
-  status          String?
-  notes           String?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  email_sent_at   DateTime?
-  orders          Order[]
-  items           OrderItem[]
-  client          Client?     @relation(fields: [clientId], references: [id])
+  id                Int         @id @default(autoincrement())
+  shipment_number   Int?        @unique
+  clientId          Int?
+  forwarder         String?
+  date_shipped      DateTime?
+  date_arrived      DateTime?
+  weight_fw         Float?
+  weight_cli        Float?
+  type_load         String?
+  item_count        Int?
+  cost_total        Float?
+  price_total       Float?
+  profit            Float?
+  invoice           String?
+  status            String?
+  notes             String?
+  cargo_description String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  email_sent_at     DateTime?
+  orders            Order[]
+  items             OrderItem[]
+  client            Client?     @relation(fields: [clientId], references: [id])
 }
 
 model Purchase {
   id             Int            @id @default(autoincrement())
   invoice_number String?        @unique
   date           DateTime
-  due_date       DateTime?
   supplierId     Int
   total_amount   Float
-  paid_amount    Float          @default(0)
-  balance_due    Float          @default(0)
-  payment_status String         @default("PENDIENTE")
-  paid_at        DateTime?
   payment_method String?
+  receipt_url    String?
   notes          String?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   supplier       Supplier       @relation(fields: [supplierId], references: [id])
   items          PurchaseItem[]
-  payments       PurchasePayment[]
-
-  @@index([supplierId, payment_status])
-  @@index([due_date])
-}
-
-model PurchasePayment {
-  id             Int      @id @default(autoincrement())
-  purchaseId      Int
-  supplierId      Int
-  date            DateTime @default(now())
-  amount          Float
-  payment_method  String?
-  reference       String?
-  notes           String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  purchase        Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
-  supplier        Supplier @relation(fields: [supplierId], references: [id])
-
-  @@index([purchaseId, date])
-  @@index([supplierId, date])
 }
 
 model PurchaseItem {
-  id          Int      @id @default(autoincrement())
+  id          Int                  @id @default(autoincrement())
   purchaseId  Int
   sku         String?
   productName String
   quantity    Int
   unit_cost   Float
   subtotal    Float
-  purchase    Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
-  product     Product? @relation(fields: [sku], references: [sku])
+  purchase    Purchase             @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  product     Product?             @relation(fields: [sku], references: [sku])
   allocations PurchaseAllocation[]
 }
 
@@ -259,6 +253,7 @@ model PurchaseAllocation {
   notes               String?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
+  idempotencyKey      String?      @unique
   client              Client       @relation(fields: [clientId], references: [id])
   order               Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
   orderItem           OrderItem    @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
@@ -281,4 +276,103 @@ model Expense {
   businessUnit  String   @default("GENERAL")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+model AiConversation {
+  id               String                  @id @default(cuid())
+  ownerUserId      String                  @map("owner_user_id")
+  ownerRole        String                  @map("owner_role")
+  title            String?
+  openaiResponseId String?                 @map("openai_response_id")
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
+  messages         AiConversationMessage[]
+
+  @@index([ownerUserId, updatedAt])
+  @@map("ai_conversations")
+}
+
+model AiConversationMessage {
+  id             String         @id @default(cuid())
+  conversationId String         @map("conversation_id")
+  role           String
+  content        String
+  createdAt      DateTime       @default(now()) @map("created_at")
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("ai_conversation_messages")
+}
+
+
+/// Raw, immutable supplier input and its processing lifecycle.
+model IngestionRun {
+  id             String          @id @default(cuid())
+  sourceType     String          @default("text")
+  rawText        String
+  contentHash    String
+  idempotencyKey String?         @unique
+  receivedAt     DateTime
+  status         String          @default("PROCESSING")
+  supplierId     Int?
+  supplierName   String?
+  model          String?
+  errorMessage   String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  supplier       Supplier?       @relation(fields: [supplierId], references: [id])
+  items          IngestionItem[]
+
+  @@index([receivedAt])
+  @@index([status])
+  @@index([contentHash, createdAt])
+}
+
+/// One validated extraction from an ingestion run, optionally matched to the catalog.
+model IngestionItem {
+  id                  String         @id @default(cuid())
+  ingestionRunId      String
+  lineNumber          Int
+  rawLine             String
+  productName         String?
+  exactModel          String?
+  capacity            String?
+  color               String?
+  condition           String?
+  region              String?
+  costUsd             Float?
+  availability        String?
+  quantity            Int?
+  observations        String?
+  normalizedProductId Int?
+  matchConfidence     Float?
+  reviewRequired      Boolean        @default(true)
+  reviewReason        String?
+  extractedData       Json
+  createdAt           DateTime       @default(now())
+  ingestionRun        IngestionRun   @relation(fields: [ingestionRunId], references: [id], onDelete: Cascade)
+  normalizedProduct   Product?       @relation(fields: [normalizedProductId], references: [id])
+  offer               SupplierOffer?
+
+  @@unique([ingestionRunId, lineNumber])
+  @@index([normalizedProductId])
+  @@index([reviewRequired])
+}
+
+/// A supplier cost observation. It never changes Product selling prices or purchases.
+model SupplierOffer {
+  id              String        @id @default(cuid())
+  ingestionItemId String        @unique
+  supplierId      Int
+  productId       Int
+  costUsd         Float
+  quantity        Int?
+  availability    String?
+  observedAt      DateTime
+  createdAt       DateTime      @default(now())
+  ingestionItem   IngestionItem @relation(fields: [ingestionItemId], references: [id], onDelete: Cascade)
+  supplier        Supplier      @relation(fields: [supplierId], references: [id])
+  product         Product       @relation(fields: [productId], references: [id])
+
+  @@index([supplierId, productId, observedAt])
 }

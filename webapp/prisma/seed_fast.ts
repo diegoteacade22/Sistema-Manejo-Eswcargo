@@ -2,9 +2,21 @@
 import { PrismaClient } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
+import { calculateActiveOrderTotal } from '../lib/order-totals';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
 const BATCH_SIZE = 500;
+
+function resolveImportedTxOldClientId(tx: any): number | null {
+    const reference = String(tx?.reference || '').toUpperCase();
+
+    if (reference.startsWith('CC-IMPORT-MARCOS_CC-')) {
+        return 162;
+    }
+
+    const parsedClientId = Number(tx?.clientId);
+    return Number.isFinite(parsedClientId) ? parsedClientId : null;
+}
 
 function chunkArray<T>(items: T[], size: number): T[][] {
     const chunks: T[][] = [];
@@ -20,12 +32,18 @@ async function main() {
     const startTime = Date.now();
 
     const prismaDir = path.join(process.cwd(), 'prisma');
+    const balanceControlsPath = path.join(process.cwd(), 'scripts', 'client-balance-controls.json');
+    const balanceControls = fs.existsSync(balanceControlsPath)
+        ? JSON.parse(fs.readFileSync(balanceControlsPath, 'utf-8'))
+        : { cashFlowAccounts: [], lockedBalances: [] };
 
     // 1. CARGAR DATOS
     const clientsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'clients_seed.json'), 'utf-8'));
     const productsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'products_seed.json'), 'utf-8'));
     const shipmentsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'shipments_seed.json'), 'utf-8'));
     const ordersData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'orders_seed.json'), 'utf-8'));
+    const paymentsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'payments_extra_seed.json'), 'utf8'));
+    const purchasesData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'purchases_seed.json'), 'utf-8'));
 
     // ID tracking for cleanup
     const processedShipmentIds = new Set<number>();
@@ -143,6 +161,7 @@ async function main() {
         const dbClientId = s.old_client_id
             ? clientOldIdMap.get(s.old_client_id)?.id
             : (s.client_name_match ? clientNameMap.get(s.client_name_match.trim().toUpperCase())?.id : null);
+        const sourceStatus = typeof s.status === 'string' && s.status.trim() ? s.status.trim() : null;
 
         const data = {
             ...s,
@@ -154,6 +173,7 @@ async function main() {
         delete (data as any).client_name_match;
         delete (data as any).client_id;
         delete (data as any).is_paid;
+        if (!sourceStatus) delete (data as any).status;
 
         let dbShipment: any;
         if (!existing) {
@@ -166,7 +186,7 @@ async function main() {
             const existingArrived = existing.date_arrived?.getTime() || 0;
 
             const hasChanges =
-                existing.status !== s.status ||
+                (sourceStatus !== null && existing.status !== sourceStatus) ||
                 existing.notes !== s.notes ||
                 existing.forwarder !== s.forwarder ||
                 existing.weight_fw !== s.weight_fw ||
@@ -199,11 +219,9 @@ async function main() {
 
         const orderDate = parseSafeDate(o.date) || new Date();
         const items = o.items || [];
-        let totalAmount = o.total_amount || 0;
-
-        if (totalAmount === 0 && items.length > 0) {
-            totalAmount = items.reduce((sum: number, i: any) => sum + (i.unit_price * i.quantity), 0);
-        }
+        const totalAmount = items.length > 0
+            ? calculateActiveOrderTotal(items)
+            : (o.total_amount || 0);
 
         const itemStatuses = [...new Set(
             items
@@ -294,22 +312,46 @@ async function main() {
     }
 
     // 6.7 SINCRONIZACIÓN MAESTRA DE TRANSACCIONES (CLIENTES Y PROVEEDORES)
+    // Las cuentas corrientes operativas no se reconstruyen desde planillas.
+    // Un backfill financiero exige una habilitación explícita y auditada.
+    if (process.env.ALLOW_FINANCIAL_LEDGER_SYNC === '1') {
     console.log("💰 Sincronizando todas las transacciones financieras...");
     const allTxs: any[] = [];
-    const cashFlowManagedOldIds = new Set([66, 70, 72, 96, 119, 147, 162, 174, 214, 266, 273, 275]);
+    const cashFlowManagedOldIds = new Set<number>(
+        balanceControls.cashFlowAccounts
+            .map((account: any) => account.oldId)
+            .filter((oldId: any): oldId is number => typeof oldId === 'number')
+    );
+    const lockedBalanceOldIds = new Set<number>(
+        balanceControls.lockedBalances
+            .map((account: any) => account.oldId)
+            .filter((oldId: any): oldId is number => typeof oldId === 'number')
+    );
     const cashFlowManagedClientIds = new Set(
         Array.from(cashFlowManagedOldIds)
             .map(oldId => clientOldIdMap.get(oldId)?.id)
             .filter((id): id is number => typeof id === 'number')
     );
+    const lockedBalanceClientIds = new Set(
+        Array.from(lockedBalanceOldIds)
+            .map(oldId => clientOldIdMap.get(oldId)?.id)
+            .filter((id): id is number => typeof id === 'number')
+    );
     const isCashFlowManagedClient = (clientId: number | null | undefined) =>
         typeof clientId === 'number' && cashFlowManagedClientIds.has(clientId);
+    const isLockedBalanceClient = (clientId: number | null | undefined) =>
+        typeof clientId === 'number' && lockedBalanceClientIds.has(clientId);
+    const shouldSkipLedgerRebuild = (clientId: number | null | undefined) =>
+        isCashFlowManagedClient(clientId) || isLockedBalanceClient(clientId);
+    const protectedLedgerClientIds = Array.from(
+        new Set([...cashFlowManagedClientIds, ...lockedBalanceClientIds])
+    );
 
     // A. Transacciones de Pedidos
     for (const o of ordersData) {
         const dbClientId = o.client_old_id ? clientOldIdMap.get(o.client_old_id)?.id : (o.client_name_match ? clientNameMap.get(o.client_name_match.trim().toUpperCase())?.id : null);
         if (!dbClientId) continue;
-        if (isCashFlowManagedClient(dbClientId)) continue;
+        if (shouldSkipLedgerRebuild(dbClientId)) continue;
         const oDate = parseSafeDate(o.date) || new Date();
 
         if (o.total_amount > 0) {
@@ -340,7 +382,7 @@ async function main() {
             ? clientOldIdMap.get(s.old_client_id)?.id
             : (s.client_name_match ? clientNameMap.get(s.client_name_match.trim().toUpperCase())?.id : null);
 
-        if (dbClientId && !isCashFlowManagedClient(dbClientId) && s.price_total > 0) {
+        if (dbClientId && !shouldSkipLedgerRebuild(dbClientId) && s.price_total > 0) {
             allTxs.push({
                 clientId: dbClientId,
                 date: parseSafeDate(s.date_shipped) || new Date(),
@@ -353,10 +395,9 @@ async function main() {
     }
 
     // C. Pagos Extras
-    const paymentsData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'payments_extra_seed.json'), 'utf8'));
     for (const p of paymentsData) {
         const dbClientId = p.client_old_id ? clientOldIdMap.get(p.client_old_id)?.id : (p.client_name_match ? clientNameMap.get(p.client_name_match.trim().toUpperCase())?.id : null);
-        if (dbClientId && !isCashFlowManagedClient(dbClientId) && p.amount !== 0) {
+        if (dbClientId && !shouldSkipLedgerRebuild(dbClientId) && p.amount !== 0) {
             const date = p.date ? new Date(p.date) : new Date();
             allTxs.push({
                 clientId: dbClientId,
@@ -376,7 +417,7 @@ async function main() {
         for (const ledgerFile of ledgerFiles) {
             const clientIdFromFile = parseInt(ledgerFile.replace('.json', ''));
             if (isNaN(clientIdFromFile)) continue;
-            if (isCashFlowManagedClient(clientIdFromFile)) continue;
+            if (shouldSkipLedgerRebuild(clientIdFromFile)) continue;
 
             const manualTxs = JSON.parse(fs.readFileSync(path.join(manualLedgersDir, ledgerFile), 'utf-8'));
             for (const tx of manualTxs) {
@@ -408,16 +449,30 @@ async function main() {
     if (fs.existsSync(transactionsFile)) {
         console.log("📥 Importando transacciones desde CC sheets...");
         const importedTxs = JSON.parse(fs.readFileSync(transactionsFile, 'utf-8'));
+        const quarantinedTxs = importedTxs.filter((tx: any) => String(tx?.reference || '').startsWith('CC-Import-'));
+        if (quarantinedTxs.length > 0) {
+            console.warn(`   ⚠️ ${quarantinedTxs.length} transacciones CC-Import-* ignoradas para evitar duplicar cuentas corrientes legacy.`);
+        }
         let importCount = 0;
         
         for (const tx of importedTxs) {
-            // Map clientId from old_id to actual database ID
-            const dbClientId = clientOldIdMap.get(tx.clientId)?.id;
-            if (!dbClientId) {
-                console.log(`   ⚠️ Cliente ${tx.clientId} no encontrado, saltando transacción`);
+            if (String(tx?.reference || '').startsWith('CC-Import-')) {
                 continue;
             }
-            if (isCashFlowManagedClient(dbClientId)) continue;
+
+            const txOldClientId = resolveImportedTxOldClientId(tx);
+            if (!txOldClientId) {
+                console.log(`   ⚠️ Transacción sin clientId válido (${tx?.reference || 'sin referencia'}), saltando`);
+                continue;
+            }
+
+            // Map clientId from old_id to actual database ID
+            const dbClientId = clientOldIdMap.get(txOldClientId)?.id;
+            if (!dbClientId) {
+                console.log(`   ⚠️ Cliente ${txOldClientId} no encontrado, saltando transacción`);
+                continue;
+            }
+            if (shouldSkipLedgerRebuild(dbClientId)) continue;
             
             allTxs.push({
                 clientId: dbClientId,
@@ -435,7 +490,6 @@ async function main() {
 
     // E. Transacciones de Proveedores (Compras y Pagos Automáticos)
     console.log("� Procesando transacciones de proveedores...");
-    const purchasesData = JSON.parse(fs.readFileSync(path.join(prismaDir, 'purchases_seed.json'), 'utf-8'));
     for (const p of purchasesData) {
         const dbSupplierId = p.supplier_old_id
             ? supplierOldIdMap.get(p.supplier_old_id)?.id
@@ -479,13 +533,23 @@ async function main() {
         // En FULL reconstruimos universo completo de referencias gestionadas por sync.
         await prisma.transaction.deleteMany({
             where: {
-                OR: [
-                    { reference: { startsWith: 'Order #' } },
-                    { reference: { startsWith: 'Envío #' } },
-                    { reference: { startsWith: 'PagoExtra-' } },
-                    { reference: { startsWith: 'Purchase #' } },
-                    { reference: { startsWith: 'Manual-' } },
-                    { reference: { startsWith: 'CC-Import-' } }
+                AND: [
+                    {
+                        OR: [
+                            { reference: { startsWith: 'Order #' } },
+                            { reference: { startsWith: 'Envío #' } },
+                            { reference: { startsWith: 'PagoExtra-' } },
+                            { reference: { startsWith: 'Purchase #' } },
+                            { reference: { startsWith: 'Manual-' } },
+                            { reference: { startsWith: 'CC-Import-' } }
+                        ]
+                    },
+                    {
+                        OR: [
+                            { clientId: null },
+                            { clientId: { notIn: protectedLedgerClientIds } }
+                        ]
+                    }
                 ]
             }
         });
@@ -505,6 +569,9 @@ async function main() {
         await prisma.transaction.createMany({ data: chunk });
     }
     console.log("   ✅ Transacciones sincronizadas.");
+    } else {
+        console.warn("🛡️ Movimientos de cuenta corriente preservados: sincronización financiera deshabilitada.");
+    }
 
     // 6.8 ACTUALIZAR TABLAS DE COMPRA (ENCABEZADOS Y DETALLES)
     const purchaseIdsToRebuildItems: number[] = [];

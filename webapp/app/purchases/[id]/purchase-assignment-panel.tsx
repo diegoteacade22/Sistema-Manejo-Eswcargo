@@ -38,6 +38,7 @@ export function PurchaseAssignmentPanel({
   const [quantity, setQuantity] = useState<number>(pendingQty > 0 ? 1 : 0);
   const [unitPrice, setUnitPrice] = useState<number>(item.unit_cost);
   const [notes, setNotes] = useState('');
+  const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
   const onAssign = () => {
     if (pendingQty <= 0) {
@@ -56,6 +57,7 @@ export function PurchaseAssignmentPanel({
         quantity: Number(quantity),
         unitPrice: Number(unitPrice),
         notes,
+        idempotencyKey,
       });
 
       if (!result.success) {
@@ -65,6 +67,7 @@ export function PurchaseAssignmentPanel({
 
       setNotes('');
       setQuantity(1);
+      setIdempotencyKey(crypto.randomUUID());
       router.refresh();
     });
   };

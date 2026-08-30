@@ -1,6 +1,18 @@
+import crypto from 'node:crypto';
 import type { Prisma, PrismaClient } from '@prisma/client';
 
 type TxClient = PrismaClient | Prisma.TransactionClient;
+
+type PaymentLedgerInput = {
+    clientId: number;
+    amount: number;
+    paymentMethod?: string | null;
+    description?: string | null;
+    reference?: string | null;
+    date?: Date | null;
+    /** Reuse this key when the same request is retried. */
+    idempotencyKey?: string | null;
+};
 
 export const LEDGER_REFS = {
     order: (orderId: number) => `ORDER:${orderId}`,
@@ -17,13 +29,19 @@ export async function upsertOrderLedgerCharge(
         order.order_number ? `Order #${order.order_number}` : null,
     ].filter(Boolean) as string[];
 
-    const existingCharge = await tx.transaction.findFirst({
+    const existingCharges = await tx.transaction.findMany({
         where: {
-            clientId: order.clientId,
             type: 'CARGO',
             OR: references.map(reference => ({ reference })),
         },
+        orderBy: { id: 'asc' },
     });
+
+    if (existingCharges.length > 1) {
+        throw new Error(`El pedido #${order.order_number || order.id} tiene más de un cargo de cuenta corriente. Requiere revisión manual.`);
+    }
+
+    const existingCharge = existingCharges[0];
 
     const data = {
         clientId: order.clientId,
@@ -61,13 +79,23 @@ export async function upsertShipmentLedgerCharge(
         shipment.shipment_number ? `Envío #${shipment.shipment_number}` : null,
     ].filter(Boolean) as string[];
 
-    const existingCharge = await tx.transaction.findFirst({
+    const legacyPrefix = shipment.shipment_number ? `SHIP-${shipment.shipment_number}:` : null;
+    const existingCharges = await tx.transaction.findMany({
         where: {
-            clientId: shipment.clientId,
             type: 'CARGO',
-            OR: references.map(reference => ({ reference })),
+            OR: [
+                ...references.map(reference => ({ reference })),
+                ...(legacyPrefix ? [{ reference: { startsWith: legacyPrefix } }] : []),
+            ],
         },
+        orderBy: { id: 'asc' },
     });
+
+    if (existingCharges.length > 1) {
+        throw new Error(`El envío #${shipment.shipment_number || shipment.id} tiene más de un cargo de cuenta corriente. Requiere revisión manual.`);
+    }
+
+    const existingCharge = existingCharges[0];
 
     const data = {
         clientId: shipment.clientId,
@@ -88,26 +116,74 @@ export async function upsertShipmentLedgerCharge(
     return tx.transaction.create({ data });
 }
 
-export async function createPaymentLedgerEntry(
-    tx: TxClient,
-    payment: {
-        clientId: number;
-        amount: number;
-        paymentMethod?: string | null;
-        description?: string | null;
-        reference?: string | null;
-        date?: Date | null;
+function paymentDay(date: Date) {
+    const day = new Date(date);
+    day.setHours(0, 0, 0, 0);
+    return day;
+}
+
+function isRootClient(tx: TxClient): tx is PrismaClient {
+    return '$transaction' in tx;
+}
+
+async function persistPaymentLedgerEntry(tx: Prisma.TransactionClient, payment: PaymentLedgerInput, key: string, date: Date) {
+    const amount = Math.abs(payment.amount || 0);
+    const guard = await tx.clientPaymentGuard.findUnique({
+        where: { idempotencyKey: key },
+        select: { transactionId: true },
+    });
+
+    if (guard) {
+        return tx.transaction.findUniqueOrThrow({ where: { id: guard.transactionId } });
     }
-) {
-    return tx.transaction.create({
+
+    const transaction = await tx.transaction.create({
         data: {
             clientId: payment.clientId,
             type: 'PAGO',
             paymentMethod: payment.paymentMethod || null,
-            amount: Math.abs(payment.amount || 0),
-            date: payment.date || new Date(),
+            amount,
+            date,
             description: payment.description || 'Pago a cuenta',
             reference: payment.reference || null,
         },
     });
+
+    await tx.clientPaymentGuard.create({
+        data: {
+            clientId: payment.clientId,
+            paymentDate: paymentDay(date),
+            amount,
+            referenceKey: key,
+            idempotencyKey: key,
+            transactionId: transaction.id,
+        },
+    });
+
+    return transaction;
+}
+
+export async function createPaymentLedgerEntry(tx: TxClient, payment: PaymentLedgerInput) {
+    const date = payment.date || new Date();
+    const key = payment.idempotencyKey?.trim() || crypto.randomUUID();
+
+    if (!isRootClient(tx)) {
+        return persistPaymentLedgerEntry(tx, payment, key, date);
+    }
+
+    try {
+        return await tx.$transaction(
+            (transaction) => persistPaymentLedgerEntry(transaction, payment, key, date),
+            { isolationLevel: 'Serializable' },
+        );
+    } catch (error: any) {
+        if (error?.code !== 'P2002' && error?.code !== 'P2034') throw error;
+
+        const guard = await tx.clientPaymentGuard.findUnique({
+            where: { idempotencyKey: key },
+            select: { transactionId: true },
+        });
+        if (guard) return tx.transaction.findUniqueOrThrow({ where: { id: guard.transactionId } });
+        throw error;
+    }
 }
