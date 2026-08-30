@@ -114,7 +114,9 @@ jobs:
                SET state = 'CLAIMED', "claimBinding" = repeat('3', 64), "claimedBy" = 'migration-dry-run', "claimedAt" = now()
              WHERE id = 'codex-reply-delivery:migration-dry-run';
             UPDATE public."CompanyOsCodexTaskReplyDelivery"
-               SET state = 'DELIVERED', "completedAt" = now(), outcome = 'SUCCEEDED', "evidenceFingerprint" = repeat('b', 64)
+               SET state = 'DELIVERED', "completedAt" = now(), outcome = 'SUCCEEDED', "evidenceFingerprint" = repeat('b', 64),
+                   "executionMarker" = 'run-migration-dry-run-1234', "promptHash" = repeat('4', 64),
+                   "observedPromptHash" = repeat('4', 64), "promptObservedAt" = now()
              WHERE id = 'codex-reply-delivery:migration-dry-run';
             BEGIN
               UPDATE public."CompanyOsCodexTaskReplyDelivery"
@@ -164,6 +166,7 @@ jobs:
           forced_rls="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN ('CompanyOsCodexTaskReplyRevision','CompanyOsCodexTaskReplyDelivery') AND c.relrowsecurity AND c.relforcerowsecurity")"
           triggers="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid WHERE c.relname IN ('CompanyOsCodexTaskReplyRevision','CompanyOsCodexTaskReplyDelivery') AND t.tgname IN ('company_os_codex_task_reply_revision_append_only','company_os_codex_task_reply_delivery_guard') AND NOT t.tgisinternal")"
           composite_fk="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM pg_constraint WHERE conrelid = 'public.\"CompanyOsCodexTaskReplyDelivery\"'::regclass AND contype = 'f' AND array_length(conkey, 1) = 2")"
+          proof_columns="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'CompanyOsCodexTaskReplyDelivery' AND column_name IN ('executionMarker','promptHash','observedPromptHash','promptObservedAt')")"
           bypass="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT rolbypassrls FROM pg_roles WHERE rolname = 'company_os_v3'")"
           forbidden="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT has_table_privilege('company_os_v3', 'public.\"CompanyOsCodexTaskReplyRevision\"', 'UPDATE,DELETE') OR has_table_privilege('company_os_v3', 'public.\"CompanyOsCodexTaskReplyDelivery\"', 'DELETE')")"
           test "$tables" = "2"
@@ -173,6 +176,7 @@ jobs:
           test "$forced_rls" = "2"
           test "$triggers" = "2"
           test "$composite_fk" = "1"
+          test "$proof_columns" = "4"
           test "$bypass" = "f"
           test "$forbidden" = "f"
           echo "Migración aplicada: tablas, historial, RLS, permisos mínimos y guardas verificados."

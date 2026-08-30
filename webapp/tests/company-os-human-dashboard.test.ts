@@ -241,10 +241,13 @@ test('la reanudación usa HMAC, journal durable, sandbox y no hereda el secreto'
   assert.match(collector, /'--cd', cwd, '--skip-git-repo-check'/);
   assert.match(collector, /observeDispatchPrompt/);
   assert.match(collector, /promptObserved: promptProof\.promptObserved/);
+  assert.match(collector, /promptObservedAt: promptProof\.promptObservedAt/);
   assert.match(collector, /humanResponseHash: claim\.dispatch\.humanResponseHash \|\| null,\s+promptHash: null,/);
   assert.match(store, /claimKeyPrefix/);
-  assert.match(store, /outcome === 'SUCCEEDED' && promptObserved && completedAfterClaim/);
+  assert.match(store, /outcome === 'SUCCEEDED' && promptObserved && completedAfterClaim && completedAfterPrompt/);
+  assert.match(store, /task\.lastCompletedAt > promptObservedAt/);
   assert.match(store, /state: 'UNKNOWN_OUTCOME'/);
+  assert.match(store, /previous && previous\.fingerprint !== task\.fingerprint[\s\S]*state: 'CONFIRMED'[\s\S]*state: 'SUPERSEDED'/);
   assert.match(collectorManager, /StartInterval<\/key><integer>300/);
   assert.match(collectorManager, /COMPANY_OS_CODEX_AUTO_RESUME<\/key><string>1/);
   assert.match(collectorManager, /Falta Codex CLI para reanudación automática/);
@@ -413,6 +416,10 @@ test('inventario durable es interno, saneado y append-only para observaciones', 
   assert.match(replyMigration, /reply_revision_append_only/);
   assert.match(replyMigration, /FOREIGN KEY \("replyRevisionId", "taskId"\)/);
   assert.match(replyMigration, /company_os_codex_task_reply_delivery_guard/);
+  assert.match(replyMigration, /"observedPromptHash" = "promptHash"/);
+  assert.match(replyMigration, /state <> 'DELIVERED'/);
+  assert.match(replyMigration, /outcome = 'SUCCEEDED'/);
+  assert.match(replyMigration, /claim identity is immutable after claim/);
   assert.match(replyMigration, /OLD\.state = 'CONFIRMED' AND NEW\.state IN \('CLAIMED', 'SUPERSEDED'\)/);
   assert.match(replyMigration, /OLD\.state = 'CLAIMED' AND NEW\.state IN \('DELIVERED', 'FAILED', 'UNKNOWN_OUTCOME'\)/);
   assert.match(replyMigration, /FORCE ROW LEVEL SECURITY/);

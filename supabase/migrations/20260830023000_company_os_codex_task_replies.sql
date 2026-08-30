@@ -33,11 +33,24 @@ CREATE TABLE public."CompanyOsCodexTaskReplyDelivery" (
   "completedAt" timestamptz,
   outcome text CHECK (outcome IS NULL OR outcome IN ('SUCCEEDED','FAILED','TIMED_OUT')),
   "evidenceFingerprint" text CHECK ("evidenceFingerprint" IS NULL OR "evidenceFingerprint" ~ '^[0-9a-f]{64}$'),
+  "executionMarker" text CHECK ("executionMarker" IS NULL OR "executionMarker" ~ '^run-[A-Za-z0-9_-]{16,64}$'),
+  "promptHash" text CHECK ("promptHash" IS NULL OR "promptHash" ~ '^[0-9a-f]{64}$'),
+  "observedPromptHash" text CHECK ("observedPromptHash" IS NULL OR "observedPromptHash" ~ '^[0-9a-f]{64}$'),
+  "promptObservedAt" timestamptz,
   UNIQUE ("replyRevisionId", "taskId"),
   CHECK ((state IN ('CONFIRMED','SUPERSEDED') AND "claimBinding" IS NULL AND "claimedBy" IS NULL AND "claimedAt" IS NULL)
       OR (state NOT IN ('CONFIRMED','SUPERSEDED') AND "claimBinding" IS NOT NULL AND "claimedBy" IS NOT NULL AND "claimedAt" IS NOT NULL)),
   CHECK ((state IN ('CONFIRMED','CLAIMED','SUPERSEDED') AND "completedAt" IS NULL AND outcome IS NULL)
       OR (state IN ('DELIVERED','FAILED','UNKNOWN_OUTCOME') AND "completedAt" IS NOT NULL AND outcome IS NOT NULL)),
+  CHECK (("executionMarker" IS NULL AND "promptHash" IS NULL)
+      OR ("executionMarker" IS NOT NULL AND "promptHash" IS NOT NULL)),
+  CHECK (("observedPromptHash" IS NULL AND "promptObservedAt" IS NULL)
+      OR ("observedPromptHash" IS NOT NULL AND "promptObservedAt" IS NOT NULL AND "observedPromptHash" = "promptHash")),
+  CHECK (state NOT IN ('CONFIRMED','CLAIMED','SUPERSEDED')
+      OR ("executionMarker" IS NULL AND "promptHash" IS NULL AND "observedPromptHash" IS NULL AND "promptObservedAt" IS NULL)),
+  CHECK (state <> 'DELIVERED'
+      OR (outcome = 'SUCCEEDED' AND "executionMarker" IS NOT NULL AND "promptHash" IS NOT NULL
+          AND "observedPromptHash" = "promptHash" AND "promptObservedAt" IS NOT NULL)),
   FOREIGN KEY ("replyRevisionId", "taskId")
     REFERENCES public."CompanyOsCodexTaskReplyRevision"(id, "taskId") ON DELETE RESTRICT
 );
@@ -84,6 +97,13 @@ BEGIN
      OR NEW."baselineLastCompletedAt" IS DISTINCT FROM OLD."baselineLastCompletedAt"
      OR NEW."confirmedAt" IS DISTINCT FROM OLD."confirmedAt" THEN
     RAISE EXCEPTION 'CompanyOsCodexTaskReplyDelivery identity and baseline are immutable';
+  END IF;
+  IF OLD.state = 'CLAIMED' AND (
+     NEW."claimBinding" IS DISTINCT FROM OLD."claimBinding"
+     OR NEW."claimedBy" IS DISTINCT FROM OLD."claimedBy"
+     OR NEW."claimedAt" IS DISTINCT FROM OLD."claimedAt"
+  ) THEN
+    RAISE EXCEPTION 'CompanyOsCodexTaskReplyDelivery claim identity is immutable after claim';
   END IF;
   IF NOT (
     (OLD.state = 'CONFIRMED' AND NEW.state IN ('CLAIMED', 'SUPERSEDED'))

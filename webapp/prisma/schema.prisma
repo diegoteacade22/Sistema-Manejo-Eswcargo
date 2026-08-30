@@ -1306,6 +1306,10 @@ model CompanyOsCodexTaskReplyDelivery {
   completedAt             DateTime?
   outcome                 String?
   evidenceFingerprint     String?
+  executionMarker         String?
+  promptHash              String?
+  observedPromptHash      String?
+  promptObservedAt        DateTime?
   task                    CompanyOsCodexTask              @relation(fields: [taskId], references: [id], onDelete: Restrict)
   replyRevision           CompanyOsCodexTaskReplyRevision @relation(fields: [replyRevisionId, taskId], references: [id, taskId], onDelete: Restrict)
 

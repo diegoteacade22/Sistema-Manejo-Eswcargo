@@ -206,6 +206,12 @@ export async function ingestCodexTaskChunk(raw: unknown, actorRef: string) {
       const persistedTask = previous?.humanStatus === 'DONE' && previous.fingerprint === task.fingerprint
         ? { ...task, humanStatus: 'DONE', nextAction: 'Realizada y validada por Diego.', attentionReason: null, lastCompletedAt: previous.lastCompletedAt }
         : task;
+      if (previous && previous.fingerprint !== task.fingerprint) {
+        await tx.companyOsCodexTaskReplyDelivery.updateMany({
+          where: { taskId: task.id, state: 'CONFIRMED' },
+          data: { state: 'SUPERSEDED' },
+        });
+      }
       await tx.companyOsCodexTask.upsert({
         where: { threadId: task.threadId },
         update: persistedTask,
@@ -677,12 +683,10 @@ function taskView(task: TaskWithBoardState) {
     ? latestReply.delivery.state
     : null;
   const replySourceChanged = Boolean(latestReply && latestReply.sourceFingerprint !== task.fingerprint);
-  const replyProgress = replyDeliveryState === 'CONFIRMED' && replySourceChanged && effective.humanStatus === 'READY_REVIEW'
-    ? 'READY_REVIEW'
-    : replyDeliveryState === 'CONFIRMED' && replySourceChanged
-      ? 'NEEDS_FOLLOWUP'
-      : replyDeliveryState === 'CONFIRMED'
+  const replyProgress = replyDeliveryState === 'CONFIRMED' && !replySourceChanged
         ? 'CONFIRMED'
+    : replyDeliveryState === 'CONFIRMED'
+      ? 'SUPERSEDED'
     : replyDeliveryState === 'CLAIMED'
       ? 'IN_PROGRESS'
       : replyDeliveryState === 'DELIVERED' && replySourceChanged && effective.humanStatus === 'READY_REVIEW'
@@ -964,10 +968,11 @@ export async function reportCodexTaskDispatch(raw: unknown, actorRef: string) {
   const promptObserved = input.promptObserved === true;
   const promptHash = input.promptHash == null ? null : safeFingerprint(input.promptHash);
   const observedPromptHash = input.observedPromptHash == null ? null : safeFingerprint(input.observedPromptHash);
+  const promptObservedAt = input.promptObservedAt == null ? null : nullableDate(input.promptObservedAt);
   const executionMarker = typeof input.executionMarker === 'string' && /^run-[A-Za-z0-9_-]{16,64}$/.test(input.executionMarker)
     ? input.executionMarker
     : null;
-  if (promptObserved && (!executionMarker || !promptHash || observedPromptHash !== promptHash)) {
+  if (promptObserved && (!executionMarker || !promptHash || observedPromptHash !== promptHash || !promptObservedAt)) {
     throw new CodexTaskStoreError('La evidencia de entrega no coincide con el mensaje ejecutado', 409);
   }
   const safeActorRef = safeText(actorRef, 160);
@@ -997,6 +1002,17 @@ export async function reportCodexTaskDispatch(raw: unknown, actorRef: string) {
     if (promptObserved && promptHash !== expectedPromptHash) {
       throw new CodexTaskStoreError('La entrega observada no corresponde a la respuesta confirmada', 409);
     }
+    const deliveryEvidence = promptHash && executionMarker ? {
+      executionMarker,
+      promptHash,
+      observedPromptHash: promptObserved ? observedPromptHash : null,
+      promptObservedAt: promptObserved ? promptObservedAt : null,
+    } : {
+      executionMarker: null,
+      promptHash: null,
+      observedPromptHash: null,
+      promptObservedAt: null,
+    };
     const durableBaseline = claimBaselineFromKey(claimAction.idempotencyKey, claimKeyPrefix);
     if (!durableBaseline.valid
       || claimedFingerprint !== claimAction.fingerprint
@@ -1007,7 +1023,7 @@ export async function reportCodexTaskDispatch(raw: unknown, actorRef: string) {
       await appendDispatchTransition(tx, task, 'DISCARDED', safeActorRef, 'source-archived', 'ARCHIVED');
       if (replyDelivery?.state === 'CLAIMED') await tx.companyOsCodexTaskReplyDelivery.update({
         where: { id: replyDelivery.id },
-        data: { state: 'UNKNOWN_OUTCOME', completedAt: new Date(), outcome, evidenceFingerprint: task.fingerprint },
+        data: { state: 'UNKNOWN_OUTCOME', completedAt: new Date(), outcome, evidenceFingerprint: task.fingerprint, ...deliveryEvidence },
       });
       return { reported: true, changed: true, verifiedCompletion: false, outcome, humanStatus: 'DISCARDED', lifecycle: 'ARCHIVED', reason: 'SOURCE_ARCHIVED' };
     }
@@ -1017,14 +1033,15 @@ export async function reportCodexTaskDispatch(raw: unknown, actorRef: string) {
       && task.fingerprint !== claimedFingerprint
       && task.sourceStatus !== 'ACTIVE',
     );
-    if (outcome === 'SUCCEEDED' && promptObserved && completedAfterClaim) {
+    const completedAfterPrompt = Boolean(promptObservedAt && task.lastCompletedAt && task.lastCompletedAt > promptObservedAt);
+    if (outcome === 'SUCCEEDED' && promptObserved && completedAfterClaim && completedAfterPrompt) {
       const verifiedStatus = ['UNREVIEWED', 'NEEDS_DIEGO', 'BLOCKED', 'READY_REVIEW', 'MONITORING'].includes(task.humanStatus)
         ? task.humanStatus as 'UNREVIEWED' | 'NEEDS_DIEGO' | 'BLOCKED' | 'READY_REVIEW' | 'MONITORING'
         : 'UNREVIEWED';
       await appendDispatchTransition(tx, task, verifiedStatus, safeActorRef, 'complete');
       if (replyDelivery?.state === 'CLAIMED') await tx.companyOsCodexTaskReplyDelivery.update({
         where: { id: replyDelivery.id },
-        data: { state: 'DELIVERED', completedAt: new Date(), outcome, evidenceFingerprint: task.fingerprint },
+        data: { state: 'DELIVERED', completedAt: new Date(), outcome, evidenceFingerprint: task.fingerprint, ...deliveryEvidence },
       });
       return { reported: true, changed: true, verifiedCompletion: true, outcome, humanStatus: verifiedStatus };
     }
@@ -1036,6 +1053,7 @@ export async function reportCodexTaskDispatch(raw: unknown, actorRef: string) {
         completedAt: new Date(),
         outcome,
         evidenceFingerprint: task.fingerprint,
+        ...deliveryEvidence,
       },
     });
     return {
@@ -1044,7 +1062,7 @@ export async function reportCodexTaskDispatch(raw: unknown, actorRef: string) {
       verifiedCompletion: false,
       outcome,
       humanStatus: 'BLOCKED',
-      reason: !promptObserved ? 'PROMPT_NOT_OBSERVED' : outcome === 'SUCCEEDED' ? 'NO_VERIFIABLE_COMPLETION' : 'EXECUTION_DID_NOT_SUCCEED',
+      reason: !promptObserved ? 'PROMPT_NOT_OBSERVED' : !completedAfterPrompt ? 'COMPLETION_NOT_AFTER_PROMPT' : outcome === 'SUCCEEDED' ? 'NO_VERIFIABLE_COMPLETION' : 'EXECUTION_DID_NOT_SUCCEED',
     };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 10_000 });
 }

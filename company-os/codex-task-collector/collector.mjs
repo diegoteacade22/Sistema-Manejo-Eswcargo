@@ -373,11 +373,11 @@ function userMessageCandidates(payload) {
 
 async function observeDispatchPrompt(threadId, expectedPromptHash, executionMarker) {
   if (!/^[0-9a-f]{64}$/i.test(expectedPromptHash || '') || !executionMarker) {
-    return { promptObserved: false, observedPromptHash: null };
+    return { promptObserved: false, observedPromptHash: null, promptObservedAt: null };
   }
   const path = walkJsonl(join(CODEX_HOME, 'sessions')).get(threadId)
     || walkJsonl(join(CODEX_HOME, 'archived_sessions')).get(threadId);
-  if (!path) return { promptObserved: false, observedPromptHash: null };
+  if (!path) return { promptObserved: false, observedPromptHash: null, promptObservedAt: null };
   const lines = createInterface({ input: createReadStream(path, { encoding: 'utf8' }), crlfDelay: Infinity });
   for await (const line of lines) {
     let item;
@@ -387,10 +387,13 @@ async function observeDispatchPrompt(threadId, expectedPromptHash, executionMark
     for (const candidate of userMessageCandidates(payload)) {
       if (!candidate.includes(executionMarker)) continue;
       const observedPromptHash = createHash('sha256').update(candidate).digest('hex');
-      if (observedPromptHash === expectedPromptHash) return { promptObserved: true, observedPromptHash };
+      const promptObservedAt = eventTimestamp(item.timestamp, item.timestamp);
+      if (observedPromptHash === expectedPromptHash && promptObservedAt) {
+        return { promptObserved: true, observedPromptHash, promptObservedAt };
+      }
     }
   }
-  return { promptObserved: false, observedPromptHash: null };
+  return { promptObserved: false, observedPromptHash: null, promptObservedAt: null };
 }
 
 function eventTimestamp(value, fallback) {
@@ -847,6 +850,7 @@ async function reportExecutedState(state) {
     promptObserved: promptProof.promptObserved,
     promptHash: state.dispatch.promptHash,
     observedPromptHash: promptProof.observedPromptHash,
+    promptObservedAt: promptProof.promptObservedAt,
   }, 3);
   clearDispatchState();
   process.stdout.write(JSON.stringify({

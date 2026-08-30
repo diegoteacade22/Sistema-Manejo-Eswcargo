@@ -186,6 +186,7 @@ const REPLY_PROGRESS: Record<string, { title: string; detail: string; className:
   DELIVERED: { title: "Codex recibió la respuesta y terminó", detail: "El tablero comprobó el mensaje exacto y una finalización posterior en la tarea original.", className: "border-cyan-500/25 bg-cyan-500/10 text-cyan-100" },
   UNKNOWN_OUTCOME: { title: "Entrega sin resultado confirmado", detail: "No se reenviará sola para evitar duplicados. Abrí la tarea original y verificá qué ocurrió.", className: "border-rose-500/30 bg-rose-500/10 text-rose-100" },
   FAILED: { title: "La respuesta no pudo entregarse", detail: "Revisá el estado de la tarea antes de volver a guardarla.", className: "border-rose-500/30 bg-rose-500/10 text-rose-100" },
+  SUPERSEDED: { title: "La tarea cambió antes del envío", detail: "La respuesta quedó en el historial, pero no se enviará. Revisá el pedido actualizado antes de responder de nuevo.", className: "border-amber-500/30 bg-amber-500/10 text-amber-100" },
 };
 
 function TaskCard({ task, accent = "border-slate-800", onOpen }: {
