@@ -796,15 +796,45 @@ export async function reportCodexTaskDispatch(raw: unknown, actorRef: string) {
       const verifiedStatus = ['UNREVIEWED', 'NEEDS_DIEGO', 'BLOCKED', 'READY_REVIEW', 'MONITORING'].includes(task.humanStatus)
         ? task.humanStatus as 'UNREVIEWED' | 'NEEDS_DIEGO' | 'BLOCKED' | 'READY_REVIEW' | 'MONITORING'
         : 'UNREVIEWED';
-      if (verifiedStatus === 'READY_REVIEW') {
+      if (verifiedStatus === 'READY_REVIEW' && task.autonomyLevel === 'A1') {
         await appendDispatchTransition(tx, task, 'DONE', safeActorRef, 'complete-verified', 'CLOSED');
         return { reported: true, changed: true, verifiedCompletion: true, outcome, humanStatus: 'DONE', lifecycle: 'CLOSED' };
       }
       await appendDispatchTransition(tx, task, verifiedStatus, safeActorRef, 'complete');
       return { reported: true, changed: true, verifiedCompletion: true, outcome, humanStatus: verifiedStatus };
     }
+    const terminalBlocker = task.fingerprint !== claimedFingerprint
+      && task.sourceStatus !== 'ACTIVE'
+      && ['NEEDS_DIEGO', 'BLOCKED'].includes(task.humanStatus);
+    if (terminalBlocker) {
+      const terminalStatus = task.humanStatus as 'NEEDS_DIEGO' | 'BLOCKED';
+      await appendDispatchTransition(tx, task, terminalStatus, safeActorRef, `terminal-${terminalStatus.toLowerCase()}`);
+      return {
+        reported: true,
+        changed: true,
+        verifiedCompletion: false,
+        outcome,
+        humanStatus: terminalStatus,
+        reason: terminalStatus === 'NEEDS_DIEGO' ? 'NEEDS_USER' : 'BLOCKED_EXTERNAL',
+      };
+    }
+    const executionSeriesStart = await tx.companyOsCodexTaskAction.findFirst({
+      where: {
+        taskId: task.id,
+        createdAt: { lte: claimAction.createdAt },
+        OR: [
+          { idempotencyKey: { startsWith: 'dashboard:auto-resume:' } },
+          { idempotencyKey: { startsWith: 'codex-auto:eligibility:' } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+    });
     const failureCount = await tx.companyOsCodexTaskAction.count({
-      where: { taskId: task.id, idempotencyKey: { startsWith: 'codex-auto:retry-' } },
+      where: {
+        taskId: task.id,
+        idempotencyKey: { startsWith: 'codex-auto:retry-' },
+        ...(executionSeriesStart ? { createdAt: { gte: executionSeriesStart.createdAt } } : {}),
+      },
     });
     if (outcome !== 'SUCCEEDED' && failureCount < CODEX_AUTO_RESUME_MAX_FAILURES - 1) {
       const retryAttempt = failureCount + 1;

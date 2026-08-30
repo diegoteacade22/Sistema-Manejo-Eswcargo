@@ -131,6 +131,14 @@ function category(title, project) {
   return 'GENERAL';
 }
 
+function finalAutonomyResult(text) {
+  const finalLine = text.trimEnd().split(/\r?\n/).at(-1)?.trim() || '';
+  if (finalLine === 'AUTONOMY_RESULT: COMPLETED') return 'COMPLETED';
+  if (finalLine === 'AUTONOMY_RESULT: NEEDS_USER') return 'NEEDS_USER';
+  if (finalLine === 'AUTONOMY_RESULT: BLOCKED_EXTERNAL') return 'BLOCKED_EXTERNAL';
+  return null;
+}
+
 function classify({ title, lastStartedAt, lastCompletedAt, lastFinalAt, lastUserAt, lastFinalText, updatedAt, archived }) {
   if (archived) return { humanStatus: 'DISCARDED', sourceStatus: 'ARCHIVED', autonomyLevel: 'A0', nextAction: 'Conservar como historial; no reactivar automáticamente.' };
   const lowerTitle = title.toLowerCase();
@@ -140,6 +148,7 @@ function classify({ title, lastStartedAt, lastCompletedAt, lastFinalAt, lastUser
   const finalAt = lastFinalAt ? Date.parse(lastFinalAt) : 0;
   const userAt = lastUserAt ? Date.parse(lastUserAt) : 0;
   const agentFinalIsLatest = finalAt >= userAt;
+  const autonomyResult = agentFinalIsLatest ? finalAutonomyResult(lastFinalText) : null;
   const recent = Date.now() - Math.max(started, Date.parse(updatedAt)) < 2 * 60 * 60_000;
   const eligibleForAutonomousResume = started > completed
     && Date.now() - Math.max(started, Date.parse(updatedAt)) <= AUTO_RESUME_MAX_AGE_MS;
@@ -149,13 +158,13 @@ function classify({ title, lastStartedAt, lastCompletedAt, lastFinalAt, lastUser
   if (started > completed && recent) {
     return { humanStatus: 'IN_PROGRESS', sourceStatus: 'ACTIVE', autonomyLevel: 'A1', nextAction: 'Dejar que el agente termine y verificar el resultado.' };
   }
-  if (agentFinalIsLatest && /autonomy_result:\s*needs_user/.test(finalText)) {
+  if (autonomyResult === 'NEEDS_USER') {
     return { humanStatus: 'NEEDS_DIEGO', sourceStatus: 'IDLE', autonomyLevel: 'HUMAN', attentionReason: 'Sólo Diego puede aportar el permiso, credencial o decisión faltante.', nextAction: 'Abrir la tarea únicamente cuando quieras resolver el bloqueo no delegable.' };
   }
-  if (agentFinalIsLatest && /autonomy_result:\s*blocked_external/.test(finalText)) {
+  if (autonomyResult === 'BLOCKED_EXTERNAL') {
     return { humanStatus: 'BLOCKED', sourceStatus: 'IDLE', autonomyLevel: 'A0', attentionReason: 'La tarea depende de un tercero o servicio externo.', nextAction: 'Mantenerla en espera hasta que cambie la dependencia externa.' };
   }
-  if (agentFinalIsLatest && completed >= started && completed > 0 && /autonomy_result:\s*completed/.test(finalText)) {
+  if (autonomyResult === 'COMPLETED' && completed >= started && completed > 0) {
     return { humanStatus: 'READY_REVIEW', sourceStatus: 'IDLE', autonomyLevel: 'A1', nextAction: 'Cierre automático tras verificar el reporte durable de ejecución.' };
   }
   if (agentFinalIsLatest && /otp|contraseñ|credencial|autorizaci[oó]n|aprobaci[oó]n|necesito que|eleg[ií]|confirm[aá]|acci[oó]n tuya|diego debe/.test(finalText)) {

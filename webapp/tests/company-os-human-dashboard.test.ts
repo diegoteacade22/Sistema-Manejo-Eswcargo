@@ -99,6 +99,8 @@ test('collector excluye subagentes, no envía texto final y exige marcador verif
   assert.doesNotMatch(collector, /lastFinalText,\s*priority/);
   assert.match(collector, /humanStatus: 'READY_REVIEW'/);
   assert.match(collector, /AUTONOMY_RESULT: COMPLETED/);
+  assert.match(collector, /finalLine === 'AUTONOMY_RESULT: COMPLETED'/);
+  assert.doesNotMatch(collector, /\/autonomy_result:\\s\*completed\//);
   assert.match(collector, /humanStatus: 'PENDING'.*reanudará automáticamente/);
   assert.doesNotMatch(collector, /humanStatus: 'DONE'/);
   assert.match(store, /codex:\/\/threads\/\$\{threadId\}/);
@@ -193,6 +195,9 @@ test('la reanudación usa HMAC, journal durable, sandbox y no hereda el secreto'
   assert.match(collector, /'--cd', cwd, '--skip-git-repo-check'/);
   assert.match(store, /claimKeyPrefix/);
   assert.match(store, /outcome === 'SUCCEEDED' && completedAfterClaim/);
+  assert.match(store, /verifiedStatus === 'READY_REVIEW' && task\.autonomyLevel === 'A1'/);
+  assert.match(store, /terminalBlocker[\s\S]*NEEDS_USER[\s\S]*BLOCKED_EXTERNAL/);
+  assert.match(store, /executionSeriesStart[\s\S]*createdAt: \{ gte: executionSeriesStart\.createdAt \}/);
   assert.match(store, /SAFE_RETRY_SCHEDULED/);
   assert.match(store, /'DONE'[\s\S]*'complete-verified'[\s\S]*'CLOSED'/);
   assert.match(collectorManager, /StartInterval<\/key><integer>300/);
