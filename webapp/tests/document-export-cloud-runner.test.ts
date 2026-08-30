@@ -53,10 +53,10 @@ test('job env no usa runner context y las rutas nacen desde RUNNER_TEMP', async 
     assert.match(workflow, />> "\$GITHUB_ENV"/);
 });
 
-test('export-one conserva cualquier salida parcial como error', async () => {
+test('cualquier salida parcial conserva error, también en export completo', async () => {
     const workflow = await readFile(workflowPath, 'utf8');
-    assert.match(workflow, /\[ "\$status" -eq 2 \] && \[ "\$MODE" = "export" \]/);
-    assert.doesNotMatch(workflow, /if \[ "\$status" -eq 2 \]; then/);
+    assert.match(workflow, /npx tsx scripts\/export-operational-documents\.ts "\$\{args\[@\]\}"/);
+    assert.doesNotMatch(workflow, /status=\$\?|exit 0|bloqueos de datos/);
 });
 
 test('el runner aplica el gate de bootstrap antes de consultar o persistir un export completo', async () => {
@@ -96,4 +96,22 @@ test('invoice carga weight_cli y usa el contrato de render en huella y HTML', as
     assert.match(builders, /where:\s*\{ id: orderId \}[\s\S]*?items:\s*\{\s*orderBy:\s*\{ id: 'asc' \}/);
     assert.match(builders, /shipment\.date_shipped \|\| shipment\.createdAt/);
     assert.doesNotMatch(builders, /new Date\(\)\.toLocaleDateString\(\)/);
+});
+
+test('packing carga el vínculo legacy del encabezado antes de calcular la huella', async () => {
+    const exporter = await readFile(exporterPath, 'utf8');
+    const shipmentQuery = exporter.slice(
+        exporter.indexOf('const shipments = await prisma.shipment.findMany({'),
+        exporter.indexOf('assertSelectedOrderObserved('),
+    );
+    assert.match(shipmentQuery, /orders:\s*\{[\s\S]*?select:\s*\{[\s\S]*?shipmentId:\s*true/);
+    assert.match(exporter, /packingListDocumentContentFingerprint\(\{[\s\S]*?shipment,/);
+});
+
+test('packing retira segmentos eliminados y sólo avanza estado con readback exitoso', async () => {
+    const exporter = await readFile(exporterPath, 'utf8');
+    assert.match(exporter, /staleSegmentKeys[\s\S]*?target\.retireDocument\?\.\(/);
+    assert.match(exporter, /retirement\.action === 'RETIRED'/);
+    assert.match(exporter, /delete next\.shipments\[staleSegmentKey\]/);
+    assert.match(exporter, /shouldAdvanceShipmentBaseFingerprint\(segmentFailures\)/);
 });

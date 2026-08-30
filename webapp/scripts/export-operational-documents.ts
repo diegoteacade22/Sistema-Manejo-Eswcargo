@@ -7,6 +7,7 @@ import type {
     DocumentExportState,
     DrivePutOptions,
     DrivePutResult,
+    DriveRetireResult,
 } from '../lib/document-cloud-drive';
 import { GoogleDriveDocumentStore } from '../lib/document-cloud-drive';
 import {
@@ -75,6 +76,7 @@ type ExportTarget = {
     loadState(): Promise<DocumentExportState | null>;
     saveDocument(fileName: string, contents: Uint8Array, options: DrivePutOptions): Promise<DrivePutResult | { action: 'UPDATED'; destination: string }>;
     saveState(state: DocumentExportState): Promise<unknown>;
+    retireDocument?(identity: string, kind: 'PACKING_LIST'): Promise<DriveRetireResult>;
     verifyPilot?(pilot: DocumentExportPilot): Promise<DrivePutResult>;
     probe?(): Promise<unknown>;
 };
@@ -136,6 +138,7 @@ async function createExportTarget(): Promise<ExportTarget> {
         loadState: () => store.loadState(),
         saveDocument: (fileName, contents, options) => store.put(fileName, contents, 'application/pdf', options),
         saveState: (state) => store.saveState(state),
+        retireDocument: (identity, kind) => store.retire(identity, kind),
         verifyPilot: (pilot) => store.verifyPilot(pilot),
         probe: () => store.probe(),
     };
@@ -257,6 +260,7 @@ async function main() {
                 select: {
                     id: true,
                     order_number: true,
+                    shipmentId: true,
                     clientId: true,
                     client: { select: { id: true, old_id: true, name: true } },
                     items: {
@@ -280,6 +284,7 @@ async function main() {
     let planned = 0;
     let ignoredOutsideLookback = 0;
     const writes = { created: 0, updated: 0, unchanged: 0 };
+    const retirements = { retired: 0, alreadyAbsent: 0 };
     const artifactReadbacks: Array<{ action: string; kind: string; size?: number; idSuffix?: string; sha256Prefix?: string }> = [];
     const failures: Array<{ type: string; number: number; message: string }> = [];
     let observedPilot: DocumentExportPilot | undefined;
@@ -387,6 +392,7 @@ async function main() {
         }
 
         let segmentFailures = 0;
+        const activeSegmentKeys = new Set(segments.map((segment) => `${key}:${segment.clientId}`));
 
         for (const segment of segments) {
             const segmentKey = `${key}:${segment.clientId}`;
@@ -447,6 +453,32 @@ async function main() {
             }
         }
 
+        if (segmentFailures === 0 && target.name === 'drive') {
+            const staleSegmentKeys = Object.keys(previous?.shipments || {})
+                .filter((previousKey) => previousKey.startsWith(`${key}:`) && !activeSegmentKeys.has(previousKey));
+            for (const staleSegmentKey of staleSegmentKeys) {
+                planned += 1;
+                if (dryRun) continue;
+                try {
+                    const clientId = staleSegmentKey.slice(key.length + 1);
+                    const retirement = await target.retireDocument?.(
+                        `shipment:${shipment.id}:client:${clientId}`,
+                        'PACKING_LIST',
+                    );
+                    if (!retirement) throw new Error('El target Drive no confirmó soporte de retiro.');
+                    retirements[retirement.action === 'RETIRED' ? 'retired' : 'alreadyAbsent'] += 1;
+                    delete next.shipments[staleSegmentKey];
+                } catch (error: unknown) {
+                    segmentFailures += 1;
+                    failures.push({
+                        type: 'PACKING_LIST_RETIREMENT',
+                        number: Number(shipment.shipment_number ?? shipment.id),
+                        message: error instanceof Error ? error.message : String(error),
+                    });
+                }
+            }
+        }
+
         if (shouldAdvanceShipmentBaseFingerprint(segmentFailures)) {
             next.shipments[key] = currentFingerprint;
         }
@@ -491,6 +523,7 @@ async function main() {
         planned,
         exported,
         writes,
+        retirements,
         failures: summaryFailures,
         failureCount: failures.length,
         lookbackDays: DOCUMENT_EXPORT_LOOKBACK_DAYS,

@@ -701,3 +701,34 @@ test('falla cerrado ante identidades o nombres duplicados', async () => {
         /más de un artefacto/,
     );
 });
+
+test('retira a papelera un packing administrado y confirma el readback', async () => {
+    const packingOptions: DrivePutOptions = {
+        kind: 'PACKING_LIST',
+        identity: 'shipment:77:client:20',
+        contentFingerprint: 'b'.repeat(64),
+    };
+    const existing = driveFile({
+        contents: Buffer.from('packing-obsoleto'),
+        name: 'PACK-77B-120.pdf',
+        fileOptions: packingOptions,
+    });
+    const retired = { ...existing, trashed: true };
+    const client = new FakeDriveClient([{ files: [existing] }, retired]);
+
+    const result = await new GoogleDriveDocumentStore(client, folderId)
+        .retire(packingOptions.identity, 'PACKING_LIST');
+
+    assert.equal(result.action, 'RETIRED');
+    assert.equal(result.idSuffix, 'abcdefgh');
+    assert.equal(client.calls[1]?.method, 'PATCH');
+    assert.deepEqual(client.calls[1]?.data, { trashed: true });
+});
+
+test('retiro repetido queda idempotente cuando ya no hay artefacto activo', async () => {
+    const client = new FakeDriveClient([{ files: [] }]);
+    const result = await new GoogleDriveDocumentStore(client, folderId)
+        .retire('shipment:77:client:20', 'PACKING_LIST');
+    assert.equal(result.action, 'ALREADY_ABSENT');
+    assert.equal(client.calls.length, 1);
+});

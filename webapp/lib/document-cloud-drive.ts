@@ -28,6 +28,7 @@ export type DocumentExportState = {
 type DriveFile = {
     id: string;
     name: string;
+    trashed?: boolean;
     mimeType?: string;
     size?: string;
     md5Checksum?: string;
@@ -56,6 +57,12 @@ export type DrivePutResult = {
     size: number;
     sha256: string;
     modifiedTime?: string;
+};
+
+export type DriveRetireResult = {
+    action: 'RETIRED' | 'ALREADY_ABSENT';
+    idSuffix?: string;
+    name?: string;
 };
 
 export type DrivePutOptions = {
@@ -431,6 +438,55 @@ export class GoogleDriveDocumentStore {
             payloadSha256,
             contents.byteLength,
         );
+    }
+
+    async retire(identity: string, kind: Exclude<DocumentExportArtifactKind, 'STATE'>): Promise<DriveRetireResult> {
+        if (!/^(?:order|shipment):[1-9]\d*(?::client:[1-9]\d*)?$/.test(identity)) {
+            throw new Error('Identidad de artefacto Drive inválida para retiro.');
+        }
+        const response = await this.client.request<DriveListResponse>({
+            url: 'https://www.googleapis.com/drive/v3/files',
+            method: 'GET',
+            params: {
+                q: `'${escapeDriveQuery(this.folderId)}' in parents and trashed = false and appProperties has { key='eswIdentity' and value='${escapeDriveQuery(identity)}' }`,
+                fields: 'files(id,name,trashed,parents,appProperties)',
+                pageSize: 100,
+                supportsAllDrives: 'true',
+                includeItemsFromAllDrives: 'true',
+            },
+        });
+        const candidates = response.data.files ?? [];
+        if (candidates.length > 1) {
+            throw new Error(`Drive contiene más de un artefacto administrado para ${identity}.`);
+        }
+        const existing = candidates[0];
+        if (!existing) return { action: 'ALREADY_ABSENT' };
+        if (existing.appProperties?.eswManaged !== MANAGED_VALUE
+            || existing.appProperties?.eswKind !== kind
+            || existing.appProperties?.eswIdentity !== identity) {
+            throw new Error(`Drive contiene una colisión no administrada para ${identity}.`);
+        }
+        const retired = await this.client.request<DriveFile>({
+            url: `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(existing.id)}`,
+            method: 'PATCH',
+            params: {
+                fields: 'id,name,trashed,appProperties',
+                supportsAllDrives: 'true',
+            },
+            headers: { 'Content-Type': 'application/json' },
+            data: { trashed: true },
+        });
+        if (retired.data.trashed !== true
+            || retired.data.appProperties?.eswManaged !== MANAGED_VALUE
+            || retired.data.appProperties?.eswKind !== kind
+            || retired.data.appProperties?.eswIdentity !== identity) {
+            throw new Error(`Drive no confirmó el retiro de ${identity}.`);
+        }
+        return {
+            action: 'RETIRED',
+            idSuffix: shortId(retired.data.id),
+            name: retired.data.name,
+        };
     }
 
     async loadState(): Promise<DocumentExportState | null> {
