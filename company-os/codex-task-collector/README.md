@@ -2,11 +2,12 @@
 
 Proyecta cada cinco minutos el inventario raíz de Codex al tablero humano de Company OS.
 
-- Lee `session_index.jsonl` y rollouts en modo sólo lectura.
+- Lee `session_index.jsonl` y todos los rollouts raíz en modo sólo lectura; el índice visible ya no limita la cobertura histórica.
 - Excluye subagentes y no copia prompts ni conversaciones.
 - Usa el registro canónico de proyectos para mostrar nombres humanos, nunca paths locales.
-- `task_complete` sólo puede producir `READY_REVIEW`; nunca marca una tarea como realizada.
-- Separa las tareas antiguas `UNREVIEWED` de las que Diego movió explícitamente a `PENDING` (`Para el agente`).
+- El objetivo humano versionado `esw-chat-history-continuous-improvement-v1` convierte cada conversación raíz no procesada en una auditoría `PENDING` A1. La marca de cierre impide repetirla y las conversaciones nuevas se incorporan en el ciclo siguiente.
+- El backlog cubre inquietudes individuales contando mensajes de usuario, pero despacha por conversación para conservar contexto y evitar miles de ejecuciones duplicadas.
+- El reanudador exige un resultado estructurado. `AUTONOMY_RESULT: COMPLETED`, un nuevo `task_complete`, cambio de fingerprint y readback posterior permiten cerrar `DONE` sin revisión rutinaria.
 - Firma cada lote con HMAC v2, nonce y timestamp.
 - La instalación sólo se confirma tras observar un inventario fresco y una respuesta válida del polling de despacho firmado.
 - Un lock de kernel de macOS impide dos ejecuciones simultáneas; instalación y desinstalación usan además un lock de control separado.
@@ -16,10 +17,11 @@ Proyecta cada cinco minutos el inventario raíz de Codex al tablero humano de Co
 - Un collector legacy huérfano bloquea instalación y desinstalación hasta desaparecer; nunca se interpreta como un lock obsoleto.
 - Usa una credencial dedicada `com.esw.company-os-codex-intake.hmac`; no comparte la autoridad del worker.
 - Conserva todo estado en `~/.company-os-codex-collector` y se puede desinstalar sin borrar evidencia.
-- Limita el endpoint a la URL HTTPS productiva y sólo ejecuta hilos cuya proyección y carpeta coincidan con un proyecto local canónico.
+- Limita el endpoint a la URL HTTPS productiva. Las tareas operativas sólo pueden escribir dentro de un proyecto local canónico.
+- Si una conversación antigua ya no tiene carpeta canónica, o pertenece a finanzas, clientes, comercio, asuntos personales o monitoreo, la auditoría corre técnicamente en sandbox `read-only`, sin autoaprobación y dentro de un espacio aislado.
 - Cuando la reanudación está habilitada, reclama como máximo una tarea autorizada por vez y la continúa con `codex exec resume` bajo sandbox `workspace-write`, revisión automática de permisos y sin cargar plugins/MCP del perfil interactivo.
 - El secreto HMAC se elimina del entorno antes de iniciar Codex y no copia stdout ni stderr del hilo. Ante fallo, conserva sólo exit code, señal, cantidad de bytes y hash de stderr en un archivo local `0600`.
 - Un journal atómico distingue `CLAIMING`, `RUNNING` y `EXECUTED`: tras un reinicio reenvía el reporte o detiene la ejecución anterior, pero nunca vuelve a lanzar el mismo claim.
-- Un proceso sin cambio verificable, fallido o vencido queda `BLOCKED`; no se reintenta hasta una nueva acción humana.
+- Un fallo de proceso se reintenta hasta completar tres intentos seguros. Recién entonces queda `BLOCKED`; credenciales, OTP, CAPTCHA, decisiones irreversibles y dependencias externas se separan sin improvisar.
 
-La clasificación y el inventario son A0. La ejecución sólo nace de una transición humana durable a `PENDING`, queda serializada por host y se detiene ante decisiones, credenciales o efectos externos no autorizados.
+La clasificación y el inventario son A0. La ejecución nace de una autorización humana durable o del objetivo continuo versionado A1, queda serializada por host y se detiene ante decisiones, credenciales o efectos externos no autorizados. El objetivo general permite investigar, depurar, editar y probar localmente, pero no concede pagos, envíos, publicaciones, borrados, secretos, producción, merges ni cambios externos.

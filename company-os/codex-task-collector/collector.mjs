@@ -31,18 +31,31 @@ const DISPATCH_ENDPOINT = '/api/company-os/codex/v1/dispatch';
 const MAX_TASKS = Math.min(2_000, Math.max(1, Number(process.env.COMPANY_OS_CODEX_MAX_TASKS) || 2_000));
 const DRY_RUN = process.env.COMPANY_OS_CODEX_DRY_RUN === '1';
 const AUTO_RESUME = process.env.COMPANY_OS_CODEX_AUTO_RESUME === '1';
+const CONTINUOUS_OBJECTIVE_ENABLED = process.env.COMPANY_OS_CODEX_CONTINUOUS_OBJECTIVE === '1';
+const CONTINUOUS_OBJECTIVE_ID = 'esw-chat-history-continuous-improvement-v1';
+const CONTINUOUS_OBJECTIVE_MARKER = `AUTONOMY_OBJECTIVE: ${CONTINUOUS_OBJECTIVE_ID}`;
 const CODEX_BIN = resolve(process.env.COMPANY_OS_CODEX_BIN || '/opt/homebrew/bin/codex');
 const AUTO_RESUME_TIMEOUT_MS = Math.min(3_600_000, Math.max(60_000, Number(process.env.COMPANY_OS_CODEX_AUTO_RESUME_TIMEOUT_MS) || 2_700_000));
+const AUTO_RESUME_MAX_AGE_MS = Math.min(7 * 86_400_000, Math.max(2 * 60 * 60_000, Number(process.env.COMPANY_OS_CODEX_AUTO_RESUME_MAX_AGE_MS) || 3 * 86_400_000));
 const HTTP_TIMEOUT_MS = Math.min(60_000, Math.max(5_000, Number(process.env.COMPANY_OS_CODEX_HTTP_TIMEOUT_MS) || 30_000));
 const CLAIMED_REASONS = new Set(['APPROVED_TASK_CLAIMED', 'APPROVED_TASK_CLAIM_REPLAYED']);
 const UNCLAIMED_REASONS = new Set(['NO_APPROVED_TASK', 'DISPATCH_ALREADY_ACTIVE', 'STALE_DISPATCH_BLOCKED', 'CLAIM_SOURCE_CHANGED', 'CLAIM_ALREADY_CONSUMED']);
 const AUTO_RESUME_PROMPT = [
-  'Continuá esta tarea desde el punto pendiente y cerrá un resultado verificable dentro del alcance original.',
+  CONTINUOUS_OBJECTIVE_ENABLED
+    ? 'Auditá esta conversación completa como una unidad del objetivo continuo de Diego: detectar inquietudes o trabas todavía vigentes, resolver mejoras seguras, depurar lo defectuoso y comparar mejores opciones hasta dejar un resultado verificable.'
+    : 'Continuá esta tarea desde el punto pendiente y cerrá un resultado verificable dentro del alcance original.',
+  CONTINUOUS_OBJECTIVE_ENABLED
+    ? 'No repitas trabajo ya terminado: verificá primero el estado actual y, si no queda nada útil, cerrá la auditoría como completada con evidencia breve.'
+    : 'No reinicies trabajo que ya esté terminado y verificá por readback antes de cerrar.',
   'Aplicá sólo acciones reversibles y ya autorizadas en el hilo.',
+  'Tomá por tu cuenta las decisiones operativas reversibles que no cambien el objetivo y agotá hasta tres alternativas o reintentos seguros antes de detenerte.',
+  'No pidas confirmación para pasos rutinarios, diagnósticos, ediciones acotadas, pruebas ni readbacks comprendidos en el pedido original.',
   'No envíes, publiques, borres, migres ni cambies producción o servicios externos sin autorización explícita en el hilo.',
   'Si hace falta una decisión, credencial, OTP, CAPTCHA, acción física o un tercero, no improvises: explicá el bloqueo concreto.',
-  'No reinicies trabajo que ya esté terminado y verificá por readback antes de cerrar.',
-].join(' ');
+  'El objetivo continuo autoriza investigación, diagnóstico, edición local acotada, pruebas y propuestas; no amplía permisos para pagos, envíos, publicaciones, borrados, secretos, producción, merges ni servicios externos.',
+  CONTINUOUS_OBJECTIVE_ENABLED ? `En la línea anterior al resultado escribí exactamente ${CONTINUOUS_OBJECTIVE_MARKER}.` : '',
+  'La última línea debe ser exactamente AUTONOMY_RESULT: COMPLETED si el objetivo quedó verificado, AUTONOMY_RESULT: NEEDS_USER si sólo Diego puede destrabarlo, o AUTONOMY_RESULT: BLOCKED_EXTERNAL si depende de un tercero o servicio externo.',
+].filter(Boolean).join(' ');
 
 if (!SECRET && !DRY_RUN) throw new Error('COMPANY_OS_CODEX_INTAKE_SECRET_REQUIRED');
 
@@ -115,6 +128,11 @@ function projectName(cwd, projects) {
   return (leaf || 'Sin proyecto asignado').slice(0, 160);
 }
 
+function canonicalProject(cwd, projects) {
+  const normalized = typeof cwd === 'string' && cwd ? resolve(cwd) : '';
+  return projects.find((project) => normalized === project.root || normalized.startsWith(`${project.root}/`)) || null;
+}
+
 function category(title, project) {
   const value = `${title} ${project}`.toLowerCase();
   if (/monitor|resumen diario|auditor[ií]a recurrente/.test(value)) return 'MONITOR';
@@ -137,17 +155,31 @@ function classify({ title, lastStartedAt, lastCompletedAt, lastFinalAt, lastUser
   const userAt = lastUserAt ? Date.parse(lastUserAt) : 0;
   const agentFinalIsLatest = finalAt >= userAt;
   const recent = Date.now() - Math.max(started, Date.parse(updatedAt)) < 2 * 60 * 60_000;
+  const eligibleForAutonomousResume = started > completed
+    && Date.now() - Math.max(started, Date.parse(updatedAt)) <= AUTO_RESUME_MAX_AGE_MS;
   if (/monitor|resumen diario|seguimiento|cada d[ií]a|semanal/.test(lowerTitle)) {
     return { humanStatus: 'MONITORING', sourceStatus: 'IDLE', autonomyLevel: 'A0', nextAction: 'Seguir controlando y mostrar sólo cambios que requieran acción.' };
   }
   if (started > completed && recent) {
     return { humanStatus: 'IN_PROGRESS', sourceStatus: 'ACTIVE', autonomyLevel: 'A1', nextAction: 'Dejar que el agente termine y verificar el resultado.' };
   }
+  if (agentFinalIsLatest && /autonomy_result:\s*needs_user/.test(finalText)) {
+    return { humanStatus: 'NEEDS_DIEGO', sourceStatus: 'IDLE', autonomyLevel: 'HUMAN', attentionReason: 'Sólo Diego puede aportar el permiso, credencial o decisión faltante.', nextAction: 'Abrir la tarea únicamente cuando quieras resolver el bloqueo no delegable.' };
+  }
+  if (agentFinalIsLatest && /autonomy_result:\s*blocked_external/.test(finalText)) {
+    return { humanStatus: 'BLOCKED', sourceStatus: 'IDLE', autonomyLevel: 'A0', attentionReason: 'La tarea depende de un tercero o servicio externo.', nextAction: 'Mantenerla en espera hasta que cambie la dependencia externa.' };
+  }
+  if (agentFinalIsLatest && completed >= started && completed > 0 && /autonomy_result:\s*completed/.test(finalText)) {
+    return { humanStatus: 'READY_REVIEW', sourceStatus: 'IDLE', autonomyLevel: 'A1', nextAction: 'Cierre automático tras verificar el reporte durable de ejecución.' };
+  }
   if (agentFinalIsLatest && /otp|contraseñ|credencial|autorizaci[oó]n|aprobaci[oó]n|necesito que|eleg[ií]|confirm[aá]|acci[oó]n tuya|diego debe/.test(finalText)) {
     return { humanStatus: 'NEEDS_DIEGO', sourceStatus: 'IDLE', autonomyLevel: 'HUMAN', attentionReason: 'Hace falta una decisión, autorización o dato de Diego.', nextAction: 'Abrir la tarea y responder el pedido concreto para destrabarla.' };
   }
   if (agentFinalIsLatest && /bloquead|sin acceso|access denied|permission denied|falta evento|depende de|no disponible|esperando proveedor/.test(finalText)) {
     return { humanStatus: 'BLOCKED', sourceStatus: 'IDLE', autonomyLevel: 'A0', attentionReason: 'La tarea depende de un acceso, proveedor o evento externo.', nextAction: 'Revisar el bloqueo indicado y asignar el responsable de destrabe.' };
+  }
+  if (eligibleForAutonomousResume) {
+    return { humanStatus: 'PENDING', sourceStatus: 'IDLE', autonomyLevel: 'A1', nextAction: 'El agente la reanudará automáticamente, sin pedir confirmación para pasos rutinarios.' };
   }
   if (started > completed) {
     return { humanStatus: 'UNREVIEWED', sourceStatus: 'IDLE', autonomyLevel: 'A0', nextAction: 'Auditar qué quedó pendiente y moverla a “Para el agente” sólo si puede retomarse sin una decisión externa.' };
@@ -156,6 +188,22 @@ function classify({ title, lastStartedAt, lastCompletedAt, lastFinalAt, lastUser
     return { humanStatus: 'READY_REVIEW', sourceStatus: 'IDLE', autonomyLevel: 'A0', nextAction: 'Revisar la evidencia y marcar como realizada si el resultado es correcto.' };
   }
   return { humanStatus: 'UNREVIEWED', sourceStatus: 'NOT_LOADED', autonomyLevel: 'A0', nextAction: 'Auditar qué quedó pendiente antes de decidir si el agente puede retomarla.' };
+}
+
+function applyContinuousObjective(state, { archived, canonical, lastFinalText, categoryName }) {
+  if (!CONTINUOUS_OBJECTIVE_ENABLED || archived || state.sourceStatus === 'ACTIVE') return state;
+  if (lastFinalText.includes(CONTINUOUS_OBJECTIVE_MARKER)) return state;
+  if (['NEEDS_DIEGO', 'BLOCKED'].includes(state.humanStatus)) return state;
+  const analysisOnly = !canonical || ['COMMERCIAL', 'FINANCE', 'CUSTOMERS', 'PERSONAL', 'MONITOR'].includes(categoryName);
+  return {
+    humanStatus: 'PENDING',
+    sourceStatus: state.sourceStatus === 'UNKNOWN' ? 'NOT_LOADED' : state.sourceStatus,
+    autonomyLevel: 'A1',
+    nextAction: analysisOnly
+      ? `Auditoría autogenerada por ${CONTINUOUS_OBJECTIVE_ID}; analizar en sandbox de sólo lectura y cerrar con readback.`
+      : `Auditoría autogenerada por ${CONTINUOUS_OBJECTIVE_ID}; resolver localmente lo seguro una vez y cerrar con readback.`,
+    executionMode: analysisOnly ? 'READ_ONLY_AUDIT' : 'LOCAL_SAFE',
+  };
 }
 
 async function inspectRollout(path) {
@@ -167,6 +215,7 @@ async function inspectRollout(path) {
   let lastFinalAt = null;
   let lastUserAt = null;
   let lastFinalText = '';
+  let userMessageCount = 0;
   for await (const line of lines) {
     let item;
     try { item = JSON.parse(line); } catch { continue; }
@@ -186,10 +235,11 @@ async function inspectRollout(path) {
       lastFinalAt = eventTimestamp(item.timestamp, item.timestamp) || lastFinalAt;
     }
     if (item.type === 'response_item' && payload.type === 'message' && payload.role === 'user') {
+      userMessageCount += 1;
       lastUserAt = eventTimestamp(item.timestamp, item.timestamp) || lastUserAt;
     }
   }
-  return { meta, lastStartedAt, lastCompletedAt, lastFinalAt, lastUserAt, lastFinalText };
+  return { meta, lastStartedAt, lastCompletedAt, lastFinalAt, lastUserAt, lastFinalText, userMessageCount };
 }
 
 function eventTimestamp(value, fallback) {
@@ -225,6 +275,13 @@ async function collect() {
   const projects = canonicalProjects();
   const latestById = new Map();
   for (const row of index) if (row?.id && row?.updated_at) latestById.set(String(row.id), row);
+  for (const [id, path] of [...currentFiles, ...archivedFiles]) {
+    if (!latestById.has(id)) latestById.set(id, {
+      id,
+      thread_name: null,
+      updated_at: statSync(path).mtime.toISOString(),
+    });
+  }
   const rows = [...latestById.values()].sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at))).slice(0, MAX_TASKS);
   const tasks = [];
   for (const row of rows) {
@@ -232,26 +289,41 @@ async function collect() {
     const path = currentFiles.get(threadId) || archivedFiles.get(threadId);
     if (!path) continue;
     const header = rolloutMeta(path);
-    if (header.parent_thread_id || header.agent_path || header.forked_from_id) continue;
+    if (header.parent_thread_id || header.agent_path || header.forked_from_id
+      || ['subagent', 'agent_created_thread'].includes(header.thread_source)) continue;
     const inspected = await inspectRollout(path);
-    const title = String(row.thread_name || 'Tarea Codex sin título').replace(/\s+/g, ' ').trim().slice(0, 240);
+    const canonical = canonicalProject(inspected.meta.cwd, projects);
     const project = projectName(inspected.meta.cwd, projects);
     const updatedAt = String(row.updated_at);
     const archived = archivedFiles.has(threadId);
-    const state = classify({ title, ...inspected, updatedAt, archived });
+    const fallbackTitle = `Auditar conversación Codex · ${updatedAt.slice(0, 10)} · ${project}`;
+    const title = String(row.thread_name || fallbackTitle).replace(/\s+/g, ' ').trim().slice(0, 240);
+    const categoryName = category(title, project);
+    const classified = classify({ title, ...inspected, updatedAt, archived });
+    const state = applyContinuousObjective(classified, {
+      archived,
+      canonical: Boolean(canonical),
+      lastFinalText: inspected.lastFinalText,
+      categoryName,
+    });
     const task = {
       threadId,
       title,
       projectName: project,
-      category: category(title, project),
+      category: categoryName,
       ...state,
+      executionMode: state.executionMode || 'LOCAL_SAFE',
       priority: state.humanStatus === 'NEEDS_DIEGO' ? 1 : state.humanStatus === 'BLOCKED' ? 2 : state.humanStatus === 'IN_PROGRESS' ? 2 : 3,
       sourceUpdatedAt: updatedAt,
       lastStartedAt: inspected.lastStartedAt,
       lastCompletedAt: inspected.lastCompletedAt,
       archived,
     };
-    tasks.push({ ...task, fingerprint: sha(task) });
+    tasks.push({
+      ...task,
+      concernCount: inspected.userMessageCount,
+      fingerprint: sha({ ...task, objectiveId: CONTINUOUS_OBJECTIVE_ENABLED ? CONTINUOUS_OBJECTIVE_ID : null }),
+    });
   }
   return tasks;
 }
@@ -306,10 +378,22 @@ async function projectInventory() {
     const result = await postChunk({ sourceHost: SOURCE_HOST, scanId, observedAt, tasks: chunk, finalChunk, observedCount: tasks.length, changedBefore: changedCount });
     changedCount += Number(result.changedCount || 0);
   }
-  return { tasks, changedCount, scanId };
+  return {
+    tasks,
+    changedCount,
+    scanId,
+    concernCount: tasks.reduce((total, task) => total + Number(task.concernCount || 0), 0),
+    executionModes: Object.fromEntries([...new Set(tasks.map((task) => task.executionMode))].sort()
+      .map((mode) => [mode, tasks.filter((task) => task.executionMode === mode).length])),
+  };
 }
 
-function sessionCwd(threadId) {
+function sessionExecutionContext(threadId, executionMode = 'LOCAL_SAFE') {
+  if (executionMode === 'READ_ONLY_AUDIT') {
+    const auditWorkspace = join(STATE_DIR, 'audit-workspace');
+    mkdirSync(auditWorkspace, { recursive: true, mode: 0o700 });
+    return { cwd: realpathSync(auditWorkspace), analysisOnly: true };
+  }
   const currentFiles = walkJsonl(join(CODEX_HOME, 'sessions'));
   const archivedFiles = walkJsonl(join(CODEX_HOME, 'archived_sessions'));
   const path = currentFiles.get(threadId) || archivedFiles.get(threadId);
@@ -331,7 +415,7 @@ function sessionCwd(threadId) {
         return insideHome && !blocked ? [root] : [];
       } catch { return []; }
     });
-    return allowedRoots.some((root) => cwd === root || cwd.startsWith(`${root}/`)) ? cwd : null;
+    return allowedRoots.some((root) => cwd === root || cwd.startsWith(`${root}/`)) ? { cwd, analysisOnly: false } : null;
   } catch {
     return null;
   }
@@ -469,7 +553,7 @@ function validateClaimDispatch(dispatch, projectedTasks) {
     || !['IDLE', 'NOT_LOADED'].includes(local.sourceStatus)
     || (local.lastCompletedAt || null) !== (dispatch.lastCompletedAt || null)
     || dispatch.sourceProjectName !== local.projectName
-    || !sessionCwd(dispatch.threadId)) {
+    || !sessionExecutionContext(dispatch.threadId, local.executionMode)) {
     throw new Error('COMPANY_OS_CODEX_CLAIM_NOT_IN_LOCAL_PROJECTION');
   }
   return local;
@@ -499,9 +583,10 @@ function validateClaimResponse(value) {
   return value;
 }
 
-function runCodexResume(threadId, executionMarker, onSpawn) {
+function runCodexResume(threadId, executionMarker, executionMode, onSpawn) {
   return new Promise((resolveRun) => {
-    const cwd = sessionCwd(threadId);
+    const context = sessionExecutionContext(threadId, executionMode);
+    const cwd = context?.cwd || null;
     if (!existsSync(CODEX_BIN) || !cwd) return resolveRun({ outcome: 'FAILED', exitCode: null, signal: null, treeStopped: true });
     mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 });
     const gatePath = join(STATE_DIR, `${executionMarker}.gate`);
@@ -514,10 +599,12 @@ function runCodexResume(threadId, executionMarker, onSpawn) {
       '/bin/rm -f "$gate_path"',
       'exec "$@"',
     ].join('\n');
-    const child = spawn('/bin/zsh', ['-c', runner, executionMarker, gatePath, CODEX_BIN,
-      'exec', '--ignore-user-config', '--approve-for-me', '--sandbox', 'workspace-write', '--color', 'never', '--cd', cwd, '--skip-git-repo-check',
-      'resume', '--all', threadId, `${AUTO_RESUME_PROMPT} Marcador local de ejecución: ${executionMarker}.`,
-    ], { cwd, detached: true, env: childEnvironment(), stdio: ['ignore', 'ignore', 'pipe'] });
+    const codexArgs = ['exec', '--ignore-user-config'];
+    if (!context.analysisOnly) codexArgs.push('--approve-for-me');
+    codexArgs.push('--sandbox', context.analysisOnly ? 'read-only' : 'workspace-write', '--color', 'never', '--cd', cwd, '--skip-git-repo-check',
+      'resume', '--all', threadId, `${AUTO_RESUME_PROMPT} ${context.analysisOnly ? 'Esta ejecución está técnicamente limitada a sólo lectura: investigá y proponé alternativas sin intentar cambios.' : ''} Marcador local de ejecución: ${executionMarker}.`);
+    const child = spawn('/bin/zsh', ['-c', runner, executionMarker, gatePath, CODEX_BIN, ...codexArgs],
+      { cwd, detached: true, env: childEnvironment(), stdio: ['ignore', 'ignore', 'pipe'] });
     let timedOut = false;
     let terminated = false;
     let forceKillTimer = null;
@@ -602,7 +689,20 @@ async function reportExecutedState(state) {
 if (DRY_RUN) {
   const initialTasks = await collect();
   const statuses = Object.fromEntries([...new Set(initialTasks.map((task) => task.humanStatus))].sort().map((status) => [status, initialTasks.filter((task) => task.humanStatus === status).length]));
-  process.stdout.write(JSON.stringify({ ok: true, dryRun: true, sourceHost: SOURCE_HOST, installId: INSTALL_ID, observedCount: initialTasks.length, statuses, autoResume: AUTO_RESUME }) + '\n');
+  const executionModes = Object.fromEntries([...new Set(initialTasks.map((task) => task.executionMode))].sort()
+    .map((mode) => [mode, initialTasks.filter((task) => task.executionMode === mode).length]));
+  process.stdout.write(JSON.stringify({
+    ok: true,
+    dryRun: true,
+    sourceHost: SOURCE_HOST,
+    installId: INSTALL_ID,
+    observedCount: initialTasks.length,
+    concernCount: initialTasks.reduce((total, task) => total + Number(task.concernCount || 0), 0),
+    statuses,
+    executionModes,
+    autoResume: AUTO_RESUME,
+    continuousObjective: CONTINUOUS_OBJECTIVE_ENABLED ? CONTINUOUS_OBJECTIVE_ID : null,
+  }) + '\n');
   process.exit(0);
 }
 
@@ -625,7 +725,7 @@ if (state?.phase === 'RUNNING' || state?.phase === 'RECOVERY_BLOCKED') {
   }
 
 const projected = await projectInventory();
-process.stdout.write(JSON.stringify({ event: 'COLLECTOR_SCAN_OK', ok: true, sourceHost: SOURCE_HOST, installId: INSTALL_ID, observedCount: projected.tasks.length, changedCount: projected.changedCount, scanId: projected.scanId }) + '\n');
+process.stdout.write(JSON.stringify({ event: 'COLLECTOR_SCAN_OK', ok: true, sourceHost: SOURCE_HOST, installId: INSTALL_ID, observedCount: projected.tasks.length, concernCount: projected.concernCount, executionModes: projected.executionModes, changedCount: projected.changedCount, scanId: projected.scanId, continuousObjective: CONTINUOUS_OBJECTIVE_ENABLED ? CONTINUOUS_OBJECTIVE_ID : null }) + '\n');
 let dispatchResult = { claimed: false, reason: AUTO_RESUME ? 'NO_APPROVED_TASK' : 'AUTO_RESUME_DISABLED' };
 if (AUTO_RESUME) {
   if (state?.phase === 'EXECUTED') {
@@ -642,7 +742,8 @@ if (AUTO_RESUME) {
         lastCompletedAt: claim.dispatch.lastCompletedAt || null,
       };
       try {
-        validateClaimDispatch(claim.dispatch, projected.tasks);
+        const localTask = validateClaimDispatch(claim.dispatch, projected.tasks);
+        dispatch.executionMode = localTask.executionMode;
       } catch (error) {
         const rejected = { token: state.token, phase: 'EXECUTED', dispatch, pid: null, outcome: 'FAILED', exitCode: null, signal: 'LOCAL_PROJECTION_REJECTED', treeStopped: true };
         writeDispatchState(rejected);
@@ -654,7 +755,7 @@ if (AUTO_RESUME) {
       state = { token: state.token, phase: 'RUNNING', dispatch, pid: null, executionMarker, spawnedAt: null };
       writeDispatchState(state);
       process.stdout.write(JSON.stringify({ event: 'AUTO_RESUME_STARTED', threadId: dispatch.threadId, fingerprint: dispatch.fingerprint }) + '\n');
-      const execution = await runCodexResume(dispatch.threadId, executionMarker, (pid, spawnedAt) => {
+      const execution = await runCodexResume(dispatch.threadId, executionMarker, dispatch.executionMode, (pid, spawnedAt) => {
         state = { ...state, pid, spawnedAt };
         writeDispatchState(state);
       });
@@ -669,4 +770,4 @@ if (AUTO_RESUME) {
     }
   }
 }
-process.stdout.write(JSON.stringify({ ok: true, sourceHost: SOURCE_HOST, installId: INSTALL_ID, observedCount: projected.tasks.length, changedCount: projected.changedCount, scanId: projected.scanId, dispatch: dispatchResult }) + '\n');
+process.stdout.write(JSON.stringify({ ok: true, sourceHost: SOURCE_HOST, installId: INSTALL_ID, observedCount: projected.tasks.length, concernCount: projected.concernCount, executionModes: projected.executionModes, changedCount: projected.changedCount, scanId: projected.scanId, continuousObjective: CONTINUOUS_OBJECTIVE_ENABLED ? CONTINUOUS_OBJECTIVE_ID : null, dispatch: dispatchResult }) + '\n');
