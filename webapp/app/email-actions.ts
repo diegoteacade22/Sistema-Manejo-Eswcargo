@@ -14,6 +14,11 @@ import { getShipmentClientCharge } from '@/lib/shipment-client-charge';
 import { isCancelledOrderItem } from '@/lib/order-totals';
 import { INVOICE_TYPOGRAPHY } from '@/lib/invoice-typography';
 import { PACKING_LIST_TYPOGRAPHY } from '@/lib/packing-list-typography';
+import {
+    INVOICE_DOCUMENT_RENDER_VERSION,
+    PACKING_LIST_DOCUMENT_RENDER_VERSION,
+    invoiceDocumentContentFingerprint,
+} from '@/lib/document-export-fingerprint';
 
 type PackingListDocument = {
     shipment: any;
@@ -27,6 +32,7 @@ type InvoiceDocument = {
     htmlBody: string;
     pdfBuffer: Uint8Array;
     fileName: string;
+    contentFingerprint: string;
 };
 
 function formatBusinessDate(value: Date | string) {
@@ -170,6 +176,7 @@ export async function buildPackingListDocument(shipmentId: number, packingClient
         <html>
         <head>
             <meta charset="utf-8">
+            <meta name="eswcargo-render-version" content="${PACKING_LIST_DOCUMENT_RENDER_VERSION}">
             <style>
                 @page { size: Letter; margin: 0; }
                 :root {
@@ -230,7 +237,7 @@ export async function buildPackingListDocument(shipmentId: number, packingClient
                                 <p class="packing-document-number" style="font-weight: bold; color: #F4AB3D; margin: 5px 0 0 0;">SHIPMENT #${packingDocumentNumber}</p>
                             </td>
                             <td style="text-align: right; vertical-align: top;">
-                                <p class="packing-metadata" style="margin: 0; color: #666;"><strong>FECHA:</strong> ${new Date().toLocaleDateString()}</p>
+                                <p class="packing-metadata" style="margin: 0; color: #666;"><strong>FECHA:</strong> ${formatBusinessDate(shipment.date_shipped || shipment.createdAt)}</p>
                                 <p class="packing-metadata" style="margin: 5px 0 0 0; color: #666;"><strong>CLIENTE:</strong> ${documentShipment.client?.name || 'N/A'}</p>
                             </td>
                         </tr>
@@ -305,6 +312,7 @@ export async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocu
         where: { id: orderId },
         include: {
             items: {
+                orderBy: { id: 'asc' },
                 include: {
                     product: true
                 }
@@ -325,6 +333,7 @@ export async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocu
 
     const invoiceItems = order.items.filter(item => !isCancelledOrderItem(item.status));
     assertInvoiceIsReady({ ...order, items: invoiceItems });
+    const contentFingerprint = invoiceDocumentContentFingerprint(order);
 
     const totalPcs = invoiceItems.reduce((sum, item) => sum + item.quantity, 0);
     const itemsHtml = invoiceItems.map((item, index) => `
@@ -347,6 +356,7 @@ export async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocu
         <html>
             <head>
                 <meta charset="utf-8">
+                <meta name="eswcargo-render-version" content="${INVOICE_DOCUMENT_RENDER_VERSION}">
                 <style>
                     @page { size: Letter; margin: 0; }
                     :root {
@@ -494,7 +504,8 @@ export async function buildInvoiceDocument(orderId: number): Promise<InvoiceDocu
         order,
         htmlBody,
         pdfBuffer,
-        fileName
+        fileName,
+        contentFingerprint,
     };
 }
 
