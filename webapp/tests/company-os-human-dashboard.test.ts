@@ -96,10 +96,15 @@ test('las ofertas exponen costo, precio sugerido, margen y fuente real', () => {
 
 test('collector excluye subagentes, no envía texto final y exige marcador verificable antes del cierre automático', () => {
   assert.match(collector, /header\.parent_thread_id \|\| header\.agent_path \|\| header\.forked_from_id/);
+  assert.match(collector, /\['subagent', 'agent_created_thread'\]\.includes\(header\.thread_source\)/);
   assert.doesNotMatch(collector, /lastFinalText,\s*priority/);
   assert.match(collector, /humanStatus: 'READY_REVIEW'/);
   assert.match(collector, /AUTONOMY_RESULT: COMPLETED/);
   assert.match(collector, /humanStatus: 'PENDING'.*reanudará automáticamente/);
+  assert.match(collector, /CONTINUOUS_OBJECTIVE_ID = 'esw-chat-history-continuous-improvement-v1'/);
+  assert.match(collector, /for \(const \[id, path\] of \[\.\.\.currentFiles, \.\.\.archivedFiles\]\)/);
+  assert.match(collector, /concernCount: inspected\.userMessageCount/);
+  assert.match(collector, /lastFinalText\.includes\(CONTINUOUS_OBJECTIVE_MARKER\)/);
   assert.doesNotMatch(collector, /humanStatus: 'DONE'/);
   assert.match(store, /codex:\/\/threads\/\$\{threadId\}/);
   assert.match(store, /function safeThreadId/);
@@ -158,7 +163,10 @@ test('la reanudación usa HMAC, journal durable, sandbox y no hereda el secreto'
   assert.match(dispatchRoute, /input\.instanceId !== DISPATCH_INSTANCE_ID/);
   assert.match(dispatchRoute, /claimApprovedCodexTask/);
   assert.match(dispatchRoute, /reportCodexTaskDispatch/);
-  assert.match(collector, /'exec', '--ignore-user-config', '--approve-for-me', '--sandbox', 'workspace-write'/);
+  assert.match(collector, /const codexArgs = \['exec', '--ignore-user-config'\]/);
+  assert.match(collector, /if \(!context\.analysisOnly\) codexArgs\.push\('--approve-for-me'\)/);
+  assert.match(collector, /context\.analysisOnly \? 'read-only' : 'workspace-write'/);
+  assert.match(collector, /executionMode: analysisOnly \? 'READ_ONLY_AUDIT' : 'LOCAL_SAFE'/);
   assert.match(collector, /delete process\.env\.COMPANY_OS_CODEX_INTAKE_SECRET/);
   assert.match(collector, /function childEnvironment/);
   assert.match(collector, /stdio: \['ignore', 'ignore', 'pipe'\]/);
@@ -197,6 +205,7 @@ test('la reanudación usa HMAC, journal durable, sandbox y no hereda el secreto'
   assert.match(store, /'DONE'[\s\S]*'complete-verified'[\s\S]*'CLOSED'/);
   assert.match(collectorManager, /StartInterval<\/key><integer>300/);
   assert.match(collectorManager, /COMPANY_OS_CODEX_AUTO_RESUME<\/key><string>1/);
+  assert.match(collectorManager, /COMPANY_OS_CODEX_CONTINUOUS_OBJECTIVE<\/key><string>1/);
   assert.match(collectorManager, /Falta Codex CLI para reanudación automática/);
   assert.match(collectorManager, /<key>PATH<\/key><string>\$PATH_VALUE/);
   assert.match(collectorManager, /<key>WorkingDirectory<\/key><string>\$CURRENT/);

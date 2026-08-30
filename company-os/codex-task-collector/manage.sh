@@ -953,6 +953,7 @@ render_plist() {
 <key>ExitTimeOut</key><integer>30</integer>
 <key>EnvironmentVariables</key><dict>
 <key>COMPANY_OS_CODEX_AUTO_RESUME</key><string>1</string>
+<key>COMPANY_OS_CODEX_CONTINUOUS_OBJECTIVE</key><string>1</string>
 <key>COMPANY_OS_CODEX_NODE_BIN</key><string>$NODE_BIN</string>
 <key>COMPANY_OS_CODEX_BIN</key><string>$CODEX_BIN</string>
 <key>COMPANY_OS_CODEX_COLLECTOR_STATE_DIR</key><string>$STATE_DIR</string>
