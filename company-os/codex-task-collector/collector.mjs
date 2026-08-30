@@ -33,15 +33,19 @@ const DRY_RUN = process.env.COMPANY_OS_CODEX_DRY_RUN === '1';
 const AUTO_RESUME = process.env.COMPANY_OS_CODEX_AUTO_RESUME === '1';
 const CODEX_BIN = resolve(process.env.COMPANY_OS_CODEX_BIN || '/opt/homebrew/bin/codex');
 const AUTO_RESUME_TIMEOUT_MS = Math.min(3_600_000, Math.max(60_000, Number(process.env.COMPANY_OS_CODEX_AUTO_RESUME_TIMEOUT_MS) || 2_700_000));
+const AUTO_RESUME_MAX_AGE_MS = Math.min(7 * 86_400_000, Math.max(2 * 60 * 60_000, Number(process.env.COMPANY_OS_CODEX_AUTO_RESUME_MAX_AGE_MS) || 3 * 86_400_000));
 const HTTP_TIMEOUT_MS = Math.min(60_000, Math.max(5_000, Number(process.env.COMPANY_OS_CODEX_HTTP_TIMEOUT_MS) || 30_000));
 const CLAIMED_REASONS = new Set(['APPROVED_TASK_CLAIMED', 'APPROVED_TASK_CLAIM_REPLAYED']);
 const UNCLAIMED_REASONS = new Set(['NO_APPROVED_TASK', 'DISPATCH_ALREADY_ACTIVE', 'STALE_DISPATCH_BLOCKED', 'CLAIM_SOURCE_CHANGED', 'CLAIM_ALREADY_CONSUMED']);
 const AUTO_RESUME_PROMPT = [
   'Continuá esta tarea desde el punto pendiente y cerrá un resultado verificable dentro del alcance original.',
   'Aplicá sólo acciones reversibles y ya autorizadas en el hilo.',
+  'Tomá por tu cuenta las decisiones operativas reversibles que no cambien el objetivo y agotá hasta tres alternativas o reintentos seguros antes de detenerte.',
+  'No pidas confirmación para pasos rutinarios, diagnósticos, ediciones acotadas, pruebas ni readbacks comprendidos en el pedido original.',
   'No envíes, publiques, borres, migres ni cambies producción o servicios externos sin autorización explícita en el hilo.',
   'Si hace falta una decisión, credencial, OTP, CAPTCHA, acción física o un tercero, no improvises: explicá el bloqueo concreto.',
   'No reinicies trabajo que ya esté terminado y verificá por readback antes de cerrar.',
+  'La última línea debe ser exactamente AUTONOMY_RESULT: COMPLETED si el objetivo quedó verificado, AUTONOMY_RESULT: NEEDS_USER si sólo Diego puede destrabarlo, o AUTONOMY_RESULT: BLOCKED_EXTERNAL si depende de un tercero o servicio externo.',
 ].join(' ');
 
 if (!SECRET && !DRY_RUN) throw new Error('COMPANY_OS_CODEX_INTAKE_SECRET_REQUIRED');
@@ -127,6 +131,14 @@ function category(title, project) {
   return 'GENERAL';
 }
 
+function finalAutonomyResult(text) {
+  const finalLine = text.trimEnd().split(/\r?\n/).at(-1)?.trim() || '';
+  if (finalLine === 'AUTONOMY_RESULT: COMPLETED') return 'COMPLETED';
+  if (finalLine === 'AUTONOMY_RESULT: NEEDS_USER') return 'NEEDS_USER';
+  if (finalLine === 'AUTONOMY_RESULT: BLOCKED_EXTERNAL') return 'BLOCKED_EXTERNAL';
+  return null;
+}
+
 function classify({ title, lastStartedAt, lastCompletedAt, lastFinalAt, lastUserAt, lastFinalText, updatedAt, archived }) {
   if (archived) return { humanStatus: 'DISCARDED', sourceStatus: 'ARCHIVED', autonomyLevel: 'A0', nextAction: 'Conservar como historial; no reactivar automáticamente.' };
   const lowerTitle = title.toLowerCase();
@@ -136,18 +148,33 @@ function classify({ title, lastStartedAt, lastCompletedAt, lastFinalAt, lastUser
   const finalAt = lastFinalAt ? Date.parse(lastFinalAt) : 0;
   const userAt = lastUserAt ? Date.parse(lastUserAt) : 0;
   const agentFinalIsLatest = finalAt >= userAt;
+  const autonomyResult = agentFinalIsLatest ? finalAutonomyResult(lastFinalText) : null;
   const recent = Date.now() - Math.max(started, Date.parse(updatedAt)) < 2 * 60 * 60_000;
+  const eligibleForAutonomousResume = started > completed
+    && Date.now() - Math.max(started, Date.parse(updatedAt)) <= AUTO_RESUME_MAX_AGE_MS;
   if (/monitor|resumen diario|seguimiento|cada d[ií]a|semanal/.test(lowerTitle)) {
     return { humanStatus: 'MONITORING', sourceStatus: 'IDLE', autonomyLevel: 'A0', nextAction: 'Seguir controlando y mostrar sólo cambios que requieran acción.' };
   }
   if (started > completed && recent) {
     return { humanStatus: 'IN_PROGRESS', sourceStatus: 'ACTIVE', autonomyLevel: 'A1', nextAction: 'Dejar que el agente termine y verificar el resultado.' };
   }
+  if (autonomyResult === 'NEEDS_USER') {
+    return { humanStatus: 'NEEDS_DIEGO', sourceStatus: 'IDLE', autonomyLevel: 'HUMAN', attentionReason: 'Sólo Diego puede aportar el permiso, credencial o decisión faltante.', nextAction: 'Abrir la tarea únicamente cuando quieras resolver el bloqueo no delegable.' };
+  }
+  if (autonomyResult === 'BLOCKED_EXTERNAL') {
+    return { humanStatus: 'BLOCKED', sourceStatus: 'IDLE', autonomyLevel: 'A0', attentionReason: 'La tarea depende de un tercero o servicio externo.', nextAction: 'Mantenerla en espera hasta que cambie la dependencia externa.' };
+  }
+  if (autonomyResult === 'COMPLETED' && completed >= started && completed > 0) {
+    return { humanStatus: 'READY_REVIEW', sourceStatus: 'IDLE', autonomyLevel: 'A1', nextAction: 'Cierre automático tras verificar el reporte durable de ejecución.' };
+  }
   if (agentFinalIsLatest && /otp|contraseñ|credencial|autorizaci[oó]n|aprobaci[oó]n|necesito que|eleg[ií]|confirm[aá]|acci[oó]n tuya|diego debe/.test(finalText)) {
     return { humanStatus: 'NEEDS_DIEGO', sourceStatus: 'IDLE', autonomyLevel: 'HUMAN', attentionReason: 'Hace falta una decisión, autorización o dato de Diego.', nextAction: 'Abrir la tarea y responder el pedido concreto para destrabarla.' };
   }
   if (agentFinalIsLatest && /bloquead|sin acceso|access denied|permission denied|falta evento|depende de|no disponible|esperando proveedor/.test(finalText)) {
     return { humanStatus: 'BLOCKED', sourceStatus: 'IDLE', autonomyLevel: 'A0', attentionReason: 'La tarea depende de un acceso, proveedor o evento externo.', nextAction: 'Revisar el bloqueo indicado y asignar el responsable de destrabe.' };
+  }
+  if (eligibleForAutonomousResume) {
+    return { humanStatus: 'PENDING', sourceStatus: 'IDLE', autonomyLevel: 'A1', nextAction: 'El agente la reanudará automáticamente, sin pedir confirmación para pasos rutinarios.' };
   }
   if (started > completed) {
     return { humanStatus: 'UNREVIEWED', sourceStatus: 'IDLE', autonomyLevel: 'A0', nextAction: 'Auditar qué quedó pendiente y moverla a “Para el agente” sólo si puede retomarse sin una decisión externa.' };
