@@ -4,6 +4,7 @@ import type { Prisma } from '@prisma/client';
 type ShipmentClientCharge = {
     amount: number;
     reference: string | null;
+    description: string | null;
 };
 
 export async function getShipmentClientCharge(
@@ -29,7 +30,7 @@ export async function getShipmentClientCharge(
             reference: stableReference,
             AND: [nonQuarantinedReference],
         },
-        select: { amount: true, reference: true },
+        select: { amount: true, reference: true, description: true },
         orderBy: { id: 'desc' },
     });
 
@@ -47,7 +48,7 @@ export async function getShipmentClientCharge(
                 },
             ],
         },
-        select: { amount: true, reference: true },
+        select: { amount: true, reference: true, description: true },
         orderBy: { id: 'desc' },
     });
 
@@ -58,5 +59,6 @@ export async function getShipmentClientCharge(
     return {
         amount: Math.abs(charge.amount),
         reference: charge.reference,
+        description: charge.description,
     };
 }
