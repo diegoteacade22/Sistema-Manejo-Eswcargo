@@ -8,7 +8,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { PurchaseAssignmentPanel } from '@/app/purchases/[id]/purchase-assignment-panel';
 import { MarkPurchasePaidButton } from '@/app/purchases/[id]/mark-purchase-paid-button';
-import { RegisterPurchasePaymentButton } from '@/app/purchases/[id]/register-purchase-payment-button';
 
 export default async function PurchaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requireAdminUser();
@@ -64,10 +63,7 @@ export default async function PurchaseDetailPage({ params }: { params: Promise<{
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
-          <RegisterPurchasePaymentButton purchaseId={purchase.id} balanceDue={purchase.balance_due || 0} />
-          <MarkPurchasePaidButton purchaseId={purchase.id} />
-        </div>
+        <MarkPurchasePaidButton purchaseId={purchase.id} />
       </div>
 
       <Card>
