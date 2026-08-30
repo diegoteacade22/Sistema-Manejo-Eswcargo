@@ -7,17 +7,22 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'probe sólo lee Drive; dry-run calcula; export escribe documentos'
+        description: 'probe sólo lee Drive; diagnose-charges audita cargos; dry-run calcula; export escribe documentos'
         required: true
         type: choice
         default: probe
         options:
           - probe
+          - diagnose-charges
           - dry-run
           - export-one
           - export
       order_id:
         description: 'ID interno del único invoice para la prueba export-one'
+        required: false
+        type: string
+      shipment_number:
+        description: 'Número de carga para diagnose-charges'
         required: false
         type: string
 
@@ -101,25 +106,36 @@ jobs:
         env:
           MODE: ${{ github.event.inputs.mode || 'export' }}
           ORDER_ID: ${{ github.event.inputs.order_id || '' }}
+          SHIPMENT_NUMBER: ${{ github.event.inputs.shipment_number || '' }}
         run: |
           set -euo pipefail
           summary_path="$RUNNER_TEMP/eswcargo-document-export/summary.json"
-          args=(--target=drive "--summary-path=$summary_path")
-          case "$MODE" in
-            probe) args+=(--drive-probe) ;;
-            dry-run) args+=(--dry-run) ;;
-            export-one)
-              [[ "$ORDER_ID" =~ ^[1-9][0-9]*$ ]] || {
-                echo "::error::export-one requiere order_id entero positivo."
-                exit 1
-              }
-              args+=("--order-id=$ORDER_ID")
-              ;;
-            export) ;;
-            *) echo "::error::Modo inválido: $MODE"; exit 1 ;;
-          esac
+          if [[ "$MODE" == "diagnose-charges" ]]; then
+            [[ "$SHIPMENT_NUMBER" =~ ^[1-9][0-9]*$ ]] || {
+              echo "::error::diagnose-charges requiere shipment_number entero positivo."
+              exit 1
+            }
+            npx tsx scripts/audit-shipment-client-charges.ts \
+              "--shipment-number=$SHIPMENT_NUMBER" \
+              "--summary-path=$summary_path"
+          else
+            args=(--target=drive "--summary-path=$summary_path")
+            case "$MODE" in
+              probe) args+=(--drive-probe) ;;
+              dry-run) args+=(--dry-run) ;;
+              export-one)
+                [[ "$ORDER_ID" =~ ^[1-9][0-9]*$ ]] || {
+                  echo "::error::export-one requiere order_id entero positivo."
+                  exit 1
+                }
+                args+=("--order-id=$ORDER_ID")
+                ;;
+              export) ;;
+              *) echo "::error::Modo inválido: $MODE"; exit 1 ;;
+            esac
 
-          npx tsx scripts/export-operational-documents.ts "${args[@]}"
+            npx tsx scripts/export-operational-documents.ts "${args[@]}"
+          fi
 
       - name: Conservar evidencia saneada
         if: always()
