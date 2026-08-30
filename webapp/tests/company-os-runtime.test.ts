@@ -159,13 +159,18 @@ test('rutas runtime exigen anti-replay y controles humanos separados', () => {
   assert.doesNotMatch(humanControl, /verifyCompanyOsRuntimeRequest/);
 });
 
-test('anti-replay serializa por worker y usa el reloj autoritativo de la base', () => {
+test('anti-replay serializa por worker sin conflictos de snapshot y usa el reloj autoritativo de la base', () => {
   const store = readFileSync('lib/company-os/runtime-store.ts', 'utf8');
+  const nonceStore = store.slice(
+    store.indexOf('export async function acceptCompanyOsRuntimeNonce'),
+    store.indexOf('\ntype ExpiredLeaseRow'),
+  );
   assert.match(store, /SELECT 1 AS locked\s+FROM pg_catalog\.pg_advisory_xact_lock/);
   assert.doesNotMatch(store, /SELECT\s+pg_catalog\.pg_advisory_xact_lock/);
   assert.match(store, /company-os-worker-rate:\$\{workerId\}/);
   assert.match(store, /SELECT now\(\) AS now/);
-  assert.match(store, /Prisma\.TransactionIsolationLevel\.Serializable/);
+  assert.match(nonceStore, /Prisma\.TransactionIsolationLevel\.ReadCommitted/);
+  assert.doesNotMatch(nonceStore, /Prisma\.TransactionIsolationLevel\.Serializable/);
   assert.ok(store.indexOf('pg_advisory_xact_lock') < store.indexOf('companyOsWorkerRequestNonce.count'));
 });
 
