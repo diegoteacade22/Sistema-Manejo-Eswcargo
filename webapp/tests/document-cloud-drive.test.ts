@@ -6,6 +6,7 @@ import {
     DrivePutOptions,
     DriveRequestClient,
     GoogleDriveDocumentStore,
+    googleServiceAccountIdentityHash,
     loadGoogleServiceAccountCredentials,
 } from '../lib/document-cloud-drive';
 import {
@@ -124,10 +125,59 @@ test('valida credenciales sin exponer su contenido', async () => {
         }),
     });
     assert.equal(credentials.type, 'service_account');
+    assert.equal(googleServiceAccountIdentityHash(credentials), '74982d713d25');
     await assert.rejects(
         loadGoogleServiceAccountCredentials({ GOOGLE_SERVICE_ACCOUNT_JSON: '{bad' }),
         /JSON válido/,
     );
+});
+
+test('probe verifica la carpeta exacta y su capacidad de escritura antes de listar', async () => {
+    const client = new FakeDriveClient([
+        {
+            id: folderId,
+            mimeType: 'application/vnd.google-apps.folder',
+            trashed: false,
+            capabilities: { canAddChildren: true },
+        },
+        { files: [] },
+    ]);
+    const store = new GoogleDriveDocumentStore(client, folderId, 'identity1234');
+
+    const result = await store.probe();
+
+    assert.equal(result.folderAccessible, true);
+    assert.equal(result.folderWritable, true);
+    assert.equal(result.serviceAccountHash, 'identity1234');
+    assert.equal(client.calls[0]?.url, `https://www.googleapis.com/drive/v3/files/${folderId}`);
+    assert.equal(client.calls[1]?.url, 'https://www.googleapis.com/drive/v3/files');
+});
+
+test('probe falla cerrado si el folder es inaccesible y conserva evidencia saneada', async () => {
+    const error = Object.assign(new Error('provider detail'), {
+        response: {
+            status: 404,
+            data: { error: { errors: [{ reason: 'notFound' }] } },
+        },
+    });
+    const client: DriveRequestClient = {
+        async request() {
+            throw error;
+        },
+    };
+    const store = new GoogleDriveDocumentStore(client, folderId, 'identity1234');
+
+    const result = await store.probe();
+
+    assert.deepEqual(result, {
+        folderAccessible: false,
+        folderWritable: false,
+        serviceAccountHash: 'identity1234',
+        httpStatus: 404,
+        apiReason: 'notFound',
+        visibleArtifacts: 0,
+        artifactReadback: null,
+    });
 });
 
 test('crea y verifica MIME, tamaño, MD5 y SHA-256 contra los bytes reales', async () => {

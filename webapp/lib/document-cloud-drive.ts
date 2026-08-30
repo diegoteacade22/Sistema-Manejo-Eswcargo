@@ -39,6 +39,14 @@ type DriveFile = {
 
 type DriveListResponse = { files?: DriveFile[] };
 
+type DriveFolderMetadata = {
+    id: string;
+    mimeType?: string;
+    trashed?: boolean;
+    capabilities?: { canAddChildren?: boolean };
+    driveId?: string;
+};
+
 export type DriveRequestClient = {
     request<T>(options: {
         url: string;
@@ -196,11 +204,44 @@ export async function loadGoogleServiceAccountCredentials(env: Record<string, st
 
 export async function createGoogleDriveRequestClient(env: Record<string, string | undefined> = process.env): Promise<DriveRequestClient> {
     const credentials = await loadGoogleServiceAccountCredentials(env);
+    return createGoogleDriveRequestClientFromCredentials(credentials);
+}
+
+function createGoogleDriveRequestClientFromCredentials(credentials: Record<string, unknown>): Promise<DriveRequestClient> {
     const auth = new GoogleAuth({
         credentials,
         scopes: ['https://www.googleapis.com/auth/drive'],
     });
-    return await auth.getClient() as unknown as DriveRequestClient;
+    return auth.getClient() as unknown as Promise<DriveRequestClient>;
+}
+
+export function googleServiceAccountIdentityHash(credentials: Record<string, unknown>) {
+    const email = typeof credentials.client_email === 'string'
+        ? credentials.client_email.trim().toLowerCase()
+        : '';
+    if (!email || !email.includes('@')) {
+        throw new Error('Las credenciales Google no contienen una identidad válida.');
+    }
+    return createHash('sha256').update(email).digest('hex').slice(0, 12);
+}
+
+function safeDriveProbeError(error: unknown) {
+    const candidate = error as {
+        response?: {
+            status?: unknown;
+            data?: { error?: { status?: unknown; errors?: Array<{ reason?: unknown }> } };
+        };
+    };
+    const rawStatus = Number(candidate?.response?.status);
+    const httpStatus = Number.isInteger(rawStatus) && rawStatus >= 400 && rawStatus <= 599
+        ? rawStatus
+        : undefined;
+    const rawReason = candidate?.response?.data?.error?.errors?.[0]?.reason
+        ?? candidate?.response?.data?.error?.status;
+    const apiReason = typeof rawReason === 'string' && /^[A-Za-z][A-Za-z0-9_]{1,63}$/.test(rawReason)
+        ? rawReason
+        : undefined;
+    return { ...(httpStatus ? { httpStatus } : {}), ...(apiReason ? { apiReason } : {}) };
 }
 
 function multipartBody(metadata: Record<string, unknown>, contents: Uint8Array, mimeType: string, boundary: string) {
@@ -221,16 +262,23 @@ function multipartBody(metadata: Record<string, unknown>, contents: Uint8Array, 
 export class GoogleDriveDocumentStore {
     private readonly client: DriveRequestClient;
     private readonly folderId: string;
+    private readonly serviceAccountHash?: string;
 
-    constructor(client: DriveRequestClient, folderId: string) {
+    constructor(client: DriveRequestClient, folderId: string, serviceAccountHash?: string) {
         this.client = client;
         this.folderId = assertFolderId(folderId);
+        this.serviceAccountHash = serviceAccountHash;
     }
 
     static async fromEnvironment(env: Record<string, string | undefined> = process.env) {
         const folderId = assertFolderId(env.ESW_DOCUMENT_EXPORT_DRIVE_FOLDER_ID);
-        const client = await createGoogleDriveRequestClient(env);
-        return new GoogleDriveDocumentStore(client, folderId);
+        const credentials = await loadGoogleServiceAccountCredentials(env);
+        const client = await createGoogleDriveRequestClientFromCredentials(credentials);
+        return new GoogleDriveDocumentStore(
+            client,
+            folderId,
+            googleServiceAccountIdentityHash(credentials),
+        );
     }
 
     private async listCandidates(name: string, identity: string) {
@@ -531,6 +579,41 @@ export class GoogleDriveDocumentStore {
     }
 
     async probe() {
+        let folder: DriveFolderMetadata;
+        try {
+            const folderResponse = await this.client.request<DriveFolderMetadata>({
+                url: `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(this.folderId)}`,
+                method: 'GET',
+                params: {
+                    fields: 'id,mimeType,trashed,capabilities(canAddChildren),driveId',
+                    supportsAllDrives: 'true',
+                },
+            });
+            folder = folderResponse.data;
+        } catch (error) {
+            return {
+                folderAccessible: false,
+                folderWritable: false,
+                serviceAccountHash: this.serviceAccountHash ?? null,
+                ...safeDriveProbeError(error),
+                visibleArtifacts: 0,
+                artifactReadback: null,
+            };
+        }
+
+        const folderWritable = folder.mimeType === 'application/vnd.google-apps.folder'
+            && folder.trashed !== true
+            && folder.capabilities?.canAddChildren === true;
+        if (!folderWritable) {
+            return {
+                folderAccessible: true,
+                folderWritable: false,
+                serviceAccountHash: this.serviceAccountHash ?? null,
+                visibleArtifacts: 0,
+                artifactReadback: null,
+            };
+        }
+
         const response = await this.client.request<DriveListResponse>({
             url: 'https://www.googleapis.com/drive/v3/files',
             method: 'GET',
@@ -548,6 +631,8 @@ export class GoogleDriveDocumentStore {
         const readback = artifact ? await this.readbackMetadata(artifact.id) : null;
         return {
             folderAccessible: true,
+            folderWritable: true,
+            serviceAccountHash: this.serviceAccountHash ?? null,
             visibleArtifacts: files.length,
             artifactReadback: readback ? {
                 idSuffix: shortId(readback.id),
