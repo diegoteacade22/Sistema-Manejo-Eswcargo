@@ -16,9 +16,12 @@ const CODEX_AUTO_RESUME_STALE_MS = 2 * 60 * 60_000;
 const CODEX_AUTO_RESUME_PROMPT = [
   'Continuá esta tarea desde el punto pendiente y cerrá un resultado verificable dentro del alcance original.',
   'Aplicá sólo acciones reversibles y ya autorizadas en el hilo.',
+  'Tomá por tu cuenta las decisiones operativas reversibles que no cambien el objetivo y agotá hasta tres alternativas o reintentos seguros antes de detenerte.',
+  'No pidas confirmación para pasos rutinarios, diagnósticos, ediciones acotadas, pruebas ni readbacks comprendidos en el pedido original.',
   'No envíes, publiques, borres, migres ni cambies producción o servicios externos sin autorización explícita en el hilo.',
   'Si hace falta una decisión, credencial, OTP, CAPTCHA, acción física o un tercero, no improvises: explicá el bloqueo concreto.',
   'No reinicies trabajo que ya esté terminado y verificá por readback antes de cerrar.',
+  'La última línea debe ser exactamente AUTONOMY_RESULT: COMPLETED si el objetivo quedó verificado, AUTONOMY_RESULT: NEEDS_USER si sólo Diego puede destrabarlo, o AUTONOMY_RESULT: BLOCKED_EXTERNAL si depende de un tercero o servicio externo.',
 ].join(' ');
 const REPLY_DELIVERY_STATES = new Set(['CONFIRMED', 'CLAIMED', 'DELIVERED', 'FAILED', 'UNKNOWN_OUTCOME', 'SUPERSEDED']);
 const SENSITIVE_REPLY_ERROR = 'No guardes contraseñas, tokens, códigos, correos, teléfonos, enlaces ni rutas. Respondé sólo la decisión necesaria para esta tarea.';
@@ -33,6 +36,7 @@ const HUMAN_TASK_SUMMARIES: Record<string, string> = {
   MONITORING: 'Es un control recurrente que sigue bajo observación.',
   DISCARDED: 'Quedó cerrada sin trabajo pendiente.',
 };
+const CODEX_AUTO_RESUME_MAX_FAILURES = 3;
 
 export class CodexTaskStoreError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -306,6 +310,8 @@ type DispatchCandidateLike = {
   archived: boolean;
   attentionReason: string | null;
   fingerprint: string;
+  humanStatus: string;
+  autonomyLevel: string;
   sourceStatus: string;
   boardState: null | {
     workflowStatus: string;
@@ -336,21 +342,38 @@ export function isApprovedCodexTaskDispatchCandidate(task: DispatchCandidateLike
   const explicitlyConfirmedReply = latestReply?.delivery?.state === 'CONFIRMED'
     && latestReply.sourceFingerprint === task.fingerprint
     && createHash('sha256').update(latestReply.responseText).digest('hex') === latestReply.responseHash;
-  const legacyApproval = task.attentionReason == null
+  const humanApproval = board?.updatedBy !== machineActor
+    && approval?.actorRef === board?.updatedBy
+    && approval?.idempotencyKey.startsWith('dashboard:auto-resume:');
+  const policyApproval = board?.updatedBy === machineActor
+    && approval?.actorRef === machineActor
+    && (approval?.idempotencyKey.startsWith('codex-auto:eligibility:')
+      || approval?.idempotencyKey.startsWith('codex-auto:retry-'));
+  const durableBoardApproval = task.attentionReason == null
     && board?.workflowStatus === 'PENDING'
     && board.lifecycle === 'OPEN'
     && board.sourceFingerprint === task.fingerprint
-    && board.updatedBy !== machineActor
     && approval?.newVersion === board.version
-    && approval.actorRef === board.updatedBy
-    && approval.idempotencyKey.startsWith('dashboard:auto-resume:')
+    && (humanApproval || policyApproval)
     && approval.newHumanStatus === 'PENDING'
     && ['MOVE', 'REOPEN'].includes(approval.action);
   return !task.archived
     && ['IDLE', 'NOT_LOADED'].includes(task.sourceStatus)
     && board?.lifecycle !== 'ARCHIVED'
     && board?.lifecycle !== 'CLOSED'
-    && (explicitlyConfirmedReply || legacyApproval);
+    && (explicitlyConfirmedReply || durableBoardApproval);
+}
+
+export function isAutonomousCodexTaskDispatchCandidate(task: DispatchCandidateLike) {
+  const board = task.boardState;
+  const sourceChanged = Boolean(board && board.lifecycle !== 'ARCHIVED' && board.sourceFingerprint !== task.fingerprint);
+  return !task.archived
+    && task.attentionReason == null
+    && task.humanStatus === 'PENDING'
+    && task.autonomyLevel === 'A1'
+    && ['IDLE', 'NOT_LOADED'].includes(task.sourceStatus)
+    && (!board || sourceChanged)
+    && (!board || board.lifecycle !== 'ARCHIVED');
 }
 
 export function effectiveCodexTaskState(
@@ -651,19 +674,21 @@ function taskView(task: TaskWithBoardState) {
   const replyWasConfirmed = latestReply?.delivery?.state === 'CONFIRMED'
     && latestReply.sourceFingerprint === task.fingerprint
     && createHash('sha256').update(latestReply.responseText).digest('hex') === latestReply.responseHash;
-  const legacyAutoResumeApproved = Boolean(
+  const durableAutoResumeAuthorization = lastActionKey.startsWith('dashboard:auto-resume:')
+    || lastActionKey.startsWith('codex-auto:eligibility:')
+    || lastActionKey.startsWith('codex-auto:retry-');
+  const durableBoardAutoResumeApproved = Boolean(
     task.boardState
     && task.boardState.workflowStatus === 'PENDING'
     && task.boardState.lifecycle === 'OPEN'
     && task.boardState.sourceFingerprint === task.fingerprint
-    && task.boardState.updatedBy !== CODEX_AUTO_RESUME_ACTOR
     && !task.archived
     && task.attentionReason == null
     && ['IDLE', 'NOT_LOADED'].includes(task.sourceStatus)
     && task.actions?.[0]?.newVersion === task.boardState.version
-    && lastActionKey.startsWith('dashboard:auto-resume:'),
+    && durableAutoResumeAuthorization,
   );
-  const autoResumeApproved = replyWasConfirmed || legacyAutoResumeApproved;
+  const autoResumeApproved = replyWasConfirmed || durableBoardAutoResumeApproved;
   const autoResumeRunning = Boolean(
     task.boardState
     && task.boardState.workflowStatus === 'IN_PROGRESS'
@@ -743,13 +768,15 @@ function taskView(task: TaskWithBoardState) {
 async function appendDispatchTransition(
   tx: Prisma.TransactionClient,
   task: TaskWithBoardState,
-  nextHumanStatus: 'UNREVIEWED' | 'PENDING' | 'IN_PROGRESS' | 'NEEDS_DIEGO' | 'BLOCKED' | 'READY_REVIEW' | 'MONITORING' | 'DISCARDED',
+  nextHumanStatus: 'UNREVIEWED' | 'PENDING' | 'IN_PROGRESS' | 'NEEDS_DIEGO' | 'BLOCKED' | 'READY_REVIEW' | 'DONE' | 'MONITORING' | 'DISCARDED',
   actorRef: string,
   suffix: string,
-  nextLifecycle: 'OPEN' | 'ARCHIVED' = 'OPEN',
+  nextLifecycle: 'OPEN' | 'CLOSED' | 'ARCHIVED' = 'OPEN',
 ) {
   const current = effectiveCodexTaskState(task, task.boardState);
-  const sourceChangedAfterBoardUpdate = Boolean(task.boardState && task.boardState.lifecycle !== 'ARCHIVED' && task.boardState.sourceFingerprint !== task.fingerprint);
+  const sourceChangedAfterBoardUpdate = Boolean(task.boardState
+    && task.boardState.lifecycle !== 'ARCHIVED'
+    && task.boardState.sourceFingerprint !== task.fingerprint);
   const transitionPreviousHumanStatus = sourceChangedAfterBoardUpdate ? task.humanStatus : current.humanStatus;
   const transitionPreviousLifecycle = sourceChangedAfterBoardUpdate
     ? task.archived ? 'ARCHIVED' : ['DONE', 'DISCARDED'].includes(task.humanStatus) ? 'CLOSED' : 'OPEN'
@@ -904,6 +931,7 @@ export async function claimApprovedCodexTask(raw: unknown, actorRef: string) {
           OR: [
             { boardState: { is: { workflowStatus: 'PENDING', lifecycle: 'OPEN' } } },
             { replyRevisions: { some: { delivery: { is: { state: 'CONFIRMED' } } } } },
+            { humanStatus: 'PENDING', autonomyLevel: 'A1' },
           ],
         },
         include: {
@@ -911,11 +939,23 @@ export async function claimApprovedCodexTask(raw: unknown, actorRef: string) {
           actions: { orderBy: { newVersion: 'desc' }, take: 1 },
           replyRevisions: { orderBy: { revision: 'desc' }, take: 1, include: { delivery: true } },
         },
-        orderBy: [{ priority: 'asc' }, { sourceUpdatedAt: 'asc' }],
+        orderBy: [{ priority: 'asc' }, { sourceUpdatedAt: 'desc' }],
         take: 2_000,
       });
-      const candidate = candidates.find((task) => isApprovedCodexTaskDispatchCandidate(task, safeActorRef));
+      const humanCandidate = candidates.find((task) => isApprovedCodexTaskDispatchCandidate(task, safeActorRef));
+      const autonomousCandidate = candidates.find((task) => isAutonomousCodexTaskDispatchCandidate(task));
+      let candidate = humanCandidate ?? autonomousCandidate;
       if (!candidate) return { claimed: false, reason: 'NO_APPROVED_TASK' };
+      if (!humanCandidate) {
+        await appendDispatchTransition(tx, candidate, 'PENDING', safeActorRef, 'eligibility');
+        candidate = await tx.companyOsCodexTask.findUniqueOrThrow({
+          where: { id: candidate.id },
+          include: { boardState: true, actions: { orderBy: { newVersion: 'desc' }, take: 1 }, replyRevisions: { orderBy: { revision: 'desc' }, take: 1, include: { delivery: true } } },
+        });
+        if (!isApprovedCodexTaskDispatchCandidate(candidate, safeActorRef)) {
+          throw new CodexTaskStoreError('La elegibilidad autónoma no quedó persistida', 409);
+        }
+      }
       const baselineToken = claimBaselineToken(candidate.lastCompletedAt);
       const snapshot = await appendDispatchTransition(tx, candidate, 'IN_PROGRESS', safeActorRef, `claim-${binding}:${baselineToken}`);
       const confirmedReply = candidate.replyRevisions[0]?.delivery?.state === 'CONFIRMED'
@@ -1038,12 +1078,66 @@ export async function reportCodexTaskDispatch(raw: unknown, actorRef: string) {
       const verifiedStatus = ['UNREVIEWED', 'NEEDS_DIEGO', 'BLOCKED', 'READY_REVIEW', 'MONITORING'].includes(task.humanStatus)
         ? task.humanStatus as 'UNREVIEWED' | 'NEEDS_DIEGO' | 'BLOCKED' | 'READY_REVIEW' | 'MONITORING'
         : 'UNREVIEWED';
+      if (verifiedStatus === 'READY_REVIEW' && task.autonomyLevel === 'A1' && !replyDelivery) {
+        await appendDispatchTransition(tx, task, 'DONE', safeActorRef, 'complete-verified', 'CLOSED');
+        return { reported: true, changed: true, verifiedCompletion: true, outcome, humanStatus: 'DONE', lifecycle: 'CLOSED' };
+      }
       await appendDispatchTransition(tx, task, verifiedStatus, safeActorRef, 'complete');
       if (replyDelivery?.state === 'CLAIMED') await tx.companyOsCodexTaskReplyDelivery.update({
         where: { id: replyDelivery.id },
         data: { state: 'DELIVERED', completedAt: new Date(), outcome, evidenceFingerprint: task.fingerprint, ...deliveryEvidence },
       });
       return { reported: true, changed: true, verifiedCompletion: true, outcome, humanStatus: verifiedStatus };
+    }
+    const terminalBlocker = task.fingerprint !== claimedFingerprint
+      && task.sourceStatus !== 'ACTIVE'
+      && ['NEEDS_DIEGO', 'BLOCKED'].includes(task.humanStatus);
+    if (terminalBlocker) {
+      const terminalStatus = task.humanStatus as 'NEEDS_DIEGO' | 'BLOCKED';
+      await appendDispatchTransition(tx, task, terminalStatus, safeActorRef, `terminal-${terminalStatus.toLowerCase()}`);
+      if (replyDelivery?.state === 'CLAIMED') await tx.companyOsCodexTaskReplyDelivery.update({
+        where: { id: replyDelivery.id },
+        data: { state: 'UNKNOWN_OUTCOME', completedAt: new Date(), outcome, evidenceFingerprint: task.fingerprint, ...deliveryEvidence },
+      });
+      return {
+        reported: true,
+        changed: true,
+        verifiedCompletion: false,
+        outcome,
+        humanStatus: terminalStatus,
+        reason: terminalStatus === 'NEEDS_DIEGO' ? 'NEEDS_USER' : 'BLOCKED_EXTERNAL',
+      };
+    }
+    const executionSeriesStart = await tx.companyOsCodexTaskAction.findFirst({
+      where: {
+        taskId: task.id,
+        createdAt: { lte: claimAction.createdAt },
+        OR: [
+          { idempotencyKey: { startsWith: 'dashboard:auto-resume:' } },
+          { idempotencyKey: { startsWith: 'codex-auto:eligibility:' } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const failureCount = await tx.companyOsCodexTaskAction.count({
+      where: {
+        taskId: task.id,
+        idempotencyKey: { startsWith: 'codex-auto:retry-' },
+        ...(executionSeriesStart ? { createdAt: { gte: executionSeriesStart.createdAt } } : {}),
+      },
+    });
+    if (!replyDelivery && outcome !== 'SUCCEEDED' && failureCount < CODEX_AUTO_RESUME_MAX_FAILURES - 1) {
+      const retryAttempt = failureCount + 1;
+      await appendDispatchTransition(tx, task, 'PENDING', safeActorRef, `retry-${retryAttempt}-${outcome.toLowerCase()}`);
+      return {
+        reported: true,
+        changed: task.fingerprint !== claimedFingerprint,
+        verifiedCompletion: false,
+        outcome,
+        humanStatus: 'PENDING',
+        reason: 'SAFE_RETRY_SCHEDULED',
+        retryAttempt,
+      };
     }
     await appendDispatchTransition(tx, task, 'BLOCKED', safeActorRef, `report-${outcome.toLowerCase()}`);
     if (replyDelivery?.state === 'CLAIMED') await tx.companyOsCodexTaskReplyDelivery.update({
