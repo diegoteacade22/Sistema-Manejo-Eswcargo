@@ -97,10 +97,10 @@ function cloudFailureReason(type: string, message: string) {
         return 'DRIVE_WRITE_FAILED';
     }
     if (type === 'PACKING_LIST_RETIREMENT') return 'DRIVE_RETIREMENT_FAILED';
-    if (type.endsWith('_BUILD')) return 'DOCUMENT_BUILD_FAILED';
     if (/subtotal/i.test(message)) return 'MISSING_CONFIRMED_SUBTOTAL';
     if (/clientes o artículos confirmados/i.test(message)) return 'MISSING_CONFIRMED_ITEMS';
     if (/bloque|inconsisten|fuente/i.test(message)) return 'SOURCE_DOCUMENT_BLOCKED';
+    if (type.endsWith('_BUILD')) return 'DOCUMENT_BUILD_FAILED';
     return 'DOCUMENT_BUILD_FAILED';
 }
 

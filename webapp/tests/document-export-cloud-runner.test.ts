@@ -124,4 +124,5 @@ test('el resumen Cloud separa fallos de build, escritura, permisos y cuota sin f
     assert.match(exporter, /DRIVE_WRITE_PERMISSION/);
     assert.match(exporter, /DRIVE_WRITE_FAILED/);
     assert.match(exporter, /cloudFailureReason\(type, message\)/);
+    assert.ok(exporter.indexOf("if (/subtotal/i.test(message))") < exporter.indexOf("if (type.endsWith('_BUILD'))"));
 });
