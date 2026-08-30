@@ -120,7 +120,10 @@ test('el tablero usa exclusivamente el catálogo nativo de proyectos Codex', () 
   assert.match(collector, /nativeProjectNames, tasks: chunk/);
   assert.match(store, /nativeProjectCatalog\(input\.nativeProjectNames\)/);
   assert.match(store, /projectName: \{ notIn: \[\.\.\.catalog, UNASSIGNED_PROJECT\] \}/);
-  assert.match(store, /sourceHost: task\.sourceHost, projectName: targetProjectName/);
+  assert.match(store, /codex-project-catalog:/);
+  assert.match(store, /scanId: targetProjectName/);
+  assert.match(store, /currentCatalogRows/);
+  assert.match(store, /new Map<string, number>\(\[\.\.\.nativeNames\]/);
   assert.doesNotMatch(store, /companyOsCodexProjectCatalog/);
   assert.doesNotMatch(component, /\[\{ name: task\.projectName, count: 0 \}, \.\.\.projects\]/);
 });

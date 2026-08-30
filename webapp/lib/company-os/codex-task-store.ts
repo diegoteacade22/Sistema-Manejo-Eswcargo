@@ -219,6 +219,14 @@ export async function ingestCodexTaskChunk(raw: unknown, actorRef: string) {
           where: { sourceHost, projectName: { notIn: [...catalog, UNASSIGNED_PROJECT] } },
           data: { projectName: UNASSIGNED_PROJECT },
         });
+        for (const projectName of catalog) {
+          const catalogId = `codex-project-catalog:${sourceHost}:${createHash('sha256').update(projectName).digest('hex')}`;
+          await tx.companyOsCodexInventorySync.upsert({
+            where: { id: catalogId },
+            update: { scanId: projectName, observedCount: 0, changedCount: 0, completedAt: observedAt },
+            create: { id: catalogId, sourceHost, scanId: projectName, observedCount: 0, changedCount: 0, completedAt: observedAt },
+          });
+        }
       }
       const observedCount = Math.max(normalized.length, Math.trunc(Number(input.observedCount) || normalized.length));
       const totalChangedCount = Math.max(changedCount, Math.trunc(Number(input.changedBefore) || 0) + changedCount);
@@ -424,8 +432,18 @@ export async function manageCodexTask(raw: unknown, actorRef: string) {
         newHumanStatus = targetStatus;
       } else if (action === 'MOVE_PROJECT') {
         if (!targetProjectName) throw new CodexTaskStoreError('Elegí un proyecto de destino');
-        const projectExists = Boolean(await tx.companyOsCodexTask.findFirst({
-          where: { sourceHost: task.sourceHost, projectName: targetProjectName },
+        const latestInventory = await tx.companyOsCodexInventorySync.findFirst({
+          where: { id: { startsWith: 'codex-sync:' } },
+          orderBy: { completedAt: 'desc' },
+          select: { sourceHost: true, completedAt: true },
+        });
+        const projectExists = Boolean(latestInventory && await tx.companyOsCodexInventorySync.findFirst({
+          where: {
+            id: { startsWith: `codex-project-catalog:${latestInventory.sourceHost}:` },
+            sourceHost: latestInventory.sourceHost,
+            scanId: targetProjectName,
+            completedAt: latestInventory.completedAt,
+          },
           select: { id: true },
         }));
         if (!projectExists) throw new CodexTaskStoreError('El proyecto de destino ya no está disponible', 409);
@@ -906,7 +924,10 @@ export async function getHumanWorkCenter() {
       include: { boardState: true, actions: { orderBy: { newVersion: 'desc' }, take: 1 } },
       orderBy: [{ priority: 'asc' }, { sourceUpdatedAt: 'desc' }],
     }),
-    db.companyOsCodexInventorySync.findFirst({ orderBy: { completedAt: 'desc' } }),
+    db.companyOsCodexInventorySync.findFirst({
+      where: { id: { startsWith: 'codex-sync:' } },
+      orderBy: { completedAt: 'desc' },
+    }),
     db.companyOsCodexTaskObservation.count({ where: { observedAt: { gte: today } } }),
   ]);
   let commercialProducts: Array<{ sku: string; name: string; stock: number; last_purchase_cost: unknown; lp1: unknown; updatedAt: Date }> = [];
@@ -927,16 +948,22 @@ export async function getHumanWorkCenter() {
   } catch {
     commercialUnavailable = true;
   }
-  const nativeNamesByHost = tasks.reduce((catalog, task) => {
-    if (!isCanonicalProjectName(task.projectName)) return catalog;
-    const names = catalog.get(task.sourceHost) ?? new Set<string>();
-    names.add(task.projectName);
-    catalog.set(task.sourceHost, names);
-    return catalog;
-  }, new Map<string, Set<string>>());
+  const currentCatalogRows = lastSync ? await db.companyOsCodexInventorySync.findMany({
+    where: {
+      id: { startsWith: `codex-project-catalog:${lastSync.sourceHost}:` },
+      sourceHost: lastSync.sourceHost,
+      completedAt: lastSync.completedAt,
+    },
+    select: { scanId: true },
+  }) : [];
+  const currentCatalog = new Set(currentCatalogRows.map((row) => row.scanId).filter(isCanonicalProjectName));
+  const fallbackCatalog = tasks.reduce((names, task) => {
+    if (isCanonicalProjectName(task.projectName)) names.add(task.projectName);
+    return names;
+  }, new Set<string>());
+  const nativeNames = currentCatalog.size ? currentCatalog : fallbackCatalog;
   const taskViews = tasks.map((task) => {
     const view = taskView(task);
-    const nativeNames = nativeNamesByHost.get(task.sourceHost) ?? new Set<string>();
     const projectName = nativeNames.has(view.projectName)
       ? view.projectName
       : nativeNames.has(task.projectName) ? task.projectName : UNASSIGNED_PROJECT;
@@ -951,7 +978,7 @@ export async function getHumanWorkCenter() {
   const projects = Array.from(taskViews.reduce((projectCounts, task) => {
     projectCounts.set(task.projectName, (projectCounts.get(task.projectName) ?? 0) + 1);
     return projectCounts;
-  }, new Map<string, number>())).map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name));
+  }, new Map<string, number>([...nativeNames].map((name) => [name, 0])))).map(([name, count]) => ({ name, count })).sort((a, b) => a.name.localeCompare(b.name));
   const commercialIdeas = commercialProducts
     .map((product) => {
       const cost = Number(product.last_purchase_cost);
