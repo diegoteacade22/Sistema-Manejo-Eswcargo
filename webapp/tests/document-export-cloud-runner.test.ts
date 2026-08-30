@@ -129,6 +129,15 @@ test('el resumen Cloud separa fallos de build, escritura, permisos y cuota sin f
     assert.match(exporter, /DRIVE_WRITE_FAILED/);
     assert.match(exporter, /safeCloudErrorEvidence\(error\)/);
     assert.match(exporter, /cloudFailureReason\(type, message, \{ httpStatus, apiReason \}\)/);
+    assert.match(exporter, /const failureReadbacks = target\.name === 'drive'/);
+    assert.match(exporter, /failureReadbacks,/);
+    assert.match(exporter, /id: shipment\.id/);
+    assert.match(exporter, /clientId: segment\.clientId/);
+    const failureReadbacks = exporter.slice(
+        exporter.indexOf("const failureReadbacks = target.name === 'drive'"),
+        exporter.indexOf('const summary = {'),
+    );
+    assert.doesNotMatch(failureReadbacks, /\n\s*message,\n/);
     assert.match(exporter, /\^\[A-Za-z\]\[A-Za-z0-9_\]\{1,63\}\$/);
     assert.ok(exporter.indexOf("if (/subtotal/i.test(message))") < exporter.indexOf("if (type.endsWith('_BUILD'))"));
 });
