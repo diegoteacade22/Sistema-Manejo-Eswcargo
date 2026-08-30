@@ -39,6 +39,8 @@ test('probe, credenciales y readback son gates obligatorios', async () => {
     assert.match(workflow, /--order-id=\$ORDER_ID/);
     assert.match(workflow, /ESW_DOCUMENT_EXPORT_DRIVE_FOLDER_ID/);
     assert.match(workflow, /GOOGLE_CREDENTIALS/);
+    assert.match(workflow, /GOOGLE_DRIVE_OAUTH_CREDENTIALS/);
+    assert.match(workflow, /authorized_user/);
     assert.match(workflow, /--summary-path/);
     assert.match(workflow, /actions\/upload-artifact@v4/);
 });

@@ -69,6 +69,7 @@ jobs:
 
       - name: Validar configuración sin exponer secretos
         env:
+          GOOGLE_DRIVE_OAUTH_CREDENTIALS: ${{ secrets.GOOGLE_DRIVE_OAUTH_CREDENTIALS }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
         run: |
           set -euo pipefail
@@ -76,17 +77,24 @@ jobs:
             echo "::error::Falta ESW_DOCUMENT_EXPORT_DRIVE_FOLDER_ID."
             exit 1
           }
-          printf '%s' "$GOOGLE_CREDENTIALS" > "$GOOGLE_CREDENTIALS_FILE"
+          drive_credentials="$GOOGLE_DRIVE_OAUTH_CREDENTIALS"
+          if [[ -z "$drive_credentials" ]]; then drive_credentials="$GOOGLE_CREDENTIALS"; fi
+          printf '%s' "$drive_credentials" > "$GOOGLE_CREDENTIALS_FILE"
           node - "$GOOGLE_CREDENTIALS_FILE" <<'NODE'
           const fs = require('node:fs');
           const parsed = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
-          if (parsed.type !== 'service_account'
-              || typeof parsed.client_email !== 'string'
-              || typeof parsed.private_key !== 'string'
-              || !parsed.private_key.includes('PRIVATE KEY')) {
-            throw new Error('GOOGLE_CREDENTIALS no tiene formato service_account válido.');
+          const serviceAccount = parsed.type === 'service_account'
+            && typeof parsed.client_email === 'string'
+            && typeof parsed.private_key === 'string'
+            && parsed.private_key.includes('PRIVATE KEY');
+          const authorizedUser = parsed.type === 'authorized_user'
+            && typeof parsed.client_id === 'string'
+            && typeof parsed.client_secret === 'string'
+            && typeof parsed.refresh_token === 'string';
+          if (!serviceAccount && !authorizedUser) {
+            throw new Error('La credencial Drive no tiene formato válido.');
           }
-          console.log('Credencial Drive presente y con formato service_account válido.');
+          console.log(`Credencial Drive presente y con formato ${authorizedUser ? 'authorized_user' : 'service_account'} válido.`);
           NODE
 
       - name: Ejecutar runner con readback

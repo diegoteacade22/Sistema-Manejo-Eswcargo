@@ -170,7 +170,7 @@ function assertFolderId(value: string | undefined) {
     return folderId;
 }
 
-export async function loadGoogleServiceAccountCredentials(env: Record<string, string | undefined> = process.env) {
+async function loadGoogleCredentialsPayload(env: Record<string, string | undefined>) {
     const credentialsPath = env.GOOGLE_CREDENTIALS_FILE?.trim();
     const encoded = env.GOOGLE_SERVICE_ACCOUNT_JSON_BASE64?.trim();
     const inline = env.GOOGLE_SERVICE_ACCOUNT_JSON?.trim();
@@ -191,6 +191,11 @@ export async function loadGoogleServiceAccountCredentials(env: Record<string, st
         throw new Error('Las credenciales Google no contienen JSON válido.');
     }
 
+    return parsed;
+}
+
+export async function loadGoogleServiceAccountCredentials(env: Record<string, string | undefined> = process.env) {
+    const parsed = await loadGoogleCredentialsPayload(env);
     if (parsed.type !== 'service_account'
         || typeof parsed.client_email !== 'string'
         || !parsed.client_email.includes('@')
@@ -202,8 +207,28 @@ export async function loadGoogleServiceAccountCredentials(env: Record<string, st
     return parsed;
 }
 
+export async function loadGoogleDriveCredentials(env: Record<string, string | undefined> = process.env) {
+    const parsed = await loadGoogleCredentialsPayload(env);
+    const isServiceAccount = parsed.type === 'service_account'
+        && typeof parsed.client_email === 'string'
+        && parsed.client_email.includes('@')
+        && typeof parsed.private_key === 'string'
+        && parsed.private_key.includes('PRIVATE KEY');
+    const isAuthorizedUser = parsed.type === 'authorized_user'
+        && typeof parsed.client_id === 'string'
+        && parsed.client_id.endsWith('.apps.googleusercontent.com')
+        && typeof parsed.client_secret === 'string'
+        && parsed.client_secret.length >= 10
+        && typeof parsed.refresh_token === 'string'
+        && parsed.refresh_token.length >= 20;
+    if (!isServiceAccount && !isAuthorizedUser) {
+        throw new Error('Las credenciales Drive no tienen formato service_account ni authorized_user válido.');
+    }
+    return parsed;
+}
+
 export async function createGoogleDriveRequestClient(env: Record<string, string | undefined> = process.env): Promise<DriveRequestClient> {
-    const credentials = await loadGoogleServiceAccountCredentials(env);
+    const credentials = await loadGoogleDriveCredentials(env);
     return createGoogleDriveRequestClientFromCredentials(credentials);
 }
 
@@ -263,21 +288,30 @@ export class GoogleDriveDocumentStore {
     private readonly client: DriveRequestClient;
     private readonly folderId: string;
     private readonly serviceAccountHash?: string;
+    private readonly authMode: 'SERVICE_ACCOUNT' | 'OAUTH_USER';
 
-    constructor(client: DriveRequestClient, folderId: string, serviceAccountHash?: string) {
+    constructor(
+        client: DriveRequestClient,
+        folderId: string,
+        serviceAccountHash?: string,
+        authMode: 'SERVICE_ACCOUNT' | 'OAUTH_USER' = 'SERVICE_ACCOUNT',
+    ) {
         this.client = client;
         this.folderId = assertFolderId(folderId);
         this.serviceAccountHash = serviceAccountHash;
+        this.authMode = authMode;
     }
 
     static async fromEnvironment(env: Record<string, string | undefined> = process.env) {
         const folderId = assertFolderId(env.ESW_DOCUMENT_EXPORT_DRIVE_FOLDER_ID);
-        const credentials = await loadGoogleServiceAccountCredentials(env);
+        const credentials = await loadGoogleDriveCredentials(env);
         const client = await createGoogleDriveRequestClientFromCredentials(credentials);
+        const authMode = credentials.type === 'authorized_user' ? 'OAUTH_USER' : 'SERVICE_ACCOUNT';
         return new GoogleDriveDocumentStore(
             client,
             folderId,
-            googleServiceAccountIdentityHash(credentials),
+            authMode === 'SERVICE_ACCOUNT' ? googleServiceAccountIdentityHash(credentials) : undefined,
+            authMode,
         );
     }
 
@@ -594,6 +628,7 @@ export class GoogleDriveDocumentStore {
             return {
                 folderAccessible: false,
                 folderWritable: false,
+                authMode: this.authMode,
                 serviceAccountHash: this.serviceAccountHash ?? null,
                 ...safeDriveProbeError(error),
                 visibleArtifacts: 0,
@@ -605,15 +640,18 @@ export class GoogleDriveDocumentStore {
         const folderWritable = folder.mimeType === 'application/vnd.google-apps.folder'
             && folder.trashed !== true
             && folder.capabilities?.canAddChildren === true
-            && isSharedDriveFolder;
+            && (this.authMode === 'OAUTH_USER' || isSharedDriveFolder);
         if (!folderWritable) {
             return {
                 folderAccessible: true,
                 folderWritable: false,
+                authMode: this.authMode,
                 storageScope: isSharedDriveFolder ? 'SHARED_DRIVE' : 'MY_DRIVE',
-                reasonCode: isSharedDriveFolder
+                reasonCode: this.authMode === 'SERVICE_ACCOUNT' && !isSharedDriveFolder
+                    ? 'SERVICE_ACCOUNT_REQUIRES_SHARED_DRIVE'
+                    : isSharedDriveFolder
                     ? 'DRIVE_FOLDER_NOT_WRITABLE'
-                    : 'SERVICE_ACCOUNT_REQUIRES_SHARED_DRIVE',
+                    : 'DRIVE_FOLDER_NOT_WRITABLE',
                 serviceAccountHash: this.serviceAccountHash ?? null,
                 visibleArtifacts: 0,
                 artifactReadback: null,
@@ -638,7 +676,8 @@ export class GoogleDriveDocumentStore {
         return {
             folderAccessible: true,
             folderWritable: true,
-            storageScope: 'SHARED_DRIVE',
+            authMode: this.authMode,
+            storageScope: isSharedDriveFolder ? 'SHARED_DRIVE' : 'MY_DRIVE',
             serviceAccountHash: this.serviceAccountHash ?? null,
             visibleArtifacts: files.length,
             artifactReadback: readback ? {

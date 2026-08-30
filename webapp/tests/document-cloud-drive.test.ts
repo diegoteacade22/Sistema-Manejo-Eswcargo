@@ -7,6 +7,7 @@ import {
     DriveRequestClient,
     GoogleDriveDocumentStore,
     googleServiceAccountIdentityHash,
+    loadGoogleDriveCredentials,
     loadGoogleServiceAccountCredentials,
 } from '../lib/document-cloud-drive';
 import {
@@ -132,6 +133,18 @@ test('valida credenciales sin exponer su contenido', async () => {
     );
 });
 
+test('acepta OAuth de usuario sólo con refresh token y cliente completos', async () => {
+    const credentials = await loadGoogleDriveCredentials({
+        GOOGLE_SERVICE_ACCOUNT_JSON: JSON.stringify({
+            type: 'authorized_user',
+            client_id: `${'client'.repeat(8)}.apps.googleusercontent.com`,
+            client_secret: 'secret-fixture-123',
+            refresh_token: 'refresh-token-fixture-1234567890',
+        }),
+    });
+    assert.equal(credentials.type, 'authorized_user');
+});
+
 test('probe verifica la carpeta exacta y su capacidad de escritura antes de listar', async () => {
     const client = new FakeDriveClient([
         {
@@ -173,6 +186,25 @@ test('probe no declara escribible una carpeta de Mi unidad para una cuenta de se
     assert.equal(client.calls.length, 1);
 });
 
+test('probe acepta Mi unidad cuando autentica al usuario propietario', async () => {
+    const client = new FakeDriveClient([
+        {
+            id: folderId,
+            mimeType: 'application/vnd.google-apps.folder',
+            trashed: false,
+            capabilities: { canAddChildren: true },
+        },
+        { files: [] },
+    ]);
+    const store = new GoogleDriveDocumentStore(client, folderId, undefined, 'OAUTH_USER');
+
+    const result = await store.probe();
+
+    assert.equal(result.folderWritable, true);
+    assert.equal(result.authMode, 'OAUTH_USER');
+    assert.equal(result.storageScope, 'MY_DRIVE');
+});
+
 test('probe falla cerrado si el folder es inaccesible y conserva evidencia saneada', async () => {
     const error = Object.assign(new Error('provider detail'), {
         response: {
@@ -192,6 +224,7 @@ test('probe falla cerrado si el folder es inaccesible y conserva evidencia sanea
     assert.deepEqual(result, {
         folderAccessible: false,
         folderWritable: false,
+        authMode: 'SERVICE_ACCOUNT',
         serviceAccountHash: 'identity1234',
         httpStatus: 404,
         apiReason: 'notFound',
