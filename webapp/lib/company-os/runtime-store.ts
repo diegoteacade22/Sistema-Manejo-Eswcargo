@@ -196,7 +196,7 @@ export async function acceptCompanyOsRuntimeNonce(workerId: string, nonce: strin
       throw error;
     }
     return { accepted: true } as const;
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted });
 }
 
 type ExpiredLeaseRow = {
