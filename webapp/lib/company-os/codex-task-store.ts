@@ -75,6 +75,16 @@ function normalizeSourceProjectName(value: unknown) {
   return isCanonicalProjectName(name) ? name : UNASSIGNED_PROJECT;
 }
 
+function nativeProjectCatalog(value: unknown) {
+  if (value == null) return null;
+  if (!Array.isArray(value) || value.length === 0 || value.length > 100) {
+    throw new CodexTaskStoreError('Catálogo nativo Codex inválido');
+  }
+  return [...new Set(value.map((name) => canonicalProjectName(name)))]
+    .filter((name) => name !== UNASSIGNED_PROJECT)
+    .sort();
+}
+
 function safeDispatchToken(value: unknown) {
   const token = typeof value === 'string' ? value.trim() : '';
   if (!/^[A-Za-z0-9_-]{24,128}$/.test(token)) throw new CodexTaskStoreError('Token de despacho inválido');
@@ -123,7 +133,7 @@ function fingerprint(input: Record<string, unknown>) {
   return createHash('sha256').update(JSON.stringify(input)).digest('hex');
 }
 
-function taskInput(raw: unknown, sourceHost: string, observedAt: Date) {
+function taskInput(raw: unknown, sourceHost: string, observedAt: Date, nativeProjectNames: Set<string> | null) {
   const input = record(raw);
   const threadId = safeThreadId(input.threadId);
   const humanStatus = enumValue(input.humanStatus, HUMAN_STATUSES, 'UNREVIEWED');
@@ -132,12 +142,15 @@ function taskInput(raw: unknown, sourceHost: string, observedAt: Date) {
   const autonomyLevel = enumValue(input.autonomyLevel, AUTONOMY_LEVELS, 'A0');
   const priority = Math.min(5, Math.max(1, Math.trunc(Number(input.priority) || 3)));
   const archived = input.archived === true;
+  const sourceProjectName = normalizeSourceProjectName(input.projectName);
   return {
     id: `codex-task:${threadId}`,
     threadId,
     sourceHost,
     title: safeText(input.title, 240, 'Tarea Codex sin título'),
-    projectName: normalizeSourceProjectName(input.projectName),
+    projectName: sourceProjectName === UNASSIGNED_PROJECT || !nativeProjectNames || nativeProjectNames.has(sourceProjectName)
+      ? sourceProjectName
+      : UNASSIGNED_PROJECT,
     category,
     humanStatus,
     sourceStatus,
@@ -164,7 +177,9 @@ export async function ingestCodexTaskChunk(raw: unknown, actorRef: string) {
     throw new CodexTaskStoreError('Cada lote debe contener hasta 100 tareas; sólo el escaneo final vacío puede no incluir tareas');
   }
   const observedAt = isoDate(input.observedAt, new Date());
-  const normalized = tasks.map((task) => taskInput(task, sourceHost, observedAt));
+  const catalog = nativeProjectCatalog(input.nativeProjectNames);
+  const nativeProjectNames = catalog ? new Set(catalog) : null;
+  const normalized = tasks.map((task) => taskInput(task, sourceHost, observedAt, nativeProjectNames));
   const db = companyOsV3Prisma();
   let changedCount = 0;
 
@@ -199,6 +214,12 @@ export async function ingestCodexTaskChunk(raw: unknown, actorRef: string) {
       }
     }
     if (input.finalChunk === true) {
+      if (catalog) {
+        await tx.companyOsCodexTask.updateMany({
+          where: { sourceHost, projectName: { notIn: [...catalog, UNASSIGNED_PROJECT] } },
+          data: { projectName: UNASSIGNED_PROJECT },
+        });
+      }
       const observedCount = Math.max(normalized.length, Math.trunc(Number(input.observedCount) || normalized.length));
       const totalChangedCount = Math.max(changedCount, Math.trunc(Number(input.changedBefore) || 0) + changedCount);
       const syncId = `codex-sync:${sourceHost}:${scanId}`;
@@ -216,7 +237,7 @@ export async function ingestCodexTaskChunk(raw: unknown, actorRef: string) {
     }
   }, { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted, timeout: 25_000 });
 
-  return { accepted: normalized.length, changedCount, scanId, actorRef };
+  return { accepted: normalized.length, changedCount, scanId, actorRef, nativeProjectCount: catalog?.length ?? null };
 }
 
 export async function markCodexTaskDone(rawThreadId: unknown, actorRef: string) {

@@ -335,15 +335,16 @@ async function projectInventory() {
   const observedAt = new Date().toISOString();
   const scanId = `${AUTO_RESUME ? 'auto' : 'inventory'}-${observedAt.replace(/[^0-9]/g, '').slice(0, 14)}-${randomUUID().slice(0, 8)}`;
   const projects = nativeCodexProjects();
+  const nativeProjectNames = [...new Set(projects.map((project) => project.name))].sort();
   const tasks = await collect(projects);
   let changedCount = 0;
   if (tasks.length === 0) {
-    await postChunk({ sourceHost: SOURCE_HOST, scanId, observedAt, tasks: [], finalChunk: true, observedCount: 0, changedBefore: 0 });
+    await postChunk({ sourceHost: SOURCE_HOST, scanId, observedAt, nativeProjectNames, tasks: [], finalChunk: true, observedCount: 0, changedBefore: 0 });
   }
   for (let offset = 0; offset < tasks.length; offset += 100) {
     const chunk = tasks.slice(offset, offset + 100);
     const finalChunk = offset + chunk.length >= tasks.length;
-    const result = await postChunk({ sourceHost: SOURCE_HOST, scanId, observedAt, tasks: chunk, finalChunk, observedCount: tasks.length, changedBefore: changedCount });
+    const result = await postChunk({ sourceHost: SOURCE_HOST, scanId, observedAt, nativeProjectNames, tasks: chunk, finalChunk, observedCount: tasks.length, changedBefore: changedCount });
     changedCount += Number(result.changedCount || 0);
   }
   return { tasks, changedCount, scanId };
