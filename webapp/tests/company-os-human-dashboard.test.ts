@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createHmac } from 'node:crypto';
 import { CompanyOsHumanDashboard, SECTION_HASHES, sectionFromHash } from '../components/company-os-human-dashboard';
 import { verifyCodexIntakeRequest } from '../lib/company-os/codex-task-auth';
-import { effectiveCodexTaskState, isApprovedCodexTaskDispatchCandidate } from '../lib/company-os/codex-task-store';
+import { effectiveCodexTaskState, isApprovedCodexTaskDispatchCandidate, isAutonomousCodexTaskDispatchCandidate } from '../lib/company-os/codex-task-store';
 
 const page = readFileSync('app/company-os/operations/page.tsx', 'utf8');
 const component = readFileSync('components/company-os-human-dashboard.tsx', 'utf8');
@@ -29,7 +29,7 @@ test('la vista inicial usa lenguaje humano y no muestra leases ni fencing', () =
   const markup = renderToStaticMarkup(React.createElement(CompanyOsHumanDashboard));
   assert.match(markup, /Leyendo tareas de Codex/);
   assert.doesNotMatch(markup, /fencing|capability lease|effect ledger/i);
-  for (const label of ['Trabajando ahora', 'Sin revisar', 'Necesito que decidas', 'El agente puede trabajar ahora', 'Con problemas', 'Ideas y ofertas', 'Realizadas']) {
+  for (const label of ['Trabajando ahora', 'Sin revisar', 'Necesito que decidas', 'Cola automática', 'Con problemas', 'Ideas y ofertas', 'Terminadas']) {
     assert.match(component, new RegExp(label));
   }
   assert.match(component, /Monitoreos activos/);
@@ -77,7 +77,7 @@ test('cada resultado abre una ficha interna y Codex queda como salida secundaria
   assert.match(component, /Reabrir/);
   assert.match(component, /href=\{task\.codexUrl\}/);
   assert.match(component, /Abrir en Codex/);
-  assert.match(component, /Mover o reabrir en “Para el agente” autoriza explícitamente/);
+  assert.match(component, /mover o reabrir una tarea antigua en “Para el agente” autoriza una nueva ejecución/i);
   assert.match(store, /codex:\/\/threads\/\$\{threadId\}/);
 });
 
@@ -94,11 +94,12 @@ test('las ofertas exponen costo, precio sugerido, margen y fuente real', () => {
   assert.match(store, /Revisar precios sin margen positivo/);
 });
 
-test('collector excluye subagentes, no envía texto final y nunca convierte task_complete en DONE', () => {
+test('collector excluye subagentes, no envía texto final y exige marcador verificable antes del cierre automático', () => {
   assert.match(collector, /header\.parent_thread_id \|\| header\.agent_path \|\| header\.forked_from_id/);
   assert.doesNotMatch(collector, /lastFinalText,\s*priority/);
   assert.match(collector, /humanStatus: 'READY_REVIEW'/);
-  assert.match(collector, /humanStatus: 'UNREVIEWED'.*moverla a “Para el agente”/);
+  assert.match(collector, /AUTONOMY_RESULT: COMPLETED/);
+  assert.match(collector, /humanStatus: 'PENDING'.*reanudará automáticamente/);
   assert.doesNotMatch(collector, /humanStatus: 'DONE'/);
   assert.match(store, /codex:\/\/threads\/\$\{threadId\}/);
   assert.match(store, /function safeThreadId/);
@@ -106,22 +107,24 @@ test('collector excluye subagentes, no envía texto final y nunca convierte task
   assert.match(collector, /if \(tasks\.length === 0\)/);
 });
 
-test('sin revisar queda separado de la cola autorizada para el agente', () => {
+test('sin revisar queda separado de la cola autónoma del agente', () => {
   assert.match(store, /unapprovedTasks = activeTasks\.filter/);
   assert.match(store, /approvedPendingTasks = activeTasks\.filter/);
   assert.match(store, /unreviewed: unapprovedTasks/);
   assert.match(store, /pending: approvedPendingTasks/);
   assert.doesNotMatch(store, /pending: select\(\['PENDING', 'UNREVIEWED'\]\)/);
-  assert.match(component, /“Para el agente” requiere confirmación expresa y autoriza una nueva ejecución/);
+  assert.match(component, /Las tareas recientes interrumpidas entran solas/);
   assert.match(component, /Reanudación automática aprobada/);
-  assert.match(component, /REANUDADOR HABILITADO/);
+  assert.match(component, /AUTÓNOMO ACTIVO/);
 });
 
-test('el despacho sólo acepta una transición humana vigente y sin bloqueos', () => {
+test('el despacho acepta autorización humana o política autónoma durable y nunca saltea bloqueos', () => {
   const base = {
     archived: false,
     attentionReason: null,
     fingerprint: 'a'.repeat(64),
+    humanStatus: 'UNREVIEWED',
+    autonomyLevel: 'A0',
     sourceStatus: 'IDLE',
     boardState: {
       workflowStatus: 'PENDING', lifecycle: 'OPEN', sourceFingerprint: 'a'.repeat(64), version: 3, updatedBy: 'human-actor-ref',
@@ -131,7 +134,17 @@ test('el despacho sólo acepta una transición humana vigente y sin bloqueos', (
   assert.equal(isApprovedCodexTaskDispatchCandidate(base), true);
   assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, attentionReason: 'Falta OTP' }), false);
   assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, fingerprint: 'b'.repeat(64) }), false);
-  assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, boardState: { ...base.boardState, updatedBy: 'codex-intake-ai-v1' } }), false);
+  const policyApproved = {
+    ...base,
+    humanStatus: 'PENDING',
+    autonomyLevel: 'A1',
+    boardState: { ...base.boardState, updatedBy: 'codex-intake-ai-v1' },
+    actions: [{ ...base.actions[0], actorRef: 'codex-intake-ai-v1', idempotencyKey: `codex-auto:eligibility:${'b'.repeat(64)}` }],
+  };
+  assert.equal(isApprovedCodexTaskDispatchCandidate(policyApproved), true);
+  assert.equal(isAutonomousCodexTaskDispatchCandidate({ ...policyApproved, boardState: null, actions: [] }), true);
+  assert.equal(isAutonomousCodexTaskDispatchCandidate({ ...policyApproved, attentionReason: 'Falta OTP', boardState: null, actions: [] }), false);
+  assert.equal(isAutonomousCodexTaskDispatchCandidate({ ...policyApproved, boardState: { ...policyApproved.boardState, lifecycle: 'ARCHIVED' }, actions: [] }), false);
   assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, actions: [{ ...base.actions[0], newVersion: 2 }] }), false);
   assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, actions: [{ ...base.actions[0], idempotencyKey: 'dashboard:legacy-action-1234567890' }] }), false);
   assert.match(store, /Confirmá explícitamente la reanudación automática/);
@@ -180,6 +193,8 @@ test('la reanudación usa HMAC, journal durable, sandbox y no hereda el secreto'
   assert.match(collector, /'--cd', cwd, '--skip-git-repo-check'/);
   assert.match(store, /claimKeyPrefix/);
   assert.match(store, /outcome === 'SUCCEEDED' && completedAfterClaim/);
+  assert.match(store, /SAFE_RETRY_SCHEDULED/);
+  assert.match(store, /'DONE'[\s\S]*'complete-verified'[\s\S]*'CLOSED'/);
   assert.match(collectorManager, /StartInterval<\/key><integer>300/);
   assert.match(collectorManager, /COMPANY_OS_CODEX_AUTO_RESUME<\/key><string>1/);
   assert.match(collectorManager, /Falta Codex CLI para reanudación automática/);

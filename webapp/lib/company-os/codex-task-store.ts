@@ -13,6 +13,7 @@ const REOPEN_TARGET_STATUSES = new Set(['PENDING', 'NEEDS_DIEGO']);
 const MANAGEMENT_ACTIONS = new Set(['MOVE', 'MOVE_PROJECT', 'ARCHIVE', 'CLOSE', 'REOPEN']);
 const CODEX_AUTO_RESUME_ACTOR = 'codex-intake-ai-v1';
 const CODEX_AUTO_RESUME_STALE_MS = 2 * 60 * 60_000;
+const CODEX_AUTO_RESUME_MAX_FAILURES = 3;
 
 export class CodexTaskStoreError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -235,6 +236,8 @@ type DispatchCandidateLike = {
   archived: boolean;
   attentionReason: string | null;
   fingerprint: string;
+  humanStatus: string;
+  autonomyLevel: string;
   sourceStatus: string;
   boardState: null | {
     workflowStatus: string;
@@ -255,18 +258,35 @@ type DispatchCandidateLike = {
 export function isApprovedCodexTaskDispatchCandidate(task: DispatchCandidateLike, machineActor = CODEX_AUTO_RESUME_ACTOR) {
   const board = task.boardState;
   const approval = task.actions[0];
+  const humanApproval = board?.updatedBy !== machineActor
+    && approval?.actorRef === board?.updatedBy
+    && approval?.idempotencyKey.startsWith('dashboard:auto-resume:');
+  const policyApproval = board?.updatedBy === machineActor
+    && approval?.actorRef === machineActor
+    && (approval?.idempotencyKey.startsWith('codex-auto:eligibility:')
+      || approval?.idempotencyKey.startsWith('codex-auto:retry-'));
   return !task.archived
     && task.attentionReason == null
     && ['IDLE', 'NOT_LOADED'].includes(task.sourceStatus)
     && board?.workflowStatus === 'PENDING'
     && board.lifecycle === 'OPEN'
     && board.sourceFingerprint === task.fingerprint
-    && board.updatedBy !== machineActor
     && approval?.newVersion === board.version
-    && approval.actorRef === board.updatedBy
-    && approval.idempotencyKey.startsWith('dashboard:auto-resume:')
+    && (humanApproval || policyApproval)
     && approval.newHumanStatus === 'PENDING'
     && ['MOVE', 'REOPEN'].includes(approval.action);
+}
+
+export function isAutonomousCodexTaskDispatchCandidate(task: DispatchCandidateLike) {
+  const board = task.boardState;
+  const sourceChanged = Boolean(board && board.lifecycle !== 'ARCHIVED' && board.sourceFingerprint !== task.fingerprint);
+  return !task.archived
+    && task.attentionReason == null
+    && task.humanStatus === 'PENDING'
+    && task.autonomyLevel === 'A1'
+    && ['IDLE', 'NOT_LOADED'].includes(task.sourceStatus)
+    && (!board || sourceChanged)
+    && (!board || board.lifecycle !== 'ARCHIVED');
 }
 
 export function effectiveCodexTaskState(
@@ -458,17 +478,19 @@ function taskView(task: TaskWithBoardState) {
   const effective = effectiveCodexTaskState(task, task.boardState);
   const reopened = Boolean(task.boardState && ['DONE', 'DISCARDED'].includes(task.humanStatus) && effective.lifecycle === 'OPEN');
   const lastActionKey = task.actions?.[0]?.idempotencyKey ?? '';
+  const durableAutoResumeAuthorization = lastActionKey.startsWith('dashboard:auto-resume:')
+    || lastActionKey.startsWith('codex-auto:eligibility:')
+    || lastActionKey.startsWith('codex-auto:retry-');
   const autoResumeApproved = Boolean(
     task.boardState
     && task.boardState.workflowStatus === 'PENDING'
     && task.boardState.lifecycle === 'OPEN'
     && task.boardState.sourceFingerprint === task.fingerprint
-    && task.boardState.updatedBy !== CODEX_AUTO_RESUME_ACTOR
     && !task.archived
     && task.attentionReason == null
     && ['IDLE', 'NOT_LOADED'].includes(task.sourceStatus)
     && task.actions?.[0]?.newVersion === task.boardState.version
-    && lastActionKey.startsWith('dashboard:auto-resume:'),
+    && durableAutoResumeAuthorization,
   );
   const autoResumeRunning = Boolean(
     task.boardState
@@ -528,14 +550,15 @@ function taskView(task: TaskWithBoardState) {
 async function appendDispatchTransition(
   tx: Prisma.TransactionClient,
   task: TaskWithBoardState,
-  nextHumanStatus: 'UNREVIEWED' | 'PENDING' | 'IN_PROGRESS' | 'NEEDS_DIEGO' | 'BLOCKED' | 'READY_REVIEW' | 'MONITORING' | 'DISCARDED',
+  nextHumanStatus: 'UNREVIEWED' | 'PENDING' | 'IN_PROGRESS' | 'NEEDS_DIEGO' | 'BLOCKED' | 'READY_REVIEW' | 'DONE' | 'MONITORING' | 'DISCARDED',
   actorRef: string,
   suffix: string,
-  nextLifecycle: 'OPEN' | 'ARCHIVED' = 'OPEN',
+  nextLifecycle: 'OPEN' | 'CLOSED' | 'ARCHIVED' = 'OPEN',
 ) {
-  if (!task.boardState) throw new CodexTaskStoreError('La tarea no tiene autorización durable para reanudarse', 409);
   const current = effectiveCodexTaskState(task, task.boardState);
-  const sourceChangedAfterBoardUpdate = task.boardState.lifecycle !== 'ARCHIVED' && task.boardState.sourceFingerprint !== task.fingerprint;
+  const sourceChangedAfterBoardUpdate = Boolean(task.boardState
+    && task.boardState.lifecycle !== 'ARCHIVED'
+    && task.boardState.sourceFingerprint !== task.fingerprint);
   const transitionPreviousHumanStatus = sourceChangedAfterBoardUpdate ? task.humanStatus : current.humanStatus;
   const transitionPreviousLifecycle = sourceChangedAfterBoardUpdate
     ? task.archived ? 'ARCHIVED' : ['DONE', 'DISCARDED'].includes(task.humanStatus) ? 'CLOSED' : 'OPEN'
@@ -578,19 +601,23 @@ async function appendDispatchTransition(
       actorRef,
     },
   });
-  const updated = await tx.companyOsCodexTaskBoardState.updateMany({
-    where: { taskId: task.id, version: current.boardVersion },
-    data: {
-      workflowStatus: nextHumanStatus,
-      lifecycle: nextLifecycle,
-      previousLifecycle: current.lifecycle,
-      sourceFingerprint: task.fingerprint,
-      projectNameOverride: current.projectName === task.projectName ? null : current.projectName,
-      version: { increment: 1 },
-      updatedBy: actorRef,
-    },
-  });
-  if (updated.count !== 1) throw new CodexTaskStoreError('Otra acción tomó esta tarea antes que el agente', 409);
+  const boardData = {
+    workflowStatus: nextHumanStatus,
+    lifecycle: nextLifecycle,
+    previousLifecycle: current.lifecycle,
+    sourceFingerprint: task.fingerprint,
+    projectNameOverride: current.projectName === task.projectName ? null : current.projectName,
+    updatedBy: actorRef,
+  };
+  if (task.boardState) {
+    const updated = await tx.companyOsCodexTaskBoardState.updateMany({
+      where: { taskId: task.id, version: current.boardVersion },
+      data: { ...boardData, version: { increment: 1 } },
+    });
+    if (updated.count !== 1) throw new CodexTaskStoreError('Otra acción tomó esta tarea antes que el agente', 409);
+  } else {
+    await tx.companyOsCodexTaskBoardState.create({ data: { taskId: task.id, ...boardData, version: newVersion } });
+  }
   return resultSnapshot;
 }
 
@@ -669,17 +696,32 @@ export async function claimApprovedCodexTask(raw: unknown, actorRef: string) {
           archived: false,
           attentionReason: null,
           sourceStatus: { in: ['IDLE', 'NOT_LOADED'] },
-          boardState: { is: { workflowStatus: 'PENDING', lifecycle: 'OPEN' } },
+          OR: [
+            { boardState: { is: { workflowStatus: 'PENDING', lifecycle: 'OPEN' } } },
+            { humanStatus: 'PENDING', autonomyLevel: 'A1' },
+          ],
         },
         include: {
           boardState: true,
           actions: { orderBy: { newVersion: 'desc' }, take: 1 },
         },
-        orderBy: [{ priority: 'asc' }, { sourceUpdatedAt: 'asc' }],
+        orderBy: [{ priority: 'asc' }, { sourceUpdatedAt: 'desc' }],
         take: 2_000,
       });
-      const candidate = candidates.find((task) => isApprovedCodexTaskDispatchCandidate(task, safeActorRef));
+      const humanCandidate = candidates.find((task) => isApprovedCodexTaskDispatchCandidate(task, safeActorRef));
+      const autonomousCandidate = candidates.find((task) => isAutonomousCodexTaskDispatchCandidate(task));
+      let candidate = humanCandidate ?? autonomousCandidate;
       if (!candidate) return { claimed: false, reason: 'NO_APPROVED_TASK' };
+      if (!humanCandidate) {
+        await appendDispatchTransition(tx, candidate, 'PENDING', safeActorRef, 'eligibility');
+        candidate = await tx.companyOsCodexTask.findUniqueOrThrow({
+          where: { id: candidate.id },
+          include: { boardState: true, actions: { orderBy: { newVersion: 'desc' }, take: 1 } },
+        });
+        if (!isApprovedCodexTaskDispatchCandidate(candidate, safeActorRef)) {
+          throw new CodexTaskStoreError('La elegibilidad autónoma no quedó persistida', 409);
+        }
+      }
       const baselineToken = claimBaselineToken(candidate.lastCompletedAt);
       const snapshot = await appendDispatchTransition(tx, candidate, 'IN_PROGRESS', safeActorRef, `claim-${binding}:${baselineToken}`);
       return {
@@ -754,8 +796,28 @@ export async function reportCodexTaskDispatch(raw: unknown, actorRef: string) {
       const verifiedStatus = ['UNREVIEWED', 'NEEDS_DIEGO', 'BLOCKED', 'READY_REVIEW', 'MONITORING'].includes(task.humanStatus)
         ? task.humanStatus as 'UNREVIEWED' | 'NEEDS_DIEGO' | 'BLOCKED' | 'READY_REVIEW' | 'MONITORING'
         : 'UNREVIEWED';
+      if (verifiedStatus === 'READY_REVIEW') {
+        await appendDispatchTransition(tx, task, 'DONE', safeActorRef, 'complete-verified', 'CLOSED');
+        return { reported: true, changed: true, verifiedCompletion: true, outcome, humanStatus: 'DONE', lifecycle: 'CLOSED' };
+      }
       await appendDispatchTransition(tx, task, verifiedStatus, safeActorRef, 'complete');
       return { reported: true, changed: true, verifiedCompletion: true, outcome, humanStatus: verifiedStatus };
+    }
+    const failureCount = await tx.companyOsCodexTaskAction.count({
+      where: { taskId: task.id, idempotencyKey: { startsWith: 'codex-auto:retry-' } },
+    });
+    if (outcome !== 'SUCCEEDED' && failureCount < CODEX_AUTO_RESUME_MAX_FAILURES - 1) {
+      const retryAttempt = failureCount + 1;
+      await appendDispatchTransition(tx, task, 'PENDING', safeActorRef, `retry-${retryAttempt}-${outcome.toLowerCase()}`);
+      return {
+        reported: true,
+        changed: task.fingerprint !== claimedFingerprint,
+        verifiedCompletion: false,
+        outcome,
+        humanStatus: 'PENDING',
+        reason: 'SAFE_RETRY_SCHEDULED',
+        retryAttempt,
+      };
     }
     await appendDispatchTransition(tx, task, 'BLOCKED', safeActorRef, `report-${outcome.toLowerCase()}`);
     return {
