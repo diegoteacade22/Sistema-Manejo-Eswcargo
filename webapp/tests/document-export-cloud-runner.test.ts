@@ -122,7 +122,11 @@ test('el resumen Cloud separa fallos de build, escritura, permisos y cuota sin f
     assert.match(exporter, /packingPhase: 'PACKING_LIST_BUILD' \| 'PACKING_LIST_DRIVE_WRITE'/);
     assert.match(exporter, /DRIVE_STORAGE_QUOTA/);
     assert.match(exporter, /DRIVE_WRITE_PERMISSION/);
+    assert.match(exporter, /DRIVE_WRITE_BAD_REQUEST/);
+    assert.match(exporter, /DRIVE_SERVICE_UNAVAILABLE/);
     assert.match(exporter, /DRIVE_WRITE_FAILED/);
-    assert.match(exporter, /cloudFailureReason\(type, message\)/);
+    assert.match(exporter, /safeCloudErrorEvidence\(error\)/);
+    assert.match(exporter, /cloudFailureReason\(type, message, \{ httpStatus, apiReason \}\)/);
+    assert.match(exporter, /\^\[A-Za-z\]\[A-Za-z0-9_\]\{1,63\}\$/);
     assert.ok(exporter.indexOf("if (/subtotal/i.test(message))") < exporter.indexOf("if (type.endsWith('_BUILD'))"));
 });
