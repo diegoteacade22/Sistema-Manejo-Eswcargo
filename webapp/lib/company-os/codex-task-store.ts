@@ -14,6 +14,7 @@ const MANAGEMENT_ACTIONS = new Set(['MOVE', 'MOVE_PROJECT', 'ARCHIVE', 'CLOSE', 
 const CODEX_AUTO_RESUME_ACTOR = 'codex-intake-ai-v1';
 const CODEX_AUTO_RESUME_STALE_MS = 2 * 60 * 60_000;
 const CODEX_AUTO_RESUME_MAX_FAILURES = 3;
+const UNASSIGNED_PROJECT = 'SIN PROYECTO ASIGNADO';
 
 export class CodexTaskStoreError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -53,6 +54,25 @@ function safeFingerprint(value: unknown) {
   const valueString = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (!/^[0-9a-f]{64}$/.test(valueString)) throw new CodexTaskStoreError('La versión de la tarea es inválida');
   return valueString;
+}
+
+function canonicalProjectName(value: unknown, allowUnassigned = false) {
+  const name = safeText(value, 160);
+  if (allowUnassigned && name === UNASSIGNED_PROJECT) return name;
+  if (name !== name.toLocaleUpperCase('es-US') || /[-–—]/.test(name)) {
+    throw new CodexTaskStoreError('Nombre de proyecto Codex no canónico');
+  }
+  return name;
+}
+
+function isCanonicalProjectName(value: string) {
+  return value === UNASSIGNED_PROJECT
+    || (value === value.toLocaleUpperCase('es-US') && !/[-–—]/.test(value));
+}
+
+function normalizeSourceProjectName(value: unknown) {
+  const name = safeText(value, 160, UNASSIGNED_PROJECT);
+  return isCanonicalProjectName(name) ? name : UNASSIGNED_PROJECT;
 }
 
 function safeDispatchToken(value: unknown) {
@@ -117,7 +137,7 @@ function taskInput(raw: unknown, sourceHost: string, observedAt: Date) {
     threadId,
     sourceHost,
     title: safeText(input.title, 240, 'Tarea Codex sin título'),
-    projectName: safeText(input.projectName, 160, 'Sin proyecto asignado'),
+    projectName: normalizeSourceProjectName(input.projectName),
     category,
     humanStatus,
     sourceStatus,
@@ -330,7 +350,7 @@ export async function manageCodexTask(raw: unknown, actorRef: string) {
   const expectedVersion = Math.trunc(Number(input.expectedVersion));
   if (!Number.isInteger(expectedVersion) || expectedVersion < 0) throw new CodexTaskStoreError('Versión de gestión inválida');
   const targetStatus = typeof input.targetStatus === 'string' ? input.targetStatus.trim().toUpperCase() : '';
-  const targetProjectName = action === 'MOVE_PROJECT' ? safeText(input.targetProjectName, 160) : null;
+  const targetProjectName = action === 'MOVE_PROJECT' ? canonicalProjectName(input.targetProjectName) : null;
   const safeActorRef = safeText(actorRef, 160);
   const requestHash = createHash('sha256').update(JSON.stringify({
     threadId,
@@ -383,13 +403,8 @@ export async function manageCodexTask(raw: unknown, actorRef: string) {
         newHumanStatus = targetStatus;
       } else if (action === 'MOVE_PROJECT') {
         if (!targetProjectName) throw new CodexTaskStoreError('Elegí un proyecto de destino');
-        const projectExists = targetProjectName === current.projectName || Boolean(await tx.companyOsCodexTask.findFirst({
-          where: {
-            OR: [
-              { projectName: targetProjectName },
-              { boardState: { is: { projectNameOverride: targetProjectName } } },
-            ],
-          },
+        const projectExists = Boolean(await tx.companyOsCodexTask.findFirst({
+          where: { sourceHost: task.sourceHost, projectName: targetProjectName },
           select: { id: true },
         }));
         if (!projectExists) throw new CodexTaskStoreError('El proyecto de destino ya no está disponible', 409);
@@ -891,7 +906,21 @@ export async function getHumanWorkCenter() {
   } catch {
     commercialUnavailable = true;
   }
-  const taskViews = tasks.map(taskView);
+  const nativeNamesByHost = tasks.reduce((catalog, task) => {
+    if (!isCanonicalProjectName(task.projectName)) return catalog;
+    const names = catalog.get(task.sourceHost) ?? new Set<string>();
+    names.add(task.projectName);
+    catalog.set(task.sourceHost, names);
+    return catalog;
+  }, new Map<string, Set<string>>());
+  const taskViews = tasks.map((task) => {
+    const view = taskView(task);
+    const nativeNames = nativeNamesByHost.get(task.sourceHost) ?? new Set<string>();
+    const projectName = nativeNames.has(view.projectName)
+      ? view.projectName
+      : nativeNames.has(task.projectName) ? task.projectName : UNASSIGNED_PROJECT;
+    return { ...view, projectName };
+  });
   const activeTasks = taskViews.filter((task) => task.lifecycle !== 'ARCHIVED');
   const archivedTasks = taskViews.filter((task) => task.lifecycle === 'ARCHIVED');
   const approvedPendingTasks = activeTasks.filter((task) => task.humanStatus === 'PENDING' && task.autoResumeApproved);

@@ -35,6 +35,7 @@ const CODEX_BIN = resolve(process.env.COMPANY_OS_CODEX_BIN || '/opt/homebrew/bin
 const AUTO_RESUME_TIMEOUT_MS = Math.min(3_600_000, Math.max(60_000, Number(process.env.COMPANY_OS_CODEX_AUTO_RESUME_TIMEOUT_MS) || 2_700_000));
 const AUTO_RESUME_MAX_AGE_MS = Math.min(7 * 86_400_000, Math.max(2 * 60 * 60_000, Number(process.env.COMPANY_OS_CODEX_AUTO_RESUME_MAX_AGE_MS) || 3 * 86_400_000));
 const HTTP_TIMEOUT_MS = Math.min(60_000, Math.max(5_000, Number(process.env.COMPANY_OS_CODEX_HTTP_TIMEOUT_MS) || 30_000));
+const UNASSIGNED_PROJECT = 'SIN PROYECTO ASIGNADO';
 const CLAIMED_REASONS = new Set(['APPROVED_TASK_CLAIMED', 'APPROVED_TASK_CLAIM_REPLAYED']);
 const UNCLAIMED_REASONS = new Set(['NO_APPROVED_TASK', 'DISPATCH_ALREADY_ACTIVE', 'STALE_DISPATCH_BLOCKED', 'CLAIM_SOURCE_CHANGED', 'CLAIM_ALREADY_CONSUMED']);
 const AUTO_RESUME_PROMPT = [
@@ -99,24 +100,36 @@ function walkJsonl(root, output = new Map()) {
   return output;
 }
 
-function canonicalProjects() {
-  const registryPath = join(CODEX_HOME, 'project-routing', 'canonical-projects.json');
-  if (!existsSync(registryPath)) return [];
-  try {
-    const registry = JSON.parse(readFileSync(registryPath, 'utf8'));
-    return (registry.canonical_projects || []).flatMap((project) =>
-      (project.local_roots || []).map((root) => ({ name: String(project.name), root: resolve(String(root)) }))
-    ).sort((a, b) => b.root.length - a.root.length);
-  } catch { return []; }
+function nativeCodexProjects() {
+  const statePath = join(CODEX_HOME, '.codex-global-state.json');
+  if (!existsSync(statePath)) throw new Error('CODEX_NATIVE_PROJECT_CATALOG_REQUIRED');
+  const state = JSON.parse(readFileSync(statePath, 'utf8'));
+  const localProjects = state?.['local-projects'];
+  if (!localProjects || typeof localProjects !== 'object' || Array.isArray(localProjects)) {
+    throw new Error('CODEX_NATIVE_PROJECT_CATALOG_INVALID');
+  }
+  const projects = Object.values(localProjects).flatMap((project) => {
+    const projectId = typeof project?.id === 'string' ? project.id.trim() : '';
+    const name = typeof project?.name === 'string' ? project.name.trim() : '';
+    const roots = Array.isArray(project?.rootPaths) ? project.rootPaths : [];
+    const canonicalName = name.length > 0
+      && name.length <= 160
+      && name === name.toLocaleUpperCase('es-US')
+      && !/[-–—]/.test(name);
+    if (!/^[A-Za-z0-9_-]{8,128}$/.test(projectId) || !canonicalName || roots.length === 0) return [];
+    return roots.flatMap((root) => typeof root === 'string' && root.trim()
+      ? [{ projectId, name, root: resolve(root) }]
+      : []);
+  }).sort((a, b) => b.root.length - a.root.length);
+  if (!projects.length) throw new Error('CODEX_NATIVE_PROJECT_CATALOG_EMPTY');
+  return projects;
 }
 
 function projectName(cwd, projects) {
   const normalized = typeof cwd === 'string' && cwd ? resolve(cwd) : '';
   const canonical = projects.find((project) => normalized === project.root || normalized.startsWith(`${project.root}/`));
   if (canonical) return canonical.name.slice(0, 160);
-  if (!normalized) return 'Sin proyecto asignado';
-  const leaf = basename(normalized);
-  return (leaf || 'Sin proyecto asignado').slice(0, 160);
+  return UNASSIGNED_PROJECT;
 }
 
 function category(title, project) {
@@ -245,11 +258,10 @@ function sha(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
 
-async function collect() {
+async function collect(projects = nativeCodexProjects()) {
   const index = jsonLines(join(CODEX_HOME, 'session_index.jsonl'));
   const currentFiles = walkJsonl(join(CODEX_HOME, 'sessions'));
   const archivedFiles = walkJsonl(join(CODEX_HOME, 'archived_sessions'));
-  const projects = canonicalProjects();
   const latestById = new Map();
   for (const row of index) if (row?.id && row?.updated_at) latestById.set(String(row.id), row);
   const rows = [...latestById.values()].sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at))).slice(0, MAX_TASKS);
@@ -322,7 +334,8 @@ async function postChunk(payload) {
 async function projectInventory() {
   const observedAt = new Date().toISOString();
   const scanId = `${AUTO_RESUME ? 'auto' : 'inventory'}-${observedAt.replace(/[^0-9]/g, '').slice(0, 14)}-${randomUUID().slice(0, 8)}`;
-  const tasks = await collect();
+  const projects = nativeCodexProjects();
+  const tasks = await collect(projects);
   let changedCount = 0;
   if (tasks.length === 0) {
     await postChunk({ sourceHost: SOURCE_HOST, scanId, observedAt, tasks: [], finalChunk: true, observedCount: 0, changedBefore: 0 });
@@ -349,7 +362,7 @@ function sessionCwd(threadId) {
       .flatMap((root) => {
         try { return existsSync(root) ? [realpathSync(root)] : []; } catch { return []; }
       });
-    const allowedRoots = canonicalProjects().flatMap((project) => {
+    const allowedRoots = nativeCodexProjects().flatMap((project) => {
       try {
         if (!existsSync(project.root)) return [];
         const root = realpathSync(project.root);
@@ -627,9 +640,12 @@ async function reportExecutedState(state) {
 }
 
 if (DRY_RUN) {
-  const initialTasks = await collect();
+  const dryRunProjects = nativeCodexProjects();
+  const initialTasks = await collect(dryRunProjects);
   const statuses = Object.fromEntries([...new Set(initialTasks.map((task) => task.humanStatus))].sort().map((status) => [status, initialTasks.filter((task) => task.humanStatus === status).length]));
-  process.stdout.write(JSON.stringify({ ok: true, dryRun: true, sourceHost: SOURCE_HOST, installId: INSTALL_ID, observedCount: initialTasks.length, statuses, autoResume: AUTO_RESUME }) + '\n');
+  const projectNames = [...new Set(initialTasks.map((task) => task.projectName))].sort();
+  const nativeProjectCount = new Set(dryRunProjects.map((project) => project.projectId)).size;
+  process.stdout.write(JSON.stringify({ ok: true, dryRun: true, sourceHost: SOURCE_HOST, installId: INSTALL_ID, observedCount: initialTasks.length, nativeProjectCount, projectNames, statuses, autoResume: AUTO_RESUME }) + '\n');
   process.exit(0);
 }
 

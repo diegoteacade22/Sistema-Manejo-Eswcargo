@@ -240,9 +240,7 @@ function TaskManagerDialog({
   const canReopen = Boolean(task && (!isOpen || ["DONE", "DISCARDED"].includes(task.humanStatus)));
   const canAuthorizeAutoResume = Boolean(task && !task.sourceArchived && !task.attentionReason && ["IDLE", "NOT_LOADED"].includes(task.sourceStatus) && !task.autoResumeRunning);
   const options = canReopen ? WORKFLOW_OPTIONS.filter((option) => ["PENDING", "NEEDS_DIEGO"].includes(option.value)) : WORKFLOW_OPTIONS;
-  const projectOptions = task && !projects.some((project) => project.name === task.projectName)
-    ? [{ name: task.projectName, count: 0 }, ...projects]
-    : projects;
+  const projectOptions = projects;
 
   return (
     <Dialog open={Boolean(task)} onOpenChange={onOpenChange}>

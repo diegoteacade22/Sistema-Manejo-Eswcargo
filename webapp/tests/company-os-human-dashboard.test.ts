@@ -109,6 +109,19 @@ test('collector excluye subagentes, no envía texto final y exige marcador verif
   assert.match(collector, /if \(tasks\.length === 0\)/);
 });
 
+test('el tablero usa exclusivamente el catálogo nativo de proyectos Codex', () => {
+  assert.match(collector, /state\?\.\['local-projects'\]/);
+  assert.match(collector, /name === name\.toLocaleUpperCase\('es-US'\)/);
+  assert.match(collector, /!\/\[-–—\]\/\.test\(name\)/);
+  assert.match(collector, /return UNASSIGNED_PROJECT/);
+  assert.doesNotMatch(collector, /return \(leaf \|\| 'Sin proyecto asignado'\)/);
+  assert.match(store, /isCanonicalProjectName/);
+  assert.match(store, /return isCanonicalProjectName\(name\) \? name : UNASSIGNED_PROJECT/);
+  assert.match(store, /sourceHost: task\.sourceHost, projectName: targetProjectName/);
+  assert.doesNotMatch(store, /companyOsCodexProjectCatalog/);
+  assert.doesNotMatch(component, /\[\{ name: task\.projectName, count: 0 \}, \.\.\.projects\]/);
+});
+
 test('sin revisar queda separado de la cola autónoma del agente', () => {
   assert.match(store, /unapprovedTasks = activeTasks\.filter/);
   assert.match(store, /approvedPendingTasks = activeTasks\.filter/);
@@ -173,7 +186,7 @@ test('la reanudación usa HMAC, journal durable, sandbox y no hereda el secreto'
   assert.match(collector, /validateClaimDispatch/);
   assert.match(collector, /dispatch\.sourceProjectName !== local\.projectName/);
   assert.match(store, /sourceProjectName: candidate\.projectName/);
-  assert.match(collector, /canonicalProjects\(\)/);
+  assert.match(collector, /nativeCodexProjects\(\)/);
   assert.match(collector, /await stopProcessGroup\(child\.pid\)/);
   assert.match(collector, /function processMatchesDispatch/);
   assert.match(collector, /executionMarker/);
@@ -332,7 +345,7 @@ test('validación humana cierra READY_REVIEW y conserva auditoría idempotente',
   assert.match(store, /expectedVersion/);
   assert.match(store, /FOR UPDATE/);
   assert.match(store, /updateMany/);
-  assert.match(store, /projectNameOverride: targetProjectName/);
+  assert.match(store, /projectNameOverride: newProjectName === task\.projectName \? null : newProjectName/);
   assert.match(store, /P2034/);
   assert.match(route, /65_536/);
   assert.match(migration, /UNIQUE \("taskId", fingerprint, "humanStatus"\)/);
