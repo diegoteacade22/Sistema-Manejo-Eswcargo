@@ -139,6 +139,7 @@ test('probe verifica la carpeta exacta y su capacidad de escritura antes de list
             mimeType: 'application/vnd.google-apps.folder',
             trashed: false,
             capabilities: { canAddChildren: true },
+            driveId: 'shared-drive-123',
         },
         { files: [] },
     ]);
@@ -148,9 +149,28 @@ test('probe verifica la carpeta exacta y su capacidad de escritura antes de list
 
     assert.equal(result.folderAccessible, true);
     assert.equal(result.folderWritable, true);
+    assert.equal(result.storageScope, 'SHARED_DRIVE');
     assert.equal(result.serviceAccountHash, 'identity1234');
     assert.equal(client.calls[0]?.url, `https://www.googleapis.com/drive/v3/files/${folderId}`);
     assert.equal(client.calls[1]?.url, 'https://www.googleapis.com/drive/v3/files');
+});
+
+test('probe no declara escribible una carpeta de Mi unidad para una cuenta de servicio', async () => {
+    const client = new FakeDriveClient([{
+        id: folderId,
+        mimeType: 'application/vnd.google-apps.folder',
+        trashed: false,
+        capabilities: { canAddChildren: true },
+    }]);
+    const store = new GoogleDriveDocumentStore(client, folderId, 'identity1234');
+
+    const result = await store.probe();
+
+    assert.equal(result.folderAccessible, true);
+    assert.equal(result.folderWritable, false);
+    assert.equal(result.storageScope, 'MY_DRIVE');
+    assert.equal(result.reasonCode, 'SERVICE_ACCOUNT_REQUIRES_SHARED_DRIVE');
+    assert.equal(client.calls.length, 1);
 });
 
 test('probe falla cerrado si el folder es inaccesible y conserva evidencia saneada', async () => {

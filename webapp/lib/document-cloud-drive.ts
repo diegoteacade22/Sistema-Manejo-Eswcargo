@@ -601,13 +601,19 @@ export class GoogleDriveDocumentStore {
             };
         }
 
+        const isSharedDriveFolder = typeof folder.driveId === 'string' && folder.driveId.length > 0;
         const folderWritable = folder.mimeType === 'application/vnd.google-apps.folder'
             && folder.trashed !== true
-            && folder.capabilities?.canAddChildren === true;
+            && folder.capabilities?.canAddChildren === true
+            && isSharedDriveFolder;
         if (!folderWritable) {
             return {
                 folderAccessible: true,
                 folderWritable: false,
+                storageScope: isSharedDriveFolder ? 'SHARED_DRIVE' : 'MY_DRIVE',
+                reasonCode: isSharedDriveFolder
+                    ? 'DRIVE_FOLDER_NOT_WRITABLE'
+                    : 'SERVICE_ACCOUNT_REQUIRES_SHARED_DRIVE',
                 serviceAccountHash: this.serviceAccountHash ?? null,
                 visibleArtifacts: 0,
                 artifactReadback: null,
@@ -632,6 +638,7 @@ export class GoogleDriveDocumentStore {
         return {
             folderAccessible: true,
             folderWritable: true,
+            storageScope: 'SHARED_DRIVE',
             serviceAccountHash: this.serviceAccountHash ?? null,
             visibleArtifacts: files.length,
             artifactReadback: readback ? {
