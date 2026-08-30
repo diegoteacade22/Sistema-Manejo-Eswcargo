@@ -36,3 +36,7 @@ export function shouldExportOperationalDocument({
     if (force) return true;
     return hasPreviousState && previousFingerprint !== currentFingerprint;
 }
+
+export function shouldAdvanceShipmentBaseFingerprint(segmentFailures: number) {
+    return Number.isInteger(segmentFailures) && segmentFailures === 0;
+}

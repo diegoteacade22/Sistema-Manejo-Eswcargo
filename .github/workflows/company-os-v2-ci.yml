@@ -40,6 +40,12 @@ jobs:
       - name: Test Company OS
         run: npm run test:company-os
 
+      - name: Test document export cloud contract
+        run: |
+          npm run test:document-export-cloud
+          npm run test:document-export-policy
+          npm run test:document-filenames
+
       - name: Typecheck
         run: npx tsc --noEmit
 
@@ -52,9 +58,18 @@ jobs:
           app/api/company-os/engineering/v2
           components/company-os-human-dashboard.tsx
           components/company-os-engineering-control-center.tsx
+          lib/document-cloud-drive.ts
+          lib/document-export-fingerprint.ts
+          lib/document-export-policy.ts
+          lib/document-export-run-contract.ts
           lib/company-os/autonomous-engineering-v2.ts
           lib/company-os/codex-task-store.ts
           lib/company-os/engineering-store.ts
+          scripts/export-operational-documents.ts
+          tests/document-cloud-drive.test.ts
+          tests/document-export-cloud-runner.test.ts
+          tests/document-export-policy.test.ts
+          tests/document-export-run-contract.test.ts
           tests/company-os-autonomous-engineering-v2.test.ts
           tests/company-os-engineering-durable-contract.test.ts
           tests/company-os-engineering-control-center-ui.test.ts

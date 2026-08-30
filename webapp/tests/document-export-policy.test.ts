@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
     DOCUMENT_EXPORT_LOOKBACK_DAYS,
     isWithinDocumentExportWindow,
+    shouldAdvanceShipmentBaseFingerprint,
     shouldExportOperationalDocument,
 } from '../lib/document-export-policy';
 
@@ -44,6 +45,17 @@ test('force sin fecha tampoco atraviesa el limite historico', () => {
     }), false);
 });
 
+test('force reevalúa un documento reciente pero conserva la misma huella lógica', () => {
+    assert.equal(shouldExportOperationalDocument({
+        currentFingerprint: 'igual',
+        previousFingerprint: 'igual',
+        hasPreviousState: true,
+        isWithinLookback: true,
+        isRequestedDate: false,
+        force: true,
+    }), true);
+});
+
 test('una fecha solicitada manualmente permite regenerar un documento puntual', () => {
     assert.equal(shouldExportOperationalDocument({
         currentFingerprint: 'igual',
@@ -52,5 +64,26 @@ test('una fecha solicitada manualmente permite regenerar un documento puntual', 
         isWithinLookback: false,
         isRequestedDate: true,
         force: true,
+    }), true);
+});
+
+test('un segmento fallido no avanza el fingerprint base y obliga a reintentar', () => {
+    assert.equal(shouldAdvanceShipmentBaseFingerprint(0), true);
+    assert.equal(shouldAdvanceShipmentBaseFingerprint(1), false);
+    assert.equal(shouldAdvanceShipmentBaseFingerprint(2), false);
+
+    const previous = { shipment: 'base-anterior' };
+    const next = { ...previous, successfulSegment: 'segmento-nuevo' };
+    if (shouldAdvanceShipmentBaseFingerprint(1)) next.shipment = 'base-nueva';
+
+    assert.equal(next.shipment, 'base-anterior');
+    assert.equal(next.successfulSegment, 'segmento-nuevo');
+    assert.equal(shouldExportOperationalDocument({
+        currentFingerprint: 'base-nueva',
+        previousFingerprint: next.shipment,
+        hasPreviousState: true,
+        isWithinLookback: true,
+        isRequestedDate: false,
+        force: false,
     }), true);
 });
