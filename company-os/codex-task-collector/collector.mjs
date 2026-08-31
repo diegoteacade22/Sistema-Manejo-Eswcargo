@@ -898,7 +898,7 @@ function runCodexResume(threadId, executionMarker, humanResponse, onSpawn) {
     const prompt = buildResumePrompt(executionMarker, humanResponse);
     const promptHash = createHash('sha256').update(prompt).digest('hex');
     const child = spawn('/bin/zsh', ['-c', runner, executionMarker, gatePath, CODEX_BIN,
-      'exec', '--ignore-user-config', '--approve-for-me', '--sandbox', 'workspace-write', '--color', 'never', '--cd', cwd, '--skip-git-repo-check',
+      'exec', '--ignore-user-config', '--approve-for-me', '--color', 'never', '--cd', cwd, '--skip-git-repo-check',
       'resume', '--all', threadId, '-',
     ], { cwd, detached: true, env: childEnvironment(), stdio: ['pipe', 'ignore', 'pipe'] });
     child.stdin.on('error', () => { /* close/exit determines the durable outcome; exact rollout readback gates delivery */ });

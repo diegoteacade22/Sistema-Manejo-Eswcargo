@@ -288,14 +288,15 @@ test('el despacho acepta autorización humana o política autónoma durable y nu
   assert.match(component, /dashboard:auto-resume/);
 });
 
-test('la reanudación usa HMAC, journal durable, sandbox y no hereda el secreto', () => {
+test('la reanudación usa HMAC, journal durable, configuración aprobada y no hereda el secreto', () => {
   assert.match(dispatchRoute, /verifyCodexIntakeRequest/);
   assert.match(dispatchRoute, /acceptCompanyOsRuntimeNonce/);
   assert.match(dispatchRoute, /DISPATCH_SOURCE_HOST = 'DiegoServer\.local'/);
   assert.match(dispatchRoute, /input\.instanceId !== DISPATCH_INSTANCE_ID/);
   assert.match(dispatchRoute, /claimApprovedCodexTask/);
   assert.match(dispatchRoute, /reportCodexTaskDispatch/);
-  assert.match(collector, /'exec', '--ignore-user-config', '--approve-for-me', '--sandbox', 'workspace-write'/);
+  assert.match(collector, /'exec', '--ignore-user-config', '--approve-for-me', '--color', 'never'/);
+  assert.doesNotMatch(collector, /'--sandbox'/);
   assert.match(collector, /delete process\.env\.COMPANY_OS_CODEX_INTAKE_SECRET/);
   assert.match(collector, /function childEnvironment/);
   assert.match(collector, /stdio: \['pipe', 'ignore', 'pipe'\]/);
