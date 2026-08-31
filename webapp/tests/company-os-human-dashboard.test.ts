@@ -5,7 +5,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createHmac } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { CompanyOsHumanDashboard, SECTION_HASHES, diagnosisIsIncomplete, sectionFromHash } from '../components/company-os-human-dashboard';
+import { CompanyOsHumanDashboard, SECTION_HASHES, diagnosisIsIncomplete, organizationHasChanges, sectionFromHash } from '../components/company-os-human-dashboard';
 import { verifyCodexIntakeRequest } from '../lib/company-os/codex-task-auth';
 import { codexReplyPresentationState, effectiveCodexTaskState, isApprovedCodexTaskDispatchCandidate, isAutonomousCodexTaskDispatchCandidate, reusesReplyFromPreviousCodexRequest, safeCodexTaskReply } from '../lib/company-os/codex-task-store';
 
@@ -89,6 +89,19 @@ test('cada resultado abre una ficha interna y Codex queda como salida secundaria
   assert.doesNotMatch(component, /Abrir en Codex para responder/);
   assert.match(component, /mover o reabrir una tarea antigua en “Para el agente” autoriza una nueva ejecución/i);
   assert.match(store, /codex:\/\/threads\/\$\{threadId\}/);
+});
+
+test('una tarea cerrada se puede reabrir directamente en Para el agente', () => {
+  assert.equal(organizationHasChanges(
+    { lifecycle: 'CLOSED', humanStatus: 'DONE', projectName: 'Proyecto A' },
+    'PENDING',
+    'Proyecto A',
+  ), true);
+  assert.equal(organizationHasChanges(
+    { lifecycle: 'OPEN', humanStatus: 'PENDING', projectName: 'Proyecto A' },
+    'PENDING',
+    'Proyecto A',
+  ), false);
 });
 
 test('la ficha distingue un diagnóstico real de un bloqueo genérico y muestra dónde derivar', () => {

@@ -165,9 +165,17 @@ function findSnapshotTask(snapshot: Snapshot, threadId: string) {
     .find((task) => task.threadId === threadId) ?? null;
 }
 
-function moveTargetForTask(task: Task) {
+type TaskOrganizationState = Pick<Task, "lifecycle" | "humanStatus" | "projectName">;
+
+function moveTargetForTask(task: TaskOrganizationState) {
   if (task.lifecycle !== "OPEN") return "PENDING";
   return WORKFLOW_OPTIONS.some((option) => option.value === task.humanStatus) ? task.humanStatus : "PENDING";
+}
+
+export function organizationHasChanges(task: TaskOrganizationState | null, moveTarget: string, projectTarget: string) {
+  if (!task) return false;
+  const requiresReopen = task.lifecycle !== "OPEN" || ["DONE", "DISCARDED"].includes(task.humanStatus);
+  return requiresReopen || moveTarget !== moveTargetForTask(task) || projectTarget !== task.projectName;
 }
 
 function replyDraftForTask(task: Task) {
@@ -347,7 +355,7 @@ function TaskManagerDialog({
     : projects;
   const guidance = task ? resolutionGuidanceForTask(task) : null;
   const currentCopyState = copyState && copyState.threadId === task?.threadId ? copyState.status : "IDLE";
-  const organizationDirty = Boolean(task && (moveTarget !== moveTargetForTask(task) || projectTarget !== task.projectName));
+  const organizationDirty = organizationHasChanges(task, moveTarget, projectTarget);
 
   const saveOrganization = () => {
     if (!task || !organizationDirty) return;

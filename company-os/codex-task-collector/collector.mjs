@@ -134,7 +134,7 @@ function category(title, project) {
   return 'GENERAL';
 }
 
-const DIRECT_HUMAN_REQUEST_PATTERN = /^(?:(?:¿[^?]{0,320}(?:quer[eé]s|prefer[ií]s|autoriz[aá]s|aprob[aá]s|confirm[aá]s|eleg[ií]s|decid[ií]s|pod[eé]s|cu[aá]l\s+(?:prefer[ií]s|eleg[ií]s)|qu[eé]\s+(?:opci[oó]n|alternativa))(?=\s|[?:,;!]|$)[^?]{0,320}\?)|(?:(?:por favor,?\s+)?(?:necesito que|necesito (?:tu|la) (?:decisi[oó]n|autorizaci[oó]n|confirmaci[oó]n|aprobaci[oó]n|dato)|eleg[ií]|confirm[aá]|decid[ií]|autoriz[aá]|aprob[aá]|respond[eé]|indic[aá]|proporcion[aá]|compart[ií]|ingres[aá]|diego debe|falta que diego|falta (?:tu|la) (?:decisi[oó]n|autorizaci[oó]n|confirmaci[oó]n|aprobaci[oó]n|dato)|tu decisi[oó]n)(?=\s|[.:,;!?]|$)))/i;
+const DIRECT_HUMAN_REQUEST_PATTERN = /^(?:(?:¿[^?]{0,320}(?:quer[eé]s|prefer[ií]s|autoriz[aá]s|aprob[aá]s|confirm[aá]s|eleg[ií]s|decid[ií]s|pod[eé]s|cu[aá]l\s+(?:prefer[ií]s|eleg[ií]s)|qu[eé]\s+(?:opci[oó]n|alternativa))(?=\s|[?:,;!]|$)[^?]{0,320}\?)|(?:(?:(?:para (?:continuar|seguir|avanzar)|antes de (?:continuar|seguir|avanzar)|para destrabar(?:lo|la)?)\s*,?\s+)?(?:por favor,?\s+)?(?:necesito que|necesito (?:(?:tu|la) (?:decisi[oó]n|autorizaci[oó]n|confirmaci[oó]n|aprobaci[oó]n|dato)|(?:el|un) (?:otp|pin|captcha|c[oó]digo|acceso|archivo|dato))|eleg[ií]|confirm[aá]|decid[ií]|autoriz[aá]|aprob[aá]|respond[eé]|indic[aá]|proporcion[aá]|compart[ií]|ingres[aá]|diego debe|falta que diego|falta (?:tu|la) (?:decisi[oó]n|autorizaci[oó]n|confirmaci[oó]n|aprobaci[oó]n|dato)|tu decisi[oó]n)(?=\s|[.:,;!?]|$)))/i;
 const OPTION_PREFIX_PATTERN = /^\s*(?:[-*+•]\s+|(?:opci[oó]n\s+)?[A-Ca-c1-3][).:-]\s*)/i;
 const SENSITIVE_REQUEST_FALLBACK = 'Respondé “Autorizo continuar con el paso indicado” o “No autorizo”. Si requiere credencial o código, completalo en el servicio correspondiente y escribí “Paso seguro completado”. No pegues credenciales, códigos ni datos sensibles.';
 const MISSING_OPTIONS_FALLBACK = 'Respondé “Elijo opción 1”, “Elijo opción 2” o “Elijo opción 3”. No copies datos sensibles de la opción.';
@@ -321,6 +321,10 @@ if (SELF_TEST) {
       expected: 'Necesito que confirmes si conservamos el scheduler local como rollback durante 24 horas.',
     },
     {
+      input: 'Para continuar, necesito que confirmes si conservamos el scheduler local como rollback durante 24 horas.',
+      expected: 'Para continuar, necesito que confirmes si conservamos el scheduler local como rollback durante 24 horas.',
+    },
+    {
       input: '¿Querés que lo despliegue?',
       expected: '¿Querés que lo despliegue?',
     },
@@ -348,6 +352,7 @@ if (SELF_TEST) {
   const fakeGithubToken = `ghp_${'x'.repeat(24)}`;
   const secretRequest = summarizeHumanRequest(`Necesito que compartas token=${fakeGithubToken}.`);
   if (secretRequest !== SENSITIVE_REQUEST_FALLBACK || secretRequest.includes('ghp_')) throw new Error('HUMAN_REQUEST_SECRET_SELF_TEST_FAILED');
+  if (summarizeHumanRequest('Necesito el OTP para continuar.') !== SENSITIVE_REQUEST_FALLBACK) throw new Error('HUMAN_REQUEST_OTP_SELF_TEST_FAILED');
   const fakeGoogleApiKey = ['AI', 'za', 'x'.repeat(32)].join('');
   if (summarizeHumanRequest(`Confirmá si seguimos con ${fakeGoogleApiKey}.`) !== SENSITIVE_REQUEST_FALLBACK) throw new Error('HUMAN_REQUEST_GOOGLE_SECRET_SELF_TEST_FAILED');
   const fakeSlackToken = `xoxb-${'1'.repeat(12)}-${'x'.repeat(20)}`;
