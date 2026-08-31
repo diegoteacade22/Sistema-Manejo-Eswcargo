@@ -4,9 +4,10 @@ import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createHmac } from 'node:crypto';
-import { CompanyOsHumanDashboard, SECTION_HASHES, sectionFromHash } from '../components/company-os-human-dashboard';
+import { execFileSync } from 'node:child_process';
+import { CompanyOsHumanDashboard, SECTION_HASHES, diagnosisIsIncomplete, organizationHasChanges, sectionFromHash } from '../components/company-os-human-dashboard';
 import { verifyCodexIntakeRequest } from '../lib/company-os/codex-task-auth';
-import { effectiveCodexTaskState, isApprovedCodexTaskDispatchCandidate, isAutonomousCodexTaskDispatchCandidate } from '../lib/company-os/codex-task-store';
+import { codexReplyPresentationState, effectiveCodexTaskState, isApprovedCodexTaskDispatchCandidate, isAutonomousCodexTaskDispatchCandidate, reusesReplyFromPreviousCodexRequest, safeCodexTaskReply } from '../lib/company-os/codex-task-store';
 
 const page = readFileSync('app/company-os/operations/page.tsx', 'utf8');
 const component = readFileSync('components/company-os-human-dashboard.tsx', 'utf8');
@@ -14,6 +15,9 @@ const collector = readFileSync('../company-os/codex-task-collector/collector.mjs
 const collectorManager = readFileSync('../company-os/codex-task-collector/manage.sh', 'utf8');
 const migration = readFileSync('../supabase/migrations/20260827142708_company_os_codex_task_inventory.sql', 'utf8');
 const managementMigration = readFileSync('../supabase/migrations/20260827162112_company_os_codex_task_management.sql', 'utf8');
+const replyMigration = readFileSync('../supabase/migrations/20260830023000_company_os_codex_task_replies.sql', 'utf8');
+const replyMigrationWorkflow = readFileSync('../.github/workflows/company-os-codex-task-replies-migrate.yml', 'utf8');
+const prismaSchema = readFileSync('prisma/schema.prisma', 'utf8');
 const store = readFileSync('lib/company-os/codex-task-store.ts', 'utf8');
 const route = readFileSync('app/api/company-os/dashboard/human/route.ts', 'utf8');
 const dispatchRoute = readFileSync('app/api/company-os/codex/v1/dispatch/route.ts', 'utf8');
@@ -69,16 +73,50 @@ test('cada resultado abre una ficha interna y Codex queda como salida secundaria
   assert.match(component, /Ver y gestionar acá/);
   assert.match(component, /onClick=\{\(\) => onOpen\(task\)\}/);
   assert.match(component, /TaskManagerDialog/);
-  assert.match(component, /Mover en este tablero a/);
-  assert.match(component, /Mover chat a otro proyecto del tablero/);
+  assert.match(component, /Organización y derivación/);
+  assert.match(component, /Estado de resolución/);
+  assert.match(component, /Proyecto responsable/);
+  assert.match(component, /Cambios sin guardar/);
+  assert.match(component, /Guardar cambios/);
+  assert.match(component, /Cerrar sin guardar/);
+  assert.match(component, /onAction\("SAVE", moveTarget, false, projectTarget\)/);
   assert.match(component, /MOVE_PROJECT/);
   assert.match(component, /Cerrar como realizada/);
   assert.match(component, /Archivar/);
   assert.match(component, /Reabrir/);
   assert.match(component, /href=\{task\.codexUrl\}/);
-  assert.match(component, /Abrir en Codex/);
+  assert.match(component, /Ver historial técnico en Codex/);
+  assert.doesNotMatch(component, /Abrir en Codex para responder/);
   assert.match(component, /mover o reabrir una tarea antigua en “Para el agente” autoriza una nueva ejecución/i);
   assert.match(store, /codex:\/\/threads\/\$\{threadId\}/);
+});
+
+test('una tarea cerrada se puede reabrir directamente en Para el agente', () => {
+  assert.equal(organizationHasChanges(
+    { lifecycle: 'CLOSED', humanStatus: 'DONE', projectName: 'Proyecto A' },
+    'PENDING',
+    'Proyecto A',
+  ), true);
+  assert.equal(organizationHasChanges(
+    { lifecycle: 'OPEN', humanStatus: 'PENDING', projectName: 'Proyecto A' },
+    'PENDING',
+    'Proyecto A',
+  ), false);
+});
+
+test('la ficha distingue un diagnóstico real de un bloqueo genérico y muestra dónde derivar', () => {
+  assert.equal(diagnosisIsIncomplete('La tarea depende de un acceso, proveedor o evento externo.'), true);
+  assert.equal(diagnosisIsIncomplete('El proveedor rechazó el archivo porque falta la columna SKU.'), false);
+  assert.match(component, /Diagnóstico incompleto/);
+  assert.match(component, /Derivación recomendada/);
+  assert.match(component, /Responsable:/);
+  assert.match(component, /Destino sugerido:/);
+  assert.match(component, /Qué hacer ahora/);
+  assert.match(component, /Copiar instrucción para Codex/);
+  assert.match(component, /causa raíz concreta, quién puede resolverla y el único próximo paso verificable/);
+  assert.match(store, /MANAGEMENT_ACTIONS = new Set\(\['MOVE', 'MOVE_PROJECT', 'SAVE'/);
+  assert.match(store, /if \(action === 'SAVE'\)/);
+  assert.match(store, /No hay cambios pendientes para guardar/);
 });
 
 test('las ofertas exponen costo, precio sugerido, margen y fuente real', () => {
@@ -94,9 +132,18 @@ test('las ofertas exponen costo, precio sugerido, margen y fuente real', () => {
   assert.match(store, /Revisar precios sin margen positivo/);
 });
 
-test('collector excluye subagentes, no envía texto final y exige marcador verificable antes del cierre automático', () => {
+test('collector excluye subagentes, envía sólo síntesis saneada y exige marcador verificable antes del cierre automático', () => {
   assert.match(collector, /header\.parent_thread_id \|\| header\.agent_path \|\| header\.forked_from_id/);
   assert.doesNotMatch(collector, /lastFinalText,\s*priority/);
+  assert.match(collector, /summarizeHumanRequest/);
+  assert.match(collector, /No pegues credenciales, códigos ni datos sensibles/);
+  assert.match(collector, /\[DATO OCULTO\]/);
+  assert.match(collector, /BLOCKER_REASON:/);
+  assert.match(collector, /DIEGO_DECISION:/);
+  assert.match(collector, /DASHBOARD_RESULT:/);
+  assert.match(collector, /summarizeBlockerReason/);
+  assert.match(collector, /summarizeTaskResult/);
+  assert.doesNotMatch(collector, /resultSummary:\s*resultSummary\s*\|\|/);
   assert.match(collector, /humanStatus: 'READY_REVIEW'/);
   assert.match(collector, /AUTONOMY_RESULT: COMPLETED/);
   assert.match(collector, /finalLine === 'AUTONOMY_RESULT: COMPLETED'/);
@@ -107,6 +154,77 @@ test('collector excluye subagentes, no envía texto final y exige marcador verif
   assert.match(store, /function safeThreadId/);
   assert.match(store, /\\u0000-\\u0008/);
   assert.match(collector, /if \(tasks\.length === 0\)/);
+});
+
+test('la síntesis del pedido concreto es determinística y oculta datos sensibles', () => {
+  const output = execFileSync(process.execPath, ['../company-os/codex-task-collector/collector.mjs'], {
+    cwd: process.cwd(),
+    env: { ...process.env, COMPANY_OS_CODEX_SELF_TEST: '1', COMPANY_OS_CODEX_INTAKE_SECRET: '' },
+    encoding: 'utf8',
+  });
+  assert.deepEqual(JSON.parse(output), { ok: true, selfTest: true });
+});
+
+test('la ficha cierra motivo, autorización, ejecución y resultado sin obligar a volver a Codex', () => {
+  assert.match(component, /Motivo del bloqueo/);
+  assert.match(component, /Qué necesito de vos/);
+  assert.match(component, /Resumen de la tarea/);
+  assert.match(component, /Tu autorización o decisión/);
+  assert.match(component, /Guardar autorización y continuar/);
+  assert.match(component, /Guardar modificación y continuar/);
+  assert.match(component, /Guardar nueva respuesta y continuar/);
+  assert.match(component, /humanResponseProgress === "NEEDS_FOLLOWUP" \? ""/);
+  assert.match(component, /La respuesta sigue en cola: todavía podés modificarla/);
+  assert.match(component, /la nueva versión reemplaza sólo la entrega pendiente/);
+  assert.match(component, /Codex está trabajando con tu respuesta/);
+  assert.match(component, /Respuesta guardada · En cola/);
+  assert.match(component, /Codex está ejecutando esta tarea/);
+  assert.match(component, /La tomó \$\{relativeTime\(task\.boardUpdatedAt\)\}/);
+  assert.match(component, /La tarea salió del bloqueo/);
+  assert.match(component, /Resultado de Codex/);
+  assert.match(component, /No tenés que volver a Codex/);
+  assert.match(component, /Respuesta guardada → En cola → Codex trabajando → Resultado/);
+  assert.doesNotMatch(component, /Abrir en Codex para responder/);
+  assert.match(component, /Pedido confirmado por el último escaneo/);
+  assert.match(component, /No pegues contraseñas, tokens, códigos, correos, teléfonos, enlaces ni rutas/);
+  assert.match(route, /SUBMIT_REPLY/);
+  assert.match(store, /submitCodexTaskReply/);
+  assert.match(store, /replyProgress === 'CONFIRMED'[\s\S]*\? 'PENDING'/);
+  assert.match(store, /replyProgress === 'IN_PROGRESS'[\s\S]*\? 'IN_PROGRESS'/);
+  assert.match(store, /replyProgress === 'READY_REVIEW'[\s\S]*\? 'READY_REVIEW'/);
+  assert.match(store, /replyDeliveryState === 'UNKNOWN_OUTCOME'[\s\S]*effectiveHumanStatus === 'NEEDS_DIEGO'[\s\S]*\? 'NEEDS_FOLLOWUP'/);
+  assert.match(store, /const hasDashboardResult = Boolean\(task\.resultSummary\?\.trim\(\)\)/);
+  assert.match(store, /RESULT_SUMMARY_NOT_OBSERVED/);
+  assert.match(store, /blockerReason:/);
+  assert.match(store, /decisionRequest:/);
+  assert.match(store, /resultSummary:/);
+});
+
+test('la respuesta humana se valida antes de persistir o despachar', () => {
+  assert.deepEqual(safeCodexTaskReply('Elegí la opción B y dejalo listo para revisar.'), {
+    responseText: 'Elegí la opción B y dejalo listo para revisar.',
+    responseHash: 'e1ce59fd299ef6326541d49a8948692b5b0c2f48b0b703969b3eb208abddd353',
+  });
+  for (const unsafe of ['token=abc123456', 'PIN 4829', 'password is abc123', 'passcode is 4821', 'secreto es abc123', 'diego@example.com', '+1 305 555 1212', 'https://example.com', '/Users/diego/secreto']) {
+    assert.throws(() => safeCodexTaskReply(unsafe), /No guardes contraseñas/);
+  }
+  assert.match(collector, /validateHumanResponse/);
+  assert.match(collector, /createHash\('sha256'\)\.update\(response\)/);
+  assert.match(collector, /Aplicala únicamente al objetivo original/);
+});
+
+test('la respuesta cambia funcionalmente de cola a ejecución, resultado o nueva decisión', () => {
+  assert.deepEqual(codexReplyPresentationState('CONFIRMED', false, 'NEEDS_DIEGO'), { replyProgress: 'CONFIRMED', displayHumanStatus: 'PENDING' });
+  assert.deepEqual(codexReplyPresentationState('CLAIMED', false, 'NEEDS_DIEGO'), { replyProgress: 'IN_PROGRESS', displayHumanStatus: 'IN_PROGRESS' });
+  assert.deepEqual(codexReplyPresentationState('DELIVERED', true, 'READY_REVIEW'), { replyProgress: 'READY_REVIEW', displayHumanStatus: 'READY_REVIEW' });
+  assert.deepEqual(codexReplyPresentationState('DELIVERED', true, 'NEEDS_DIEGO'), { replyProgress: 'NEEDS_FOLLOWUP', displayHumanStatus: 'NEEDS_DIEGO' });
+  assert.deepEqual(codexReplyPresentationState('UNKNOWN_OUTCOME', true, 'NEEDS_DIEGO'), { replyProgress: 'NEEDS_FOLLOWUP', displayHumanStatus: 'NEEDS_DIEGO' });
+  assert.deepEqual(codexReplyPresentationState('UNKNOWN_OUTCOME', false, 'NEEDS_DIEGO'), { replyProgress: 'UNKNOWN_OUTCOME', displayHumanStatus: 'BLOCKED' });
+  const previousReply = { sourceFingerprint: 'a'.repeat(64), responseHash: 'b'.repeat(64) };
+  assert.equal(reusesReplyFromPreviousCodexRequest(previousReply, 'c'.repeat(64), 'b'.repeat(64)), true);
+  assert.equal(reusesReplyFromPreviousCodexRequest(previousReply, 'c'.repeat(64), 'd'.repeat(64)), false);
+  assert.equal(reusesReplyFromPreviousCodexRequest(previousReply, 'a'.repeat(64), 'b'.repeat(64)), false);
+  assert.match(store, /El pedido cambió y esta respuesta pertenece a la decisión anterior/);
 });
 
 test('sin revisar queda separado de la cola autónoma del agente', () => {
@@ -134,6 +252,7 @@ test('el despacho acepta autorización humana o política autónoma durable y nu
     actions: [{ action: 'MOVE', actorRef: 'human-actor-ref', idempotencyKey: 'dashboard:auto-resume:12345678-1234-1234-1234-123456789abc', newHumanStatus: 'PENDING', newVersion: 3 }],
   };
   assert.equal(isApprovedCodexTaskDispatchCandidate(base), true);
+  assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, actions: [{ ...base.actions[0], action: 'SAVE' }] }), true);
   assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, attentionReason: 'Falta OTP' }), false);
   assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, fingerprint: 'b'.repeat(64) }), false);
   const policyApproved = {
@@ -149,11 +268,27 @@ test('el despacho acepta autorización humana o política autónoma durable y nu
   assert.equal(isAutonomousCodexTaskDispatchCandidate({ ...policyApproved, boardState: { ...policyApproved.boardState, lifecycle: 'ARCHIVED' }, actions: [] }), false);
   assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, actions: [{ ...base.actions[0], newVersion: 2 }] }), false);
   assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, actions: [{ ...base.actions[0], idempotencyKey: 'dashboard:legacy-action-1234567890' }] }), false);
+  const responseText = 'Elegí la opción B.';
+  const replyApproved = {
+    ...base,
+    attentionReason: '¿Preferís la opción A o B?',
+    boardState: null,
+    actions: [],
+    replyRevisions: [{
+      sourceFingerprint: base.fingerprint,
+      responseText,
+      responseHash: safeCodexTaskReply(responseText).responseHash,
+      delivery: { state: 'CONFIRMED' },
+    }],
+  };
+  assert.equal(isApprovedCodexTaskDispatchCandidate(replyApproved), true);
+  assert.equal(isApprovedCodexTaskDispatchCandidate({ ...replyApproved, fingerprint: 'b'.repeat(64) }), false);
+  assert.equal(isApprovedCodexTaskDispatchCandidate({ ...replyApproved, boardState: { ...base.boardState, lifecycle: 'ARCHIVED' } }), false);
   assert.match(store, /Confirmá explícitamente la reanudación automática/);
   assert.match(component, /dashboard:auto-resume/);
 });
 
-test('la reanudación usa HMAC, journal durable, sandbox y no hereda el secreto', () => {
+test('la reanudación usa HMAC, journal durable, configuración aprobada y no hereda el secreto', () => {
   assert.match(dispatchRoute, /verifyCodexIntakeRequest/);
   assert.match(dispatchRoute, /acceptCompanyOsRuntimeNonce/);
   assert.match(dispatchRoute, /DISPATCH_SOURCE_HOST = 'DiegoServer\.local'/);
@@ -164,7 +299,9 @@ test('la reanudación usa HMAC, journal durable, sandbox y no hereda el secreto'
   assert.doesNotMatch(collector, /'--sandbox'/);
   assert.match(collector, /delete process\.env\.COMPANY_OS_CODEX_INTAKE_SECRET/);
   assert.match(collector, /function childEnvironment/);
-  assert.match(collector, /stdio: \['ignore', 'ignore', 'pipe'\]/);
+  assert.match(collector, /stdio: \['pipe', 'ignore', 'pipe'\]/);
+  assert.match(collector, /'resume', '--all', threadId, '-'/);
+  assert.match(collector, /child\.stdin\.end\(prompt\)/);
   assert.match(collector, /AUTO_RESUME_TIMEOUT_MS/);
   assert.match(collector, /AbortSignal\.timeout\(HTTP_TIMEOUT_MS\)/);
   assert.match(collector, /dispatch-state\.json/);
@@ -194,9 +331,16 @@ test('la reanudación usa HMAC, journal durable, sandbox y no hereda el secreto'
   assert.match(collector, /UNCLAIMED_REASONS/);
   assert.match(collector, /process\.kill\(-child\.pid/);
   assert.match(collector, /'--cd', cwd, '--skip-git-repo-check'/);
+  assert.match(collector, /observeDispatchPrompt/);
+  assert.match(collector, /promptObserved: promptProof\.promptObserved/);
+  assert.match(collector, /promptObservedAt: promptProof\.promptObservedAt/);
+  assert.match(collector, /humanResponseHash: claim\.dispatch\.humanResponseHash \|\| null,\s+promptHash: null,/);
   assert.match(store, /claimKeyPrefix/);
-  assert.match(store, /outcome === 'SUCCEEDED' && completedAfterClaim/);
-  assert.match(store, /verifiedStatus === 'READY_REVIEW' && task\.autonomyLevel === 'A1'/);
+  assert.match(store, /outcome === 'SUCCEEDED' && promptObserved && completedAfterClaim && completedAfterPrompt/);
+  assert.match(store, /task\.lastCompletedAt > promptObservedAt/);
+  assert.match(store, /state: 'UNKNOWN_OUTCOME'/);
+  assert.match(store, /previous && previous\.fingerprint !== task\.fingerprint[\s\S]*state: 'CONFIRMED'[\s\S]*state: 'SUPERSEDED'/);
+  assert.match(store, /verifiedStatus === 'READY_REVIEW' && task\.autonomyLevel === 'A1' && !replyDelivery/);
   assert.match(store, /terminalBlocker[\s\S]*NEEDS_USER[\s\S]*BLOCKED_EXTERNAL/);
   assert.match(store, /executionSeriesStart[\s\S]*createdAt: \{ gte: executionSeriesStart\.createdAt \}/);
   assert.match(store, /SAFE_RETRY_SCHEDULED/);
@@ -363,6 +507,25 @@ test('inventario durable es interno, saneado y append-only para observaciones', 
   assert.match(managementMigration, /source_fingerprint/);
   assert.match(managementMigration, /previousProjectName/);
   assert.match(managementMigration, /resultSnapshot/);
+  assert.match(replyMigration, /CREATE TABLE public\."CompanyOsCodexTaskReplyRevision"/);
+  assert.match(replyMigration, /CREATE TABLE public\."CompanyOsCodexTaskReplyDelivery"/);
+  assert.match(replyMigration, /ADD COLUMN "decisionRequest" text/);
+  assert.match(replyMigration, /ADD COLUMN "resultSummary" text/);
+  assert.match(prismaSchema, /decisionRequest\s+String\?/);
+  assert.match(prismaSchema, /resultSummary\s+String\?/);
+  assert.match(replyMigrationWorkflow, /projection_columns/);
+  assert.match(replyMigrationWorkflow, /column_name IN \('decisionRequest','resultSummary'\)/);
+  assert.match(replyMigration, /one_active_per_task/);
+  assert.match(replyMigration, /reply_revision_append_only/);
+  assert.match(replyMigration, /FOREIGN KEY \("replyRevisionId", "taskId"\)/);
+  assert.match(replyMigration, /company_os_codex_task_reply_delivery_guard/);
+  assert.match(replyMigration, /"observedPromptHash" = "promptHash"/);
+  assert.match(replyMigration, /state <> 'DELIVERED'/);
+  assert.match(replyMigration, /outcome = 'SUCCEEDED'/);
+  assert.match(replyMigration, /claim identity is immutable after claim/);
+  assert.match(replyMigration, /OLD\.state = 'CONFIRMED' AND NEW\.state IN \('CLAIMED', 'SUPERSEDED'\)/);
+  assert.match(replyMigration, /OLD\.state = 'CLAIMED' AND NEW\.state IN \('DELIVERED', 'FAILED', 'UNKNOWN_OUTCOME'\)/);
+  assert.match(replyMigration, /FORCE ROW LEVEL SECURITY/);
   assert.doesNotMatch(managementMigration, /rawText|prompt|conversation|cwd/);
   assert.doesNotMatch(migration, /rawText|prompt|conversation|cwd/);
 });

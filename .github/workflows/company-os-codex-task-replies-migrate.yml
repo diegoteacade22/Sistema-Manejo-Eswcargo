@@ -1,0 +1,188 @@
+name: Company OS Codex Task Replies Migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Apply the verified additive migration after dry-run
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: company-os-codex-task-replies-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.109.1
+
+      - name: Verify exact migration plan
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          migration="supabase/migrations/20260830023000_company_os_codex_task_replies.sql"
+          test -f "$migration"
+          prerequisites="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM (VALUES (to_regclass('public.\"CompanyOsCodexTask\"')), (to_regclass('public.\"CompanyOsCodexTaskBoardState\"')), (to_regclass('public.\"CompanyOsCodexTaskAction\"'))) AS expected(table_name) WHERE table_name IS NOT NULL")"
+          tables="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM (VALUES (to_regclass('public.\"CompanyOsCodexTaskReplyRevision\"')), (to_regclass('public.\"CompanyOsCodexTaskReplyDelivery\"'))) AS expected(table_name) WHERE table_name IS NOT NULL")"
+          projection_columns="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'CompanyOsCodexTask' AND column_name IN ('decisionRequest','resultSummary')")"
+          history="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = '20260830023000'")"
+          test "$prerequisites" = "3"
+          if [ "$tables" = "2" ] && [ "$projection_columns" = "2" ] && [ "$history" = "1" ]; then
+            echo "La migración de respuestas Codex ya está aplicada y registrada."
+            exit 0
+          fi
+          if [ "$tables" = "2" ] && [ "$projection_columns" = "2" ] && [ "$history" = "0" ]; then
+            echo "DDL aplicado con historial pendiente; Apply puede reparar únicamente 20260830023000."
+            exit 0
+          fi
+          if [ "$tables" != "0" ] || [ "$projection_columns" != "0" ] || [ "$history" != "0" ]; then
+            echo "::error::Estado parcial inesperado: tablas=$tables columnas=$projection_columns historia=$history."
+            exit 1
+          fi
+          {
+            echo 'BEGIN;'
+            sed -e '/^BEGIN;$/d' -e '/^COMMIT;$/d' "$migration"
+            cat <<'SQL'
+          INSERT INTO public."CompanyOsCodexTask" (
+            id, "threadId", "sourceHost", title, "projectName", category, "humanStatus",
+            "sourceStatus", priority, "nextAction", "autonomyLevel", "codexUrl", fingerprint,
+            "decisionRequest", "resultSummary", "sourceUpdatedAt", "lastObservedAt", archived
+          ) VALUES (
+            'codex-task:migration_reply_dry_run', 'migration_reply_dry_run', 'migration-dry-run',
+            'Tarea sintética de respuesta', 'Proyecto sintético', 'SYSTEMS', 'NEEDS_DIEGO',
+            'IDLE', 1, 'Elegir una opción segura.', 'HUMAN',
+            'codex://threads/migration_reply_dry_run', repeat('a', 64), 'Elegí la opción A o B.',
+            'La tarea espera una decisión.', now(), now(), false
+          );
+
+          INSERT INTO public."CompanyOsCodexTaskReplyRevision" (
+            id, "taskId", revision, "idempotencyKey", "requestHash", "sourceFingerprint",
+            "responseText", "responseHash", "actorRef"
+          ) VALUES (
+            'codex-reply:migration-dry-run', 'codex-task:migration_reply_dry_run', 1,
+            'migration:dry-run:reply', repeat('0', 64), repeat('a', 64),
+            'Elegí la opción B.', '545e5572059937b13bee6f8046b50b5c550aaa08eed7241695eb3c99d03c94a6', 'migration-dry-run'
+          );
+
+          INSERT INTO public."CompanyOsCodexTaskReplyDelivery" (
+            id, "taskId", "replyRevisionId", state, "baselineFingerprint"
+          ) VALUES (
+            'codex-reply-delivery:migration-dry-run', 'codex-task:migration_reply_dry_run',
+            'codex-reply:migration-dry-run', 'CONFIRMED', repeat('a', 64)
+          );
+
+          INSERT INTO public."CompanyOsCodexTaskReplyRevision" (
+            id, "taskId", revision, "idempotencyKey", "requestHash", "sourceFingerprint",
+            "responseText", "responseHash", "actorRef"
+          ) VALUES (
+            'codex-reply:migration-dry-run-2', 'codex-task:migration_reply_dry_run', 2,
+            'migration:dry-run:reply-2', repeat('1', 64), repeat('a', 64),
+            'Elegí la opción A.', repeat('2', 64), 'migration-dry-run'
+          );
+
+          DO $$
+          BEGIN
+            BEGIN
+              UPDATE public."CompanyOsCodexTaskReplyRevision"
+                 SET "responseText" = 'alterada'
+               WHERE id = 'codex-reply:migration-dry-run';
+              RAISE EXCEPTION 'reply revision append-only guard did not reject update';
+            EXCEPTION WHEN OTHERS THEN
+              IF SQLERRM = 'reply revision append-only guard did not reject update' THEN RAISE; END IF;
+            END;
+            BEGIN
+              INSERT INTO public."CompanyOsCodexTaskReplyDelivery" (
+                id, "taskId", "replyRevisionId", state, "baselineFingerprint"
+              ) VALUES (
+                'codex-reply-delivery:duplicate', 'codex-task:migration_reply_dry_run',
+                'codex-reply:migration-dry-run-2', 'CONFIRMED', repeat('a', 64)
+              );
+              RAISE EXCEPTION 'single delivery guard did not reject duplicate';
+            EXCEPTION WHEN unique_violation THEN NULL;
+            END;
+            UPDATE public."CompanyOsCodexTaskReplyDelivery"
+               SET state = 'CLAIMED', "claimBinding" = repeat('3', 64), "claimedBy" = 'migration-dry-run', "claimedAt" = now()
+             WHERE id = 'codex-reply-delivery:migration-dry-run';
+            UPDATE public."CompanyOsCodexTaskReplyDelivery"
+               SET state = 'DELIVERED', "completedAt" = now(), outcome = 'SUCCEEDED', "evidenceFingerprint" = repeat('b', 64),
+                   "executionMarker" = 'run-migration-dry-run-1234', "promptHash" = repeat('4', 64),
+                   "observedPromptHash" = repeat('4', 64), "promptObservedAt" = now()
+             WHERE id = 'codex-reply-delivery:migration-dry-run';
+            BEGIN
+              UPDATE public."CompanyOsCodexTaskReplyDelivery"
+                 SET state = 'FAILED'
+               WHERE id = 'codex-reply-delivery:migration-dry-run';
+              RAISE EXCEPTION 'terminal delivery transition guard did not reject update';
+            EXCEPTION WHEN OTHERS THEN
+              IF SQLERRM = 'terminal delivery transition guard did not reject update' THEN RAISE; END IF;
+            END;
+          END;
+          $$;
+          SQL
+            echo 'ROLLBACK;'
+          } | psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 >/dev/null
+          echo "Plan verificado y revertido: revisión inmutable, outbox único y RLS incluidos."
+
+      - name: Apply verified migration
+        if: ${{ inputs.apply }}
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          migration="supabase/migrations/20260830023000_company_os_codex_task_replies.sql"
+          tables="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM (VALUES (to_regclass('public.\"CompanyOsCodexTaskReplyRevision\"')), (to_regclass('public.\"CompanyOsCodexTaskReplyDelivery\"'))) AS expected(table_name) WHERE table_name IS NOT NULL")"
+          projection_columns="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'CompanyOsCodexTask' AND column_name IN ('decisionRequest','resultSummary')")"
+          history="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = '20260830023000'")"
+          if [ "$tables" = "0" ] && [ "$projection_columns" = "0" ] && [ "$history" = "0" ]; then
+            psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -f "$migration" >/dev/null
+            tables="2"
+            projection_columns="2"
+          fi
+          if [ "$tables" = "2" ] && [ "$projection_columns" = "2" ] && [ "$history" = "0" ]; then
+            supabase migration repair 20260830023000 --status applied --db-url "$DIRECT_URL" --yes >/dev/null
+          elif [ "$tables" != "2" ] || [ "$projection_columns" != "2" ] || [ "$history" != "1" ]; then
+            echo "::error::Estado parcial inesperado: tablas=$tables columnas=$projection_columns historia=$history."
+            exit 1
+          fi
+
+      - name: Verify migration history and permissions
+        if: ${{ inputs.apply }}
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          set -euo pipefail
+          tables="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM (VALUES (to_regclass('public.\"CompanyOsCodexTaskReplyRevision\"')), (to_regclass('public.\"CompanyOsCodexTaskReplyDelivery\"'))) AS expected(table_name) WHERE table_name IS NOT NULL")"
+          projection_columns="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'CompanyOsCodexTask' AND column_name IN ('decisionRequest','resultSummary')")"
+          history="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM supabase_migrations.schema_migrations WHERE version = '20260830023000'")"
+          policies="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM pg_policies WHERE schemaname = 'public' AND tablename IN ('CompanyOsCodexTaskReplyRevision','CompanyOsCodexTaskReplyDelivery')")"
+          grants="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM information_schema.role_table_grants WHERE table_schema = 'public' AND table_name IN ('CompanyOsCodexTaskReplyRevision','CompanyOsCodexTaskReplyDelivery') AND grantee = 'company_os_v3' AND privilege_type IN ('SELECT','INSERT','UPDATE')")"
+          forced_rls="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname IN ('CompanyOsCodexTaskReplyRevision','CompanyOsCodexTaskReplyDelivery') AND c.relrowsecurity AND c.relforcerowsecurity")"
+          triggers="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid WHERE c.relname IN ('CompanyOsCodexTaskReplyRevision','CompanyOsCodexTaskReplyDelivery') AND t.tgname IN ('company_os_codex_task_reply_revision_append_only','company_os_codex_task_reply_delivery_guard') AND NOT t.tgisinternal")"
+          composite_fk="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM pg_constraint WHERE conrelid = 'public.\"CompanyOsCodexTaskReplyDelivery\"'::regclass AND contype = 'f' AND array_length(conkey, 1) = 2")"
+          proof_columns="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'CompanyOsCodexTaskReplyDelivery' AND column_name IN ('executionMarker','promptHash','observedPromptHash','promptObservedAt')")"
+          bypass="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT rolbypassrls FROM pg_roles WHERE rolname = 'company_os_v3'")"
+          forbidden="$(psql -X "$DIRECT_URL" -v ON_ERROR_STOP=1 -Atc "SELECT has_table_privilege('company_os_v3', 'public.\"CompanyOsCodexTaskReplyRevision\"', 'UPDATE,DELETE') OR has_table_privilege('company_os_v3', 'public.\"CompanyOsCodexTaskReplyDelivery\"', 'DELETE')")"
+          test "$tables" = "2"
+          test "$projection_columns" = "2"
+          test "$history" = "1"
+          test "$policies" = "5"
+          test "$grants" = "5"
+          test "$forced_rls" = "2"
+          test "$triggers" = "2"
+          test "$composite_fk" = "1"
+          test "$proof_columns" = "4"
+          test "$bypass" = "f"
+          test "$forbidden" = "f"
+          echo "Migración aplicada: proyección humana, tablas, historial, RLS, permisos mínimos y guardas verificados."

@@ -1209,6 +1209,8 @@ model CompanyOsCodexTask {
   priority         Int                             @default(3)
   nextAction       String
   attentionReason  String?
+  decisionRequest  String?
+  resultSummary    String?
   autonomyLevel    String                          @default("A0")
   codexUrl         String
   fingerprint      String
@@ -1222,6 +1224,8 @@ model CompanyOsCodexTask {
   observations     CompanyOsCodexTaskObservation[]
   actions          CompanyOsCodexTaskAction[]
   boardState       CompanyOsCodexTaskBoardState?
+  replyRevisions   CompanyOsCodexTaskReplyRevision[]
+  replyDeliveries  CompanyOsCodexTaskReplyDelivery[]
 
   @@index([humanStatus, priority, sourceUpdatedAt])
   @@index([projectName, humanStatus, sourceUpdatedAt])
@@ -1267,6 +1271,53 @@ model CompanyOsCodexTaskAction {
 
   @@unique([taskId, newVersion])
   @@index([taskId, createdAt])
+}
+
+/// Immutable, human-authored answer captured by the control center.
+model CompanyOsCodexTaskReplyRevision {
+  id                String                           @id
+  taskId            String
+  revision          Int
+  idempotencyKey    String                           @unique
+  requestHash       String
+  sourceFingerprint String
+  responseText      String
+  responseHash      String
+  actorRef          String
+  createdAt         DateTime                         @default(now())
+  task              CompanyOsCodexTask               @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  delivery          CompanyOsCodexTaskReplyDelivery?
+
+  @@unique([taskId, revision])
+  @@unique([id, taskId])
+  @@index([taskId, createdAt])
+}
+
+/// Durable outbox for one explicitly confirmed reply revision.
+model CompanyOsCodexTaskReplyDelivery {
+  id                      String                          @id
+  taskId                  String
+  replyRevisionId         String                          @unique
+  state                   String                          @default("CONFIRMED")
+  claimBinding            String?                         @unique
+  claimedBy               String?
+  baselineFingerprint     String
+  baselineLastCompletedAt DateTime?
+  confirmedAt             DateTime                        @default(now())
+  claimedAt               DateTime?
+  completedAt             DateTime?
+  outcome                 String?
+  evidenceFingerprint     String?
+  executionMarker         String?
+  promptHash              String?
+  observedPromptHash      String?
+  promptObservedAt        DateTime?
+  task                    CompanyOsCodexTask              @relation(fields: [taskId], references: [id], onDelete: Restrict)
+  replyRevision           CompanyOsCodexTaskReplyRevision @relation(fields: [replyRevisionId, taskId], references: [id, taskId], onDelete: Restrict)
+
+  @@unique([replyRevisionId, taskId])
+  @@index([state, confirmedAt])
+  @@index([taskId, confirmedAt])
 }
 
 /// Append-only evidence that a Codex task materially changed classification.
