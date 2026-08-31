@@ -121,6 +121,10 @@ test('el tablero usa exclusivamente el catálogo nativo de proyectos Codex', () 
   assert.match(store, /nativeProjectCatalog\(input\.nativeProjectNames\)/);
   assert.match(store, /projectName: \{ notIn: \[\.\.\.catalog, UNASSIGNED_PROJECT\] \}/);
   assert.match(store, /codex-project-catalog:/);
+  assert.match(store, /catalogHashFromSync/);
+  assert.match(store, /createMany/);
+  assert.match(store, /skipDuplicates: true/);
+  assert.doesNotMatch(store, /companyOsCodexInventorySync\.upsert/);
   assert.match(store, /scanId: targetProjectName/);
   assert.match(store, /currentCatalogRows/);
   assert.match(store, /new Map<string, number>\(\[\.\.\.nativeNames\]/);

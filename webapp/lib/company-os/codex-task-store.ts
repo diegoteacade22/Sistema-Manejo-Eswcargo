@@ -85,6 +85,14 @@ function nativeProjectCatalog(value: unknown) {
     .sort();
 }
 
+function projectCatalogHash(projectNames: string[]) {
+  return createHash('sha256').update(JSON.stringify(projectNames)).digest('hex');
+}
+
+function catalogHashFromSync(scanId: string) {
+  return scanId.match(/:catalog:([0-9a-f]{64})$/)?.[1] ?? null;
+}
+
 function safeDispatchToken(value: unknown) {
   const token = typeof value === 'string' ? value.trim() : '';
   if (!/^[A-Za-z0-9_-]{24,128}$/.test(token)) throw new CodexTaskStoreError('Token de despacho inválido');
@@ -178,6 +186,7 @@ export async function ingestCodexTaskChunk(raw: unknown, actorRef: string) {
   }
   const observedAt = isoDate(input.observedAt, new Date());
   const catalog = nativeProjectCatalog(input.nativeProjectNames);
+  const catalogHash = catalog ? projectCatalogHash(catalog) : null;
   const nativeProjectNames = catalog ? new Set(catalog) : null;
   const normalized = tasks.map((task) => taskInput(task, sourceHost, observedAt, nativeProjectNames));
   const db = companyOsV3Prisma();
@@ -219,14 +228,17 @@ export async function ingestCodexTaskChunk(raw: unknown, actorRef: string) {
           where: { sourceHost, projectName: { notIn: [...catalog, UNASSIGNED_PROJECT] } },
           data: { projectName: UNASSIGNED_PROJECT },
         });
-        for (const projectName of catalog) {
-          const catalogId = `codex-project-catalog:${sourceHost}:${createHash('sha256').update(projectName).digest('hex')}`;
-          await tx.companyOsCodexInventorySync.upsert({
-            where: { id: catalogId },
-            update: { scanId: projectName, observedCount: 0, changedCount: 0, completedAt: observedAt },
-            create: { id: catalogId, sourceHost, scanId: projectName, observedCount: 0, changedCount: 0, completedAt: observedAt },
-          });
-        }
+        await tx.companyOsCodexInventorySync.createMany({
+          data: catalog.map((projectName) => ({
+            id: `codex-project-catalog:${sourceHost}:${catalogHash}:${createHash('sha256').update(projectName).digest('hex')}`,
+            sourceHost,
+            scanId: projectName,
+            observedCount: 0,
+            changedCount: 0,
+            completedAt: observedAt,
+          })),
+          skipDuplicates: true,
+        });
       }
       const observedCount = Math.max(normalized.length, Math.trunc(Number(input.observedCount) || normalized.length));
       const totalChangedCount = Math.max(changedCount, Math.trunc(Number(input.changedBefore) || 0) + changedCount);
@@ -236,7 +248,7 @@ export async function ingestCodexTaskChunk(raw: unknown, actorRef: string) {
         data: {
           id: syncId,
           sourceHost,
-          scanId,
+          scanId: catalogHash ? `${scanId}:catalog:${catalogHash}` : scanId,
           observedCount,
           changedCount: totalChangedCount,
           completedAt: observedAt,
@@ -435,14 +447,14 @@ export async function manageCodexTask(raw: unknown, actorRef: string) {
         const latestInventory = await tx.companyOsCodexInventorySync.findFirst({
           where: { id: { startsWith: 'codex-sync:' } },
           orderBy: { completedAt: 'desc' },
-          select: { sourceHost: true, completedAt: true },
+          select: { sourceHost: true, scanId: true },
         });
-        const projectExists = Boolean(latestInventory && await tx.companyOsCodexInventorySync.findFirst({
+        const latestCatalogHash = latestInventory ? catalogHashFromSync(latestInventory.scanId) : null;
+        const projectExists = Boolean(latestInventory && latestCatalogHash && await tx.companyOsCodexInventorySync.findFirst({
           where: {
-            id: { startsWith: `codex-project-catalog:${latestInventory.sourceHost}:` },
+            id: { startsWith: `codex-project-catalog:${latestInventory.sourceHost}:${latestCatalogHash}:` },
             sourceHost: latestInventory.sourceHost,
             scanId: targetProjectName,
-            completedAt: latestInventory.completedAt,
           },
           select: { id: true },
         }));
@@ -948,11 +960,11 @@ export async function getHumanWorkCenter() {
   } catch {
     commercialUnavailable = true;
   }
-  const currentCatalogRows = lastSync ? await db.companyOsCodexInventorySync.findMany({
+  const currentCatalogHash = lastSync ? catalogHashFromSync(lastSync.scanId) : null;
+  const currentCatalogRows = lastSync && currentCatalogHash ? await db.companyOsCodexInventorySync.findMany({
     where: {
-      id: { startsWith: `codex-project-catalog:${lastSync.sourceHost}:` },
+      id: { startsWith: `codex-project-catalog:${lastSync.sourceHost}:${currentCatalogHash}:` },
       sourceHost: lastSync.sourceHost,
-      completedAt: lastSync.completedAt,
     },
     select: { scanId: true },
   }) : [];
