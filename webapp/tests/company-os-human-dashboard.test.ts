@@ -161,7 +161,7 @@ test('la reanudación usa HMAC, journal durable, sandbox y no hereda el secreto'
   assert.match(dispatchRoute, /claimApprovedCodexTask/);
   assert.match(dispatchRoute, /reportCodexTaskDispatch/);
   assert.match(collector, /'exec', '--ignore-user-config', '--approve-for-me', '--color', 'never'/);
-  assert.doesNotMatch(collector, /'--approve-for-me', '--sandbox'/);
+  assert.doesNotMatch(collector, /'--sandbox'/);
   assert.match(collector, /delete process\.env\.COMPANY_OS_CODEX_INTAKE_SECRET/);
   assert.match(collector, /function childEnvironment/);
   assert.match(collector, /stdio: \['ignore', 'ignore', 'pipe'\]/);
