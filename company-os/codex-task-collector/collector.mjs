@@ -556,7 +556,7 @@ function runCodexResume(threadId, executionMarker, onSpawn) {
       'exec "$@"',
     ].join('\n');
     const child = spawn('/bin/zsh', ['-c', runner, executionMarker, gatePath, CODEX_BIN,
-      'exec', '--ignore-user-config', '--approve-for-me', '--sandbox', 'workspace-write', '--color', 'never', '--cd', cwd, '--skip-git-repo-check',
+      'exec', '--ignore-user-config', '--approve-for-me', '--color', 'never', '--cd', cwd, '--skip-git-repo-check',
       'resume', '--all', threadId, `${AUTO_RESUME_PROMPT} Marcador local de ejecución: ${executionMarker}.`,
     ], { cwd, detached: true, env: childEnvironment(), stdio: ['ignore', 'ignore', 'pipe'] });
     let timedOut = false;
