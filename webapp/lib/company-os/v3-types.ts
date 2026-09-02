@@ -105,6 +105,27 @@ export type CompanyOsSystemsWorkerResult = {
   }>;
 };
 
+export type CompanyOsDataManagerWorkerResult = {
+  summary: string;
+  primaryDataQualityProblem: string;
+  primaryFreshnessGap: string;
+  recommendedNextStep: string;
+  evidenceRefs: string[];
+  dataFindings: Array<{
+    findingId: string;
+    title: string;
+    classification: 'ACTION_REQUIRED' | 'REVIEW' | 'INFO';
+    priority: number;
+    evidenceRefs: string[];
+  }>;
+  missions: Array<{
+    title: string;
+    objective: string;
+    evidenceRefs: string[];
+    status: 'PLANNED';
+  }>;
+};
+
 export type CompanyOsWorkerUsage = {
   provider: 'openai' | 'ollama';
   model: string;

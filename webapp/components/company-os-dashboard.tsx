@@ -372,7 +372,9 @@ function resultContent(content: string) {
     return JSON.parse(content) as {
       summary?: string;
       primaryDataQualityProblem?: string;
+      primaryFreshnessGap?: string;
       recommendedNextStep?: string;
+      dataFindings?: Array<{ findingId?: string; title?: string; classification?: string; priority?: number; evidenceRefs?: string[] }>;
       primaryConfirmedRisk?: string;
       primaryCoverageGap?: string;
       confirmedRiskNextStep?: string;
@@ -963,7 +965,7 @@ export function CompanyOsDashboard() {
                 Company OS
               </h1>
               <p className="mt-3 max-w-3xl text-sm text-slate-300">
-                {manager.label} AI · {manager.description} Análisis advisory-only, sin ejecución autónoma.
+                {manager.label} AI · {manager.description} Análisis advisory-only; ejecución durable en el worker 24/7 y sin mutaciones empresariales.
               </p>
             </div>
             <Badge variant="outline" className="p-3 text-base">

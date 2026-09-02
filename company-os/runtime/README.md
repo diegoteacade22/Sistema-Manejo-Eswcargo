@@ -19,6 +19,11 @@ cuando la cola está vacía.
 - logs JSONL saneados y rotados en `~/.company-os-runtime/logs/`;
 - notificaciones externas: deshabilitadas en la instalación Mac genérica.
 
+El allowlist predeterminado incluye `general-manager-ai-v3`,
+`systems-manager-ai-v1` y `data-manager-ai-v1`. Data Manager se enruta sólo al
+modelo Ollama local; el cliente OpenAI rechaza ese claim antes de efectuar
+egress.
+
 El servidor conserva la autoridad sobre claims, slots, leases, reintentos,
 presupuestos y transiciones. Obtener `204` en `claim` no llama OpenAI.
 Cada claim debe traer el contrato instalado completo y

@@ -118,24 +118,35 @@ export function buildDaemonRuntime(config, overrides = {}) {
     timeoutMs: config.apiTimeoutMs,
     fetchImpl: overrides.fetchImpl,
   });
-  const openai = overrides.openai || new RetryableModelFallbackClient({
-    enabled: config.ollamaFallbackEnabled,
-    primary: new OpenAiAdvisoryClient({
-      apiKey: config.openAiApiKey,
-      baseUrl: config.openAiBaseUrl,
-      model: config.model,
-      timeoutMs: config.openAiTimeoutMs,
-      requireClaimOutputSchema: true,
-      fetchImpl: overrides.fetchImpl,
-    }),
-    fallback: new OllamaAdvisoryClient({
+  const openai = overrides.openai || (() => {
+    const localData = new OllamaAdvisoryClient({
       baseUrl: config.ollamaBaseUrl,
       model: config.ollamaModel,
       timeoutMs: config.ollamaTimeoutMs,
       requireClaimOutputSchema: true,
       fetchImpl: overrides.fetchImpl,
-    }),
-  });
+    });
+    const routed = new RetryableModelFallbackClient({
+      enabled: config.ollamaFallbackEnabled,
+      primary: new OpenAiAdvisoryClient({
+        apiKey: config.openAiApiKey,
+        baseUrl: config.openAiBaseUrl,
+        model: config.model,
+        timeoutMs: config.openAiTimeoutMs,
+        requireClaimOutputSchema: true,
+        fetchImpl: overrides.fetchImpl,
+      }),
+      fallback: localData,
+    });
+    const routeGenerate = routed.generate.bind(routed);
+    return Object.assign(routed, {
+      generate(claim, options = {}) {
+        return claim.agentId === 'data-manager-ai-v1'
+          ? localData.generate(claim, options)
+          : routeGenerate(claim, options);
+      },
+    });
+  })();
   const notifier = overrides.notifier !== undefined
     ? overrides.notifier
     : null;

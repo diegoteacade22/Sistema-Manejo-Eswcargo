@@ -100,7 +100,7 @@ export function loadRuntimeConfig(env = process.env) {
     logMaxBytes: integerInRange(env.COMPANY_OS_RUNTIME_LOG_MAX_BYTES, 5_242_880, 'COMPANY_OS_RUNTIME_LOG_MAX_BYTES', 1_024, 104_857_600),
     logMaxFiles: integerInRange(env.COMPANY_OS_RUNTIME_LOG_MAX_FILES, 5, 'COMPANY_OS_RUNTIME_LOG_MAX_FILES', 1, 20),
     consoleLogEnabled: booleanValue(env.COMPANY_OS_RUNTIME_CONSOLE_LOG_ENABLED, true, 'COMPANY_OS_RUNTIME_CONSOLE_LOG_ENABLED'),
-    allowedAgentIds: (env.COMPANY_OS_RUNTIME_ALLOWED_AGENT_IDS || 'general-manager-ai-v3,systems-manager-ai-v1')
+    allowedAgentIds: (env.COMPANY_OS_RUNTIME_ALLOWED_AGENT_IDS || 'general-manager-ai-v3,systems-manager-ai-v1,data-manager-ai-v1')
       .split(',').map((value) => identifier(value.trim(), 'COMPANY_OS_RUNTIME_ALLOWED_AGENT_IDS')).filter(Boolean),
     externalNotificationsEnabled,
     telegramTarget: null,

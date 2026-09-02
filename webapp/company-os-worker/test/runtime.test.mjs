@@ -6,7 +6,7 @@ import test from 'node:test';
 import { mkdtempSync } from 'node:fs';
 import { InstanceLock } from '../src/instance-lock.mjs';
 import { JsonRotatingLogger } from '../src/json-logger.mjs';
-import { OpenAiAdvisoryClient, OpenAiWorkerError, validateRuntimeContractOutput } from '../src/openai-client.mjs';
+import { OpenAiAdvisoryClient, OpenAiWorkerError, dataAdvisoryOutputSchemaFor, validateRuntimeContractOutput } from '../src/openai-client.mjs';
 import {
   OllamaAdvisoryClient,
   RetryableModelFallbackClient,
@@ -306,6 +306,60 @@ test('Ollama usa sólo loopback, JSON schema firmado y reporta usage local hones
   assert.equal(result.usage.duration_ms, 1_500);
   assert.match(result.usage.rules_applied.join(','), /signed-runtime-contract/);
   assert.match(result.usage.rules_applied.join(','), /local-loopback-inference/);
+});
+
+test('Data Manager usa exclusivamente Ollama local y su esquema estricto', async () => {
+  const dataOutput = {
+    summary: 'Calidad observada.',
+    primaryDataQualityProblem: 'Cobertura parcial.',
+    primaryFreshnessGap: 'Sin sincronización reciente.',
+    recommendedNextStep: 'Revisar la fuente.',
+    evidenceRefs: ['refs'],
+    dataFindings: [{ findingId: 'f-1', title: 'Cobertura', classification: 'REVIEW', priority: 70, evidenceRefs: ['refs'] }],
+    missions: [],
+    needsHumanDecision: false,
+    confidence: 0.9,
+  };
+  const dataClaim = {
+    ...claim,
+    agentId: 'data-manager-ai-v1',
+    handlerKey: 'data-manager-advisory',
+    contractVersion: '1.0.0',
+    contract: {
+      ...claim.contract,
+      agentId: 'data-manager-ai-v1',
+      handlerKey: 'data-manager-advisory',
+      version: '1.0.0',
+      outputSchema: dataAdvisoryOutputSchemaFor({ refs: [{ id: 'e-1' }] }),
+    },
+    evidencePayload: { refs: [{ id: 'e-1' }] },
+  };
+  let localRequest = null;
+  const ollama = new OllamaAdvisoryClient({
+    baseUrl: 'http://127.0.0.1:11434',
+    model: 'qwen3:14b-q4_K_M',
+    requireClaimOutputSchema: true,
+    fetchImpl: async (url, init) => {
+      localRequest = { url, init };
+      return new Response(JSON.stringify({ model: 'qwen3:14b-q4_K_M', done: true, message: { content: JSON.stringify(dataOutput) }, prompt_eval_count: 10, eval_count: 5 }), { status: 200 });
+    },
+  });
+  const result = await ollama.generate(dataClaim);
+  const body = JSON.parse(localRequest.init.body);
+  assert.equal(localRequest.url, 'http://127.0.0.1:11434/api/chat');
+  assert.deepEqual(body.format.properties.dataFindings.items.properties.evidenceRefs.items.enum, ['refs']);
+  assert.deepEqual(result.output, dataOutput);
+});
+
+test('OpenAI rechaza Data Manager antes de cualquier egress', async () => {
+  let calls = 0;
+  const client = new OpenAiAdvisoryClient({
+    apiKey: 'test-key',
+    requireClaimOutputSchema: true,
+    fetchImpl: async () => { calls += 1; return new Response('{}', { status: 200 }); },
+  });
+  await assert.rejects(() => client.generate({ ...claim, agentId: 'data-manager-ai-v1' }), (error) => error.code === 'OPENAI_DATA_EXPORT_DISABLED');
+  assert.equal(calls, 0);
 });
 
 test('Ollama exige model exacto y done=true antes de atribuir usage', async () => {

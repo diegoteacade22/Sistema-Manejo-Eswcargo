@@ -24,6 +24,14 @@ const CANONICAL_CONTRACT_MIGRATION_URL = new URL(
   '../../supabase/migrations/20260826005735_company_os_runtime_contract_3_1_1.sql',
   import.meta.url,
 );
+const DATA_CONTRACT_MIGRATION_URL = new URL(
+  '../../supabase/migrations/20260902090000_company_os_data_manager_runtime_v1.sql',
+  import.meta.url,
+);
+const GENERAL_CONTRACT_MIGRATION_URL = new URL(
+  '../../supabase/migrations/20260902090100_company_os_general_manager_runtime_3_1_2.sql',
+  import.meta.url,
+);
 
 function extractDollarQuotedJson(sql: string, delimiter: string): unknown {
   const marker = `$${delimiter}$`;
@@ -49,14 +57,20 @@ function canonicalJson(value: unknown): string {
 
 test('keeps the append-only SQL revisions materially identical to the TypeScript contracts', () => {
   const sql = readFileSync(CANONICAL_CONTRACT_MIGRATION_URL, 'utf8');
+  const dataSql = readFileSync(DATA_CONTRACT_MIGRATION_URL, 'utf8');
+  const generalSql = readFileSync(GENERAL_CONTRACT_MIGRATION_URL, 'utf8');
   const persistedContracts = {
     'general-manager-ai-v3': extractDollarQuotedJson(
-      sql,
+      generalSql,
       'company_os_general_manager_contract',
     ),
     'systems-manager-ai-v1': extractDollarQuotedJson(
       sql,
       'company_os_systems_manager_contract',
+    ),
+    'data-manager-ai-v1': extractDollarQuotedJson(
+      dataSql,
+      'company_os_data_manager_contract',
     ),
   };
 
@@ -69,7 +83,7 @@ test('keeps the append-only SQL revisions materially identical to the TypeScript
       COMPANY_OS_RUNTIME_CONTRACT_VERSIONS[agentId],
     );
     assert.ok(
-      sql.includes(
+      (agentId === 'general-manager-ai-v3' ? generalSql : agentId === 'data-manager-ai-v1' ? dataSql : sql).includes(
         `'agent-contract:${agentId}:${COMPANY_OS_RUNTIME_CONTRACT_VERSIONS[agentId]}'`,
       ),
     );
@@ -85,16 +99,20 @@ test('keeps the append-only SQL revisions materially identical to the TypeScript
   );
   assert.doesNotMatch(sql, /jsonb_set\s*\(/i);
   assert.equal((sql.match(/AND contract = [a-z_]+_contract/g) ?? []).length, 2);
+  assert.match(dataSql, /ON CONFLICT \("agentId", "contractVersion"\) DO NOTHING/);
+  assert.match(generalSql, /ON CONFLICT \("agentId", "contractVersion"\) DO NOTHING/);
 });
 
-test('publishes only the two verified, versioned advisory handlers', () => {
+test('publishes the three verified, versioned advisory handlers', () => {
   assert.deepEqual(getInstalledCompanyOsAgentIds(), [
     'general-manager-ai-v3',
     'systems-manager-ai-v1',
+    'data-manager-ai-v1',
   ]);
   assert.deepEqual(COMPANY_OS_INSTALLED_AGENT_IDS, [
     'general-manager-ai-v3',
     'systems-manager-ai-v1',
+    'data-manager-ai-v1',
   ]);
 
   for (const agentId of COMPANY_OS_INSTALLED_AGENT_IDS) {
@@ -118,7 +136,7 @@ test('fails closed for unknown, uninstalled, malformed, and over-permissive cont
     /Unknown Company OS agent/,
   );
   assert.throws(
-    () => getCompanyOsRuntimeContract('data-manager-ai-v1'),
+    () => getCompanyOsRuntimeContract('ingestion-sync-ai-v1'),
     /NOT_INSTALLED/,
   );
 
@@ -189,9 +207,8 @@ test('budgets, timeout, and concurrency are finite and internally consistent', (
   );
 });
 
-test('team manifest leaves Data Manager and every missing specialist NOT_INSTALLED', () => {
+test('team manifest installs Data Manager and leaves future specialists NOT_INSTALLED', () => {
   const expectedNotInstalled = [
-    'data-manager-ai-v1',
     'ingestion-sync-ai-v1',
     'procurement-sourcing-ai-v1',
     'pricing-margin-ai-v1',
@@ -207,8 +224,9 @@ test('team manifest leaves Data Manager and every missing specialist NOT_INSTALL
   }
   assert.equal(
     COMPANY_OS_TEAM_MANIFEST.filter((member) => member.status === 'INSTALLED').length,
-    2,
+    3,
   );
+  assert.equal(getCompanyOsAgentStatus('data-manager-ai-v1'), 'INSTALLED');
 });
 
 test('schedule objective resolves only for an installed schedule contract', () => {
@@ -220,9 +238,9 @@ test('schedule objective resolves only for an installed schedule contract', () =
     () => getCompanyOsScheduleObjective('general-manager-ai-v3'),
     /has no installed schedule contract/,
   );
-  assert.throws(
-    () => getCompanyOsScheduleObjective('data-manager-ai-v1'),
-    /NOT_INSTALLED/,
+  assert.equal(
+    getCompanyOsScheduleObjective('data-manager-ai-v1'),
+    'Actualizá determinísticamente la calidad, frescura, consistencia y cobertura de las fuentes observables. No modifiques datos empresariales ni ejecutes compras.',
   );
 });
 
@@ -326,19 +344,19 @@ test('output validation matches the two executable handlers and rejects extra fi
       }),
     /unknown field delegations/,
   );
-  assert.throws(
-    () =>
-      validateCompanyOsRuntimeOutput('general-manager-ai-v3', {
-        ...generalOutput,
-        delegations: [
-          {
-            agentId: 'data-manager-ai-v1',
-            objective: 'Procesar datos.',
-            evidenceRefs: ['businessSnapshot'],
-          },
-        ],
-      }),
-    /target must be an installed specialist/,
+  const generalToData = validateCompanyOsRuntimeOutput('general-manager-ai-v3', {
+      ...generalOutput,
+      delegations: [
+        {
+          agentId: 'data-manager-ai-v1',
+          objective: 'Procesar datos.',
+          evidenceRefs: ['businessSnapshot'],
+        },
+      ],
+    });
+  assert.equal(
+    (generalToData as { delegations: Array<{ agentId: string }> }).delegations[0].agentId,
+    'data-manager-ai-v1',
   );
   assert.throws(
     () =>
@@ -349,8 +367,25 @@ test('output validation matches the two executable handlers and rejects extra fi
       }),
     /low confidence requires a human decision/,
   );
-  assert.throws(
-    () => validateCompanyOsRuntimeOutput('data-manager-ai-v1', generalOutput),
-    /NOT_INSTALLED/,
+  const dataOutput = {
+    summary: 'Calidad de datos basada en snapshot cerrado.',
+    primaryDataQualityProblem: 'Hay métricas con cobertura parcial.',
+    primaryFreshnessGap: 'La última sincronización está fuera de ventana.',
+    recommendedNextStep: 'Revisar la fuente antes de corregirla.',
+    evidenceRefs: ['businessSnapshot'],
+    dataFindings: [{
+      findingId: 'finding-1',
+      title: 'Cobertura parcial',
+      classification: 'REVIEW',
+      priority: 70,
+      evidenceRefs: ['businessSnapshot'],
+    }],
+    missions: [],
+    needsHumanDecision: false,
+    confidence: 0.9,
+  };
+  assert.equal(
+    validateCompanyOsRuntimeOutput('data-manager-ai-v1', dataOutput),
+    dataOutput,
   );
 });

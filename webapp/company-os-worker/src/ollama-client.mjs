@@ -1,9 +1,11 @@
 import {
   advisoryRequestBody,
   advisoryRulesForClaim,
+  dataAdvisoryOutputSchemaFor,
   validateAdvisoryOutput,
   validateRuntimeContractOutput,
   validateSystemsAdvisoryOutput,
+  validateDataAdvisoryOutput,
 } from './openai-client.mjs';
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', '[::1]']);
@@ -86,6 +88,37 @@ export class OllamaAdvisoryClient {
   }
 
   requestBody(claim) {
+    if (claim.agentId === 'data-manager-ai-v1') {
+      const runtimePolicy = claim.contract?.lowConfidencePolicy?.minConfidence
+        ? ` Follow the signed runtime output contract exactly. Set needsHumanDecision=true whenever confidence is below ${claim.contract.lowConfidencePolicy.minConfidence}.`
+        : '';
+      return {
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are Gerente de Datos AI (data-manager-ai-v1), reporting to general-manager-ai-v3 inside Company OS. Analyze only the supplied closed business snapshot. Identify data quality, freshness, consistency, and coverage findings with evidence references. Never execute, claim execution, change, delete, import, or expose business data. Every mission must remain PLANNED.' + runtimePolicy,
+          },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              caseId: claim.caseId,
+              agentId: claim.agentId,
+              objective: claim.objective,
+              evidencePayload: claim.evidencePayload,
+              contextMessages: claim.contextMessages || [],
+            }),
+          },
+        ],
+        stream: false,
+        think: false,
+        format: dataAdvisoryOutputSchemaFor(claim.evidencePayload),
+        options: {
+          temperature: 0,
+          num_predict: claim.budgets?.maxOutputTokens || 3000,
+        },
+      };
+    }
     const advisory = advisoryRequestBody(claim, {
       model: this.model,
       requireClaimOutputSchema: this.requireClaimOutputSchema,
@@ -173,6 +206,8 @@ export class OllamaAdvisoryClient {
           ? validateRuntimeContractOutput(claim, parsed)
           : claim.agentId === 'systems-manager-ai-v1'
             ? validateSystemsAdvisoryOutput(parsed)
+            : claim.agentId === 'data-manager-ai-v1'
+              ? validateDataAdvisoryOutput(parsed)
             : validateAdvisoryOutput(parsed);
       } catch (error) {
         const validationError = new OllamaWorkerError('Ollama output violated the signed runtime contract', {

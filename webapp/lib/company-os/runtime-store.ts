@@ -2,18 +2,24 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { sanitizeCompanyText } from './objective';
 import {
+  COMPANY_OS_INSTALLED_AGENT_IDS,
   COMPANY_OS_TEAM_MANIFEST,
   getCompanyOsRuntimeContract,
   validateCompanyOsRuntimeOutput,
 } from './runtime-contracts';
 import { companyOsV3Prisma } from './v3-prisma';
-import { companyOsV3BudgetConfig, type CompanyOsWorkerUsage } from './v3-types';
+import {
+  COMPANY_OS_SYSTEMS_MANAGER_IDENTITY,
+  COMPANY_OS_V3_IDENTITY,
+  companyOsV3BudgetConfig,
+  type CompanyOsWorkerUsage,
+} from './v3-types';
 
 type Tx = Prisma.TransactionClient;
 
-const INSTALLED_AGENT_IDS = ['general-manager-ai-v3', 'systems-manager-ai-v1'] as const;
-const GENERAL_MANAGER_ID = INSTALLED_AGENT_IDS[0];
-const SYSTEMS_MANAGER_ID = INSTALLED_AGENT_IDS[1];
+const INSTALLED_AGENT_IDS = COMPANY_OS_INSTALLED_AGENT_IDS;
+const GENERAL_MANAGER_ID = COMPANY_OS_V3_IDENTITY;
+const SYSTEMS_MANAGER_ID = COMPANY_OS_SYSTEMS_MANAGER_IDENTITY;
 const ACTIVE_WORK_STATUSES = ['CLAIMED', 'RUNNING'] as const;
 const TERMINAL_CASE_STATUSES = new Set(['COMPLETED', 'CANCELLED']);
 const WORKER_STALE_MS = 150_000;
@@ -695,7 +701,10 @@ function validateRuntimeOutput(
   if (delegations.length > 1) throw new Error('Sólo se permite una delegación durable por turno');
   if (agentId !== GENERAL_MANAGER_ID && delegations.length > 0) throw new Error('Sólo el Gerente General puede delegar trabajo');
   for (const delegation of delegations) {
-    if (delegation.agentId !== SYSTEMS_MANAGER_ID) throw new Error(`Agente delegado ${String(delegation.agentId)} NOT_INSTALLED`);
+    if (!INSTALLED_AGENT_IDS.includes(delegation.agentId as typeof INSTALLED_AGENT_IDS[number])
+      || delegation.agentId === GENERAL_MANAGER_ID) {
+      throw new Error(`Agente delegado ${String(delegation.agentId)} NOT_INSTALLED`);
+    }
     if (typeof delegation.objective !== 'string' || !delegation.objective.trim() || delegation.objective.length > 600) throw new Error('Objetivo delegado inválido');
   }
   if (agentId === SYSTEMS_MANAGER_ID) {
@@ -761,8 +770,8 @@ export async function completeCompanyOsRuntimeWork(input: {
         content: cleanText(safeResult, 12_000),
         actorRef: input.workerId,
         fromAgentId: workItem.agentId,
-        toAgentId: workItem.agentId === SYSTEMS_MANAGER_ID ? GENERAL_MANAGER_ID : null,
-        messageType: workItem.agentId === SYSTEMS_MANAGER_ID ? 'SPECIALIST_RESULT' : 'MANAGER_RESULT',
+        toAgentId: workItem.agentId === GENERAL_MANAGER_ID ? null : GENERAL_MANAGER_ID,
+        messageType: workItem.agentId === GENERAL_MANAGER_ID ? 'MANAGER_RESULT' : 'SPECIALIST_RESULT',
         payload: jsonValue(safeResult),
         schemaVersion: 1,
         evidenceRefs: jsonValue(Array.isArray(result.evidenceRefs) ? result.evidenceRefs : []),
@@ -770,7 +779,7 @@ export async function completeCompanyOsRuntimeWork(input: {
         causationId: workItem.causalMessageId,
         deliveryStatus: 'DELIVERED',
         idempotencyKey: messageKey,
-        expectsResponse: workItem.agentId === SYSTEMS_MANAGER_ID,
+        expectsResponse: workItem.agentId !== GENERAL_MANAGER_ID,
         deliveredAt: new Date(),
       },
     });
@@ -783,7 +792,8 @@ export async function completeCompanyOsRuntimeWork(input: {
         const delegationEvidenceRefs = (delegation.evidenceRefs as unknown[])
           .filter((value): value is string => typeof value === 'string')
           .map((value) => cleanText(value, 200));
-        const delegationKey = `runtime-message:${workItem.id}:delegation:${index}:${SYSTEMS_MANAGER_ID}`;
+        const targetAgentId = delegation.agentId as typeof INSTALLED_AGENT_IDS[number];
+        const delegationKey = `runtime-message:${workItem.id}:delegation:${index}:${targetAgentId}`;
         const priorDelegationMessage = await tx.companyOsMessage.findUnique({ where: { idempotencyKey: delegationKey } });
         const delegationMessage = priorDelegationMessage ?? await tx.companyOsMessage.create({
           data: {
@@ -793,7 +803,7 @@ export async function completeCompanyOsRuntimeWork(input: {
             content: objective,
             actorRef: workItem.agentId,
             fromAgentId: GENERAL_MANAGER_ID,
-            toAgentId: SYSTEMS_MANAGER_ID,
+            toAgentId: targetAgentId,
             messageType: 'DELEGATION',
             payload: jsonValue({ objective, evidenceRefs: delegationEvidenceRefs }),
             schemaVersion: 1,
@@ -807,17 +817,17 @@ export async function completeCompanyOsRuntimeWork(input: {
           },
         });
         await tx.companyOsWorkItem.upsert({
-          where: { idempotencyKey: `work:${companyCase.requestId}:delegation:${workItem.id}:${index}:${SYSTEMS_MANAGER_ID}` },
+          where: { idempotencyKey: `work:${companyCase.requestId}:delegation:${workItem.id}:${index}:${targetAgentId}` },
           update: {},
           create: {
             id: randomUUID(),
             caseId: companyCase.id,
-            agentId: SYSTEMS_MANAGER_ID,
+            agentId: targetAgentId,
             triggerType: 'AGENT_MESSAGE',
             priority: Math.max(0, workItem.priority - 1),
             causalMessageId: delegationMessage.id,
             inputPayload: jsonValue({ objective, fromAgentId: GENERAL_MANAGER_ID, evidenceRefs: delegationEvidenceRefs }),
-            idempotencyKey: `work:${companyCase.requestId}:delegation:${workItem.id}:${index}:${SYSTEMS_MANAGER_ID}`,
+            idempotencyKey: `work:${companyCase.requestId}:delegation:${workItem.id}:${index}:${targetAgentId}`,
             maxAttempts: 3,
             timeoutMs: 120_000,
             reservedTokens: companyCase.targetTotalTokens,
@@ -826,7 +836,8 @@ export async function completeCompanyOsRuntimeWork(input: {
         followUpCount += 1;
       }
     }
-    if (workItem.agentId === SYSTEMS_MANAGER_ID && canContinue) {
+    if (workItem.agentId !== GENERAL_MANAGER_ID && canContinue) {
+      const specialistAgentId = workItem.agentId as typeof INSTALLED_AGENT_IDS[number];
       await tx.companyOsWorkItem.upsert({
         where: { idempotencyKey: `work:${companyCase.requestId}:specialist-return:${workItem.id}:${GENERAL_MANAGER_ID}` },
         update: {},
@@ -837,7 +848,7 @@ export async function completeCompanyOsRuntimeWork(input: {
           triggerType: 'AGENT_MESSAGE',
           priority: workItem.priority,
           causalMessageId: resultMessage.id,
-          inputPayload: jsonValue({ objective: 'Integrar la respuesta del especialista y cerrar o escalar el caso.', fromAgentId: SYSTEMS_MANAGER_ID }),
+          inputPayload: jsonValue({ objective: 'Integrar la respuesta del especialista y cerrar o escalar el caso.', fromAgentId: specialistAgentId }),
           idempotencyKey: `work:${companyCase.requestId}:specialist-return:${workItem.id}:${GENERAL_MANAGER_ID}`,
           maxAttempts: 3,
           timeoutMs: 120_000,
@@ -859,7 +870,7 @@ export async function completeCompanyOsRuntimeWork(input: {
     const needsHumanDecision = result.needsHumanDecision === true
       || Number(result.confidence) < 0.7
       || (Array.isArray(result.missions) && result.missions.length > 0)
-      || (!canContinue && (delegations.length > 0 || workItem.agentId === SYSTEMS_MANAGER_ID));
+      || (!canContinue && (delegations.length > 0 || workItem.agentId !== GENERAL_MANAGER_ID));
     await tx.companyOsWorkItem.update({ where: { id: workItem.id }, data: { status: 'COMPLETED', completedAt: new Date() } });
     const [remainingRunnable, remainingBlocked] = await Promise.all([
       tx.companyOsWorkItem.count({ where: {
