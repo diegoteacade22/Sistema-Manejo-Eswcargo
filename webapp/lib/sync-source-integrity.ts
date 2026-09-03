@@ -99,9 +99,12 @@ export function parseIncompleteOrderQuarantineLimit(rawValue = process.env.SYNC_
  */
 export function isStrictCancelledOrder<T extends { status?: unknown; total_amount?: unknown; items?: unknown[] }>(order: T) {
   const items = order.items ?? [];
+  const rawTotal = order.total_amount;
+  const hasZeroTotal = (typeof rawTotal === 'number' && Number.isFinite(rawTotal) && rawTotal === 0)
+    || (typeof rawTotal === 'string' && rawTotal.trim() !== '' && Number.isFinite(Number(rawTotal)) && Number(rawTotal) === 0);
   return items.length > 0
     && String(order.status ?? '').trim().toUpperCase() === 'CANCELADO'
-    && Number(order.total_amount) === 0
+    && hasZeroTotal
     && items.every((item) => String((item as { status?: unknown }).status ?? '').trim().toUpperCase() === 'CANCELADO');
 }
 
