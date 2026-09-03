@@ -1,4 +1,5 @@
 import { requiresLocalInference } from './data-policy.mjs';
+import { continuousIntegrationResults, CONTINUOUS_INTEGRATION_RULE, integrationContext } from './continuous-integration.mjs';
 
 export const ADVISORY_OUTPUT_SCHEMA = Object.freeze({
   type: 'object',
@@ -356,6 +357,9 @@ export function validateRuntimeContractOutput(claim, value) {
   const schema = runtimeOutputSchemaForClaim(claim);
   validateValueAgainstSchema(value, schema);
   verifyEvidenceReferences(value, new Set(Object.keys(claim.evidencePayload || {})));
+  if (continuousIntegrationResults(claim).length && Array.isArray(value.delegations) && value.delegations.length) {
+    throw runtimeOutputError('Continuous integration cannot delegate an already completed specialist review');
+  }
   const minimumConfidence = Number(claim.contract?.lowConfidencePolicy?.minConfidence);
   if (Number.isFinite(minimumConfidence) && typeof value.confidence === 'number'
     && value.confidence < minimumConfidence && value.needsHumanDecision !== true) {
@@ -371,6 +375,10 @@ function retryableStatus(status) {
 export function advisoryRequestBody(claim, { model = 'gpt-5.6-sol', requireClaimOutputSchema = false } = {}) {
   const systemsManager = claim.agentId === 'systems-manager-ai-v1';
   const runtimeSchema = requireClaimOutputSchema ? runtimeOutputSchemaForClaim(claim) : null;
+  const integrating = continuousIntegrationResults(claim).length > 0;
+  if (integrating && runtimeSchema?.properties?.delegations) {
+    runtimeSchema.properties.delegations.maxItems = 0;
+  }
   const confidenceThreshold = Number(claim.contract?.lowConfidencePolicy?.minConfidence);
   const runtimePolicy = runtimeSchema
     ? ` Follow the signed runtime output contract exactly. Set needsHumanDecision=true whenever confidence is below ${Number.isFinite(confidenceThreshold) ? confidenceThreshold : 0.75}.`
@@ -385,7 +393,7 @@ export function advisoryRequestBody(claim, { model = 'gpt-5.6-sol', requireClaim
         role: 'system',
         content: (systemsManager
           ? 'You are Gerente de Sistemas AI (systems-manager-ai-v1), reporting to general-manager-ai-v3 inside Company OS. Analyze only the supplied closed technical evidence. Distinguish a confirmed risk from a coverage gap. Never execute, claim execution, mutate business or infrastructure data, deploy, rotate credentials, expose secrets, or infer OFFLINE from missing telemetry. Deterministic risk classifications and scores in evidence are authoritative. Return at most five ACTION_REQUIRED risks. Every mission must remain PLANNED.'
-          : 'You are Company OS V3. Produce advisory analysis only. Never execute, claim execution, change business data, send messages, buy, pay, price, deploy, or expose secrets. Use only supplied evidence references. Every mission must remain PLANNED.') + runtimePolicy,
+          : 'You are Company OS V3. Produce advisory analysis only. Never execute, claim execution, change business data, send messages, buy, pay, price, deploy, or expose secrets. Use only supplied evidence references. Every mission must remain PLANNED.') + runtimePolicy + (integrating ? CONTINUOUS_INTEGRATION_RULE : ''),
       },
       {
         role: 'user',
@@ -394,7 +402,7 @@ export function advisoryRequestBody(claim, { model = 'gpt-5.6-sol', requireClaim
           agentId: claim.agentId || 'general-manager-ai-v3',
           objective: claim.objective,
           evidencePayload: claim.evidencePayload,
-          contextMessages: claim.contextMessages || [],
+          contextMessages: integrationContext(claim),
         }),
       },
     ],
