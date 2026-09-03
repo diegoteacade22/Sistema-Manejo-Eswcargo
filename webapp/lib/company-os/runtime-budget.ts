@@ -40,10 +40,12 @@ export type RuntimeBudgetPlan =
   | { allowed: false; reason: 'DAILY' | 'MONTHLY' | 'DAILY_AND_MONTHLY'; retryAt: Date }
   | { allowed: false; reason: 'REQUEST_EXCEEDS_LIMIT'; retryAt: null };
 
-export function planRuntimeBudget(input: {
+export type RuntimeBudgetInput = {
   now: Date; dailyUsed: number; monthlyUsed: number; reserved: number;
   requested: number; dailyLimit: number; monthlyLimit: number;
-}): RuntimeBudgetPlan {
+};
+
+export function planRuntimeBudget(input: RuntimeBudgetInput): RuntimeBudgetPlan {
   for (const [key, value] of Object.entries(input)) {
     if (key !== 'now' && (!Number.isSafeInteger(value) || Number(value) < 0)) throw new Error(`Invalid runtime budget ${key}`);
   }
@@ -59,5 +61,63 @@ export function planRuntimeBudget(input: {
     allowed: false,
     reason: daily && monthly ? 'DAILY_AND_MONTHLY' : monthly ? 'MONTHLY' : 'DAILY',
     retryAt: nextRuntimeBudgetReset(input.now, monthly ? 'month' : 'day'),
+  };
+}
+
+export type AdaptiveRuntimeBudgetPlan = RuntimeBudgetPlan & {
+  requestedTokens: number;
+  targetTotalTokens: number;
+  maxOutputTokens: number;
+  adapted: boolean;
+};
+
+/** Reduce output only. The existing input allowance and account limits are unchanged. */
+export function planAdaptiveRuntimeBudget(input: RuntimeBudgetInput & {
+  targetTotalTokens: number;
+  maxOutputTokens: number;
+}): AdaptiveRuntimeBudgetPlan {
+  const originalPlan = planRuntimeBudget(input);
+  if (!Number.isSafeInteger(input.targetTotalTokens) || input.targetTotalTokens < 1
+    || !Number.isSafeInteger(input.maxOutputTokens) || input.maxOutputTokens < 1
+    || input.maxOutputTokens >= input.targetTotalTokens
+    || input.requested > input.targetTotalTokens
+    || !Number.isSafeInteger(input.dailyUsed + input.reserved)
+    || !Number.isSafeInteger(input.monthlyUsed + input.reserved)) {
+    throw new Error('Invalid adaptive runtime budget');
+  }
+  const unchanged = {
+    requestedTokens: input.requested,
+    targetTotalTokens: input.targetTotalTokens,
+    maxOutputTokens: input.maxOutputTokens,
+    adapted: false,
+  };
+  const inputAllowance = input.targetTotalTokens - input.maxOutputTokens;
+  const minimumOutput = Math.min(1_000, input.maxOutputTokens);
+  if (input.requested < inputAllowance + minimumOutput) {
+    throw new Error('Runtime reservation cannot preserve the input allowance and minimum output');
+  }
+  // An impossible original reservation is a configuration error, not permission
+  // to weaken its signed contract until it happens to fit an account limit.
+  if (!originalPlan.allowed && originalPlan.reason === 'REQUEST_EXCEEDS_LIMIT') {
+    return { ...originalPlan, ...unchanged };
+  }
+  const targetTotalTokens = Math.min(
+    input.requested,
+    input.targetTotalTokens,
+    input.dailyLimit - input.dailyUsed - input.reserved,
+    input.monthlyLimit - input.monthlyUsed - input.reserved,
+  );
+  if (targetTotalTokens < inputAllowance + minimumOutput) {
+    return { ...originalPlan, ...unchanged };
+  }
+  const maxOutputTokens = targetTotalTokens - inputAllowance;
+  const admitted = planRuntimeBudget({ ...input, requested: targetTotalTokens });
+  if (!admitted.allowed) throw new Error('Adaptive runtime budget failed its admission gate');
+  return {
+    ...admitted,
+    requestedTokens: targetTotalTokens,
+    targetTotalTokens,
+    maxOutputTokens,
+    adapted: targetTotalTokens !== input.targetTotalTokens || targetTotalTokens !== input.requested,
   };
 }

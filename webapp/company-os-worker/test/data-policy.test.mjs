@@ -126,3 +126,23 @@ test('General without Data lineage retains its primary model route', async () =>
   await worker.processor.openai.generate({ ...claim, dataPolicy: standardPolicy });
   assert.deepEqual(calls, ['primary']);
 });
+
+test('adaptive local reservation reaches num_predict; truncated output retains real usage without retry', async () => {
+  const objectiveClaim = { ...claim,
+    dataPolicy: { version: 1, inference: 'LOCAL_ONLY', reason: 'CONTINUOUS_OBJECTIVE' },
+    budgets: { input: 9000, maxOutputTokens: 1418, targetTotalTokens: 10418 } };
+  let calls = 0;
+  const worker = runtime(async (url, init) => {
+    calls += 1;
+    assert.equal(url, 'http://127.0.0.1:11434/api/chat');
+    assert.equal(JSON.parse(init.body).options.num_predict, 1418);
+    return new Response(JSON.stringify({ model: 'qwen3:4b-q4_K_M', done: true,
+      message: { content: '{"summary":' }, prompt_eval_count: 2200, eval_count: 1418 }), { status: 200 });
+  });
+  await assert.rejects(worker.processor.openai.generate(objectiveClaim), (error) => {
+    assert.equal(error.usage.total_tokens, 3618);
+    assert.equal(error.usage.output_tokens, 1418);
+    return true;
+  });
+  assert.equal(calls, 1);
+});

@@ -12,7 +12,7 @@ import { resolveCompanyOsRuntimeDataPolicy } from './runtime-data-policy';
 import { runtimeResultNeedsReview } from './runtime-outcome';
 import { findCompletedRuntimeDelegation, runtimeFollowUpCapacity } from './runtime-delegation';
 import { deriveRuntimeAgentState, type RuntimeAgentStateWork } from './runtime-agent-status';
-import { planRuntimeBudget, startOfZonedPeriod } from './runtime-budget';
+import { planAdaptiveRuntimeBudget, planRuntimeBudget, startOfZonedPeriod } from './runtime-budget';
 import { withRuntimeObjectiveClaimFence } from './runtime-objective-guard';
 import {
   COMPANY_OS_SYSTEMS_MANAGER_IDENTITY,
@@ -34,6 +34,25 @@ const DEFAULT_LEASE_MS = 300_000;
 const DAILY_AGENT_TOKEN_LIMIT = 48_000;
 const MONTHLY_AGENT_TOKEN_LIMIT = 1_000_000;
 const REQUESTS_PER_MINUTE = 240;
+
+// An explicit rollout scope prevents a budget fix from activating other goals.
+function adaptiveLocalGoalIds() {
+  const ids = (process.env.COMPANY_OS_ADAPTIVE_LOCAL_GOAL_IDS ?? '').split(',').map((id) => id.trim()).filter(Boolean);
+  if (ids.length > 16 || ids.some((id) => !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id))) {
+    throw new Error('Invalid adaptive local goal allowlist');
+  }
+  return [...new Set(ids)];
+}
+
+async function adaptiveLocalCaseEnabled(tx: Tx, caseId: string) {
+  const goalIds = adaptiveLocalGoalIds();
+  if (goalIds.length === 0) return false;
+  const matches = await tx.$queryRaw<Array<{ enabled: boolean }>>(Prisma.sql`
+    SELECT true AS enabled FROM public."CompanyOsObjectiveUnit" unit
+    WHERE unit."caseId" = ${caseId} AND unit."goalId" IN (${Prisma.join(goalIds)}) LIMIT 1
+  `);
+  return matches[0]?.enabled === true;
+}
 
 function jsonValue(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value ?? null)) as Prisma.InputJsonValue;
@@ -367,7 +386,19 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
     const dailyUsed = dailyUsage.totalTokens;
     const monthlyUsed = monthlyUsage.totalTokens;
     const reserved = activeReserved._sum.reservedTokens ?? 0;
-    const budgetPlan = planRuntimeBudget({ now, dailyUsed, monthlyUsed, reserved, requested: candidate.reservedTokens, dailyLimit, monthlyLimit });
+    const dataPolicy = await resolveCompanyOsRuntimeDataPolicy(tx, candidate.caseId, candidate.agentId);
+    // Only the single-call local objective path can shrink its output allowance.
+    // Standard/cloud inference may retry internally and retains its original gate.
+    const adaptive = dataPolicy.inference === 'LOCAL_ONLY' && dataPolicy.reason === 'CONTINUOUS_OBJECTIVE'
+      && await adaptiveLocalCaseEnabled(tx, candidate.caseId)
+      ? planAdaptiveRuntimeBudget({ now, dailyUsed, monthlyUsed, reserved,
+        requested: candidate.reservedTokens, dailyLimit, monthlyLimit,
+        targetTotalTokens: candidate.targetTotalTokens, maxOutputTokens: candidate.maxOutputTokens })
+      : null;
+    const claimReservation = adaptive?.requestedTokens ?? candidate.reservedTokens;
+    const claimMaxOutput = adaptive?.maxOutputTokens ?? candidate.maxOutputTokens;
+    const claimTargetTotal = adaptive?.targetTotalTokens ?? candidate.targetTotalTokens;
+    const budgetPlan = adaptive ?? planRuntimeBudget({ now, dailyUsed, monthlyUsed, reserved, requested: claimReservation, dailyLimit, monthlyLimit });
     if (!budgetPlan.allowed && budgetPlan.retryAt) {
       await tx.companyOsWorkItem.update({ where: { id: candidate.workItemId }, data: {
         status: 'QUEUED', availableAt: budgetPlan.retryAt, nextAttemptAt: null,
@@ -397,7 +428,6 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
       });
       return null;
     }
-    const dataPolicy = await resolveCompanyOsRuntimeDataPolicy(tx, candidate.caseId, candidate.agentId);
     const evidence = await tx.companyOsEvidenceRef.findMany({ where: { caseId: candidate.caseId }, orderBy: { evidenceKey: 'asc' } });
     const contextMessages = await tx.companyOsMessage.findMany({
       where: { caseId: candidate.caseId },
@@ -407,7 +437,7 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
     });
     const evidencePayload = Object.fromEntries(evidence.map((item) => [item.evidenceKey, item.value]));
     const orderedContextMessages = contextMessages.reverse();
-    const inputBudget = candidate.targetTotalTokens - candidate.maxOutputTokens;
+    const inputBudget = claimTargetTotal - claimMaxOutput;
     const effectiveInputTokens = estimateJsonTokens({
       requestId: candidate.requestId,
       caseId: candidate.caseId,
@@ -415,7 +445,7 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
       objective: candidate.workObjective?.trim() || candidate.objective,
       evidencePayload,
       contextMessages: orderedContextMessages,
-      budgets: { maxOutputTokens: candidate.maxOutputTokens, targetTotalTokens: candidate.targetTotalTokens },
+      budgets: { maxOutputTokens: claimMaxOutput, targetTotalTokens: claimTargetTotal },
     });
     if (inputBudget <= 0 || effectiveInputTokens > inputBudget) {
       await tx.companyOsWorkItem.update({ where: { id: candidate.workItemId }, data: { status: 'BLOCKED' } });
@@ -448,7 +478,7 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
       instanceId: input.instanceId,
       slotNo: slot.slotNo,
       renewedAt: now,
-      reservedTokens: candidate.reservedTokens,
+      reservedTokens: claimReservation,
       expiresAt,
     } });
     const attempt = await tx.companyOsExecutionAttempt.create({ data: {
@@ -487,7 +517,9 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
       eventType: 'RUNTIME_WORK_CLAIMED',
       fromStatus: candidate.caseStatus,
       toStatus: caseToStatus,
-      payload: { workItemId: candidate.workItemId, agentId: candidate.agentId, workAttempt, slotNo: slot.slotNo, workerId: input.workerId, dataPolicy },
+      payload: { workItemId: candidate.workItemId, agentId: candidate.agentId, workAttempt, slotNo: slot.slotNo, workerId: input.workerId, dataPolicy,
+        budget: { adapted: adaptive?.adapted ?? false, originalReservation: candidate.reservedTokens,
+          reservedTokens: claimReservation, maxOutputTokens: claimMaxOutput, targetTotalTokens: claimTargetTotal, inputBudget } },
       idempotencyKey: `runtime:${candidate.requestId}:claim:${candidate.workItemId}:${workAttempt}`,
     });
     return {
@@ -510,8 +542,8 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
       budgets: {
         input: inputBudget,
         effectiveInputTokens,
-        maxOutputTokens: candidate.maxOutputTokens,
-        targetTotalTokens: candidate.targetTotalTokens,
+        maxOutputTokens: claimMaxOutput,
+        targetTotalTokens: claimTargetTotal,
         dailyRemainingTokens: Math.max(0, dailyLimit - dailyUsed - reserved),
         monthlyRemainingTokens: Math.max(0, monthlyLimit - monthlyUsed - reserved),
       },
@@ -765,7 +797,7 @@ export async function completeCompanyOsRuntimeWork(input: {
     const { result, delegations } = validateRuntimeOutput(workItem.agentId, input.output, evidence);
     const safeResult = asRecord(sanitizeRuntimeValue(result));
     const usage = normalizeUsageForPersistence(input.usage);
-    if (usage.totalTokens > workItem.reservedTokens || usage.totalTokens > companyCase.targetTotalTokens) {
+    if (usage.totalTokens > lease.reservedTokens || usage.totalTokens > workItem.reservedTokens || usage.totalTokens > companyCase.targetTotalTokens) {
       throw new Error('Consumo total excede el presupuesto reservado');
     }
     if (workItem.status === 'CLAIMED') await tx.companyOsWorkItem.update({ where: { id: workItem.id }, data: { status: 'RUNNING' } });
@@ -1281,12 +1313,84 @@ async function recoverBudgetBlockedWork(tx: Tx, now: Date) {
   return recovered;
 }
 
+/** Reconsider only a budget-imposed delay, never a human pause or retry backoff. */
+async function reconsiderLocalObjectiveBudget(tx: Tx, now: Date) {
+  const goalIds = adaptiveLocalGoalIds();
+  if (goalIds.length === 0) return 0;
+  const deferred = await tx.$queryRaw<Array<{
+    workItemId: string; caseId: string; requestId: string; agentId: string;
+    reservedTokens: number; targetTotalTokens: number; maxOutputTokens: number;
+    availableAt: Date; caseStatus: string; budgetEventId: string;
+  }>>(Prisma.sql`
+    SELECT work.id AS "workItemId", work."caseId", company_case."requestId", work."agentId",
+      work."reservedTokens", company_case."targetTotalTokens", company_case."maxOutputTokens",
+      work."availableAt", company_case.status AS "caseStatus", budget.id AS "budgetEventId"
+    FROM public."CompanyOsWorkItem" work
+    JOIN public."CompanyOsCase" company_case ON company_case.id = work."caseId"
+    JOIN LATERAL (
+      SELECT event.id, event.sequence, event.payload FROM public."CompanyOsCaseEvent" event
+      WHERE event."caseId" = work."caseId" AND event."eventType" = 'WORK_DEFERRED_RUNTIME_BUDGET'
+        AND event.payload->>'workItemId' = work.id
+      ORDER BY event.sequence DESC LIMIT 1
+    ) budget ON true
+    WHERE company_case."caseType" = 'CONTINUOUS_OBJECTIVE'
+      AND company_case.status IN ('QUEUED','CLAIMED','RUNNING','FAILED_RETRYABLE')
+      AND company_case."turnCount" < company_case."maxTurns"
+      AND work.status = 'QUEUED' AND work."nextAttemptAt" IS NULL AND work."availableAt" > ${now}
+      AND budget.payload->>'retryAt' = to_char(work."availableAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      AND EXISTS (
+        SELECT 1 FROM public."CompanyOsObjectiveUnit" unit
+        JOIN public."CompanyOsContinuousObjective" objective ON objective.id = unit."goalId"
+        WHERE unit."caseId" = work."caseId" AND unit."goalId" IN (${Prisma.join(goalIds)}) AND objective.status = 'ACTIVE'
+          AND objective."startsAt" <= ${now} AND objective."endsAt" > ${now}
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM public."CompanyOsCaseEvent" newer WHERE newer."caseId" = work."caseId"
+          AND newer.sequence > budget.sequence AND newer."toStatus" IN ('BLOCKED','CANCELLED','FAILED_FINAL','NEEDS_REVIEW')
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM public."CompanyOsLease" lease WHERE lease."caseId" = work."caseId"
+          AND lease.status = 'ACTIVE' AND lease."expiresAt" > ${now}
+      )
+    ORDER BY work."createdAt", work.id FOR UPDATE OF work SKIP LOCKED LIMIT 25
+  `);
+  let reconsidered = 0;
+  for (const work of deferred) {
+    if (!isCompanyOsRuntimeAgentInstalled(work.agentId)) continue;
+    const contract = getCompanyOsRuntimeContract(work.agentId);
+    const [daily, monthly, leases] = await Promise.all([
+      runtimeUsageTotals(tx, work.agentId, startOfZonedPeriod(now, 'day')),
+      runtimeUsageTotals(tx, work.agentId, startOfZonedPeriod(now, 'month')),
+      tx.companyOsLease.aggregate({ where: { agentId: work.agentId, status: 'ACTIVE', expiresAt: { gt: now } }, _sum: { reservedTokens: true } }),
+    ]);
+    const plan = planAdaptiveRuntimeBudget({ now, dailyUsed: daily.totalTokens, monthlyUsed: monthly.totalTokens,
+      reserved: leases._sum.reservedTokens ?? 0, requested: work.reservedTokens,
+      dailyLimit: contract.budgets.dailyTokens, monthlyLimit: contract.budgets.monthlyTokens,
+      targetTotalTokens: work.targetTotalTokens, maxOutputTokens: work.maxOutputTokens });
+    if (!plan.allowed) continue;
+    // No reservation here: claim rechecks usage under its existing serializable fence.
+    await tx.companyOsWorkItem.update({ where: { id: work.workItemId }, data: { availableAt: now } });
+    await appendRuntimeEvent(tx, {
+      caseId: work.caseId, requestId: work.requestId, eventType: 'WORK_BUDGET_RECONSIDERED',
+      fromStatus: work.caseStatus, toStatus: work.caseStatus,
+      payload: { workItemId: work.workItemId, previousAvailableAt: work.availableAt.toISOString(),
+        budgetEventId: work.budgetEventId, reservedTokens: plan.requestedTokens,
+        maxOutputTokens: plan.maxOutputTokens, adapted: plan.adapted, modelCalls: 0 },
+      idempotencyKey: `runtime:${work.requestId}:budget-reconsidered:${work.workItemId}:${work.budgetEventId}`,
+    });
+    reconsidered += 1;
+  }
+  return reconsidered;
+}
+
 export async function reconcileCompanyOsRuntime(workerId: string) {
   const db = companyOsV3Prisma();
   return db.$transaction(async (tx) => {
     const now = new Date();
     const expiredLeases = await expireLeases(tx, now);
     const budgetRecovered = await recoverBudgetBlockedWork(tx, now);
+    const runtimeControl = await tx.companyOsRuntimeControl.findUniqueOrThrow({ where: { id: 'primary' } });
+    const budgetReconsidered = runtimeControl.paused ? 0 : await reconsiderLocalObjectiveBudget(tx, now);
     const detected: Array<{ dedupeKey: string; type: string; severity: 'INFO' | 'WARNING' | 'CRITICAL'; summary: string; detail?: Record<string, unknown> }> = [];
     const staleWorkers = await tx.companyOsWorker.findMany({ where: { lastHeartbeatAt: { lt: new Date(now.getTime() - WORKER_STALE_MS) }, state: { not: 'STOPPED' } } });
     for (const worker of staleWorkers) detected.push({
@@ -1370,7 +1474,7 @@ export async function reconcileCompanyOsRuntime(workerId: string) {
       where: { status: { in: ['OPEN', 'ACKNOWLEDGED'] }, ...(activeKeys.length ? { dedupeKey: { notIn: activeKeys } } : {}) },
       data: { status: 'RESOLVED', lastSeenAt: now },
     });
-    return { reconciledAt: now.toISOString(), expiredLeases, budgetRecovered, incidentsOpen: detected.length };
+    return { reconciledAt: now.toISOString(), expiredLeases, budgetRecovered, budgetReconsidered, incidentsOpen: detected.length };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
