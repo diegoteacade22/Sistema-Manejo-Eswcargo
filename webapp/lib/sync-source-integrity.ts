@@ -74,7 +74,7 @@ export function partitionOrdersByItemIntegrity<TItem extends object, T extends {
 
 
 export const DEFAULT_INCOMPLETE_ORDER_QUARANTINE_LIMIT = 5;
-export const MAX_INCOMPLETE_ORDER_QUARANTINE_LIMIT = 10;
+export const MAX_INCOMPLETE_ORDER_QUARANTINE_LIMIT = 5;
 
 /**
  * Parse the quarantine cap from an operator-controlled environment variable.
