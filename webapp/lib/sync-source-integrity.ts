@@ -42,6 +42,10 @@ export function partitionOrdersByItemIntegrity<TItem extends object, T extends {
   for (const order of sourceOrders) {
     const existing = existingByOrderNumber.get(order.order_number);
     const sourceItemCount = order.items?.length ?? 0;
+    if (isStrictCancelledOrder(order)) {
+      accepted.push(order);
+      continue;
+    }
     if (order.items?.some((item) => (item as { quantity_is_explicit?: boolean }).quantity_is_explicit === false)) {
       quarantined.push({
         order,
