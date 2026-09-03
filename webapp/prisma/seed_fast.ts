@@ -20,7 +20,7 @@ import {
 } from '../lib/shipment-sync-status';
 import { appendShipmentStatusAudit, type ShipmentStatusAuditEntry } from '../lib/shipment-status-audit';
 import { effectiveSourceOrderStatus } from '../lib/sync-status-precedence';
-import { filterPersistableSourceItems, isHistoricalReconciliationEligible, partitionOrdersByItemIntegrity } from '../lib/sync-source-integrity';
+import { filterPersistableSourceItems, isHistoricalReconciliationEligible, parseIncompleteOrderQuarantineLimit, partitionOrdersByItemIntegrity } from '../lib/sync-source-integrity';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
 let activeSyncRunId: number | null = null;
@@ -336,7 +336,7 @@ async function main() {
         existingOrderItemCounts,
         isFullSync && allowDestructiveFullReconciliation,
     );
-    const quarantineLimit = Math.max(1, Number(process.env.SYNC_INCOMPLETE_ORDER_QUARANTINE_LIMIT || 5));
+    const quarantineLimit = parseIncompleteOrderQuarantineLimit();
     if (orderIntegrity.quarantined.length > quarantineLimit) {
         const orderKeys = orderIntegrity.quarantined.slice(0, quarantineLimit + 1).map(({ order }: any) => `#${order.order_number}`);
         throw new Error(`Sincronización detenida: ${orderIntegrity.quarantined.length} pedidos redujeron su detalle (${orderKeys.join(', ')}). La fuente parece incompleta y no se aplicaron cambios.`);
