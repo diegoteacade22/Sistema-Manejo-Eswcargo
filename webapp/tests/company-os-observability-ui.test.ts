@@ -27,7 +27,14 @@ test('snapshot distingue las cuatro procedencias y no declara Vercel saludable',
   process.env.COMPANY_OS_V3_WORKER_URL='https://worker.example.test';
   global.fetch=async()=>new Response(JSON.stringify({ok:true,service:'company-os-v3-worker',contract:'systems-manager-ai-v1'}),{status:200,headers:{'content-type':'application/json'}});
   try {
-    const snapshot=await buildSystemsSnapshot();
+    const snapshot=await buildSystemsSnapshot({
+      now:new Date('2026-09-03T01:00:00Z'),
+      loadRuntimeWorkers:async()=>({observed:true,workers:[{
+        workerId:'diegoserver-company-os',host:'DiegoServer.local',state:'BUSY',version:'1.1.0',
+        allowedAgentIds:['general-manager-ai-v3','systems-manager-ai-v1','data-manager-ai-v1'],
+        lastHeartbeatAt:'2026-09-03T00:59:50Z',lastErrorCode:null,
+      }]}),
+    });
     assert.deepEqual(SYSTEMS_OBSERVATION_MODES,['LIVE_OBSERVED','DECLARED_FROM_CONFIG','INFERRED','UNOBSERVED']);
     assert.deepEqual(new Set(snapshot.assets.map((asset)=>asset.observationMode)),new Set(SYSTEMS_OBSERVATION_MODES));
     const vercel=snapshot.assets.find((asset)=>asset.assetId==='company-os-webapp');
