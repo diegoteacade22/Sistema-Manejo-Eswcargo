@@ -6,6 +6,13 @@ const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(va
 
 export const SYSTEMS_OBSERVATION_MODES = ['LIVE_OBSERVED', 'DECLARED_FROM_CONFIG', 'INFERRED', 'UNOBSERVED'] as const;
 export type SystemsObservationMode = (typeof SYSTEMS_OBSERVATION_MODES)[number];
+// Keep these values aligned with CompanyOsSystemDependency_dependencyType_check.
+export const SYSTEMS_DEPENDENCY_TYPES = [
+  'DATABASE', 'SIGNED_WEBHOOK', 'MODEL_API', 'NOTIFICATION_API', 'NOTIFICATION_CHANNEL',
+  'DEPLOYMENT_SOURCE', 'RUNTIME', 'DATA', 'AUTH', 'NETWORK', 'DEPLOYMENT', 'OBSERVABILITY',
+  'MANUAL', 'OTHER',
+] as const;
+export type SystemsDependencyType = (typeof SYSTEMS_DEPENDENCY_TYPES)[number];
 
 export type SystemsAsset = {
   assetId: string; name: string; category: string; provider: string; companyOrBusinessUnit: string; environment: string; owner: string;
@@ -19,7 +26,7 @@ export type SystemsAsset = {
   warnings: string[]; evidenceRefs: string[]; tags: string[]; ruleVersion: string;
 };
 export type SystemsDependency = {
-  dependencyId: string; sourceAssetId: string; targetAssetId: string; dependencyType: string;
+  dependencyId: string; sourceAssetId: string; targetAssetId: string; dependencyType: SystemsDependencyType;
   criticality: string; direction: 'OUTBOUND'; environment: string; evidenceRefs: string[]; confidence: number;
   estimatedFailureImpact: string; knownFallback: string | null; inferenceStatus: 'CONFIRMED'|'INFERRED'; observedAt: string;
   observationMode: SystemsObservationMode;
@@ -86,7 +93,7 @@ export async function buildSystemsSnapshot() {
     asset({ assetId:'diegoserver-node', name:'DiegoServer Mac mini Node', category:'SERVER_WORKER', provider:'Apple', runtime:'launchd / Ollama', region:'Miami', safeReference:null, lifecycleStatus:'ACTIVE', healthStatus:'UNOBSERVED', observationMode:'DECLARED_FROM_CONFIG', observationLabel:'Nodo local activo por contrato; salud verificable sólo desde DiegoServer', criticality:'HIGH', coverageStatus:'DECLARED', confidence:.9, warnings:['Vercel no observa launchd ni loopback local directamente'] }),
     asset({ assetId:'backup-coverage', name:'Company OS Backup Coverage', category:'BACKUP', provider:'UNKNOWN', runtime:null, region:null, safeReference:null, lifecycleStatus:'UNKNOWN', healthStatus:'UNOBSERVED', observationMode:'UNOBSERVED', observationLabel:'Sin fuente de backup conectada', criticality:'HIGH', coverageStatus:'UNOBSERVED', confidence:1, warnings:['No verificado no significa inexistente'] }),
   ];
-  const dep = (dependencyId:string, sourceAssetId:string, targetAssetId:string, dependencyType:string, criticality:string):SystemsDependency => ({
+  const dep = (dependencyId:string, sourceAssetId:string, targetAssetId:string, dependencyType:SystemsDependencyType, criticality:string):SystemsDependency => ({
     dependencyId, sourceAssetId, targetAssetId, dependencyType, criticality, direction:'OUTBOUND', environment:'production',
     evidenceRefs:['dependencies'], confidence:.95, estimatedFailureImpact:criticality === 'CRITICAL' ? 'Interrumpe el procesamiento de Company OS' : 'Degrada una capacidad técnica',
     knownFallback:null, inferenceStatus:'CONFIRMED', observationMode:'DECLARED_FROM_CONFIG', observedAt:generatedAt,
@@ -95,7 +102,7 @@ export async function buildSystemsSnapshot() {
     dep('dep-web-db','company-os-webapp','company-os-database','DATABASE','CRITICAL'),
     dep('dep-web-worker','company-os-webapp','company-os-worker','SIGNED_WEBHOOK','CRITICAL'),
     dep('dep-worker-ai','company-os-worker','openai-responses','MODEL_API','HIGH'),
-    dep('dep-worker-qwen','diegoserver-node','ollama-qwen-local','LOCAL_MODEL_API','HIGH'),
+    dep('dep-worker-qwen','diegoserver-node','ollama-qwen-local','MODEL_API','HIGH'),
     dep('dep-worker-telegram','company-os-worker','telegram-channel','NOTIFICATION_API','MEDIUM'),
     dep('dep-web-github','company-os-webapp','github-repository','DEPLOYMENT_SOURCE','HIGH'),
   ];

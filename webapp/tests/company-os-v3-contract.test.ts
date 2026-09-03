@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { signCompanyOsWorkerPayload, verifyCompanyOsWorkerRequest } from '../lib/company-os/v3-auth';
 import { estimateCompanyOsCost, startOfCompanyOsDay } from '../lib/company-os/v3-store';
-import { buildSystemsSnapshot, deterministicRiskScore } from '../lib/company-os/systems-snapshot';
+import { buildSystemsSnapshot, deterministicRiskScore, SYSTEMS_DEPENDENCY_TYPES } from '../lib/company-os/systems-snapshot';
 import {
   COMPANY_OS_MISSION_STATUSES,
   COMPANY_OS_REQUEST_STATUSES,
@@ -180,6 +180,32 @@ test('inventario declara Hostinger y DiegoServer activos, AWS archivado y Qwen l
   assert.deepEqual(snapshot.lifecycle, { aws: 'ARCHIVED', diegoServer: 'ACTIVE', macMini: 'ACTIVE' });
   assert.equal(snapshot.assets.find((asset) => asset.assetId === 'diegoserver-node')?.lifecycleStatus, 'ACTIVE');
   assert.equal(snapshot.assets.find((asset) => asset.assetId === 'aws-archive')?.lifecycleStatus, 'ARCHIVED');
+});
+
+test('dependencias del inventario respetan el CHECK persistido e incluyen Qwen local como MODEL_API', async () => {
+  const sql = readFileSync('../supabase/migrations/20260816175940_systems_manager_ai_v1.sql', 'utf8');
+  const checkValues = sql.match(/"dependencyType" text NOT NULL CHECK \("dependencyType" IN \(([\s\S]*?)\)\)/)?.[1];
+  assert.ok(checkValues, 'No se encontró el CHECK canónico de dependencyType');
+  const allowedTypes = Array.from(checkValues.matchAll(/'([^']+)'/g), (match) => match[1]);
+  assert.deepEqual([...SYSTEMS_DEPENDENCY_TYPES], allowedTypes);
+  assert.equal(allowedTypes.includes('LOCAL_MODEL_API'), false);
+  const priorWorkerUrl = process.env.COMPANY_OS_V3_WORKER_URL;
+  delete process.env.COMPANY_OS_V3_WORKER_URL;
+  try {
+    const snapshot = await buildSystemsSnapshot();
+    for (const dependency of snapshot.dependencies) {
+      assert.ok(allowedTypes.includes(dependency.dependencyType), `${dependency.dependencyId} viola el CHECK de PostgreSQL`);
+      assert.ok(snapshot.assets.some((asset) => asset.assetId === dependency.sourceAssetId));
+      assert.ok(snapshot.assets.some((asset) => asset.assetId === dependency.targetAssetId));
+    }
+    const localModel = snapshot.dependencies.find((dependency) => dependency.dependencyId === 'dep-worker-qwen');
+    assert.equal(localModel?.dependencyType, 'MODEL_API');
+    assert.equal(localModel?.sourceAssetId, 'diegoserver-node');
+    assert.equal(localModel?.targetAssetId, 'ollama-qwen-local');
+  } finally {
+    if (priorWorkerUrl === undefined) delete process.env.COMPANY_OS_V3_WORKER_URL;
+    else process.env.COMPANY_OS_V3_WORKER_URL = priorWorkerUrl;
+  }
 });
 
 test('score técnico es determinístico y responde a todos los factores requeridos', () => {
