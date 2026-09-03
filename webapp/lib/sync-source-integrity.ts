@@ -88,3 +88,16 @@ export function parseIncompleteOrderQuarantineLimit(rawValue = process.env.SYNC_
   }
   return parsed;
 }
+
+/**
+ * Accept only an explicit cancelled order whose every source line is cancelled
+ * and whose header total is zero. Empty or mixed lines remain quarantined.
+ */
+export function isStrictCancelledOrder<T extends { status?: unknown; total_amount?: unknown; items?: unknown[] }>(order: T) {
+  const items = order.items ?? [];
+  return items.length > 0
+    && String(order.status ?? '').trim().toUpperCase() === 'CANCELADO'
+    && Number(order.total_amount) === 0
+    && items.every((item) => String((item as { status?: unknown }).status ?? '').trim().toUpperCase() === 'CANCELADO');
+}
+
