@@ -18,7 +18,7 @@ import {
   sourceWouldEraseExistingItems,
 } from '../lib/direct-sheet-sync';
 import { itemSyncSignatureWithoutStatus, sameItemSet } from '../lib/sync-item-comparison';
-import { filterPersistableSourceItems, isHistoricalReconciliationEligible, partitionOrdersByItemIntegrity } from '../lib/sync-source-integrity';
+import { DEFAULT_INCOMPLETE_ORDER_QUARANTINE_LIMIT, MAX_INCOMPLETE_ORDER_QUARANTINE_LIMIT, filterPersistableSourceItems, isHistoricalReconciliationEligible, parseIncompleteOrderQuarantineLimit, partitionOrdersByItemIntegrity } from '../lib/sync-source-integrity';
 import { normalizeShipmentSourceRows } from '../lib/sync-source-normalization';
 import { effectiveSourceOrderStatus } from '../lib/sync-status-precedence';
 
@@ -151,6 +151,14 @@ test('FULL pone en cuarentena un invoice con cantidad vacía o inválida', () =>
   ]), true);
   assert.equal(result.accepted.length, 0);
   assert.equal(result.quarantined[0].reason, 'INCOMPLETE_QUANTITY');
+});
+
+test('el límite de cuarentena rechaza valores inválidos y mantiene un tope seguro', () => {
+  assert.equal(parseIncompleteOrderQuarantineLimit(undefined), DEFAULT_INCOMPLETE_ORDER_QUARANTINE_LIMIT);
+  assert.equal(parseIncompleteOrderQuarantineLimit('10'), MAX_INCOMPLETE_ORDER_QUARANTINE_LIMIT);
+  for (const value of ['0', '-1', '1.5', 'NaN', 'Infinity', '11', '9007199254740992', ' 10']) {
+    assert.throws(() => parseIncompleteOrderQuarantineLimit(value), /SYNC_INCOMPLETE_ORDER_QUARANTINE_LIMIT/);
+  }
 });
 
 test('la reconciliación histórica nunca salta la cuarentena de una reducción', () => {
