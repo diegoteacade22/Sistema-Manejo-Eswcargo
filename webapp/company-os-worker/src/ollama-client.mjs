@@ -226,7 +226,8 @@ export class OllamaAdvisoryClient {
         rules_applied: [
           ...advisoryRulesForClaim(claim, this.requireClaimOutputSchema),
           'local-loopback-inference',
-          requiresLocalInference(claim) ? 'data-manager-lineage-local-only' : 'openai-retryable-fallback-only',
+          claim.dataPolicy?.reason === 'CONTINUOUS_OBJECTIVE' ? 'continuous-objective-local-only'
+            : requiresLocalInference(claim) ? 'data-manager-lineage-local-only' : 'openai-retryable-fallback-only',
         ],
       };
       const parsed = parseOllamaOutput(raw);

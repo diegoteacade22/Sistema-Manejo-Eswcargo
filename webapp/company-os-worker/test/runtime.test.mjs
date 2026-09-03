@@ -1007,6 +1007,48 @@ test('scheduler persiste cada tick natural y distingue generación, dedupe, vac�
   await daemon.stop('TEST');
 });
 
+test('journal continuo separa generación y cobertura de agendas, sin fabricar ceros ausentes o inválidos', async (t) => {
+  const stateDir = tempDirectory(t);
+  const api = fakeApi([]);
+  const daemon = createDaemon({ stateDir, api, processor: { runClaim: async () => ({ status: 'COMPLETED' }) } });
+  const logger = new JsonRotatingLogger({ logDir: join(stateDir, 'logs'), mirrorConsole: false });
+  daemon.logger = logger;
+  await daemon.start({ runImmediately: false });
+  const observed = { generatedCount: 2, observed: 50, excluded: 7, scannedObjectives: 1 };
+  const responses = [
+    { scheduled: 1, results: [{ reused: true }], continuous: observed },
+    { scheduled: 0, results: [], continuous: { generatedCount: 0, observed: 0, excluded: 0, scannedObjectives: 0 } },
+    { scheduled: 1, results: [{ reused: false }] },
+    ...[undefined, null, [], {}, { ...observed, observed: '50' }, { ...observed, excluded: -1 },
+      { ...observed, generatedCount: 0.5 }, { ...observed, scannedObjectives: Number.MAX_SAFE_INTEGER + 1 }]
+      .map((continuous) => ({ scheduled: 0, results: [], continuous })),
+    { accepted: true, continuous: observed },
+  ];
+  for (const response of responses) {
+    api.schedule = async () => response;
+    await daemon.tickSchedule({ trigger: 'INTERVAL' });
+  }
+  api.schedule = async () => { throw Object.assign(new Error('schedule unavailable'), { code: 'COMPANY_OS_RUNTIME_API_TIMEOUT' }); };
+  await daemon.tickSchedule({ trigger: 'INTERVAL' });
+  const finishes = readFileSync(logger.filePath, 'utf8').trim().split('\n').map((line) => JSON.parse(line))
+    .filter(({ event }) => event === 'RUNTIME_SCHEDULE_SCAN_FINISHED');
+  const counts = ({ continuousCountsObserved, continuousGeneratedCount, continuousSourcesObserved, continuousExcludedCount, continuousObjectivesScanned }) =>
+    [continuousCountsObserved, continuousGeneratedCount, continuousSourcesObserved, continuousExcludedCount, continuousObjectivesScanned];
+  assert.deepEqual(counts(finishes[0]), [true, 2, 50, 7, 1]);
+  assert.deepEqual([finishes[0].generatedCount, finishes[0].reusedCount], [0, 1]);
+  assert.deepEqual(counts(finishes[1]), [true, 0, 0, 0, 0]);
+  for (const finish of finishes.slice(2, -2)) assert.deepEqual(counts(finish), [false, null, null, null, null]);
+  assert.equal(finishes[2].generatedCount, 1);
+  assert.deepEqual(counts(finishes.at(-2)), [true, 2, 50, 7, 1]);
+  assert.equal(finishes.at(-2).countsObserved, false);
+  assert.equal(finishes.at(-2).generatedCount, null);
+  assert.deepEqual(counts(finishes.at(-1)), [false, null, null, null, null]);
+  assert.equal(finishes.at(-1).success, false);
+  assert.equal(finishes.at(-1).exitCode, 1);
+  assert.equal(new Set(finishes.map(({ scanId }) => scanId)).size, finishes.length);
+  await daemon.stop('TEST');
+});
+
 test('un fallo OpenAI observable deja runtime y dependencia en DEGRADED', async (t) => {
   const stateDir = tempDirectory(t);
   const api = fakeApi([claim]);

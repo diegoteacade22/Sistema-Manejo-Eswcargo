@@ -316,6 +316,10 @@ export class CompanyOsRuntimeDaemon {
       const countsObserved = rows !== null
         && Number.isSafeInteger(result.scheduled) && result.scheduled === rows.length
         && rows.every((row) => typeof row?.reused === 'boolean');
+      const continuous = result?.continuous;
+      const continuousCountsObserved = continuous !== null && typeof continuous === 'object' && !Array.isArray(continuous)
+        && ['generatedCount', 'observed', 'excluded', 'scannedObjectives']
+          .every((key) => Number.isSafeInteger(continuous[key]) && continuous[key] >= 0);
       const finishedAt = this.now();
       this.logger.info('RUNTIME_SCHEDULE_SCAN_FINISHED', {
         ...scan,
@@ -327,6 +331,11 @@ export class CompanyOsRuntimeDaemon {
         scheduledCount: countsObserved ? rows.length : null,
         generatedCount: countsObserved ? rows.filter((row) => !row.reused).length : null,
         reusedCount: countsObserved ? rows.filter((row) => row.reused).length : null,
+        continuousCountsObserved,
+        continuousGeneratedCount: continuousCountsObserved ? continuous.generatedCount : null,
+        continuousSourcesObserved: continuousCountsObserved ? continuous.observed : null,
+        continuousExcludedCount: continuousCountsObserved ? continuous.excluded : null,
+        continuousObjectivesScanned: continuousCountsObserved ? continuous.scannedObjectives : null,
         errorCode: null,
       });
       return result;
@@ -343,6 +352,11 @@ export class CompanyOsRuntimeDaemon {
         scheduledCount: null,
         generatedCount: null,
         reusedCount: null,
+        continuousCountsObserved: false,
+        continuousGeneratedCount: null,
+        continuousSourcesObserved: null,
+        continuousExcludedCount: null,
+        continuousObjectivesScanned: null,
         errorCode: safeFailure(error).code,
       });
       return null;

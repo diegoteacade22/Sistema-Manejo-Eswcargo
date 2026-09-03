@@ -13,6 +13,7 @@ import { runtimeResultNeedsReview } from './runtime-outcome';
 import { findCompletedRuntimeDelegation, runtimeFollowUpCapacity } from './runtime-delegation';
 import { deriveRuntimeAgentState, type RuntimeAgentStateWork } from './runtime-agent-status';
 import { planRuntimeBudget, startOfZonedPeriod } from './runtime-budget';
+import { withRuntimeObjectiveClaimFence } from './runtime-objective-guard';
 import {
   COMPANY_OS_SYSTEMS_MANAGER_IDENTITY,
   COMPANY_OS_V3_IDENTITY,
@@ -256,6 +257,7 @@ type ClaimCandidate = {
   objective: string;
   workObjective: string | null;
   caseStatus: string;
+  caseType: string;
   maxOutputTokens: number;
   targetTotalTokens: number;
   turnCount: number;
@@ -288,11 +290,11 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
     `);
     const slot = slots[0];
     if (!slot) return null;
-    const candidates = await tx.$queryRaw<ClaimCandidate[]>(Prisma.sql`
+    const selectCandidates = (workItemId: string | null) => tx.$queryRaw<ClaimCandidate[]>(Prisma.sql`
       SELECT
         work.id AS "workItemId", work."caseId", company_case."requestId", work."agentId",
         company_case.objective, work."inputPayload"->>'objective' AS "workObjective",
-        company_case.status AS "caseStatus",
+        company_case.status AS "caseStatus", company_case."caseType",
         company_case."maxOutputTokens", company_case."targetTotalTokens",
         company_case."turnCount", company_case."maxTurns",
         work.status AS "workStatus", work."attemptCount", work."maxAttempts",
@@ -308,18 +310,30 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
         LIMIT 1
       ) contract ON true
       WHERE work.status IN ('QUEUED','FAILED_RETRYABLE')
+        AND (${workItemId}::text IS NULL OR work.id = ${workItemId})
         AND COALESCE(work."nextAttemptAt", work."availableAt") <= ${now}
         AND company_case.status NOT IN ('COMPLETED','CANCELLED','FAILED_FINAL')
+        AND (company_case."caseType" <> 'CONTINUOUS_OBJECTIVE' OR EXISTS (
+          SELECT 1 FROM public."CompanyOsObjectiveUnit" linked WHERE linked."caseId" = work."caseId"
+        ))
+        AND NOT EXISTS (
+          SELECT 1 FROM public."CompanyOsObjectiveUnit" unit
+          JOIN public."CompanyOsContinuousObjective" objective ON objective.id = unit."goalId"
+          WHERE unit."caseId" = work."caseId"
+            AND (objective.status <> 'ACTIVE' OR objective."startsAt" > clock_timestamp() OR objective."endsAt" <= clock_timestamp())
+        )
         AND NOT EXISTS (
           SELECT 1 FROM public."CompanyOsLease" active
           WHERE active."agentId" = work."agentId"
             AND active.status = 'ACTIVE' AND active."expiresAt" > ${now}
         )
       ORDER BY work.priority DESC, work."availableAt", work."createdAt"
-      FOR UPDATE OF work SKIP LOCKED
+      ${workItemId === null ? Prisma.empty : Prisma.sql`FOR UPDATE OF work SKIP LOCKED`}
       LIMIT 1
     `);
-    const candidate = candidates[0];
+    const observed = (await selectCandidates(null))[0];
+    if (!observed) return null;
+    const candidate = await withRuntimeObjectiveClaimFence(tx, observed, async () => (await selectCandidates(observed.workItemId))[0] ?? null);
     if (!candidate) return null;
     if (candidate.turnCount >= candidate.maxTurns) {
       await tx.companyOsWorkItem.update({ where: { id: candidate.workItemId }, data: { status: 'BLOCKED' } });

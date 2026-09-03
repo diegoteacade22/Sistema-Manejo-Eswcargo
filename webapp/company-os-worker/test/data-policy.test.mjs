@@ -97,6 +97,27 @@ test('local lineage never falls through to OpenAI when Ollama fails', async () =
   assert.deepEqual(urls, ['http://127.0.0.1:11434/api/chat']);
 });
 
+test('continuous objective initial General claim stays local, with exact advisory validation and no cloud retry', async () => {
+  const objectiveClaim = { ...claim, dataPolicy: { version: 1, inference: 'LOCAL_ONLY', reason: 'CONTINUOUS_OBJECTIVE' }, budgets: { maxOutputTokens: 1500, targetTotalTokens: 6000 } };
+  const urls = [];
+  const worker = runtime(async (url, init) => {
+    urls.push(url);
+    assert.equal(url, 'http://127.0.0.1:11434/api/chat');
+    assert.equal(JSON.parse(init.body).options.num_predict, 1500);
+    return new Response(JSON.stringify({ model: 'qwen3:4b-q4_K_M', done: true,
+      message: { content: JSON.stringify(output) }, prompt_eval_count: 20, eval_count: 10 }), { status: 200 });
+  });
+  const result = await worker.processor.openai.generate(objectiveClaim);
+  assert.deepEqual(result.output, output);
+  assert.ok(result.usage.rules_applied.includes('continuous-objective-local-only'));
+  assert.equal(result.usage.rules_applied.includes('data-manager-lineage-local-only'), false);
+  assert.deepEqual(urls, ['http://127.0.0.1:11434/api/chat']);
+  const cloud = new OpenAiAdvisoryClient({ apiKey: 'test-key', fetchImpl: async () => { assert.fail('cloud prohibited'); } });
+  await assert.rejects(cloud.generate(objectiveClaim), (error) => error.code === 'OPENAI_DATA_EXPORT_DISABLED');
+  const failing = runtime(async (url) => { assert.equal(url, 'http://127.0.0.1:11434/api/chat'); return new Response('{}', { status: 503 }); });
+  await assert.rejects(failing.processor.openai.generate(objectiveClaim), (error) => error.code === 'OLLAMA_HTTP_ERROR');
+});
+
 test('General without Data lineage retains its primary model route', async () => {
   const worker = runtime(async () => { throw new Error('NETWORK_NOT_EXPECTED'); });
   const calls = [];

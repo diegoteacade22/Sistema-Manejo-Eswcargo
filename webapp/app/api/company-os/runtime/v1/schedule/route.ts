@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { runDueCompanyOsSchedules } from '@/lib/company-os/v3-store';
+import { runContinuousObjectiveCycle } from '@/lib/company-os/continuous-objective-runner';
 import { requiredString, verifiedRuntimeJson } from '../_request';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +13,8 @@ export async function POST(request: Request) {
   if (!workerId) return NextResponse.json({ error: 'workerId obligatorio' }, { status: 400 });
   try {
     const results = await runDueCompanyOsSchedules(workerId);
-    return NextResponse.json({ scheduled: results.length, results, modelCalls: 0 }, { headers: { 'Cache-Control': 'no-store' } });
+    const continuous = await runContinuousObjectiveCycle();
+    return NextResponse.json({ scheduled: results.length, results, continuous, modelCalls: 0 }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     console.error('[Company OS Runtime] schedule failed', error instanceof Error ? error.message : 'unknown');
     return NextResponse.json({ error: 'No se pudo evaluar la agenda' }, { status: 503 });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Activity,
   Ban,
@@ -986,10 +987,13 @@ export function CompanyOsDashboard() {
                 {manager.label} AI · {manager.description} Análisis advisory-only; ejecución durable en el worker 24/7 y sin mutaciones empresariales.
               </p>
             </div>
-            <Badge variant="outline" className="p-3 text-base">
-              <Activity className="mr-2 h-4 w-4" />
-              {operations.state}
-            </Badge>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button asChild variant="outline"><Link href="/company-os/objectives">Objetivos continuos</Link></Button>
+              <Badge variant="outline" className="p-3 text-base">
+                <Activity className="mr-2 h-4 w-4" />
+                {operations.state}
+              </Badge>
+            </div>
           </div>
         </section>
         {error && (

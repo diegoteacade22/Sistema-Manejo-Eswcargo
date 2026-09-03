@@ -7,6 +7,7 @@ import { getCompanyOsScheduleObjective } from './runtime-contracts';
 import { enqueueInitialRuntimeWorkItem, isCompanyOsRuntimeAgentInstalled } from './runtime-store';
 import { signCompanyOsWorkerPayload } from './v3-auth';
 import { companyOsV3Prisma } from './v3-prisma';
+import { continuousCaseBudgets, materializeContinuousCaseEvidence } from './continuous-case-evidence';
 import {
   COMPANY_OS_MISSION_STATUSES,
   COMPANY_OS_REQUEST_STATUSES,
@@ -262,26 +263,33 @@ export async function createCompanyOsCase(
   agentId: CompanyOsAgentId = COMPANY_OS_V3_IDENTITY,
   caseType = 'ADVISORY',
   scheduleRunKey?: string,
+  continuous?: { tx: Tx; systemsEvidence: boolean; context: Record<string, unknown> },
 ) {
   if (rawObjective.trim().length > 600) throw new Error('La orden supera 600 caracteres y no será truncada silenciosamente');
   const sanitized = sanitizeCompanyObjective(rawObjective);
-  const budgets = companyOsV3BudgetConfig();
+  let budgets = companyOsV3BudgetConfig();
   if (!sanitized.safeObjective) throw new Error('La orden no puede quedar vacía');
   if (!COMPANY_OS_AGENT_IDS.includes(agentId)) throw new Error('Agente Company OS inválido');
   if (!isCompanyOsRuntimeAgentInstalled(agentId)) throw new Error(`Agente ${agentId} NOT_INSTALLED`);
   if (!/^[A-Z][A-Z0-9_]{1,63}$/.test(caseType)) throw new Error('caseType inválido');
-  const systemsManager = agentId === 'systems-manager-ai-v1';
+  if (continuous && (caseType !== 'CONTINUOUS_OBJECTIVE' || agentId !== COMPANY_OS_V3_IDENTITY)) throw new Error('Contexto continuo sólo permitido para un caso raíz del Gerente General');
+  const systemsManager = agentId === 'systems-manager-ai-v1' || continuous?.systemsEvidence === true;
   const contract = COMPANY_OS_AGENT_CONTRACTS[agentId];
   const snapshot = systemsManager ? await buildSystemsSnapshot() : await buildCompanySnapshot();
-  const evidence = systemsManager
+  let evidence = systemsManager
     ? materializeSystemsSnapshot(snapshot as Awaited<ReturnType<typeof buildSystemsSnapshot>>, budgets.inputBudget)
     : materializeSnapshot(snapshot as Awaited<ReturnType<typeof buildCompanySnapshot>>, budgets.inputBudget);
+  if (continuous) {
+    const payload = materializeContinuousCaseEvidence(snapshot, systemsManager, continuous.context);
+    budgets = { ...budgets, ...continuousCaseBudgets(payload, sanitized.safeObjective, budgets) };
+    evidence = { payload, selected: true, blocked: estimateTokens(payload) > budgets.inputBudget } as typeof evidence;
+  }
   const inputBudgetEstimate = estimateTokens({ objective: sanitized.safeObjective, evidence: evidence.payload }) + 300;
   const blocked = evidence.blocked || inputBudgetEstimate > budgets.inputBudget;
   const requestId = randomUUID();
   const db = companyOsV3Prisma();
 
-  const created = await db.$transaction(async (tx) => {
+  const persistCase = async (tx: Tx) => {
     const relatedCase = relatedRequestId
       ? await tx.companyOsCase.findUnique({ where: { requestId: relatedRequestId }, select: { id: true } })
       : null;
@@ -353,7 +361,9 @@ export async function createCompanyOsCase(
       idempotencyKey: `audit:${requestId}:created`,
     } });
     return companyCase;
-  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  };
+  const created = continuous ? await persistCase(continuous.tx)
+    : await db.$transaction(persistCase, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
   return { ...created, redactions: sanitized.redactions };
 }
@@ -464,6 +474,7 @@ export async function claimCompanyOsCase(requestId?: string) {
       SELECT c.id, c."requestId", c."agentId", c.objective, c.status, c."webhookDeliveryStatus", c."maxOutputTokens", c."targetTotalTokens"
       FROM public."CompanyOsCase" c
       WHERE (${requested}::text IS NULL OR c."requestId" = ${requested})
+        AND c."caseType" <> 'CONTINUOUS_OBJECTIVE'
         AND (
           c.status = 'QUEUED'
           OR (c.status = 'ANALYZING' AND NOT EXISTS (

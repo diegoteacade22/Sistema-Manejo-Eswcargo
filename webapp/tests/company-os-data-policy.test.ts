@@ -8,14 +8,14 @@ const GENERAL = 'general-manager-ai-v3';
 type Work = { id: string; caseId: string; agentId: string; status?: string };
 type Message = { id: string; caseId: string; fromAgentId: string | null; toAgentId: string | null };
 
-function database({ caseAgent = GENERAL, work = [], messages = [], failCaseRead = false }: {
-  caseAgent?: string; work?: Work[]; messages?: Message[]; failCaseRead?: boolean;
+function database({ caseAgent = GENERAL, caseType = 'ADVISORY', work = [], messages = [], failCaseRead = false }: {
+  caseAgent?: string; caseType?: string; work?: Work[]; messages?: Message[]; failCaseRead?: boolean;
 } = {}) {
   return {
     companyOsCase: {
       async findUniqueOrThrow() {
         if (failCaseRead) throw new Error('DATABASE_UNAVAILABLE');
-        return { agentId: caseAgent };
+        return { agentId: caseAgent, caseType };
       },
     },
     companyOsWorkItem: {
@@ -38,6 +38,14 @@ function database({ caseAgent = GENERAL, work = [], messages = [], failCaseRead 
 test('Data-origin cases keep General returns local even without recent Data context', async () => {
   const policy = await resolveCompanyOsRuntimeDataPolicy(database({ caseAgent: DATA }), 'case-1', GENERAL);
   assert.deepEqual(policy, { version: 1, inference: 'LOCAL_ONLY', reason: 'DATA_MANAGER_LINEAGE' });
+});
+
+test('continuous objectives fence the initial General claim and all follow-ups without Data participation', async () => {
+  for (const agentId of [GENERAL, DATA, 'systems-manager-ai-v1']) {
+    assert.deepEqual(await resolveCompanyOsRuntimeDataPolicy(database({ caseType: 'CONTINUOUS_OBJECTIVE' }), 'case-1', agentId), {
+      version: 1, inference: 'LOCAL_ONLY', reason: 'CONTINUOUS_OBJECTIVE',
+    });
+  }
 });
 
 test('Data work keeps the case local after completion or cancellation', async () => {

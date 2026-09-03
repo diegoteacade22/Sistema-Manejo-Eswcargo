@@ -35,9 +35,12 @@ export default async function CompanyOsOperationsPage() {
                 Tareas pendientes, avances, bloqueos, resultados e ideas comerciales explicados en lenguaje humano.
               </p>
             </div>
-            <Button asChild variant="outline">
-              <Link href="/company-os"><ArrowLeft className="mr-2 h-4 w-4" /> Volver a Company OS</Link>
-            </Button>
+            <div className="flex flex-wrap gap-3">
+              <Button asChild className="bg-cyan-400 text-slate-950 hover:bg-cyan-300"><Link href="/company-os/objectives">Objetivos continuos</Link></Button>
+              <Button asChild variant="outline">
+                <Link href="/company-os"><ArrowLeft className="mr-2 h-4 w-4" /> Volver a Company OS</Link>
+              </Button>
+            </div>
           </div>
         </header>
 
