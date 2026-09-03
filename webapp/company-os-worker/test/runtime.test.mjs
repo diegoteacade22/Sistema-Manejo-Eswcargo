@@ -9,6 +9,7 @@ import { JsonRotatingLogger } from '../src/json-logger.mjs';
 import { OpenAiAdvisoryClient, OpenAiWorkerError, dataAdvisoryOutputSchemaFor, validateRuntimeContractOutput } from '../src/openai-client.mjs';
 import {
   OllamaAdvisoryClient,
+  localDecodingSchema,
   RetryableModelFallbackClient,
   validateOllamaBaseUrl,
 } from '../src/ollama-client.mjs';
@@ -760,6 +761,11 @@ test('config runtime fija intervalos, concurrencia, health local y notificacione
   assert.equal(config.ollamaFallbackEnabled, true);
   assert.equal(config.ollamaBaseUrl, 'http://127.0.0.1:11434');
   assert.equal(config.ollamaModel, 'qwen3:14b-q4_K_M');
+  assert.equal(config.localLineageModel, 'qwen3:4b-q4_K_M');
+  assert.throws(() => loadRuntimeConfig({
+    COMPANY_OS_RUNTIME_HMAC_SECRET: 'runtime-secret', OPENAI_API_KEY: 'openai-test',
+    COMPANY_OS_RUNTIME_LOCAL_LINEAGE_MODEL: 'qwen3:14b-q4_K_M',
+  }), /allowlisted local model/);
   assert.throws(() => validateRuntimeApiBaseUrl('http://webapp-weld-psi.vercel.app'), /pure HTTPS origin/);
   assert.throws(() => validateRuntimeApiBaseUrl('https://webapp-weld-psi.vercel.app:8443'), /pure HTTPS origin/);
   assert.throws(() => validateRuntimeApiBaseUrl('https://attacker.example'), /not allowlisted/);
@@ -785,6 +791,73 @@ test('daemon runtime cablea el fallback Ollama sin habilitarlo como proveedor pr
   assert.ok(runtime.processor.openai.primary instanceof OpenAiAdvisoryClient);
   assert.ok(runtime.processor.openai.fallback instanceof OllamaAdvisoryClient);
   assert.equal(runtime.processor.openai.enabled, true);
+  assert.equal(runtime.processor.openai.fallback.model, 'qwen3:14b-q4_K_M');
+});
+
+test('decoding local acota extensión sin mutar ni relajar el contrato ni recortar hallazgos', () => {
+  const schema = dataAdvisoryOutputSchemaFor({ quality: {}, freshness: {} });
+  const original = structuredClone(schema);
+  const local = localDecodingSchema(schema, { quality: {}, freshness: {} });
+  assert.deepEqual(schema, original);
+  assert.equal(local.properties.summary.maxLength, 240);
+  assert.equal(local.properties.dataFindings.maxItems, 10);
+  assert.equal(local.properties.dataFindings.items.properties.title.maxLength, 120);
+  assert.equal(local.properties.missions.maxItems, 10);
+  assert.equal(local.properties.evidenceRefs.maxItems, 2);
+  assert.deepEqual(local.required, schema.required);
+  assert.deepEqual(local.properties.confidence, schema.properties.confidence);
+  assert.deepEqual(local.properties.evidenceRefs.items.enum, ['quality', 'freshness']);
+  const stricter = { type: 'object', properties: { summary: { type: 'string', maxLength: 20 }, missions: { type: 'array', maxItems: 1, items: { type: 'string' } } } };
+  assert.equal(localDecodingSchema(stricter, {}).properties.summary.maxLength, 20);
+  assert.equal(localDecodingSchema(stricter, {}).properties.missions.maxItems, 1);
+});
+
+test('Data y su retorno General usan Qwen4b sin cambiar fallback14b ni validación', async (t) => {
+  const stateDir = tempDirectory(t);
+  const config = loadRuntimeConfig({
+    COMPANY_OS_RUNTIME_HMAC_SECRET: 'runtime-secret', OPENAI_API_KEY: 'openai-test',
+    COMPANY_OS_RUNTIME_STATE_DIR: stateDir,
+  });
+  const dataOutput = {
+    summary: 'Observación sintética.', primaryDataQualityProblem: 'Sin problemas observados.',
+    primaryFreshnessGap: 'Sin brecha observada.', recommendedNextStep: 'Conservar observación.',
+    evidenceRefs: ['refs'], dataFindings: [], missions: [], needsHumanDecision: false, confidence: 0.9,
+  };
+  const dataClaim = {
+    ...claim, agentId: 'data-manager-ai-v1',
+    contract: { ...claim.contract, outputSchema: dataAdvisoryOutputSchemaFor(claim.evidencePayload) },
+  };
+  const requests = [];
+  const runtime = buildDaemonRuntime(config, {
+    api: {}, logger: silentLogger,
+    fetchImpl: async (url, init) => {
+      assert.equal(url, 'http://127.0.0.1:11434/api/chat');
+      const body = JSON.parse(init.body);
+      requests.push(body);
+      return new Response(JSON.stringify({
+        model: body.model, done: true,
+        message: { content: JSON.stringify(requests.length === 1 ? dataOutput : runtimeOutput) },
+        prompt_eval_count: 30, eval_count: 20,
+      }), { status: 200 });
+    },
+  });
+  assert.deepEqual((await runtime.processor.openai.generate(dataClaim)).output, dataOutput);
+  assert.deepEqual((await runtime.processor.openai.generate({
+    ...claim, dataPolicy: { version: 1, inference: 'LOCAL_ONLY', reason: 'DATA_MANAGER_LINEAGE' },
+  })).output, runtimeOutput);
+  assert.equal(runtime.processor.openai.fallback.model, 'qwen3:14b-q4_K_M');
+  for (const body of requests) {
+    assert.equal(body.model, 'qwen3:4b-q4_K_M');
+    assert.equal(body.think, false);
+    assert.equal(body.options.num_predict, claim.budgets.maxOutputTokens);
+    assert.match(body.messages.map(({ content }) => content).join(' '), /complete compact JSON object/);
+    assert.equal(body.format.additionalProperties, false);
+    assert.deepEqual(body.format.properties.evidenceRefs.items.enum, ['refs']);
+  }
+  const originalSchema = structuredClone(runtimeOutputSchema);
+  const invalid = { ...runtimeOutput, confidence: 0.1, needsHumanDecision: false };
+  assert.throws(() => validateRuntimeContractOutput(claim, invalid), /confidence/i);
+  assert.deepEqual(runtimeOutputSchema, originalSchema);
 });
 
 test('queue vacía no invoca el procesador ni un modelo', async (t) => {

@@ -11,6 +11,31 @@ import { requiresLocalInference } from './data-policy.mjs';
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', '[::1]']);
 const DEFAULT_FALLBACK_RESERVE_MS = 30_000;
+const CONCISE_LOCAL_OUTPUT_RULE = ' Respond in Spanish with one complete compact JSON object. Keep explanatory fields to one short sentence and titles brief. Cover every material finding once; avoid repeating evidence or facts across fields. Summarize healthy coverage; never reproduce the source inventory or create a finding for every healthy source. Preserve all required fields, confidence rules and material findings; never invent facts to fill the schema.';
+
+export function localDecodingSchema(schema, evidencePayload) {
+  const copy = structuredClone(schema);
+  const evidenceCount = Object.keys(evidencePayload ?? {}).length;
+  function narrow(node, key = '') {
+    if (!node || typeof node !== 'object') return;
+    if (node.type === 'string' && !node.enum && node.const === undefined) {
+      const preferred = key === 'title' ? 120 : /Id$/.test(key) ? 80 : 240;
+      const limit = Math.max(node.minLength ?? 0, preferred);
+      node.maxLength = Math.min(node.maxLength ?? limit, limit);
+    }
+    if (node.type === 'array') {
+      const preferred = key === 'evidenceRefs' ? evidenceCount : key === 'missions' ? 10 : null;
+      if (preferred !== null) {
+        const limit = Math.max(node.minItems ?? 0, preferred);
+        node.maxItems = Math.min(node.maxItems ?? limit, limit);
+      }
+      narrow(node.items, key);
+    }
+    for (const [childKey, child] of Object.entries(node.properties ?? {})) narrow(child, childKey);
+  }
+  narrow(copy);
+  return copy;
+}
 
 export class OllamaWorkerError extends Error {
   constructor(message, { retryable = false, code = 'OLLAMA_ERROR', status = null } = {}) {
@@ -98,7 +123,7 @@ export class OllamaAdvisoryClient {
         messages: [
           {
             role: 'system',
-            content: 'You are Gerente de Datos AI (data-manager-ai-v1), reporting to general-manager-ai-v3 inside Company OS. Analyze only the supplied closed business snapshot. Identify data quality, freshness, consistency, and coverage findings with evidence references. Never execute, claim execution, change, delete, import, or expose business data. Every mission must remain PLANNED.' + runtimePolicy,
+            content: 'You are Gerente de Datos AI (data-manager-ai-v1), reporting to general-manager-ai-v3 inside Company OS. Analyze only the supplied closed business snapshot. Identify data quality, freshness, consistency, and coverage findings with evidence references. Review every quality metric: each nonzero duplicate, missing-value or inconsistent-record count and each material freshness gap needs a finding; a higher-priority issue does not erase the others. Never execute, claim execution, change, delete, import, or expose business data. Every mission must remain PLANNED.' + runtimePolicy + CONCISE_LOCAL_OUTPUT_RULE,
           },
           {
             role: 'user',
@@ -113,7 +138,7 @@ export class OllamaAdvisoryClient {
         ],
         stream: false,
         think: false,
-        format: dataAdvisoryOutputSchemaFor(claim.evidencePayload),
+        format: localDecodingSchema(dataAdvisoryOutputSchemaFor(claim.evidencePayload), claim.evidencePayload),
         options: {
           temperature: 0,
           num_predict: claim.budgets?.maxOutputTokens || 3000,
@@ -126,10 +151,14 @@ export class OllamaAdvisoryClient {
     });
     return {
       model: this.model,
-      messages: advisory.input,
+      messages: requiresLocalInference(claim)
+        ? [...advisory.input, { role: 'system', content: CONCISE_LOCAL_OUTPUT_RULE }]
+        : advisory.input,
       stream: false,
       think: false,
-      format: advisory.text.format.schema,
+      format: requiresLocalInference(claim)
+        ? localDecodingSchema(advisory.text.format.schema, claim.evidencePayload)
+        : advisory.text.format.schema,
       options: {
         temperature: 0,
         num_predict: advisory.max_output_tokens,

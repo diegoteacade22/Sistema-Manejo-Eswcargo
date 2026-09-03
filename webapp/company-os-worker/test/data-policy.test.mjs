@@ -72,9 +72,10 @@ test('General return uses local Ollama with fallback disabled and preserves loca
     urls.push(url);
     assert.equal(url, 'http://127.0.0.1:11434/api/chat');
     const body = JSON.parse(init.body);
+    assert.equal(body.model, 'qwen3:4b-q4_K_M');
     assert.match(body.messages[1].content, /Integrar resultado/);
     return new Response(JSON.stringify({
-      model: 'qwen3:14b-q4_K_M', done: true,
+      model: 'qwen3:4b-q4_K_M', done: true,
       message: { content: JSON.stringify(output) },
       prompt_eval_count: 20, eval_count: 10, total_duration: 1_000_000,
     }), { status: 200 });

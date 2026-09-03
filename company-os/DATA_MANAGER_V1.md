@@ -11,11 +11,20 @@ leases. El Gerente General conserva como máximo una delegación por turno y
 puede elegir Systems o Data.
 
 Por protección de datos, el worker de DiegoServer enruta Data exclusivamente a
-Ollama en `127.0.0.1`, también para el retorno a General y cualquier trabajo
+Ollama en `127.0.0.1` con `qwen3:4b-q4_K_M`, también para el retorno a General y cualquier trabajo
 posterior en un caso que haya involucrado a Data. El servidor determina este
 linaje desde el historial completo. El cliente OpenAI rechaza esos claims antes
 de cualquier salida de datos. El agente no puede escribir tablas empresariales, enviar mensajes
 externos, importar, borrar ni corregir datos.
+
+El modelo de este linaje queda fijado por `COMPANY_OS_RUNTIME_LOCAL_LINEAGE_MODEL`
+y sólo admite `qwen3:4b-q4_K_M`. La instalación verifica que esté disponible aun
+cuando el fallback esté deshabilitado. El fallback histórico de los casos sin
+linaje Data conserva `qwen3:14b-q4_K_M`. El schema de generación se clona y
+acota explicaciones a 240 caracteres, títulos a 120 y misiones a diez; conserva
+los diez hallazgos admitidos por el contrato y todas las fuentes recibidas.
+No se trunca una respuesta ya generada. El validador firmado, la confianza,
+el presupuesto y el timeout de 120 segundos se mantienen.
 
 La agenda diaria `daily-quality-baseline` se instala mediante una migración
 append-only y queda sujeta a los mismos límites de presupuesto, heartbeat,
