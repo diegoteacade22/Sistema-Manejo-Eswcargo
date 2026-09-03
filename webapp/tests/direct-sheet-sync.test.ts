@@ -176,6 +176,30 @@ test('solo una cancelación explícita con total cero evita la cuarentena', () =
   assert.equal(isStrictCancelledOrder({ ...cancelled, total_amount: 1 }), false);
   assert.equal(isStrictCancelledOrder({ ...cancelled, items: [{ status: 'CANCELADO' }, { status: 'STOCK' }] }), false);
   assert.equal(isStrictCancelledOrder({ ...cancelled, status: 'COMPRAR' }), false);
+  assert.equal(isStrictCancelledOrder({ ...cancelled, total_amount: null }), false);
+  assert.equal(isStrictCancelledOrder({ ...cancelled, total_amount: '' }), false);
+  assert.equal(isStrictCancelledOrder({ ...cancelled, total_amount: '   ' }), false);
+  assert.equal(isStrictCancelledOrder({ ...cancelled, total_amount: '0' }), true);
+});
+
+test('los cinco pedidos con fuente reducida permanecen en cuarentena', () => {
+  const source = [
+    { order_number: 2606, items: [] },
+    { order_number: 2599, items: [{ sku: 'A' }, { sku: 'B' }, { sku: 'C' }, { sku: 'D' }] },
+    { order_number: 2588, items: [] },
+    { order_number: 2586, items: [] },
+    { order_number: 1935, items: [{ quantity_is_explicit: false }] },
+  ];
+  const existing = new Map([
+    [2606, { orderId: 1, itemCount: 2 }],
+    [2599, { orderId: 2, itemCount: 12 }],
+    [2588, { orderId: 3, itemCount: 7 }],
+    [2586, { orderId: 4, itemCount: 1 }],
+    [1935, { orderId: 5, itemCount: 1 }],
+  ]);
+  const result = partitionOrdersByItemIntegrity(source, existing);
+  assert.deepEqual(result.accepted, []);
+  assert.deepEqual(result.quarantined.map(({ order }) => order.order_number), [2606, 2599, 2588, 2586, 1935]);
 });
 
 test('la reconciliación histórica nunca salta la cuarentena de una reducción', () => {
