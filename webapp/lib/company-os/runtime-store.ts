@@ -10,6 +10,7 @@ import {
 import { companyOsV3Prisma } from './v3-prisma';
 import { resolveCompanyOsRuntimeDataPolicy } from './runtime-data-policy';
 import { runtimeResultNeedsReview } from './runtime-outcome';
+import { deriveRuntimeAgentState, type RuntimeAgentStateWork } from './runtime-agent-status';
 import {
   COMPANY_OS_SYSTEMS_MANAGER_IDENTITY,
   COMPANY_OS_V3_IDENTITY,
@@ -1296,6 +1297,7 @@ export async function getCompanyOsRuntimeControlCenter() {
     reviewCaseCount,
     completedToday,
     oldestQueued,
+    agentStateWorkItems,
   ] = await Promise.all([
     db.companyOsRuntimeControl.findUniqueOrThrow({ where: { id: 'primary' } }),
     db.companyOsWorker.findMany({ orderBy: { lastHeartbeatAt: 'desc' } }),
@@ -1352,28 +1354,42 @@ export async function getCompanyOsRuntimeControlCenter() {
       orderBy: { availableAt: 'asc' },
       select: { availableAt: true },
     }),
+    // Agent health must not depend on the pagination of the visible work history.
+    db.$queryRaw<RuntimeAgentStateWork[]>(Prisma.sql`
+      SELECT DISTINCT ON (work."agentId", work.status)
+        work."agentId", work.status, company_case."requestId", work."updatedAt", work."completedAt",
+        active_lease."workerId" AS "leaseWorkerId", active_lease."expiresAt" AS "leaseExpiresAt"
+      FROM public."CompanyOsWorkItem" work
+      JOIN public."CompanyOsCase" company_case ON company_case.id = work."caseId"
+      LEFT JOIN LATERAL (
+        SELECT lease."workerId", lease."expiresAt"
+        FROM public."CompanyOsLease" lease
+        WHERE lease."workItemId" = work.id AND lease.status = 'ACTIVE' AND lease."expiresAt" > ${now}
+        ORDER BY lease."createdAt" DESC LIMIT 1
+      ) active_lease ON true
+      WHERE work."agentId" IN (${Prisma.join(INSTALLED_AGENT_IDS)})
+        AND work.status IN ('CLAIMED', 'RUNNING', 'COMPLETED', 'BLOCKED', 'FAILED_RETRYABLE', 'FAILED_FINAL')
+      ORDER BY work."agentId", work.status, work."updatedAt" DESC, work.id DESC
+    `),
   ]);
   const counts = new Map(queueGroups.map((item) => [item.status, item._count._all]));
   const freshWorkers = workers.filter((worker) => now.getTime() - worker.lastHeartbeatAt.getTime() <= WORKER_STALE_MS && worker.state !== 'STOPPED');
-  const activeByAgent = new Map<string, typeof workItems[number]>();
-  for (const work of workItems) if (ACTIVE_WORK_STATUSES.includes(work.status as typeof ACTIVE_WORK_STATUSES[number]) && !activeByAgent.has(work.agentId)) activeByAgent.set(work.agentId, work);
-  const blockedByAgent = new Set(workItems.filter((work) => ['BLOCKED', 'FAILED_RETRYABLE', 'FAILED_FINAL'].includes(work.status)).map((work) => work.agentId));
   const agents = COMPANY_OS_TEAM_MANIFEST.map((agent) => {
-    const active = activeByAgent.get(agent.agentId);
-    const installed = agent.status === 'INSTALLED';
-    let status = 'NOT_INSTALLED';
-    if (installed && control.paused) status = 'PAUSED';
-    else if (installed && active) status = 'RUNNING';
-    else if (installed && blockedByAgent.has(agent.agentId)) status = 'BLOCKED';
-    else if (installed && freshWorkers.length === 0) status = 'UNKNOWN';
-    else if (installed) status = 'IDLE';
+    const current = deriveRuntimeAgentState({
+      agentId: agent.agentId,
+      installed: agent.status === 'INSTALLED',
+      paused: control.paused,
+      now,
+      staleMs: WORKER_STALE_MS,
+      workers,
+      workItems: agentStateWorkItems,
+    });
     return {
       agentId: agent.agentId,
       name: agent.name,
       reportsToAgentId: agent.reportsToAgentId,
       installationStatus: agent.status,
-      status,
-      currentCaseId: active?.case.requestId ?? null,
+      ...current,
     };
   });
   const usageByAgentModel = usageRows.map((row) => ({
@@ -1516,14 +1532,21 @@ export async function getCompanyOsRuntimeControlCenter() {
   };
 }
 
+export function validateRuntimeControlIdempotencyKey(raw: string) {
+  // Opaque identifiers must remain byte-for-byte stable. Content redaction can
+  // mistake numeric UUID segments for phone numbers and break valid UI keys.
+  const key = raw.trim();
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,159}$/.test(key)) throw new Error('idempotencyKey inválido');
+  return key;
+}
+
 export async function applyCompanyOsRuntimeControl(input: {
   action: 'PAUSE' | 'RESUME' | 'RETRY_CASE';
   requestId?: string;
   idempotencyKey: string;
   actorRef: string;
 }) {
-  const key = cleanText(input.idempotencyKey, 160);
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,159}$/.test(key)) throw new Error('idempotencyKey inválido');
+  const key = validateRuntimeControlIdempotencyKey(input.idempotencyKey);
   const normalizedRequestId = input.requestId?.trim() || null;
   const requestHash = hash(JSON.stringify({ action: input.action, requestId: normalizedRequestId }));
   const db = companyOsV3Prisma();
