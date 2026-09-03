@@ -18,7 +18,7 @@ import {
   sourceWouldEraseExistingItems,
 } from '../lib/direct-sheet-sync';
 import { itemSyncSignatureWithoutStatus, sameItemSet } from '../lib/sync-item-comparison';
-import { DEFAULT_INCOMPLETE_ORDER_QUARANTINE_LIMIT, MAX_INCOMPLETE_ORDER_QUARANTINE_LIMIT, filterPersistableSourceItems, isHistoricalReconciliationEligible, parseIncompleteOrderQuarantineLimit, partitionOrdersByItemIntegrity } from '../lib/sync-source-integrity';
+import { DEFAULT_INCOMPLETE_ORDER_QUARANTINE_LIMIT, MAX_INCOMPLETE_ORDER_QUARANTINE_LIMIT, filterPersistableSourceItems, isHistoricalReconciliationEligible, isStrictCancelledOrder, parseIncompleteOrderQuarantineLimit, partitionOrdersByItemIntegrity } from '../lib/sync-source-integrity';
 import { normalizeShipmentSourceRows } from '../lib/sync-source-normalization';
 import { effectiveSourceOrderStatus } from '../lib/sync-status-precedence';
 
@@ -159,6 +159,23 @@ test('el límite de cuarentena rechaza valores inválidos y mantiene un tope seg
   for (const value of ['0', '-1', '1.5', 'NaN', 'Infinity', '11', '9007199254740992', ' 10']) {
     assert.throws(() => parseIncompleteOrderQuarantineLimit(value), /SYNC_INCOMPLETE_ORDER_QUARANTINE_LIMIT/);
   }
+});
+
+test('solo una cancelación explícita con total cero evita la cuarentena', () => {
+  const cancelled = { status: 'CANCELADO', total_amount: 0, items: [
+    { status: 'CANCELADO', quantity_is_explicit: false },
+    { status: 'CANCELADO', quantity_is_explicit: false },
+  ] };
+  assert.equal(isStrictCancelledOrder(cancelled), true);
+  const result = partitionOrdersByItemIntegrity([cancelled], new Map([
+    [100, { orderId: 1, itemCount: 4 }],
+  ]));
+  assert.equal(result.accepted.length, 1);
+  assert.equal(result.quarantined.length, 0);
+  assert.equal(isStrictCancelledOrder({ ...cancelled, items: [] }), false);
+  assert.equal(isStrictCancelledOrder({ ...cancelled, total_amount: 1 }), false);
+  assert.equal(isStrictCancelledOrder({ ...cancelled, items: [{ status: 'CANCELADO' }, { status: 'STOCK' }] }), false);
+  assert.equal(isStrictCancelledOrder({ ...cancelled, status: 'COMPRAR' }), false);
 });
 
 test('la reconciliación histórica nunca salta la cuarentena de una reducción', () => {
