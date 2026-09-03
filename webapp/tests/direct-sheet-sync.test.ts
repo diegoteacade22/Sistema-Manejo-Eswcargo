@@ -168,7 +168,7 @@ test('solo una cancelación explícita con total cero evita la cuarentena', () =
   ] };
   assert.equal(isStrictCancelledOrder(cancelled), true);
   const result = partitionOrdersByItemIntegrity([cancelled], new Map([
-    [100, { orderId: 1, itemCount: 4 }],
+    [2487, { orderId: 1, itemCount: 4 }],
   ]));
   assert.equal(result.accepted.length, 1);
   assert.equal(result.quarantined.length, 0);
