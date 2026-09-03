@@ -155,8 +155,8 @@ test('FULL pone en cuarentena un invoice con cantidad vacía o inválida', () =>
 
 test('el límite de cuarentena rechaza valores inválidos y mantiene un tope seguro', () => {
   assert.equal(parseIncompleteOrderQuarantineLimit(undefined), DEFAULT_INCOMPLETE_ORDER_QUARANTINE_LIMIT);
-  assert.equal(parseIncompleteOrderQuarantineLimit('10'), MAX_INCOMPLETE_ORDER_QUARANTINE_LIMIT);
-  for (const value of ['0', '-1', '1.5', 'NaN', 'Infinity', '11', '9007199254740992', ' 10']) {
+  assert.equal(parseIncompleteOrderQuarantineLimit('5'), MAX_INCOMPLETE_ORDER_QUARANTINE_LIMIT);
+  for (const value of ['0', '-1', '1.5', 'NaN', 'Infinity', '6', '10', '9007199254740992', ' 5']) {
     assert.throws(() => parseIncompleteOrderQuarantineLimit(value), /SYNC_INCOMPLETE_ORDER_QUARANTINE_LIMIT/);
   }
 });
