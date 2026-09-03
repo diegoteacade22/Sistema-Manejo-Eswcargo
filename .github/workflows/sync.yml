@@ -106,8 +106,6 @@ jobs:
           SYNC_DAYS: ${{ github.event.schedule == '5 8 * * *' && 'FULL' || github.event.inputs.days || '7' }}
           ALLOW_FINANCIAL_LEDGER_SYNC: '0'
           ALLOW_LEGACY_LEDGER_CLEANUP: '0'
-          # Las reducciones quedan en cuarentena y se registran; nunca habilita borrado destructivo.
-          SYNC_INCOMPLETE_ORDER_QUARANTINE_LIMIT: ${{ vars.SYNC_INCOMPLETE_ORDER_QUARANTINE_LIMIT || '10' }}
         run: |
           stage_started_at=$(date +%s)
           run_optional_audit() {
