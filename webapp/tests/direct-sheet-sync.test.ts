@@ -162,7 +162,7 @@ test('el límite de cuarentena rechaza valores inválidos y mantiene un tope seg
 });
 
 test('solo una cancelación explícita con total cero evita la cuarentena', () => {
-  const cancelled = { status: 'CANCELADO', total_amount: 0, items: [
+  const cancelled = { order_number: 2487, status: 'CANCELADO', total_amount: 0, items: [
     { status: 'CANCELADO', quantity_is_explicit: false },
     { status: 'CANCELADO', quantity_is_explicit: false },
   ] };
