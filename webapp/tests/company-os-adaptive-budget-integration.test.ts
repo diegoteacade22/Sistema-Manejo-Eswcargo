@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Prisma } from '@prisma/client';
-import { claimCompanyOsRuntimeWork, completeCompanyOsRuntimeWork } from '../lib/company-os/runtime-store';
+import { claimCompanyOsRuntimeWork, completeCompanyOsRuntimeWork, reconsiderLocalObjectiveBudget } from '../lib/company-os/runtime-store';
 import { getCompanyOsRuntimeContract } from '../lib/company-os/runtime-contracts';
 
 // Executes the real claim orchestration against a transaction double. It does
@@ -9,6 +9,9 @@ import { getCompanyOsRuntimeContract } from '../lib/company-os/runtime-contracts
 async function claimWith(options: {
   caseType?: string; used?: number; paused?: boolean; objectiveActive?: boolean;
   evidence?: unknown; loseWorkRace?: boolean; allowlist?: string | null; goalIncluded?: boolean;
+  specialistReturn?: boolean; contextMessages?: Array<Record<string, unknown>>;
+  causalKind?: string; causalDeliveryStatus?: string;
+  causalMessageType?: string; causalFromAgentId?: string; causalToAgentId?: string;
 } = {}) {
   const globalDb = globalThis as unknown as { companyOsV3Prisma?: unknown };
   const previous = globalDb.companyOsV3Prisma;
@@ -24,6 +27,11 @@ async function claimWith(options: {
     targetTotalTokens: 12_000, turnCount: 0, maxTurns: 6, workStatus: 'QUEUED',
     attemptCount: 0, maxAttempts: 3, timeoutMs: 120_000, reservedTokens: 12_000,
     contractVersion: contract.version, handlerKey: contract.handlerKey, contract,
+    causalMessageType: options.specialistReturn ? (options.causalMessageType ?? 'SPECIALIST_RESULT') : null,
+    causalKind: options.specialistReturn ? (options.causalKind ?? 'RESULT') : null,
+    causalFromAgentId: options.specialistReturn ? (options.causalFromAgentId ?? 'systems-manager-ai-v1') : null,
+    causalToAgentId: options.specialistReturn ? (options.causalToAgentId ?? 'general-manager-ai-v3') : null,
+    causalDeliveryStatus: options.specialistReturn ? (options.causalDeliveryStatus ?? 'DELIVERED') : null,
   };
   const leases: Record<string, unknown>[] = [];
   const workUpdates: Record<string, unknown>[] = [];
@@ -59,7 +67,7 @@ async function claimWith(options: {
       findFirst: async () => null,
       update: async ({ data }: { data: Record<string, unknown> }) => { workUpdates.push(data); return {}; },
     },
-    companyOsMessage: { findFirst: async () => null, findMany: async () => [] },
+    companyOsMessage: { findFirst: async () => null, findMany: async () => options.contextMessages ?? [] },
     companyOsEvidenceRef: { findMany: async () => options.evidence ? [{ evidenceKey: 'snapshot', value: options.evidence }] : [] },
     companyOsExecutionAttempt: { count: async () => 0, create: async () => ({ id: 'attempt-test' }) },
     companyOsRuntimeSlot: { update: async () => ({}) },
@@ -101,6 +109,87 @@ test('real claim persists reduced lease, returns identical worker allowance and 
   assert.equal(result.claim.businessWritesAuthorized, 0);
   assert.equal(result.claim.advisoryOnly, true);
   assert.deepEqual(result.allowlistQueries, [['case-test', '565970b3-6e88-4226-8c2a-146e34d6633b']]);
+});
+
+test('specialist return uses compact local context and the exact remaining daily allowance', async () => {
+  const manager = { id: 'manager', role: 'assistant', kind: 'RESULT', messageType: 'MANAGER_RESULT',
+    fromAgentId: 'general-manager-ai-v3', toAgentId: null, content: 'x'.repeat(4_000), payload: {}, createdAt: new Date(1) };
+  const specialist = { id: 'specialist', role: 'assistant', kind: 'RESULT', messageType: 'SPECIALIST_RESULT',
+    fromAgentId: 'systems-manager-ai-v1', toAgentId: 'general-manager-ai-v3', content: 'hallazgo', payload: {}, createdAt: new Date(2) };
+  const result = await claimWith({ used: 42_005, specialistReturn: true, contextMessages: [specialist, manager] });
+  assert.ok(result.claim);
+  assert.equal(result.claim.budgets.input, 5_000);
+  assert.equal(result.claim.budgets.maxOutputTokens, 995);
+  assert.equal(result.claim.budgets.targetTotalTokens, 5_995);
+  assert.deepEqual(result.claim.contextMessages.map((message: { id: string }) => message.id), ['specialist']);
+  assert.equal(result.leases[0].reservedTokens, 5_995);
+});
+
+test('compact budget rejects a causal row that is not a delivered result', async () => {
+  for (const options of [
+    { causalKind: 'CONTEXT' },
+    { causalDeliveryStatus: 'PENDING' },
+    { causalMessageType: 'MANAGER_RESULT' },
+    { causalFromAgentId: 'general-manager-ai-v3' },
+    { causalToAgentId: 'systems-manager-ai-v1' },
+  ]) {
+    const result = await claimWith({ used: 42_005, specialistReturn: true, ...options });
+    assert.equal(result.claim, null);
+    assert.equal(result.leases.length, 0);
+    assert.equal(result.events[0].eventType, 'WORK_DEFERRED_RUNTIME_BUDGET');
+  }
+});
+
+test('reconsideration advances only an authentic delivered specialist return', async () => {
+  const previousAllowlist = process.env.COMPANY_OS_ADAPTIVE_LOCAL_GOAL_IDS;
+  process.env.COMPANY_OS_ADAPTIVE_LOCAL_GOAL_IDS = '565970b3-6e88-4226-8c2a-146e34d6633b';
+  const now = new Date('2026-09-03T17:00:00Z');
+  const updates: Array<Record<string, unknown>> = [];
+  const events: Array<Record<string, unknown>> = [];
+  const row = {
+    workItemId: 'return-work', caseId: 'case-test', requestId: 'request-test',
+    agentId: 'general-manager-ai-v3', reservedTokens: 12_000, targetTotalTokens: 12_000,
+    maxOutputTokens: 3_000, availableAt: new Date('2026-09-04T04:00:00Z'),
+    caseStatus: 'RUNNING', budgetEventId: 'budget-event', causalKind: 'RESULT',
+    causalMessageType: 'SPECIALIST_RESULT', causalFromAgentId: 'systems-manager-ai-v1',
+    causalToAgentId: 'general-manager-ai-v3', causalDeliveryStatus: 'DELIVERED',
+  };
+  const tx = {
+    async $queryRaw(query: Prisma.Sql) {
+      if (query.sql.includes('FROM public."CompanyOsWorkItem" work')) return [row];
+      if (query.sql.includes('FROM public."CompanyOsUsage"')) return [{ totalTokens: 42_005, estimatedCostUsd: 0 }];
+      assert.fail(`Unexpected SQL in reconsider transaction: ${query.sql}`);
+    },
+    companyOsLease: { aggregate: async () => ({ _sum: { reservedTokens: 0 } }) },
+    companyOsWorkItem: { update: async ({ data }: { data: Record<string, unknown> }) => { updates.push(data); return {}; } },
+    companyOsCaseEvent: {
+      findUnique: async () => null,
+      findFirst: async () => null,
+      create: async ({ data }: { data: Record<string, unknown> }) => { events.push(data); return data; },
+    },
+  };
+  try {
+    assert.equal(await reconsiderLocalObjectiveBudget(tx as never, now), 1);
+    assert.equal(updates[0].availableAt, now);
+    assert.equal(events[0].eventType, 'WORK_BUDGET_RECONSIDERED');
+    row.causalDeliveryStatus = 'PENDING';
+    updates.length = 0;
+    events.length = 0;
+    assert.equal(await reconsiderLocalObjectiveBudget(tx as never, now), 0);
+    assert.equal(updates.length, 0);
+  } finally {
+    if (previousAllowlist === undefined) delete process.env.COMPANY_OS_ADAPTIVE_LOCAL_GOAL_IDS;
+    else process.env.COMPANY_OS_ADAPTIVE_LOCAL_GOAL_IDS = previousAllowlist;
+  }
+});
+
+test('standard case keeps manager context even with a specialist causal message', async () => {
+  const manager = { id: 'manager', role: 'assistant', kind: 'RESULT', messageType: 'MANAGER_RESULT',
+    fromAgentId: 'general-manager-ai-v3', toAgentId: null, content: 'provisional', payload: {}, createdAt: new Date(1) };
+  const result = await claimWith({ caseType: 'ADVISORY', used: 0, specialistReturn: true, contextMessages: [manager] });
+  assert.ok(result.claim);
+  assert.deepEqual(result.claim.contextMessages.map((message: { id: string }) => message.id), ['manager']);
+  assert.equal(result.claim.budgets.targetTotalTokens, 12_000);
 });
 
 test('empty or absent rollout flag and a nonmatching objective never shrink the standard reservation', async () => {

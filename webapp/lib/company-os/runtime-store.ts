@@ -15,6 +15,7 @@ import { deriveRuntimeAgentState, type RuntimeAgentStateWork } from './runtime-a
 import { planAdaptiveRuntimeBudget, planRuntimeBudget, startOfZonedPeriod } from './runtime-budget';
 import { withRuntimeObjectiveClaimFence } from './runtime-objective-guard';
 import {
+  COMPANY_OS_DATA_MANAGER_IDENTITY,
   COMPANY_OS_SYSTEMS_MANAGER_IDENTITY,
   COMPANY_OS_V3_IDENTITY,
   companyOsV3BudgetConfig,
@@ -289,7 +290,36 @@ type ClaimCandidate = {
   contractVersion: string;
   handlerKey: string;
   contract: Prisma.JsonValue;
+  causalMessageType: string | null;
+  causalKind: string | null;
+  causalFromAgentId: string | null;
+  causalToAgentId: string | null;
+  causalDeliveryStatus: string | null;
 };
+
+function isLocalSpecialistIntegration(candidate: Pick<ClaimCandidate,
+  'agentId' | 'causalMessageType' | 'causalKind' | 'causalFromAgentId' | 'causalToAgentId' | 'causalDeliveryStatus'>) {
+  return candidate.agentId === GENERAL_MANAGER_ID
+    && candidate.causalKind === 'RESULT'
+    && candidate.causalMessageType === 'SPECIALIST_RESULT'
+    && (candidate.causalFromAgentId === SYSTEMS_MANAGER_ID || candidate.causalFromAgentId === COMPANY_OS_DATA_MANAGER_IDENTITY)
+    && candidate.causalToAgentId === GENERAL_MANAGER_ID
+    && candidate.causalDeliveryStatus === 'DELIVERED';
+}
+
+function adaptiveBudgetFloors(candidate: ClaimCandidate) {
+  return isLocalSpecialistIntegration(candidate)
+    ? { inputAllowanceTokens: 5_000, minimumOutputTokens: 512 }
+    : {};
+}
+
+function runtimeContextMessages<T extends {
+  kind: string; messageType: string | null; fromAgentId: string | null;
+}>(candidate: ClaimCandidate, messages: T[], compactLocalIntegration: boolean): T[] {
+  if (!compactLocalIntegration || !isLocalSpecialistIntegration(candidate)) return messages;
+  return messages.filter((message) => !(message.kind === 'RESULT'
+    && message.messageType === 'MANAGER_RESULT' && message.fromAgentId === GENERAL_MANAGER_ID));
+}
 
 export async function claimCompanyOsRuntimeWork(input: { workerId: string; instanceId: string }) {
   const db = companyOsV3Prisma();
@@ -318,9 +348,13 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
         company_case."turnCount", company_case."maxTurns",
         work.status AS "workStatus", work."attemptCount", work."maxAttempts",
         work."timeoutMs", work."reservedTokens", contract."contractVersion",
-        contract."handlerKey", contract.contract
+        contract."handlerKey", contract.contract, causal.kind AS "causalKind",
+        causal."messageType" AS "causalMessageType", causal."fromAgentId" AS "causalFromAgentId",
+        causal."toAgentId" AS "causalToAgentId", causal."deliveryStatus" AS "causalDeliveryStatus"
       FROM public."CompanyOsWorkItem" work
       JOIN public."CompanyOsCase" company_case ON company_case.id = work."caseId"
+      LEFT JOIN public."CompanyOsMessage" causal ON causal.id = work."causalMessageId"
+        AND causal."caseId" = work."caseId"
       JOIN LATERAL (
         SELECT installed."contractVersion", installed."handlerKey", installed.contract
         FROM public."CompanyOsAgentContract" installed
@@ -393,7 +427,8 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
       && await adaptiveLocalCaseEnabled(tx, candidate.caseId)
       ? planAdaptiveRuntimeBudget({ now, dailyUsed, monthlyUsed, reserved,
         requested: candidate.reservedTokens, dailyLimit, monthlyLimit,
-        targetTotalTokens: candidate.targetTotalTokens, maxOutputTokens: candidate.maxOutputTokens })
+        targetTotalTokens: candidate.targetTotalTokens, maxOutputTokens: candidate.maxOutputTokens,
+        ...adaptiveBudgetFloors(candidate) })
       : null;
     const claimReservation = adaptive?.requestedTokens ?? candidate.reservedTokens;
     const claimMaxOutput = adaptive?.maxOutputTokens ?? candidate.maxOutputTokens;
@@ -436,7 +471,7 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
       select: { id: true, role: true, kind: true, messageType: true, fromAgentId: true, toAgentId: true, content: true, payload: true, createdAt: true },
     });
     const evidencePayload = Object.fromEntries(evidence.map((item) => [item.evidenceKey, item.value]));
-    const orderedContextMessages = contextMessages.reverse();
+    const orderedContextMessages = runtimeContextMessages(candidate, contextMessages.reverse(), adaptive !== null);
     const inputBudget = claimTargetTotal - claimMaxOutput;
     const effectiveInputTokens = estimateJsonTokens({
       requestId: candidate.requestId,
@@ -1314,19 +1349,26 @@ async function recoverBudgetBlockedWork(tx: Tx, now: Date) {
 }
 
 /** Reconsider only a budget-imposed delay, never a human pause or retry backoff. */
-async function reconsiderLocalObjectiveBudget(tx: Tx, now: Date) {
+export async function reconsiderLocalObjectiveBudget(tx: Tx, now: Date) {
   const goalIds = adaptiveLocalGoalIds();
   if (goalIds.length === 0) return 0;
   const deferred = await tx.$queryRaw<Array<{
     workItemId: string; caseId: string; requestId: string; agentId: string;
     reservedTokens: number; targetTotalTokens: number; maxOutputTokens: number;
     availableAt: Date; caseStatus: string; budgetEventId: string;
+    causalMessageType: string | null; causalKind: string | null; causalFromAgentId: string | null;
+    causalToAgentId: string | null; causalDeliveryStatus: string | null;
   }>>(Prisma.sql`
     SELECT work.id AS "workItemId", work."caseId", company_case."requestId", work."agentId",
       work."reservedTokens", company_case."targetTotalTokens", company_case."maxOutputTokens",
-      work."availableAt", company_case.status AS "caseStatus", budget.id AS "budgetEventId"
+      work."availableAt", company_case.status AS "caseStatus", budget.id AS "budgetEventId",
+      causal.kind AS "causalKind", causal."messageType" AS "causalMessageType",
+      causal."fromAgentId" AS "causalFromAgentId", causal."toAgentId" AS "causalToAgentId",
+      causal."deliveryStatus" AS "causalDeliveryStatus"
     FROM public."CompanyOsWorkItem" work
     JOIN public."CompanyOsCase" company_case ON company_case.id = work."caseId"
+    LEFT JOIN public."CompanyOsMessage" causal ON causal.id = work."causalMessageId"
+      AND causal."caseId" = work."caseId"
     JOIN LATERAL (
       SELECT event.id, event.sequence, event.payload FROM public."CompanyOsCaseEvent" event
       WHERE event."caseId" = work."caseId" AND event."eventType" = 'WORK_DEFERRED_RUNTIME_BUDGET'
@@ -1366,7 +1408,8 @@ async function reconsiderLocalObjectiveBudget(tx: Tx, now: Date) {
     const plan = planAdaptiveRuntimeBudget({ now, dailyUsed: daily.totalTokens, monthlyUsed: monthly.totalTokens,
       reserved: leases._sum.reservedTokens ?? 0, requested: work.reservedTokens,
       dailyLimit: contract.budgets.dailyTokens, monthlyLimit: contract.budgets.monthlyTokens,
-      targetTotalTokens: work.targetTotalTokens, maxOutputTokens: work.maxOutputTokens });
+      targetTotalTokens: work.targetTotalTokens, maxOutputTokens: work.maxOutputTokens,
+      ...(isLocalSpecialistIntegration(work) ? { inputAllowanceTokens: 5_000, minimumOutputTokens: 512 } : {}) });
     if (!plan.allowed) continue;
     // No reservation here: claim rechecks usage under its existing serializable fence.
     await tx.companyOsWorkItem.update({ where: { id: work.workItemId }, data: { availableAt: now } });

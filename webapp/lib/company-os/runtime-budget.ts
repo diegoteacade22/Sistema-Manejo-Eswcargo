@@ -75,6 +75,8 @@ export type AdaptiveRuntimeBudgetPlan = RuntimeBudgetPlan & {
 export function planAdaptiveRuntimeBudget(input: RuntimeBudgetInput & {
   targetTotalTokens: number;
   maxOutputTokens: number;
+  inputAllowanceTokens?: number;
+  minimumOutputTokens?: number;
 }): AdaptiveRuntimeBudgetPlan {
   const originalPlan = planRuntimeBudget(input);
   if (!Number.isSafeInteger(input.targetTotalTokens) || input.targetTotalTokens < 1
@@ -91,8 +93,13 @@ export function planAdaptiveRuntimeBudget(input: RuntimeBudgetInput & {
     maxOutputTokens: input.maxOutputTokens,
     adapted: false,
   };
-  const inputAllowance = input.targetTotalTokens - input.maxOutputTokens;
-  const minimumOutput = Math.min(1_000, input.maxOutputTokens);
+  const originalInputAllowance = input.targetTotalTokens - input.maxOutputTokens;
+  const inputAllowance = input.inputAllowanceTokens ?? originalInputAllowance;
+  const minimumOutput = input.minimumOutputTokens ?? Math.min(1_000, input.maxOutputTokens);
+  if (!Number.isSafeInteger(inputAllowance) || inputAllowance < 1 || inputAllowance > originalInputAllowance
+    || !Number.isSafeInteger(minimumOutput) || minimumOutput < 1 || minimumOutput > input.maxOutputTokens) {
+    throw new Error('Invalid adaptive runtime budget floors');
+  }
   if (input.requested < inputAllowance + minimumOutput) {
     throw new Error('Runtime reservation cannot preserve the input allowance and minimum output');
   }

@@ -66,6 +66,15 @@ test('mínimo de salida incluye ambos límites y todas las reservas activas', ()
   });
 });
 
+test('integración local acotada puede usar un piso menor sin alterar los máximos del contrato', () => {
+  const input = { ...adaptiveBase, dailyUsed: 42_005, inputAllowanceTokens: 5_000, minimumOutputTokens: 512 };
+  assert.deepEqual(planAdaptiveRuntimeBudget(input), {
+    allowed: true, requestedTokens: 5_995, targetTotalTokens: 5_995, maxOutputTokens: 995, adapted: true,
+  });
+  assert.throws(() => planAdaptiveRuntimeBudget({ ...input, inputAllowanceTokens: 9_001 }), /floors/);
+  assert.throws(() => planAdaptiveRuntimeBudget({ ...input, minimumOutputTokens: 3_001 }), /floors/);
+});
+
 test('no aumenta una reserva previa ni un máximo de salida menor a 1000', () => {
   assert.deepEqual(planAdaptiveRuntimeBudget({ ...adaptiveBase, requested: 10_500, dailyUsed: 0 }), {
     allowed: true, requestedTokens: 10_500, targetTotalTokens: 10_500, maxOutputTokens: 1_500, adapted: true,
