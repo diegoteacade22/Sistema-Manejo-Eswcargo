@@ -208,3 +208,10 @@ test('migración fuerza RLS, niega roles amplios, protege evento y dedupe/una un
   assert.match(migration, /FOREIGN KEY \("unitId","goalId"\)/);
   assert.ok(!/GRANT (?:INSERT|UPDATE|DELETE).*ON.*(?:Client|Transaction)/.test(migration));
 });
+
+test('a igual prioridad reparte por gerente menos atendido y no por antigüedad de toda la cola General', () => {
+  const service = readFileSync(new URL('../lib/company-os/continuous-objectives.ts', import.meta.url), 'utf8');
+  assert.match(service, /ORDER BY priority,\s+COALESCE\(\(SELECT max\(prior\."updatedAt"\)/);
+  assert.match(service, /prior\."ownerAgentId"=unit\."ownerAgentId" AND prior\."caseId" IS NOT NULL/);
+  assert.match(service, /WHEN 'systems-manager-ai-v1' THEN 0 WHEN 'data-manager-ai-v1' THEN 1 ELSE 2 END/);
+});

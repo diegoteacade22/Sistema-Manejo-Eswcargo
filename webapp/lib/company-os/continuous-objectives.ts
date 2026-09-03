@@ -273,7 +273,11 @@ export async function planContinuousObjectiveUnits(input: {
           WHERE active."goalId"=${goal.id} AND (active.status='QUEUED'
             OR c.status NOT IN (${Prisma.join(OBJECTIVE_SETTLED_CASE_STATUSES)})
             OR EXISTS(SELECT 1 FROM public."CompanyOsWorkItem" w WHERE w."caseId"=c.id AND w.status IN ('QUEUED','CLAIMED','RUNNING','FAILED_RETRYABLE'))))
-        ORDER BY priority,"createdAt",id LIMIT 1
+        ORDER BY priority,
+          COALESCE((SELECT max(prior."updatedAt") FROM public."CompanyOsObjectiveUnit" prior
+            WHERE prior."goalId"=unit."goalId" AND prior."ownerAgentId"=unit."ownerAgentId" AND prior."caseId" IS NOT NULL), '-infinity'::timestamptz),
+          CASE "ownerAgentId" WHEN 'systems-manager-ai-v1' THEN 0 WHEN 'data-manager-ai-v1' THEN 1 ELSE 2 END,
+          "createdAt",id LIMIT 1
       `);
       if (candidates[0]) pendingUnits.push(pendingView(candidates[0], goal));
     }
