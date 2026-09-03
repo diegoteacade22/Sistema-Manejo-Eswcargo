@@ -10,6 +10,7 @@ import {
 import { companyOsV3Prisma } from './v3-prisma';
 import { resolveCompanyOsRuntimeDataPolicy } from './runtime-data-policy';
 import { runtimeResultNeedsReview } from './runtime-outcome';
+import { findCompletedRuntimeDelegation, runtimeFollowUpCapacity } from './runtime-delegation';
 import { deriveRuntimeAgentState, type RuntimeAgentStateWork } from './runtime-agent-status';
 import {
   COMPANY_OS_SYSTEMS_MANAGER_IDENTITY,
@@ -750,7 +751,7 @@ export async function completeCompanyOsRuntimeWork(input: {
     if (companyCase.id !== workItem.caseId || companyCase.status === 'CANCELLED') throw new Error('Caso incompatible con el work item');
     const evidence = await tx.companyOsEvidenceRef.findMany({
       where: { caseId: companyCase.id },
-      select: { evidenceKey: true, value: true },
+      select: { evidenceKey: true, value: true, createdAt: true },
     });
     const { result, delegations } = validateRuntimeOutput(workItem.agentId, input.output, evidence);
     const safeResult = asRecord(sanitizeRuntimeValue(result));
@@ -765,6 +766,13 @@ export async function completeCompanyOsRuntimeWork(input: {
       leaseToken: input.leaseToken,
       finishedAt: null,
     } });
+    const nextTurn = companyCase.turnCount + 1;
+    const pendingTurns = await tx.companyOsWorkItem.count({ where: {
+      caseId: companyCase.id, id: { not: workItem.id },
+      status: { in: ['QUEUED', 'CLAIMED', 'RUNNING', 'FAILED_RETRYABLE'] },
+    } });
+    const followUpCapacity = runtimeFollowUpCapacity(nextTurn, companyCase.maxTurns, pendingTurns);
+    const canContinue = followUpCapacity.canReturnToGeneral;
     const messageKey = `runtime-message:${workItem.id}:attempt:${workItem.attemptCount}:result`;
     const priorResultMessage = await tx.companyOsMessage.findUnique({ where: { idempotencyKey: messageKey } });
     const resultMessage = priorResultMessage ?? await tx.companyOsMessage.create({
@@ -784,20 +792,61 @@ export async function completeCompanyOsRuntimeWork(input: {
         causationId: workItem.causalMessageId,
         deliveryStatus: 'DELIVERED',
         idempotencyKey: messageKey,
-        expectsResponse: workItem.agentId !== GENERAL_MANAGER_ID,
+        expectsResponse: workItem.agentId !== GENERAL_MANAGER_ID && canContinue,
         deliveredAt: new Date(),
       },
     });
-    const nextTurn = companyCase.turnCount + 1;
-    const canContinue = nextTurn < companyCase.maxTurns;
     let followUpCount = 0;
-    if (workItem.agentId === GENERAL_MANAGER_ID && canContinue) {
+    let duplicateDelegations = 0;
+    let turnBudgetSuppressed = 0;
+    const effectiveDelegations: typeof delegations = [];
+    if (workItem.agentId === GENERAL_MANAGER_ID && delegations.length) {
+      const completedWorks = await tx.companyOsWorkItem.findMany({
+        where: { caseId: companyCase.id, status: 'COMPLETED', agentId: { not: GENERAL_MANAGER_ID } },
+        select: { id: true, agentId: true, inputPayload: true, createdAt: true,
+          attempts: { where: { outcome: 'SUCCEEDED' }, orderBy: { startedAt: 'desc' }, take: 1, select: { startedAt: true } } },
+      });
+      const completedDelegations = completedWorks.map((prior) => {
+        const priorInput = asRecord(prior.inputPayload);
+        const evidenceAt = prior.attempts[0]?.startedAt ?? prior.createdAt;
+        return {
+          workItemId: prior.id, agentId: prior.agentId,
+          objective: typeof priorInput.objective === 'string' ? priorInput.objective : companyCase.objective,
+          evidenceRefs: Array.isArray(priorInput.evidenceRefs)
+            ? priorInput.evidenceRefs.filter((ref): ref is string => typeof ref === 'string')
+            : evidence.filter((ref) => ref.createdAt <= evidenceAt).map((ref) => ref.evidenceKey),
+        };
+      });
       for (const [index, delegation] of delegations.entries()) {
         const objective = cleanText(delegation.objective, 600);
         const delegationEvidenceRefs = (delegation.evidenceRefs as unknown[])
           .filter((value): value is string => typeof value === 'string')
           .map((value) => cleanText(value, 200));
         const targetAgentId = delegation.agentId as typeof INSTALLED_AGENT_IDS[number];
+        const completed = findCompletedRuntimeDelegation({ agentId: targetAgentId, objective, evidenceRefs: delegationEvidenceRefs }, completedDelegations);
+        if (completed) {
+          duplicateDelegations += 1;
+          await appendRuntimeEvent(tx, {
+            caseId: companyCase.id, requestId: companyCase.requestId,
+            eventType: 'DUPLICATE_DELEGATION_SUPPRESSED',
+            payload: { workItemId: workItem.id, completedWorkItemId: completed.workItemId,
+              agentId: targetAgentId, evidenceRefs: delegationEvidenceRefs, modelCalls: 0 },
+            idempotencyKey: `runtime:${companyCase.requestId}:delegation-suppressed:${workItem.id}:${index}`,
+          });
+          continue;
+        }
+        effectiveDelegations.push(delegation);
+        if (!runtimeFollowUpCapacity(nextTurn, companyCase.maxTurns, pendingTurns + followUpCount * 2).canDelegateToSpecialist) {
+          turnBudgetSuppressed += 1;
+          await appendRuntimeEvent(tx, {
+            caseId: companyCase.id, requestId: companyCase.requestId,
+            eventType: 'DELEGATION_TURN_BUDGET_SUPPRESSED',
+            payload: { workItemId: workItem.id, agentId: targetAgentId, turn: nextTurn,
+              maxTurns: companyCase.maxTurns, pendingTurns, reservedForGeneralIntegration: true },
+            idempotencyKey: `runtime:${companyCase.requestId}:delegation-turn-limit:${workItem.id}:${index}`,
+          });
+          continue;
+        }
         const delegationKey = `runtime-message:${workItem.id}:delegation:${index}:${targetAgentId}`;
         const priorDelegationMessage = await tx.companyOsMessage.findUnique({ where: { idempotencyKey: delegationKey } });
         const delegationMessage = priorDelegationMessage ?? await tx.companyOsMessage.create({
@@ -872,8 +921,8 @@ export async function completeCompanyOsRuntimeWork(input: {
         status: 'PLANNED',
       })) });
     }
-    const needsHumanDecision = runtimeResultNeedsReview({
-      output: result,
+    const needsHumanDecision = turnBudgetSuppressed > 0 || runtimeResultNeedsReview({
+      output: { ...result, delegations: effectiveDelegations },
       agentId: workItem.agentId,
       canContinue,
       minConfidence: getCompanyOsRuntimeContract(workItem.agentId).lowConfidencePolicy.minConfidence,
@@ -930,6 +979,8 @@ export async function completeCompanyOsRuntimeWork(input: {
         workItemId: workItem.id,
         agentId: workItem.agentId,
         followUpCount,
+        duplicateDelegations,
+        turnBudgetSuppressed,
         remainingRunnable,
         remainingBlocked,
         turn: nextTurn,
