@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { formatCompanyOsTimestamp } from "@/lib/company-os/runtime-display";
 
 const CONTROL_CENTER_URL = "/api/company-os/runtime/v1/control-center";
 const RUNTIME_CONTROL_URL = "/api/company-os/runtime/v1/control";
@@ -400,11 +401,7 @@ export function flattenRuntimeAgentHierarchy(agents: RuntimeAgent[]) {
 }
 
 function formatTimestamp(value: string | null) {
-  if (!value) return "UNOBSERVED";
-  const date = new Date(value);
-  return Number.isFinite(date.getTime())
-    ? date.toLocaleString("es-AR", { timeZone: "America/New_York" })
-    : "UNOBSERVED";
+  return formatCompanyOsTimestamp(value);
 }
 
 function formatNumber(value: number | null) {
@@ -482,7 +479,10 @@ function queueMetrics(snapshot: RuntimeControlCenterSnapshot) {
   ] as const;
 }
 
-export function CompanyOsRuntimeControlCenter({ readOnly = false }: { readOnly?: boolean }) {
+export function CompanyOsRuntimeControlCenter({ readOnly = false, onSnapshotChange }: {
+  readOnly?: boolean;
+  onSnapshotChange?: (snapshot: RuntimeControlCenterSnapshot | null) => void;
+}) {
   const [snapshot, setSnapshot] = useState<RuntimeControlCenterSnapshot | null>(null);
   const [observation, setObservation] = useState<ObservationState>("LOADING");
   const [refreshing, setRefreshing] = useState(false);
@@ -507,13 +507,16 @@ export function CompanyOsRuntimeControlCenter({ readOnly = false }: { readOnly?:
         throw new Error(detail ?? "No se pudo observar el runtime");
       }
       if (sequence === refreshSequence.current) {
-        setSnapshot(normalizeRuntimeControlCenterSnapshot(payload));
+        const observedSnapshot = normalizeRuntimeControlCenterSnapshot(payload);
+        setSnapshot(observedSnapshot);
+        onSnapshotChange?.(observedSnapshot);
         setObservation("OBSERVED");
         setError("");
       }
     } catch (caught) {
       if (sequence === refreshSequence.current) {
         setObservation("UNOBSERVED");
+        onSnapshotChange?.(null);
         setError(
           caught instanceof Error
             ? caught.message
@@ -523,7 +526,7 @@ export function CompanyOsRuntimeControlCenter({ readOnly = false }: { readOnly?:
     } finally {
       if (sequence === refreshSequence.current) setRefreshing(false);
     }
-  }, []);
+  }, [onSnapshotChange]);
 
   useEffect(() => {
     void refresh();
