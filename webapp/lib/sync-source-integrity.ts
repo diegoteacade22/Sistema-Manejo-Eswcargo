@@ -83,7 +83,7 @@ export const MAX_INCOMPLETE_ORDER_QUARANTINE_LIMIT = 5;
  */
 export function parseIncompleteOrderQuarantineLimit(rawValue = process.env.SYNC_INCOMPLETE_ORDER_QUARANTINE_LIMIT) {
   if (rawValue === undefined || rawValue === '') return DEFAULT_INCOMPLETE_ORDER_QUARANTINE_LIMIT;
-  if (!/^[1-9]\\d*$/.test(rawValue)) {
+  if (!/^[1-9]\d*$/.test(rawValue)) {
     throw new Error('SYNC_INCOMPLETE_ORDER_QUARANTINE_LIMIT debe ser un entero positivo.');
   }
   const parsed = Number(rawValue);
