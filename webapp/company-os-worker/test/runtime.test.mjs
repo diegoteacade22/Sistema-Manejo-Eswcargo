@@ -885,6 +885,55 @@ test('heartbeat idle, reconcile y schedule corren aunque no haya trabajo', async
   await daemon.stop('TEST');
 });
 
+test('scheduler persiste cada tick natural y distingue generación, dedupe, vacío y fallo', async (t) => {
+  const stateDir = tempDirectory(t);
+  const api = fakeApi([]);
+  const daemon = createDaemon({ stateDir, api, processor: { runClaim: async () => ({ status: 'COMPLETED' }) } });
+  const logger = new JsonRotatingLogger({ logDir: join(stateDir, 'logs'), mirrorConsole: false });
+  daemon.logger = logger;
+  const timerCallbacks = [];
+  daemon.installTimer = (callback) => timerCallbacks.push(callback);
+  await daemon.start({ runImmediately: false });
+  const scheduleTick = timerCallbacks[3];
+  assert.equal(typeof scheduleTick, 'function');
+  api.schedule = async () => ({ scheduled: 2, results: [{ reused: false }, { reused: true }], modelCalls: 0 });
+  await scheduleTick();
+  api.schedule = async () => ({ scheduled: 0, results: [], modelCalls: 0 });
+  await scheduleTick();
+  api.schedule = async () => { throw Object.assign(new Error('authorization: Bearer private-value'), { code: 'COMPANY_OS_RUNTIME_API_TIMEOUT', retryable: true }); };
+  await scheduleTick();
+  api.schedule = async () => ({ accepted: true });
+  await scheduleTick();
+
+  const lines = readFileSync(logger.filePath, 'utf8');
+  const entries = lines.trim().split('\n').map((line) => JSON.parse(line));
+  const starts = entries.filter(({ event }) => event === 'RUNTIME_SCHEDULE_SCAN_STARTED');
+  const finishes = entries.filter(({ event }) => event === 'RUNTIME_SCHEDULE_SCAN_FINISHED');
+  assert.equal(starts.length, 4);
+  assert.equal(finishes.length, 4);
+  assert.equal(new Set(finishes.map(({ scanId }) => scanId)).size, 4);
+  assert.deepEqual(finishes.map(({ scanNumber }) => scanNumber), [1, 2, 3, 4]);
+  assert.deepEqual(finishes.map(({ generatedCount }) => generatedCount), [1, 0, null, null]);
+  assert.deepEqual(finishes.map(({ reusedCount }) => reusedCount), [1, 0, null, null]);
+  assert.deepEqual(finishes.map(({ success, exitCode, countsObserved }) => ({ success, exitCode, countsObserved })), [
+    { success: true, exitCode: 0, countsObserved: true },
+    { success: true, exitCode: 0, countsObserved: true },
+    { success: false, exitCode: 1, countsObserved: false },
+    { success: true, exitCode: 0, countsObserved: false },
+  ]);
+  for (const [index, scan] of finishes.entries()) {
+    assert.equal(scan.scanId, starts[index].scanId);
+    assert.equal(scan.trigger, 'INTERVAL');
+    assert.equal(scan.instanceId, 'instance-test');
+    assert.ok(scan.durationMs >= 0);
+    assert.ok(Date.parse(scan.finishedAt) >= Date.parse(scan.startedAt));
+  }
+  assert.equal(finishes[2].errorCode, 'COMPANY_OS_RUNTIME_API_TIMEOUT');
+  assert.equal(lines.includes('private-value'), false);
+  assert.equal(daemon.scheduling, false);
+  await daemon.stop('TEST');
+});
+
 test('un fallo OpenAI observable deja runtime y dependencia en DEGRADED', async (t) => {
   const stateDir = tempDirectory(t);
   const api = fakeApi([claim]);
@@ -925,6 +974,33 @@ test('fallback Qwen deja el router saludable y conserva OpenAI degradado como de
   assert.equal(dependencies.find(({ key }) => key === 'openai-api').status, 'DEGRADED');
   assert.equal(dependencies.find(({ key }) => key === 'ollama-local').status, 'HEALTHY');
   await daemon.stop('TEST');
+});
+
+test('Ollama directo conserva la observación previa de OpenAI sin inventar un fallo', async (t) => {
+  for (const prior of [
+    { status: 'UNOBSERVED', observedAt: null, detail: null },
+    { status: 'HEALTHY', observedAt: '2026-09-01T12:00:00.000Z', detail: 'verified-model' },
+    { status: 'DEGRADED', observedAt: '2026-09-01T12:00:00.000Z', detail: 'OPENAI_TIMEOUT' },
+  ]) {
+    const stateDir = tempDirectory(t);
+    const daemon = createDaemon({
+      stateDir,
+      api: fakeApi([claim]),
+      processor: { runClaim: async () => ({
+        status: 'COMPLETED', modelProvider: 'ollama', model: 'qwen3:14b-q4_K_M', fallbackReason: null,
+      }) },
+    });
+    daemon.openAiDependency = { ...prior };
+    await daemon.start({ runImmediately: false });
+    await daemon.tickPoll();
+    await new Promise((resolve) => setImmediate(resolve));
+    const dependencies = daemon.heartbeatPayload().dependencies;
+    assert.deepEqual(dependencies.find(({ key }) => key === 'openai-api'), { key: 'openai-api', ...prior });
+    assert.equal(dependencies.find(({ key }) => key === 'ollama-local').status, 'HEALTHY');
+    assert.equal(dependencies.find(({ key }) => key === 'inference-router').status, 'HEALTHY');
+    assert.equal(daemon.snapshot().state, 'IDLE');
+    await daemon.stop('TEST');
+  }
 });
 
 test('SIGTERM lógico entra en DRAINING y espera el trabajo antes de STOPPED', async (t) => {

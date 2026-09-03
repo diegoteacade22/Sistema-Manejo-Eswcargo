@@ -74,6 +74,7 @@ export class CompanyOsRuntimeDaemon {
     this.workerHeartbeating = false;
     this.reconciling = false;
     this.scheduling = false;
+    this.scheduleScanCount = 0;
     this.lastWorkerHeartbeatAt = null;
     this.lastState = 'STARTING';
     this.apiDependency = { status: 'UNOBSERVED', observedAt: null, detail: null };
@@ -123,7 +124,9 @@ export class CompanyOsRuntimeDaemon {
       this.modelRouterDependency = { status: 'HEALTHY', observedAt, detail: `${provider}:${result.model || 'unknown'}` };
       if (provider === 'ollama') {
         this.ollamaDependency = { status: 'HEALTHY', observedAt, detail: result.model || 'qwen-local' };
-        this.openAiDependency = { status: 'DEGRADED', observedAt, detail: result.fallbackReason || 'OPENAI_RETRYABLE_FAILURE' };
+        if (typeof result.fallbackReason === 'string' && result.fallbackReason.trim()) {
+          this.openAiDependency = { status: 'DEGRADED', observedAt, detail: result.fallbackReason };
+        }
       } else {
         this.openAiDependency = { status: 'HEALTHY', observedAt, detail: result.model || null };
       }
@@ -247,10 +250,10 @@ export class CompanyOsRuntimeDaemon {
       this.installTimer(() => this.tickPoll(), this.config.pollIntervalMs);
       this.installTimer(() => this.tickWorkerHeartbeat(), this.config.workerHeartbeatIntervalMs);
       this.installTimer(() => this.tickReconcile(), this.config.reconcileIntervalMs);
-      this.installTimer(() => this.tickSchedule(), this.config.scheduleIntervalMs);
+      this.installTimer(() => this.tickSchedule({ trigger: 'INTERVAL' }), this.config.scheduleIntervalMs);
       if (runImmediately) {
         void this.tickReconcile();
-        void this.tickSchedule();
+        void this.tickSchedule({ trigger: 'STARTUP' });
         void this.tickPoll();
       }
       return this.snapshot();
@@ -293,15 +296,55 @@ export class CompanyOsRuntimeDaemon {
     }
   }
 
-  async tickSchedule() {
+  async tickSchedule({ trigger = 'MANUAL' } = {}) {
     if (!this.running || this.draining || this.scheduling) return null;
     this.scheduling = true;
+    const startedAt = this.now();
+    const scan = {
+      scanId: randomUUID(),
+      scanNumber: ++this.scheduleScanCount,
+      workerId: this.config.workerId,
+      instanceId: this.instanceId,
+      trigger: ['INTERVAL', 'STARTUP'].includes(trigger) ? trigger : 'MANUAL',
+      startedAt: startedAt.toISOString(),
+    };
+    this.logger.info('RUNTIME_SCHEDULE_SCAN_STARTED', scan);
     try {
       const result = await this.api.schedule();
       this.markSuccess('schedule');
+      const rows = Array.isArray(result?.results) ? result.results : null;
+      const countsObserved = rows !== null
+        && Number.isSafeInteger(result.scheduled) && result.scheduled === rows.length
+        && rows.every((row) => typeof row?.reused === 'boolean');
+      const finishedAt = this.now();
+      this.logger.info('RUNTIME_SCHEDULE_SCAN_FINISHED', {
+        ...scan,
+        finishedAt: finishedAt.toISOString(),
+        durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()),
+        success: true,
+        exitCode: 0,
+        countsObserved,
+        scheduledCount: countsObserved ? rows.length : null,
+        generatedCount: countsObserved ? rows.filter((row) => !row.reused).length : null,
+        reusedCount: countsObserved ? rows.filter((row) => row.reused).length : null,
+        errorCode: null,
+      });
       return result;
     } catch (error) {
       this.markFailure('schedule', error);
+      const finishedAt = this.now();
+      this.logger.error('RUNTIME_SCHEDULE_SCAN_FINISHED', {
+        ...scan,
+        finishedAt: finishedAt.toISOString(),
+        durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()),
+        success: false,
+        exitCode: 1,
+        countsObserved: false,
+        scheduledCount: null,
+        generatedCount: null,
+        reusedCount: null,
+        errorCode: safeFailure(error).code,
+      });
       return null;
     } finally {
       this.scheduling = false;

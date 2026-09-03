@@ -6,6 +6,7 @@ import { CompanyOsApiClient } from './api-client.mjs';
 import { createJsonLogger } from './json-logger.mjs';
 import { OpenAiAdvisoryClient } from './openai-client.mjs';
 import { OllamaAdvisoryClient, RetryableModelFallbackClient } from './ollama-client.mjs';
+import { requiresLocalInference } from './data-policy.mjs';
 import { TelegramNotificationClient } from './notification-client.mjs';
 import { CompanyOsRuntimeApiClient } from './runtime-api-client.mjs';
 import { loadRuntimeConfig } from './runtime-config.mjs';
@@ -141,7 +142,7 @@ export function buildDaemonRuntime(config, overrides = {}) {
     const routeGenerate = routed.generate.bind(routed);
     return Object.assign(routed, {
       generate(claim, options = {}) {
-        return claim.agentId === 'data-manager-ai-v1'
+        return requiresLocalInference(claim)
           ? localData.generate(claim, options)
           : routeGenerate(claim, options);
       },

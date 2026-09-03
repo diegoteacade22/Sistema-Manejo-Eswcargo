@@ -7,6 +7,7 @@ import {
   validateSystemsAdvisoryOutput,
   validateDataAdvisoryOutput,
 } from './openai-client.mjs';
+import { requiresLocalInference } from './data-policy.mjs';
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', '[::1]']);
 const DEFAULT_FALLBACK_RESERVE_MS = 30_000;
@@ -196,7 +197,7 @@ export class OllamaAdvisoryClient {
         rules_applied: [
           ...advisoryRulesForClaim(claim, this.requireClaimOutputSchema),
           'local-loopback-inference',
-          'openai-retryable-fallback-only',
+          requiresLocalInference(claim) ? 'data-manager-lineage-local-only' : 'openai-retryable-fallback-only',
         ],
       };
       const parsed = parseOllamaOutput(raw);

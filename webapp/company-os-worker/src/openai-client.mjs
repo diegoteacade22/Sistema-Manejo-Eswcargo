@@ -1,3 +1,5 @@
+import { requiresLocalInference } from './data-policy.mjs';
+
 export const ADVISORY_OUTPUT_SCHEMA = Object.freeze({
   type: 'object',
   additionalProperties: false,
@@ -434,8 +436,8 @@ export class OpenAiAdvisoryClient {
   }
 
   async generate(claim, { signal: externalSignal, deadlineAt = null } = {}) {
-    if (claim.agentId === 'data-manager-ai-v1') {
-      throw new OpenAiWorkerError('Data Manager is local-only; business snapshots are not sent to OpenAI', {
+    if (requiresLocalInference(claim)) {
+      throw new OpenAiWorkerError('Data Manager lineage is local-only; case evidence and results are not sent to OpenAI', {
         retryable: false,
         code: 'OPENAI_DATA_EXPORT_DISABLED',
       });

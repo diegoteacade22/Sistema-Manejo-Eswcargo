@@ -430,12 +430,13 @@ const CONTRACT_DEFINITIONS = {
     version: COMPANY_OS_RUNTIME_CONTRACT_VERSIONS[COMPANY_OS_V3_IDENTITY],
     reportsToAgentId: null,
     domain: 'GENERAL_MANAGEMENT',
-    acceptedTriggers: ['MANUAL', 'EVENT', 'AGENT_MESSAGE'],
+    acceptedTriggers: ['MANUAL', 'SCHEDULE', 'EVENT', 'AGENT_MESSAGE'],
     requiredSources: [
       'CompanyOsCase.objective',
       'CompanyOsEvidenceRef.payload',
       'CompanyOsMessage.context',
       'server-materialized-business-snapshot',
+      'CompanyOsAgentSchedule',
     ],
     allowedTools: [
       'openai.responses.structured-output',
@@ -472,6 +473,8 @@ const CONTRACT_DEFINITIONS = {
     handlerKey: 'general-manager-advisory',
     advisoryOnly: true,
     timeZone: COMPANY_OS_TIME_ZONE,
+    scheduleObjective:
+      'Revisá la evidencia empresarial y los resultados de los especialistas. Priorizá calidad de datos, ingesta y dependencia operativa. Delegá al Gerente de Datos una revisión concreta cuando falte evidencia; integrá su respuesta y cerrá con resultados y próximos pasos acotados. No repitas una delegación ya respondida ni solicites aprobación para analizar.',
   },
   [COMPANY_OS_SYSTEMS_MANAGER_IDENTITY]: {
     agentId: COMPANY_OS_SYSTEMS_MANAGER_IDENTITY,
@@ -555,7 +558,7 @@ const CONTRACT_DEFINITIONS = {
       'CompanyOsAgentSchedule',
     ],
     allowedTools: [
-      'openai.responses.structured-output',
+      'ollama.chat.structured-output',
       'company-os.evidence.read',
       'company-os.data-quality.snapshot.read',
       'company-os.mission.append',

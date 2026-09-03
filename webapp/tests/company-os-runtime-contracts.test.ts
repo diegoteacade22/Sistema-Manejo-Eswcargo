@@ -234,9 +234,9 @@ test('schedule objective resolves only for an installed schedule contract', () =
     getCompanyOsScheduleObjective('systems-manager-ai-v1'),
     'Actualizá determinísticamente el inventario técnico, la salud, la cobertura y los riesgos observables. No ejecutes cambios ni reveles secretos.',
   );
-  assert.throws(
-    () => getCompanyOsScheduleObjective('general-manager-ai-v3'),
-    /has no installed schedule contract/,
+  assert.match(
+    getCompanyOsScheduleObjective('general-manager-ai-v3'),
+    /Delegá al Gerente de Datos/,
   );
   assert.equal(
     getCompanyOsScheduleObjective('data-manager-ai-v1'),

@@ -8,6 +8,8 @@ import {
   validateCompanyOsRuntimeOutput,
 } from './runtime-contracts';
 import { companyOsV3Prisma } from './v3-prisma';
+import { resolveCompanyOsRuntimeDataPolicy } from './runtime-data-policy';
+import { runtimeResultNeedsReview } from './runtime-outcome';
 import {
   COMPANY_OS_SYSTEMS_MANAGER_IDENTITY,
   COMPANY_OS_V3_IDENTITY,
@@ -384,6 +386,7 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
       });
       return null;
     }
+    const dataPolicy = await resolveCompanyOsRuntimeDataPolicy(tx, candidate.caseId, candidate.agentId);
     const evidence = await tx.companyOsEvidenceRef.findMany({ where: { caseId: candidate.caseId }, orderBy: { evidenceKey: 'asc' } });
     const contextMessages = await tx.companyOsMessage.findMany({
       where: { caseId: candidate.caseId },
@@ -473,7 +476,7 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
       eventType: 'RUNTIME_WORK_CLAIMED',
       fromStatus: candidate.caseStatus,
       toStatus: caseToStatus,
-      payload: { workItemId: candidate.workItemId, agentId: candidate.agentId, workAttempt, slotNo: slot.slotNo, workerId: input.workerId },
+      payload: { workItemId: candidate.workItemId, agentId: candidate.agentId, workAttempt, slotNo: slot.slotNo, workerId: input.workerId, dataPolicy },
       idempotencyKey: `runtime:${candidate.requestId}:claim:${candidate.workItemId}:${workAttempt}`,
     });
     return {
@@ -490,6 +493,7 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
       handlerKey: candidate.handlerKey,
       contractVersion: candidate.contractVersion,
       contract: runtimeContract,
+      dataPolicy,
       evidencePayload,
       contextMessages: orderedContextMessages,
       budgets: {
@@ -867,10 +871,12 @@ export async function completeCompanyOsRuntimeWork(input: {
         status: 'PLANNED',
       })) });
     }
-    const needsHumanDecision = result.needsHumanDecision === true
-      || Number(result.confidence) < 0.7
-      || (Array.isArray(result.missions) && result.missions.length > 0)
-      || (!canContinue && (delegations.length > 0 || workItem.agentId !== GENERAL_MANAGER_ID));
+    const needsHumanDecision = runtimeResultNeedsReview({
+      output: result,
+      agentId: workItem.agentId,
+      canContinue,
+      minConfidence: getCompanyOsRuntimeContract(workItem.agentId).lowConfidencePolicy.minConfidence,
+    });
     await tx.companyOsWorkItem.update({ where: { id: workItem.id }, data: { status: 'COMPLETED', completedAt: new Date() } });
     const [remainingRunnable, remainingBlocked] = await Promise.all([
       tx.companyOsWorkItem.count({ where: {
