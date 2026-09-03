@@ -1,7 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import { continuousCaseBudgets, materializeContinuousCaseEvidence } from '../lib/company-os/continuous-case-evidence';
 import { continuousBaselineFingerprint } from '../lib/company-os/continuous-objective-runner';
+
+test('General-led technical cases retain shared evidence without writing a Systems-owned snapshot', () => {
+  const store = readFileSync(new URL('../lib/company-os/v3-store.ts', import.meta.url), 'utf8');
+  const create = store.slice(store.indexOf('export async function createCompanyOsCase('), store.indexOf('export async function deliverCompanyOsWebhook'));
+  assert.match(create, /const systemsManager = agentId === 'systems-manager-ai-v1' \|\| continuous\?\.systemsEvidence === true/);
+  assert.match(create, /await tx\.companyOsEvidenceRef\.createMany\(\{ data: refs \}\)/);
+  assert.match(create, /if \(agentId === 'systems-manager-ai-v1'\) \{\s+await persistSystemsSnapshot\(/);
+  assert.doesNotMatch(create, /if \(systemsManager\) \{\s+await persistSystemsSnapshot\(/);
+  const migration = readFileSync(new URL('../../supabase/migrations/20260816175940_systems_manager_ai_v1.sql', import.meta.url), 'utf8');
+  assert.match(migration, /FOREIGN KEY \("caseId", "agentId"\)/);
+});
 
 test('continuous evidence preserves all technical gaps, source dates and negative findings', () => {
   const assets = [

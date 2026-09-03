@@ -332,7 +332,10 @@ export async function createCompanyOsCase(
       observedAt: new Date(snapshot.generatedAt),
     }));
     await tx.companyOsEvidenceRef.createMany({ data: refs });
-    if (systemsManager) {
+    // Technical evidence may belong to a General-led case. The specialized
+    // snapshot table has a composite FK requiring a Systems-owned root case.
+    // Shared EvidenceRefs above remain available to the delegated specialist.
+    if (agentId === 'systems-manager-ai-v1') {
       await persistSystemsSnapshot(
         tx,
         { id: companyCase.id, requestId, caseType },
