@@ -67,3 +67,24 @@ export function partitionOrdersByItemIntegrity<TItem extends object, T extends {
 
   return { accepted, quarantined };
 }
+
+
+export const DEFAULT_INCOMPLETE_ORDER_QUARANTINE_LIMIT = 5;
+export const MAX_INCOMPLETE_ORDER_QUARANTINE_LIMIT = 10;
+
+/**
+ * Parse the quarantine cap from an operator-controlled environment variable.
+ * Invalid, fractional, unsafe, or out-of-range values fail closed instead of
+ * disabling the source-integrity guard through NaN or Infinity.
+ */
+export function parseIncompleteOrderQuarantineLimit(rawValue = process.env.SYNC_INCOMPLETE_ORDER_QUARANTINE_LIMIT) {
+  if (rawValue === undefined || rawValue === '') return DEFAULT_INCOMPLETE_ORDER_QUARANTINE_LIMIT;
+  if (!/^[1-9]\\d*$/.test(rawValue)) {
+    throw new Error('SYNC_INCOMPLETE_ORDER_QUARANTINE_LIMIT debe ser un entero positivo.');
+  }
+  const parsed = Number(rawValue);
+  if (!Number.isSafeInteger(parsed) || parsed > MAX_INCOMPLETE_ORDER_QUARANTINE_LIMIT) {
+    throw new Error(`SYNC_INCOMPLETE_ORDER_QUARANTINE_LIMIT debe estar entre 1 y ${MAX_INCOMPLETE_ORDER_QUARANTINE_LIMIT}.`);
+  }
+  return parsed;
+}
