@@ -30,6 +30,15 @@ persistida en el plist. El modelo de fallback permanece separado en
 
 El servidor conserva la autoridad sobre claims, slots, leases, reintentos,
 presupuestos y transiciones. Obtener `204` en `claim` no llama OpenAI.
+El presupuesto por agente sigue en 48.000 tokens diarios y 1.000.000 mensuales.
+Cuando la siguiente reserva no cabe, el trabajo permanece `QUEUED` con
+`availableAt` en el próximo reset de Nueva York; si también agotó el mes,
+espera al primer día del mes siguiente. No crea lease, intento ni llamada al
+modelo. El reconciliador recupera bloqueos antiguos sólo cuando el evento
+demuestra agotamiento de presupuesto y no existe otro bloqueo posterior,
+lease activo o límite de turnos agotado. El consumo y las aprobaciones permanecen
+intactos. Una reserva mayor que todo el límite sigue bloqueada como error de
+configuración, porque esperar un reset nunca la haría admisible.
 Cada claim debe traer el contrato instalado completo y
 `contract.outputSchema`; el worker usa ese schema firmado en Responses API y
 falla cerrado, sin llamar al modelo, si falta o no es estricto. `fail` persiste

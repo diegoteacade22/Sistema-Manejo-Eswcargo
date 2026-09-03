@@ -12,6 +12,7 @@ import { resolveCompanyOsRuntimeDataPolicy } from './runtime-data-policy';
 import { runtimeResultNeedsReview } from './runtime-outcome';
 import { findCompletedRuntimeDelegation, runtimeFollowUpCapacity } from './runtime-delegation';
 import { deriveRuntimeAgentState, type RuntimeAgentStateWork } from './runtime-agent-status';
+import { planRuntimeBudget, startOfZonedPeriod } from './runtime-budget';
 import {
   COMPANY_OS_SYSTEMS_MANAGER_IDENTITY,
   COMPANY_OS_V3_IDENTITY,
@@ -83,25 +84,6 @@ function positiveInteger(value: unknown, fallback: number) {
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Objeto de runtime inválido');
   return value as Record<string, unknown>;
-}
-
-function startOfZonedPeriod(now: Date, period: 'day' | 'month') {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).formatToParts(now).filter((part) => part.type !== 'literal').map((part) => [part.type, Number(part.value)]));
-  const day = period === 'month' ? 1 : parts.day;
-  const desired = Date.UTC(parts.year, parts.month - 1, day, 0, 0, 0);
-  let candidate = desired;
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-  });
-  for (let iteration = 0; iteration < 2; iteration += 1) {
-    const represented = Object.fromEntries(formatter.formatToParts(new Date(candidate))
-      .filter((part) => part.type !== 'literal').map((part) => [part.type, Number(part.value)]));
-    candidate += desired - Date.UTC(represented.year, represented.month - 1, represented.day, represented.hour, represented.minute, represented.second);
-  }
-  return new Date(candidate);
 }
 
 async function appendRuntimeEvent(tx: Tx, input: {
@@ -371,8 +353,21 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
     const dailyUsed = dailyUsage.totalTokens;
     const monthlyUsed = monthlyUsage.totalTokens;
     const reserved = activeReserved._sum.reservedTokens ?? 0;
-    if (dailyUsed + reserved + candidate.reservedTokens > dailyLimit
-      || monthlyUsed + reserved + candidate.reservedTokens > monthlyLimit) {
+    const budgetPlan = planRuntimeBudget({ now, dailyUsed, monthlyUsed, reserved, requested: candidate.reservedTokens, dailyLimit, monthlyLimit });
+    if (!budgetPlan.allowed && budgetPlan.retryAt) {
+      await tx.companyOsWorkItem.update({ where: { id: candidate.workItemId }, data: {
+        status: 'QUEUED', availableAt: budgetPlan.retryAt, nextAttemptAt: null,
+      } });
+      await appendRuntimeEvent(tx, {
+        caseId: candidate.caseId, requestId: candidate.requestId,
+        eventType: 'WORK_DEFERRED_RUNTIME_BUDGET',
+        fromStatus: candidate.caseStatus, toStatus: candidate.caseStatus,
+        payload: { workItemId: candidate.workItemId, agentId: candidate.agentId, dailyUsed, monthlyUsed, reserved, requested: candidate.reservedTokens, reason: budgetPlan.reason, retryAt: budgetPlan.retryAt.toISOString(), modelCalls: 0 },
+        idempotencyKey: `runtime:${candidate.requestId}:budget-deferred:${candidate.workItemId}:${budgetPlan.retryAt.toISOString()}`,
+      });
+      return null;
+    }
+    if (!budgetPlan.allowed) {
       await tx.companyOsWorkItem.update({ where: { id: candidate.workItemId }, data: { status: 'BLOCKED' } });
       if (!TERMINAL_CASE_STATUSES.has(candidate.caseStatus)) {
         await tx.companyOsCase.update({ where: { id: candidate.caseId }, data: { status: 'BLOCKED' } });
@@ -383,7 +378,7 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
         eventType: 'CASE_BLOCKED_RUNTIME_BUDGET',
         fromStatus: candidate.caseStatus,
         toStatus: 'BLOCKED',
-        payload: { agentId: candidate.agentId, dailyUsed, monthlyUsed, reserved, requested: candidate.reservedTokens },
+        payload: { workItemId: candidate.workItemId, agentId: candidate.agentId, dailyUsed, monthlyUsed, reserved, requested: candidate.reservedTokens, reason: budgetPlan.reason },
         idempotencyKey: `runtime:${candidate.requestId}:budget:${candidate.workItemId}:${candidate.attemptCount + 1}`,
       });
       return null;
@@ -1213,11 +1208,71 @@ async function upsertIncident(tx: Tx, input: {
   });
 }
 
+async function recoverBudgetBlockedWork(tx: Tx, now: Date) {
+  const blocked = await tx.$queryRaw<Array<{
+    workItemId: string; caseId: string; requestId: string; agentId: string;
+    caseStatus: string; reservedTokens: number; budgetAt: Date; payload: Prisma.JsonValue;
+  }>>(Prisma.sql`
+    SELECT work.id AS "workItemId", work."caseId", company_case."requestId", work."agentId",
+      company_case.status AS "caseStatus", work."reservedTokens", budget."createdAt" AS "budgetAt", budget.payload
+    FROM public."CompanyOsWorkItem" work
+    JOIN public."CompanyOsCase" company_case ON company_case.id = work."caseId"
+    JOIN LATERAL (
+      SELECT event.sequence, event."createdAt", event.payload
+      FROM public."CompanyOsCaseEvent" event
+      WHERE event."caseId" = work."caseId" AND event."eventType" = 'CASE_BLOCKED_RUNTIME_BUDGET'
+        AND event."idempotencyKey" = 'runtime:' || company_case."requestId" || ':budget:' || work.id || ':' || (work."attemptCount" + 1)::text
+      ORDER BY event.sequence DESC LIMIT 1
+    ) budget ON true
+    WHERE work.status = 'BLOCKED' AND company_case.status IN ('BLOCKED','QUEUED')
+      AND company_case."turnCount" < company_case."maxTurns"
+      AND NOT EXISTS (
+        SELECT 1 FROM public."CompanyOsCaseEvent" newer
+        WHERE newer."caseId" = work."caseId" AND newer.sequence > budget.sequence
+          AND newer."toStatus" IN ('BLOCKED','CANCELLED','FAILED_FINAL','NEEDS_REVIEW')
+          AND newer."eventType" <> 'CASE_BLOCKED_RUNTIME_BUDGET'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM public."CompanyOsLease" lease
+        WHERE lease."caseId" = work."caseId" AND lease.status = 'ACTIVE' AND lease."expiresAt" > ${now}
+      )
+    ORDER BY budget."createdAt", work.id
+    FOR UPDATE OF work SKIP LOCKED LIMIT 25
+  `);
+  let recovered = 0;
+  for (const work of blocked) {
+    if (!isCompanyOsRuntimeAgentInstalled(work.agentId)) continue;
+    const payload = work.payload && typeof work.payload === 'object' && !Array.isArray(work.payload) ? work.payload : {};
+    const { dailyUsed, monthlyUsed, reserved } = payload;
+    if (![dailyUsed, monthlyUsed, reserved].every((value) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)) continue;
+    const contract = getCompanyOsRuntimeContract(work.agentId);
+    const plan = planRuntimeBudget({
+      now: work.budgetAt, dailyUsed: dailyUsed as number, monthlyUsed: monthlyUsed as number, reserved: reserved as number,
+      requested: work.reservedTokens, dailyLimit: contract.budgets.dailyTokens, monthlyLimit: contract.budgets.monthlyTokens,
+    });
+    if (plan.allowed || !plan.retryAt) continue;
+    const availableAt = new Date(Math.max(now.getTime(), plan.retryAt.getTime()));
+    await tx.companyOsWorkItem.update({ where: { id: work.workItemId }, data: { status: 'QUEUED', availableAt, nextAttemptAt: null } });
+    if (work.caseStatus === 'BLOCKED') {
+      await tx.companyOsCase.update({ where: { id: work.caseId }, data: { status: 'QUEUED', nextAttemptAt: null } });
+    }
+    await appendRuntimeEvent(tx, {
+      caseId: work.caseId, requestId: work.requestId, eventType: 'WORK_BUDGET_AUTO_RECOVERED',
+      fromStatus: work.caseStatus, toStatus: work.caseStatus === 'BLOCKED' ? 'QUEUED' : work.caseStatus,
+      payload: { workItemId: work.workItemId, agentId: work.agentId, retryAt: availableAt.toISOString(), reason: plan.reason, modelCalls: 0 },
+      idempotencyKey: `runtime:${work.requestId}:budget-auto-recovered:${work.workItemId}:${work.budgetAt.toISOString()}`,
+    });
+    recovered += 1;
+  }
+  return recovered;
+}
+
 export async function reconcileCompanyOsRuntime(workerId: string) {
   const db = companyOsV3Prisma();
   return db.$transaction(async (tx) => {
     const now = new Date();
     const expiredLeases = await expireLeases(tx, now);
+    const budgetRecovered = await recoverBudgetBlockedWork(tx, now);
     const detected: Array<{ dedupeKey: string; type: string; severity: 'INFO' | 'WARNING' | 'CRITICAL'; summary: string; detail?: Record<string, unknown> }> = [];
     const staleWorkers = await tx.companyOsWorker.findMany({ where: { lastHeartbeatAt: { lt: new Date(now.getTime() - WORKER_STALE_MS) }, state: { not: 'STOPPED' } } });
     for (const worker of staleWorkers) detected.push({
@@ -1227,7 +1282,7 @@ export async function reconcileCompanyOsRuntime(workerId: string) {
       summary: `Telemetría del worker ${worker.workerId} vencida; estado real UNKNOWN`,
       detail: { lastHeartbeatAt: worker.lastHeartbeatAt.toISOString(), priorState: worker.state },
     });
-    const oldQueue = await tx.companyOsWorkItem.count({ where: { status: 'QUEUED', createdAt: { lt: new Date(now.getTime() - 15 * 60_000) } } });
+    const oldQueue = await tx.companyOsWorkItem.count({ where: { status: 'QUEUED', availableAt: { lt: new Date(now.getTime() - 15 * 60_000) } } });
     if (oldQueue > 0) detected.push({
       dedupeKey: 'queue-age:15m', type: 'QUEUE_AGE', severity: 'WARNING',
       summary: `${oldQueue} trabajos en cola superan 15 minutos`, detail: { count: oldQueue },
@@ -1301,7 +1356,7 @@ export async function reconcileCompanyOsRuntime(workerId: string) {
       where: { status: { in: ['OPEN', 'ACKNOWLEDGED'] }, ...(activeKeys.length ? { dedupeKey: { notIn: activeKeys } } : {}) },
       data: { status: 'RESOLVED', lastSeenAt: now },
     });
-    return { reconciledAt: now.toISOString(), expiredLeases, incidentsOpen: detected.length };
+    return { reconciledAt: now.toISOString(), expiredLeases, budgetRecovered, incidentsOpen: detected.length };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
