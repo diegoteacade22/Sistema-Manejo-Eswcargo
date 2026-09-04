@@ -104,7 +104,11 @@ export async function listContinuousObjectives() {
         && new Date().getTime() - new Date(observations[0].observedAt).getTime() <= 30 * 60_000;
       externalSources.push({ ...source,
         status: live ? 'LIVE_READONLY' : source.status,
-        note: live ? 'Runtime independiente conectado y observado con permisos de sólo lectura.' : source.note,
+        note: live
+          ? source.id === 'CHATGPT_WORK'
+            ? 'Puente local de índice/exportación observado en modo read-only; no representa acceso directo al historial de ChatGPT Work.'
+            : 'Runtime independiente conectado y observado con permisos de sólo lectura.'
+          : source.note,
       });
     }
     return { objectives, allowedProjects: [...CONTINUOUS_OBJECTIVE_ALLOWED_PROJECTS], externalSources };
