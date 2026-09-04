@@ -4,11 +4,21 @@ export const CONTINUOUS_OBJECTIVE_ALLOWED_PROJECTS = [
   'PLANILLAS SHEETS MANEJO', 'COMPRAS ESW', 'COTIZADOR ENVIOS ESWTECH',
 ] as const;
 
+export const CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES = [
+  { id: 'GOOGLE_DRIVE', label: 'Google Drive', status: 'BLOCKED_REQUIRES_RUNTIME_CONNECTOR', note: 'La conexión existe en la sesión de trabajo, pero todavía no está disponible para el runtime independiente.' },
+  { id: 'GOOGLE_SHEETS', label: 'Google Sheets', status: 'BLOCKED_REQUIRES_RUNTIME_CONNECTOR', note: 'Requiere OAuth de sólo lectura instalado en el runtime de Company OS.' },
+  { id: 'GOOGLE_CONTACTS', label: 'Contactos Google', status: 'BLOCKED_REQUIRES_RUNTIME_CONNECTOR', note: 'Requiere OAuth de sólo lectura instalado en el runtime de Company OS.' },
+  { id: 'CHATGPT_WORK', label: 'ChatGPT Work', status: 'BLOCKED_REQUIRES_READONLY_BRIDGE', note: 'No hay un puente autorizado que entregue contenido de hilos al runtime; queda preparado como integración read-only.' },
+] as const;
+
+export type ContinuousObjectiveExternalSourceId = typeof CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES[number]['id'];
+export type ContinuousObjectiveExternalSourceStatus = typeof CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES[number]['status'];
+
 export type ContinuousObjectiveStatus = 'ACTIVE' | 'PAUSED' | 'EXPIRED';
 export type ObjectiveUnitStatus = 'PLANNED' | 'QUEUED' | 'ANALYZED' | 'VERIFIED' | 'NEEDS_REVIEW' | 'BLOCKED' | 'SKIPPED';
 export type ContinuousObjectiveAgentId = 'general-manager-ai-v3' | 'systems-manager-ai-v1' | 'data-manager-ai-v1';
 export type ObjectiveUnitSource = {
-  kind: 'CODEX_METADATA' | 'SYSTEMS_BASELINE' | 'DATA_BASELINE';
+  kind: 'CODEX_METADATA' | 'SYSTEMS_BASELINE' | 'DATA_BASELINE' | 'EXTERNAL_SOURCE_BLOCKED';
   projectName: string;
   title: string;
   threadId?: string;
@@ -17,7 +27,7 @@ export type ObjectiveUnitSource = {
   sourceFingerprint?: string;
   nextAction?: string;
   reportedResult?: string;
-  authority: 'UNTRUSTED_METADATA_ONLY' | 'LIVE_SNAPSHOT_REQUIRED';
+  authority: 'UNTRUSTED_METADATA_ONLY' | 'LIVE_SNAPSHOT_REQUIRED' | 'CONNECTOR_REQUIRED';
   verificationScope: 'ANALYSIS_ONLY';
 };
 export type ContinuousObjectiveUnitView = {
@@ -29,13 +39,14 @@ export type ContinuousObjectiveUnitView = {
 export type ContinuousObjectiveView = {
   id: string; version: number; controlRevision: number; title: string; objective: string; status: ContinuousObjectiveStatus;
   startsAt: string; endsAt: string; projectAllowlist: string[]; criteria: string[];
+  externalSources: ContinuousObjectiveExternalSourceId[];
   scanIntervalMinutes: number; nextScanAt: string; createdBy: string; createdAt: string; updatedAt: string;
   lastScanAt: string | null; sourcesObserved: number; sourcesExcluded: number;
   counts: { planned: number; queued: number; analyzed: number; verified: number; needsReview: number; blocked: number; skipped: number };
   units: ContinuousObjectiveUnitView[];
 };
 export type CreateContinuousObjectiveInput = {
-  title: string; objective: string; projectAllowlist: string[]; criteria: string[];
+  title: string; objective: string; projectAllowlist: string[]; externalSources?: ContinuousObjectiveExternalSourceId[]; criteria: string[];
   durationDays?: number; endsAt?: string; scanIntervalMinutes?: number; idempotencyKey: string;
 };
 export type ControlContinuousObjectiveInput = {

@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { sanitizeCompanyText } from './objective';
 import {
-  CONTINUOUS_OBJECTIVE_ALLOWED_PROJECTS, ContinuousObjectiveError,
+  CONTINUOUS_OBJECTIVE_ALLOWED_PROJECTS, CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES, ContinuousObjectiveError,
   type ContinuousObjectiveAgentId, type CreateContinuousObjectiveInput,
-  type ObjectiveUnitSource, type ObjectiveUnitStatus,
+  type ContinuousObjectiveExternalSourceId, type ObjectiveUnitSource, type ObjectiveUnitStatus,
 } from './continuous-objective-types';
 
 export const OBJECTIVE_SETTLED_CASE_STATUSES = ['COMPLETED', 'CANCELLED', 'FAILED_FINAL', 'NEEDS_REVIEW', 'AWAITING_REVIEW', 'BLOCKED'] as const;
@@ -32,9 +32,17 @@ export function validateContinuousObjectiveInput(input: CreateContinuousObjectiv
     if (safe.length < min) throw new ContinuousObjectiveError('El texto no contiene un objetivo válido');
     return safe;
   };
-  if (!input || !Array.isArray(input.projectAllowlist) || input.projectAllowlist.length < 1 || input.projectAllowlist.length > 20
+  const externalSources = Array.isArray(input?.externalSources) ? input.externalSources : [];
+  if (!input || !Array.isArray(input.projectAllowlist) || input.projectAllowlist.length > 20
     || input.projectAllowlist.some((project) => !(CONTINUOUS_OBJECTIVE_ALLOWED_PROJECTS as readonly string[]).includes(project))) {
     throw new ContinuousObjectiveError('Seleccioná sólo proyectos empresariales habilitados');
+  }
+  if (externalSources.length > 4
+    || externalSources.some((source) => !(CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES as readonly { id: string }[]).some((known) => known.id === source))) {
+    throw new ContinuousObjectiveError('Seleccioná sólo fuentes externas habilitadas');
+  }
+  if (input.projectAllowlist.length === 0 && externalSources.length === 0) {
+    throw new ContinuousObjectiveError('Seleccioná al menos un proyecto o una fuente externa');
   }
   if (!Array.isArray(input.criteria) || input.criteria.length < 1 || input.criteria.length > 12) {
     throw new ContinuousObjectiveError('Indicá entre 1 y 12 criterios verificables');
@@ -54,6 +62,7 @@ export function validateContinuousObjectiveInput(input: CreateContinuousObjectiv
   const normalized = {
     title: text(input.title, 3, 160), objective: text(input.objective, 10, 4000),
     projectAllowlist: [...new Set(input.projectAllowlist)].sort(),
+    externalSources: [...new Set(externalSources)] as ContinuousObjectiveExternalSourceId[],
     criteria: input.criteria.map((criterion) => text(criterion, 3, 500)), scanIntervalMinutes: interval,
     durationDays: duration, endsAt: duration === null ? endsAt.toISOString() : undefined,
   };
@@ -96,6 +105,19 @@ export function planObjectiveSource(candidate: ObjectiveSourceCandidate, project
   const { sourceFingerprint: _ignored, ...facts } = source;
   return { sourceId: `codex:${candidate.id}`, fingerprint: objectiveHash(facts), source, ownerAgentId,
     priority: Math.max(2, Math.min(5, Number(candidate.priority) || 3)) };
+}
+
+export function blockedExternalSourceUnit(sourceId: ContinuousObjectiveExternalSourceId) {
+  const source = CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES.find((item) => item.id === sourceId)!;
+  const sourceView: ObjectiveUnitSource = {
+    kind: 'EXTERNAL_SOURCE_BLOCKED', projectName: 'FUENTE EXTERNA', title: `${source.label} · BLOQUEADA`,
+    category: 'EXTERNAL', nextAction: 'Conectar OAuth/puente read-only al runtime de Company OS',
+    reportedResult: source.note, authority: 'CONNECTOR_REQUIRED', verificationScope: 'ANALYSIS_ONLY',
+  };
+  return {
+    sourceId: `external:${source.id.toLowerCase()}`, fingerprint: objectiveHash({ sourceId, status: source.status, note: source.note }),
+    ownerAgentId: 'general-manager-ai-v3' as const, priority: 0, source: sourceView,
+  };
 }
 
 export function baselineObjectiveUnits(goal: { objective: string; criteria: string[]; projectAllowlist: string[] }, domains: readonly string[], facts: Partial<Record<ContinuousObjectiveAgentId, string>> = {}) {

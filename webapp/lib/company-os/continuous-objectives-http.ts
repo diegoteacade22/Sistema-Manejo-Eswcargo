@@ -6,7 +6,7 @@ export class ContinuousObjectiveRequestError extends Error {
 
 type CreateRequest = {
   action: 'CREATE'; title: string; objective: string; durationDays: number;
-  projectAllowlist: string[]; criteria: string[]; idempotencyKey: string;
+  projectAllowlist: string[]; externalSources: string[]; criteria: string[]; idempotencyKey: string;
 };
 type ControlRequest = {
   action: 'PAUSE' | 'RESUME'; objectiveId: string; expectedVersion: number; expectedControlRevision: number; idempotencyKey: string;
@@ -28,25 +28,41 @@ function textList(value: unknown, name: string, maxItems: number, minLength: num
   return values;
 }
 
+function optionalTextList(value: unknown, name: string, maxItems: number, minLength: number, maxLength: number) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > maxItems) {
+    throw new ContinuousObjectiveRequestError(`${name}: elegí hasta ${maxItems} elementos.`);
+  }
+  const values = value.map((item) => text(item, name, minLength, maxLength));
+  if (new Set(values).size !== values.length) throw new ContinuousObjectiveRequestError(`${name}: hay elementos repetidos.`);
+  return values;
+}
+
 export function parseContinuousObjectiveRequest(value: unknown): CreateRequest | ControlRequest {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ContinuousObjectiveRequestError('El cuerpo debe ser un objeto JSON.');
   const input = value as Record<string, unknown>;
   const idempotencyKey = text(input.idempotencyKey, 'Clave de operación', 16, 160);
   if (!/^[A-Za-z0-9:_-]+$/.test(idempotencyKey)) throw new ContinuousObjectiveRequestError('Clave de operación inválida.');
   const keys = input.action === 'CREATE'
-    ? ['action', 'title', 'objective', 'durationDays', 'projectAllowlist', 'criteria', 'idempotencyKey']
+    ? ['action', 'title', 'objective', 'durationDays', 'projectAllowlist', 'externalSources', 'criteria', 'idempotencyKey']
     : ['action', 'objectiveId', 'expectedVersion', 'expectedControlRevision', 'idempotencyKey'];
   if (Object.keys(input).some((key) => !keys.includes(key))) throw new ContinuousObjectiveRequestError('La solicitud contiene campos no permitidos.');
   if (input.action === 'CREATE') {
     if (!Number.isInteger(input.durationDays) || Number(input.durationDays) < 1 || Number(input.durationDays) > 30) {
       throw new ContinuousObjectiveRequestError('La duración debe ser de 1 a 30 días.');
     }
+    const projectAllowlist = optionalTextList(input.projectAllowlist, 'Proyectos', 20, 1, 160);
+    const externalSources = optionalTextList(input.externalSources, 'Fuentes externas', 4, 1, 40);
+    if (projectAllowlist.length === 0 && externalSources.length === 0) {
+      throw new ContinuousObjectiveRequestError('Seleccioná al menos un proyecto o una fuente externa.');
+    }
     return {
       action: 'CREATE', idempotencyKey,
       title: text(input.title, 'Título', 3, 160),
       objective: text(input.objective, 'Objetivo', 10, 4_000),
       durationDays: Number(input.durationDays),
-      projectAllowlist: textList(input.projectAllowlist, 'Proyectos', 20, 1, 160),
+      projectAllowlist,
+      externalSources,
       criteria: textList(input.criteria, 'Criterios', 12, 3, 500),
     };
   }

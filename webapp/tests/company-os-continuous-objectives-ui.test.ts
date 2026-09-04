@@ -11,11 +11,11 @@ import { CONTINUOUS_OBJECTIVE_MAX_BODY_BYTES, parseContinuousObjectiveRequest, r
 
 const createInput = {
   action:'CREATE', title:'Calidad de datos', objective:'Revisar fuentes y documentar los resultados.', durationDays:30,
-  projectAllowlist:['SISTEMA ESWCARGO'], criteria:['Cada análisis conserva evidencia.'], idempotencyKey:'objectives:00000000-0000-4000-8000-000000000001',
+  projectAllowlist:['SISTEMA ESWCARGO'], externalSources:[], criteria:['Cada análisis conserva evidencia.'], idempotencyKey:'objectives:00000000-0000-4000-8000-000000000001',
 };
 const fixture: ContinuousObjectiveDisplay = {
   id:'objective-1',version:1,controlRevision:0,title:'Calidad de datos',objective:'Revisar fuentes y documentar resultados.',status:'ACTIVE',
-  startsAt:'2026-09-03T01:00:00Z',endsAt:'2026-10-03T01:00:00Z',projectAllowlist:['SISTEMA ESWCARGO'],criteria:['Cada análisis conserva evidencia.'],
+  startsAt:'2026-09-03T01:00:00Z',endsAt:'2026-10-03T01:00:00Z',projectAllowlist:['SISTEMA ESWCARGO'],externalSources:[],criteria:['Cada análisis conserva evidencia.'],
   scanIntervalMinutes:60,nextScanAt:'2026-09-03T02:00:00Z',createdBy:'admin',createdAt:'2026-09-03T01:00:00Z',updatedAt:'2026-09-03T01:00:00Z',
   lastScanAt:'2026-09-03T01:00:00Z',sourcesObserved:1,sourcesExcluded:0,
   counts:{planned:0,queued:0,analyzed:0,verified:1,needsReview:0,blocked:0,skipped:0},
@@ -30,7 +30,8 @@ test('objetivo HTTP conserva duración estable y rechaza presupuestos o campos e
   assert.deepEqual(parseContinuousObjectiveRequest(createInput),createInput);
   for (const durationDays of [0,31,1.5,'30']) assert.throws(()=>parseContinuousObjectiveRequest({...createInput,durationDays}),/1 a 30/);
   assert.throws(()=>parseContinuousObjectiveRequest({...createInput,budgetUsd:100}),/campos no permitidos/);
-  assert.throws(()=>parseContinuousObjectiveRequest({...createInput,projectAllowlist:[]}),/Proyectos/);
+  assert.deepEqual(parseContinuousObjectiveRequest({...createInput,projectAllowlist:[],externalSources:['GOOGLE_DRIVE']}).projectAllowlist,[]);
+  assert.throws(()=>parseContinuousObjectiveRequest({...createInput,projectAllowlist:[],externalSources:[]}),/alcance|fuente/i);
   assert.throws(()=>parseContinuousObjectiveRequest({...createInput,criteria:['uno','uno']}),/repetidos/);
   assert.throws(()=>parseContinuousObjectiveRequest({...createInput,idempotencyKey:undefined}),/Clave/);
 });
@@ -73,6 +74,14 @@ test('snapshots incompletos fallan sin convertir datos ausentes en progreso', ()
   assert.deepEqual(parseContinuousObjectivesSnapshot({objectives:[fixture],allowedProjects:['SISTEMA ESWCARGO']}).objectives,[fixture]);
   assert.throws(()=>parseContinuousObjectivesSnapshot({objectives:[{...fixture,counts:undefined}],allowedProjects:[]}),/estado o resultados/);
   assert.throws(()=>parseContinuousObjectivesSnapshot({objectives:[{...fixture,units:[{...fixture.units[0],sourceResolved:true}]}],allowedProjects:[]}),/alcance/);
+});
+
+test('fuentes externas quedan visibles como alcance preparado y bloqueado', () => {
+  const external = {...fixture, projectAllowlist:[], externalSources:['GOOGLE_DRIVE' as const], units:[]};
+  const html=renderToStaticMarkup(createElement(ContinuousObjectiveCard,{objective:external}));
+  assert.match(html,/Google Drive/);
+  assert.match(html,/bloqueadas y auditadas/);
+  assert.deepEqual(parseContinuousObjectivesSnapshot({objectives:[external],allowedProjects:[],externalSources:[{id:'GOOGLE_DRIVE',label:'Google Drive',status:'BLOCKED_REQUIRES_RUNTIME_CONNECTOR',note:'La conexión existe en la sesión de trabajo, pero todavía no está disponible para el runtime independiente.'}]}).objectives,[external]);
 });
 
 test('formulario inicia en 30 días y muestra controles sólo tras observar proyectos permitidos', () => {

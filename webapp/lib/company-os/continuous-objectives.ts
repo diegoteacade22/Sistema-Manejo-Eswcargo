@@ -2,13 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { companyOsV3Prisma } from './v3-prisma';
 import {
-  baselineObjectiveUnits, objectiveHash, observeObjectiveUnit, planObjectiveSource,
+  baselineObjectiveUnits, blockedExternalSourceUnit, objectiveHash, observeObjectiveUnit, planObjectiveSource,
   safeObjectiveMetadata, validateContinuousObjectiveInput, type ObjectiveSourceCandidate,
   OBJECTIVE_SETTLED_CASE_STATUSES,
 } from './continuous-objective-policy';
 import {
-  CONTINUOUS_OBJECTIVE_ALLOWED_PROJECTS, ContinuousObjectiveError,
-  type ContinuousObjectiveAgentId, type ContinuousObjectiveIdentity, type ContinuousObjectiveUnitView,
+  CONTINUOUS_OBJECTIVE_ALLOWED_PROJECTS, CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES, ContinuousObjectiveError,
+  type ContinuousObjectiveAgentId, type ContinuousObjectiveExternalSourceId, type ContinuousObjectiveIdentity, type ContinuousObjectiveUnitView,
   type ContinuousObjectiveView, type ControlContinuousObjectiveInput, type CreateContinuousObjectiveInput,
   type PendingContinuousObjectiveUnit,
 } from './continuous-objective-types';
@@ -19,6 +19,7 @@ export type ContinuousObjectiveDefinition = Omit<ContinuousObjectiveView, 'count
 type GoalRow = Omit<ContinuousObjectiveDefinition, 'startsAt' | 'endsAt' | 'nextScanAt' | 'lastScanAt' | 'createdAt' | 'updatedAt'> & {
   startsAt: Date; endsAt: Date; nextScanAt: Date; lastScanAt: Date | null; createdAt: Date; updatedAt: Date;
   scanCursor: string; scanObserved: number; scanExcluded: number; scanDomains: ContinuousObjectiveAgentId[];
+  externalSources: ContinuousObjectiveExternalSourceId[];
 };
 type UnitRow = Omit<ContinuousObjectiveUnitView, 'createdAt' | 'updatedAt'> & { createdAt: Date; updatedAt: Date };
 const SCAN_PAGE_SIZE = 200;
@@ -41,6 +42,7 @@ function goalDefinition(row: GoalRow): ContinuousObjectiveDefinition {
   return {
     id: row.id, version: row.version, controlRevision: row.controlRevision, title: row.title, objective: row.objective,
     status: row.status, startsAt: iso(row.startsAt), endsAt: iso(row.endsAt), projectAllowlist: row.projectAllowlist,
+    externalSources: row.externalSources,
     criteria: row.criteria, scanIntervalMinutes: row.scanIntervalMinutes, nextScanAt: iso(row.nextScanAt),
     createdBy: row.createdBy, createdAt: iso(row.createdAt), updatedAt: iso(row.updatedAt),
     lastScanAt: row.lastScanAt ? iso(row.lastScanAt) : null, sourcesObserved: row.sourcesObserved, sourcesExcluded: row.sourcesExcluded,
@@ -90,7 +92,7 @@ export async function listContinuousObjectives() {
     `);
     const objectives = [];
     for (const goal of goals) objectives.push(await fullView(tx, goal));
-    return { objectives, allowedProjects: [...CONTINUOUS_OBJECTIVE_ALLOWED_PROJECTS] };
+    return { objectives, allowedProjects: [...CONTINUOUS_OBJECTIVE_ALLOWED_PROJECTS], externalSources: [...CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES] };
   });
 }
 
@@ -111,12 +113,12 @@ export async function createContinuousObjective(input: CreateContinuousObjective
     `);
     if (count >= 3) throw new ContinuousObjectiveError('Ya hay tres objetivos vigentes; esperá su vencimiento', 409, 'OBJECTIVE_LIMIT');
     const rows = await tx.$queryRaw<GoalRow[]>(Prisma.sql`
-      INSERT INTO public."CompanyOsContinuousObjective" (id,title,objective,status,"startsAt","endsAt","projectAllowlist",criteria,"scanIntervalMinutes","nextScanAt","createdBy")
+      INSERT INTO public."CompanyOsContinuousObjective" (id,title,objective,status,"startsAt","endsAt","projectAllowlist","externalSources",criteria,"scanIntervalMinutes","nextScanAt","createdBy")
       VALUES (${randomUUID()},${normalized.title},${normalized.objective},'ACTIVE',${normalized.startsAt},${normalized.endDate},
-        ${json(normalized.projectAllowlist)}::jsonb,${json(normalized.criteria)}::jsonb,${normalized.scanIntervalMinutes},${normalized.startsAt},${actorRef}) RETURNING *
+        ${json(normalized.projectAllowlist)}::jsonb,${json(normalized.externalSources)}::jsonb,${json(normalized.criteria)}::jsonb,${normalized.scanIntervalMinutes},${normalized.startsAt},${actorRef}) RETURNING *
     `);
     await appendEvent(tx, { goalId: rows[0].id, eventType: 'OBJECTIVE_CREATED', actorRef, idempotencyKey, requestHash,
-      payload: { version: 1, projectAllowlist: normalized.projectAllowlist, endsAt: normalized.endDate.toISOString(), verificationScope: 'ANALYSIS_ONLY' } });
+      payload: { version: 1, projectAllowlist: normalized.projectAllowlist, externalSources: normalized.externalSources, endsAt: normalized.endDate.toISOString(), verificationScope: 'ANALYSIS_ONLY' } });
     return { objective: await fullView(tx, rows[0]), reused: false };
   });
 }
@@ -157,6 +159,7 @@ export async function controlContinuousObjective(input: ControlContinuousObjecti
 
 // Only read declared metadata from in-scope projects; no transcript, reply, credential or personal task body.
 async function sourceCandidates(tx: Tx, goal: GoalRow, sourceId?: string) {
+  if (goal.projectAllowlist.length === 0) return [];
   return tx.$queryRaw<ObjectiveSourceCandidate[]>(Prisma.sql`
     SELECT task.id,task."threadId",CASE WHEN task.category='PERSONAL' THEN '' ELSE task.title END AS title,
       task."projectName",task.category,task."humanStatus",task."sourceStatus",task.archived,task.priority,
@@ -213,6 +216,20 @@ async function insertPlannedUnit(tx: Tx, goal: GoalRow, planned: Omit<ReturnType
   return rows.length;
 }
 
+async function insertBlockedExternalUnit(tx: Tx, goal: GoalRow, sourceId: ContinuousObjectiveExternalSourceId) {
+  const blocked = blockedExternalSourceUnit(sourceId);
+  const rows = await tx.$queryRaw<UnitRow[]>(Prisma.sql`
+    INSERT INTO public."CompanyOsObjectiveUnit" (id,"goalId",version,"sourceId",fingerprint,status,"ownerAgentId",priority,source,"resultSummary")
+    VALUES (${randomUUID()},${goal.id},${goal.version},${blocked.sourceId},${blocked.fingerprint},'BLOCKED',${blocked.ownerAgentId},${blocked.priority},${json(blocked.source)}::jsonb,
+      ${blocked.source.reportedResult})
+    ON CONFLICT ("goalId",version,"sourceId",fingerprint) DO NOTHING RETURNING *
+  `);
+  if (rows[0]) await appendEvent(tx, { goalId: goal.id, unitId: rows[0].id, eventType: 'EXTERNAL_SOURCE_BLOCKED',
+    idempotencyKey: `external-blocked:${goal.id}:${sourceId}`, payload: { sourceId, status: CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES.find((source) => source.id === sourceId)?.status,
+      verificationScope: 'ANALYSIS_ONLY' } });
+  return rows.length;
+}
+
 /** Deterministic only. Returns at most one candidate per goal; the callback below owns atomic case creation. */
 export async function planContinuousObjectiveUnits(input: {
   limit?: number; now?: Date; baselineFingerprints?: Partial<Record<ContinuousObjectiveAgentId, string>>;
@@ -247,7 +264,10 @@ export async function planContinuousObjectiveUnits(input: {
           planned += await insertPlannedUnit(tx, goal, result);
         }
         const complete = candidates.length < SCAN_PAGE_SIZE;
-        if (complete) for (const baseline of baselineObjectiveUnits(goal, [...domains], input.baselineFingerprints)) {
+        if (complete) for (const sourceId of goal.externalSources) {
+          planned += await insertBlockedExternalUnit(tx, goal, sourceId);
+        }
+        if (complete && goal.projectAllowlist.length > 0) for (const baseline of baselineObjectiveUnits(goal, [...domains], input.baselineFingerprints)) {
           planned += await insertPlannedUnit(tx, goal, baseline);
         }
         const totalObserved = goal.scanObserved + candidates.length;

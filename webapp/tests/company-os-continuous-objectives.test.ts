@@ -10,7 +10,7 @@ import { createContinuousObjective, controlContinuousObjective, planContinuousOb
 import { objectiveHash } from '../lib/company-os/continuous-objective-policy';
 
 const input = { title: 'Continuidad operativa', objective: 'Reducir pendientes empresariales con evidencia', criteria: ['Identificar el siguiente paso verificable'],
-  projectAllowlist: ['AGENTE MANAGER'], durationDays: 30, idempotencyKey: 'ui:continuous:create:1234' };
+  projectAllowlist: ['AGENTE MANAGER'], externalSources: [], durationDays: 30, idempotencyKey: 'ui:continuous:create:1234' };
 const now = new Date('2026-09-03T04:00:00Z');
 const source: ObjectiveSourceCandidate = { id: 'task-123456', threadId: 'thread-123456', title: 'Verificar la ingesta de datos', projectName: 'AGENTE MANAGER',
   category: 'OPERATIONS', humanStatus: 'UNREVIEWED', sourceStatus: 'IDLE', archived: false, priority: 3,

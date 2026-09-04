@@ -6,6 +6,7 @@ import {
   createContinuousObjective,
   controlContinuousObjective,
 } from '@/lib/company-os/continuous-objectives';
+import type { ContinuousObjectiveExternalSourceId } from '@/lib/company-os/continuous-objective-types';
 import { ContinuousObjectiveRequestError, parseContinuousObjectiveRequest, readContinuousObjectiveJson } from '@/lib/company-os/continuous-objectives-http';
 
 export const dynamic = 'force-dynamic';
@@ -37,7 +38,7 @@ export async function POST(request: Request) {
     const input = parseContinuousObjectiveRequest(await readContinuousObjectiveJson(request));
     const result = input.action === 'CREATE'
       ? await createContinuousObjective({ title: input.title, objective: input.objective, durationDays: input.durationDays,
-        projectAllowlist: input.projectAllowlist, criteria: input.criteria, idempotencyKey: input.idempotencyKey }, authorization.identity.actorRef)
+        projectAllowlist: input.projectAllowlist, externalSources: input.externalSources as ContinuousObjectiveExternalSourceId[], criteria: input.criteria, idempotencyKey: input.idempotencyKey }, authorization.identity.actorRef)
       : await controlContinuousObjective(input, authorization.identity.actorRef);
     return NextResponse.json(result, { status: input.action === 'CREATE' && !result.reused ? 201 : 200, headers: noStore });
   } catch (error) { return errorResponse(error); }
