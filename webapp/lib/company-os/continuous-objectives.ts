@@ -12,6 +12,7 @@ import {
   type ContinuousObjectiveView, type ControlContinuousObjectiveInput, type CreateContinuousObjectiveInput,
   type PendingContinuousObjectiveUnit,
 } from './continuous-objective-types';
+import { liveExternalSourceUnit } from './continuous-objective-policy';
 
 export * from './continuous-objective-types';
 type Tx = Prisma.TransactionClient;
@@ -92,7 +93,21 @@ export async function listContinuousObjectives() {
     `);
     const objectives = [];
     for (const goal of goals) objectives.push(await fullView(tx, goal));
-    return { objectives, allowedProjects: [...CONTINUOUS_OBJECTIVE_ALLOWED_PROJECTS], externalSources: [...CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES] };
+    const externalSources = [];
+    for (const source of CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES) {
+      const dependencyKey = `external-${source.id.toLowerCase().replaceAll('_', '-')}`;
+      const observations = await tx.$queryRaw<Array<{ status: string; observedAt: Date }>>(Prisma.sql`
+        SELECT status,"observedAt" FROM public."CompanyOsDependencyObservation"
+        WHERE "dependencyKey"=${dependencyKey} ORDER BY "observedAt" DESC LIMIT 1
+      `);
+      const live = observations[0] && observations[0].status === 'HEALTHY'
+        && new Date().getTime() - new Date(observations[0].observedAt).getTime() <= 30 * 60_000;
+      externalSources.push({ ...source,
+        status: live ? 'LIVE_READONLY' : source.status,
+        note: live ? 'Runtime independiente conectado y observado con permisos de sólo lectura.' : source.note,
+      });
+    }
+    return { objectives, allowedProjects: [...CONTINUOUS_OBJECTIVE_ALLOWED_PROJECTS], externalSources };
   });
 }
 
@@ -230,6 +245,32 @@ async function insertBlockedExternalUnit(tx: Tx, goal: GoalRow, sourceId: Contin
   return rows.length;
 }
 
+async function latestExternalObservation(tx: Tx, sourceId: ContinuousObjectiveExternalSourceId, now: Date) {
+  const dependencyKey = `external-${sourceId.toLowerCase().replaceAll('_', '-')}`;
+  const rows = await tx.$queryRaw<Array<{ status: string; detail: string | null; observedAt: Date }>>(Prisma.sql`
+    SELECT status,detail,"observedAt" FROM public."CompanyOsDependencyObservation"
+    WHERE "dependencyKey"=${dependencyKey} ORDER BY "observedAt" DESC LIMIT 1
+  `);
+  const observed = rows[0];
+  if (!observed || observed.status !== 'HEALTHY' || now.getTime() - new Date(observed.observedAt).getTime() > 30 * 60_000) return null;
+  return observed;
+}
+
+async function insertLiveExternalUnit(tx: Tx, goal: GoalRow, sourceId: ContinuousObjectiveExternalSourceId, detail: string | null) {
+  const live = liveExternalSourceUnit(sourceId, detail);
+  const promoted = await tx.$queryRaw<UnitRow[]>(Prisma.sql`
+    UPDATE public."CompanyOsObjectiveUnit" SET version=${goal.version},fingerprint=${live.fingerprint},status='PLANNED',source=${json(live.source)}::jsonb,
+      "resultSummary"=NULL,"updatedAt"=clock_timestamp()
+    WHERE "goalId"=${goal.id} AND "sourceId"=${live.sourceId} AND status='BLOCKED' RETURNING *
+  `);
+  if (promoted[0]) {
+    await appendEvent(tx, { goalId: goal.id, unitId: promoted[0].id, eventType: 'UNIT_PLANNED',
+      idempotencyKey: `live-planned:${promoted[0].id}:${live.fingerprint}`, payload: { sourceId, live: true, verificationScope: 'ANALYSIS_ONLY' } });
+    return 1;
+  }
+  return insertPlannedUnit(tx, goal, { ...live, ownerAgentId: 'general-manager-ai-v3' });
+}
+
 /** Deterministic only. Returns at most one candidate per goal; the callback below owns atomic case creation. */
 export async function planContinuousObjectiveUnits(input: {
   limit?: number; now?: Date; baselineFingerprints?: Partial<Record<ContinuousObjectiveAgentId, string>>;
@@ -265,7 +306,10 @@ export async function planContinuousObjectiveUnits(input: {
         }
         const complete = candidates.length < SCAN_PAGE_SIZE;
         if (complete) for (const sourceId of goal.externalSources) {
-          planned += await insertBlockedExternalUnit(tx, goal, sourceId);
+          const observation = await latestExternalObservation(tx, sourceId, now);
+          planned += observation
+            ? await insertLiveExternalUnit(tx, goal, sourceId, observation.detail)
+            : await insertBlockedExternalUnit(tx, goal, sourceId);
         }
         if (complete && goal.projectAllowlist.length > 0) for (const baseline of baselineObjectiveUnits(goal, [...domains], input.baselineFingerprints)) {
           planned += await insertPlannedUnit(tx, goal, baseline);

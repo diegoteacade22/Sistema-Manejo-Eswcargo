@@ -11,6 +11,7 @@ import { TelegramNotificationClient } from './notification-client.mjs';
 import { CompanyOsRuntimeApiClient } from './runtime-api-client.mjs';
 import { loadRuntimeConfig, validateLocalLineageModel } from './runtime-config.mjs';
 import { CompanyOsRuntimeDaemon } from './runtime-daemon.mjs';
+import { probeExternalSources } from './external-source-client.mjs';
 import { SIGNATURE_HEADER, TIMESTAMP_HEADER, verifySignedBody } from './signing.mjs';
 import { CompanyOsWorker, SerialWebhookQueue } from './worker.mjs';
 
@@ -175,6 +176,7 @@ export function buildDaemonRuntime(config, overrides = {}) {
     healthServerFactory: overrides.healthServerFactory,
     now: overrides.now,
     sleep: overrides.sleep,
+    externalSourceProbe: overrides.externalSourceProbe || (() => probeExternalSources({ googleServiceAccountJson: config.googleServiceAccountJson })),
   });
   return { daemon, api, processor, logger, instanceId };
 }

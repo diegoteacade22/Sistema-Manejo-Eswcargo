@@ -46,6 +46,7 @@ export class CompanyOsRuntimeDaemon {
     healthServerFactory = createRuntimeHealthServer,
     now = () => new Date(),
     sleep = delay,
+    externalSourceProbe = async () => [],
   }) {
     this.config = config;
     this.api = api;
@@ -54,6 +55,7 @@ export class CompanyOsRuntimeDaemon {
     this.instanceId = instanceId;
     this.now = now;
     this.sleep = sleep;
+    this.externalSourceProbe = externalSourceProbe;
     this.startedAt = now().toISOString();
     this.lock = lock || new InstanceLock({
       lockPath: join(config.stateDir, 'runtime.lock'),
@@ -81,6 +83,8 @@ export class CompanyOsRuntimeDaemon {
     this.modelRouterDependency = { status: 'UNOBSERVED', observedAt: null, detail: null };
     this.openAiDependency = { status: 'UNOBSERVED', observedAt: null, detail: null };
     this.ollamaDependency = { status: 'UNOBSERVED', observedAt: null, detail: null };
+    this.externalDependencies = [];
+    this.externalProbing = false;
   }
 
   effectiveState() {
@@ -197,7 +201,9 @@ export class CompanyOsRuntimeDaemon {
         { key: 'openai-api', ...this.openAiDependency },
         { key: 'ollama-local', ...this.ollamaDependency },
         { key: 'openclaw-optional', status: 'UNOBSERVED', observedAt: null, detail: 'Optional dependency not configured' },
+        ...this.externalDependencies,
       ],
+      externalSources: this.externalDependencies.map(({ key, sourceId, status, observedAt, detail, latencyMs }) => ({ key, sourceId, status, observedAt, detail, latencyMs })),
     };
   }
 
@@ -243,6 +249,7 @@ export class CompanyOsRuntimeDaemon {
         globalConcurrency: this.config.globalConcurrency,
         externalNotificationsEnabled: this.config.externalNotificationsEnabled,
       });
+      await this.tickExternalSources();
       await this.tickWorkerHeartbeat('STARTING');
       this.starting = false;
       this.transitionIfNeeded('startup-complete');
@@ -251,6 +258,7 @@ export class CompanyOsRuntimeDaemon {
       this.installTimer(() => this.tickWorkerHeartbeat(), this.config.workerHeartbeatIntervalMs);
       this.installTimer(() => this.tickReconcile(), this.config.reconcileIntervalMs);
       this.installTimer(() => this.tickSchedule({ trigger: 'INTERVAL' }), this.config.scheduleIntervalMs);
+      this.installTimer(() => this.tickExternalSources(), this.config.scheduleIntervalMs);
       if (runImmediately) {
         void this.tickReconcile();
         void this.tickSchedule({ trigger: 'STARTUP' });
@@ -262,6 +270,24 @@ export class CompanyOsRuntimeDaemon {
       try { await this.healthServer?.close(); } catch {}
       this.lock.release();
       throw error;
+    }
+  }
+
+  async tickExternalSources() {
+    if (!this.running || this.draining || this.externalProbing) return null;
+    this.externalProbing = true;
+    try {
+      const result = await this.externalSourceProbe();
+      this.externalDependencies = Array.isArray(result) ? result.filter((item) => item && typeof item.key === 'string') : [];
+      this.logger.info('RUNTIME_EXTERNAL_SOURCES_OBSERVED', {
+        sources: this.externalDependencies.map(({ sourceId, status, latencyMs }) => ({ sourceId: sourceId || null, status, latencyMs: latencyMs ?? null })),
+      });
+      return this.externalDependencies;
+    } catch (error) {
+      this.logger.error('RUNTIME_EXTERNAL_SOURCES_FAILED', { code: safeFailure(error).code });
+      return null;
+    } finally {
+      this.externalProbing = false;
     }
   }
 

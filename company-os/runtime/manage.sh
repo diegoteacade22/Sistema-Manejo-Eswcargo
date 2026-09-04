@@ -18,6 +18,7 @@ RUNTIME_HEALTH_PORT="${COMPANY_OS_RUNTIME_HEALTH_PORT:-8794}"
 RUNTIME_ALLOWED_AGENT_IDS="${COMPANY_OS_RUNTIME_ALLOWED_AGENT_IDS:-general-manager-ai-v3,systems-manager-ai-v1,data-manager-ai-v1}"
 RUNTIME_HMAC_KEYCHAIN_SERVICE="${COMPANY_OS_RUNTIME_HMAC_KEYCHAIN_SERVICE:-com.esw.company-os-runtime.hmac}"
 RUNTIME_OPENAI_KEYCHAIN_SERVICE="${COMPANY_OS_RUNTIME_OPENAI_KEYCHAIN_SERVICE:-OPENAI_API_KEY}"
+RUNTIME_GOOGLE_KEYCHAIN_SERVICE="${COMPANY_OS_RUNTIME_GOOGLE_KEYCHAIN_SERVICE:-com.esw.company-os-runtime.google-service-account}"
 RUNTIME_OLLAMA_FALLBACK_ENABLED="${COMPANY_OS_RUNTIME_OLLAMA_FALLBACK_ENABLED:-true}"
 RUNTIME_OLLAMA_BASE_URL="${COMPANY_OS_RUNTIME_OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
 RUNTIME_OLLAMA_MODEL="${COMPANY_OS_RUNTIME_OLLAMA_MODEL:-qwen3:14b-q4_K_M}"
@@ -153,6 +154,25 @@ check_keychain_credentials() {
     || die "Falta credencial Keychain service=$RUNTIME_OPENAI_KEYCHAIN_SERVICE account=$RUNTIME_KEYCHAIN_ACCOUNT"
 }
 
+google_keychain_has() {
+  /usr/bin/security find-generic-password -a "$RUNTIME_KEYCHAIN_ACCOUNT" -s "$RUNTIME_GOOGLE_KEYCHAIN_SERVICE" -w >/dev/null 2>&1
+}
+
+ensure_google_keychain() {
+  local repo="$1" source_path payload
+  if google_keychain_has; then return; fi
+  source_path="${COMPANY_OS_RUNTIME_GOOGLE_CREDENTIALS_PATH:-$repo/google_credentials.json}"
+  [[ -f "$source_path" ]] || source_path="$HOME/02_DESARROLLO/02_Activos_Deploy/Sistema-Manejo-Eswcargo/google_credentials.json"
+  [[ -f "$source_path" ]] || die "Falta archivo local de credenciales Google para inicializar Keychain"
+  "$NODE_BIN" -e 'const fs=require("node:fs"); const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if(j.type!=="service_account" || typeof j.client_email!=="string" || typeof j.private_key!=="string") process.exit(1)' "$source_path" \
+    || die "El archivo de credenciales Google no es una cuenta de servicio válida"
+  payload="$(<"$source_path")"
+  /usr/bin/security add-generic-password -U -a "$RUNTIME_KEYCHAIN_ACCOUNT" -s "$RUNTIME_GOOGLE_KEYCHAIN_SERVICE" -w "$payload" >/dev/null \
+    || die "No se pudo guardar la credencial Google en Keychain"
+  unset payload
+  google_keychain_has || die "No se pudo verificar la credencial Google en Keychain"
+}
+
 ensure_dirs() {
   mkdir -p "$RUNTIME_STATE_DIR" "$BACKUPS_DIR" "$LOG_DIR" "$HOME/Library/LaunchAgents"
   chmod 700 "$RUNTIME_STATE_DIR" "$BACKUPS_DIR" "$LOG_DIR"
@@ -274,7 +294,7 @@ xml_escape() {
 
 render_plist() {
   local destination="$1"
-  local manage_path worker_path api_url allowed_hosts worker_id state_dir log_dir keychain_account hmac_service openai_service agent_ids node_path
+  local manage_path worker_path api_url allowed_hosts worker_id state_dir log_dir keychain_account hmac_service openai_service google_service agent_ids node_path
   manage_path="$(xml_escape "$CURRENT_DIR/manage.sh")"
   worker_path="$(xml_escape "$CURRENT_DIR/worker")"
   api_url="$(xml_escape "$RUNTIME_API_BASE_URL")"
@@ -285,6 +305,7 @@ render_plist() {
   keychain_account="$(xml_escape "$RUNTIME_KEYCHAIN_ACCOUNT")"
   hmac_service="$(xml_escape "$RUNTIME_HMAC_KEYCHAIN_SERVICE")"
   openai_service="$(xml_escape "$RUNTIME_OPENAI_KEYCHAIN_SERVICE")"
+  google_service="$(xml_escape "$RUNTIME_GOOGLE_KEYCHAIN_SERVICE")"
   agent_ids="$(xml_escape "$RUNTIME_ALLOWED_AGENT_IDS")"
   node_path="$(xml_escape "$NODE_BIN")"
   /bin/cat > "$destination" <<EOF
@@ -312,6 +333,7 @@ render_plist() {
     <key>COMPANY_OS_RUNTIME_KEYCHAIN_ACCOUNT</key><string>$keychain_account</string>
     <key>COMPANY_OS_RUNTIME_HMAC_KEYCHAIN_SERVICE</key><string>$hmac_service</string>
     <key>COMPANY_OS_RUNTIME_OPENAI_KEYCHAIN_SERVICE</key><string>$openai_service</string>
+    <key>COMPANY_OS_RUNTIME_GOOGLE_KEYCHAIN_SERVICE</key><string>$google_service</string>
     <key>COMPANY_OS_RUNTIME_OLLAMA_FALLBACK_ENABLED</key><string>$RUNTIME_OLLAMA_FALLBACK_ENABLED</string>
     <key>COMPANY_OS_RUNTIME_OLLAMA_BASE_URL</key><string>$(xml_escape "$RUNTIME_OLLAMA_BASE_URL")</string>
     <key>COMPANY_OS_RUNTIME_OLLAMA_MODEL</key><string>$(xml_escape "$RUNTIME_OLLAMA_MODEL")</string>
@@ -473,6 +495,7 @@ install_action() {
   ensure_dirs
   local repo stage backup
   repo="$(detect_repo)"
+  ensure_google_keychain "$repo"
   stage="$(mktemp -d "$RUNTIME_STATE_DIR/.install.XXXXXX")"
   trap '[[ -n "${stage:-}" && "${stage:A}" == "${RUNTIME_STATE_DIR:A}"/.install.* ]] && rm -rf -- "$stage"' EXIT INT TERM
   mkdir -p "$stage/current"
@@ -591,10 +614,13 @@ run_action() {
   [[ "${EXTERNAL_NOTIFICATIONS_ENABLED:l}" == "false" ]] \
     || die "Las notificaciones externas deben permanecer deshabilitadas en la instalación Mac genérica"
   local runtime_hmac_secret openai_api_key
+  local google_service_account_json
   runtime_hmac_secret="$(keychain_get "$RUNTIME_HMAC_KEYCHAIN_SERVICE")"
   openai_api_key="$(keychain_get "$RUNTIME_OPENAI_KEYCHAIN_SERVICE")"
+  google_service_account_json="$(keychain_get "$RUNTIME_GOOGLE_KEYCHAIN_SERVICE")"
   export COMPANY_OS_RUNTIME_HMAC_SECRET="$runtime_hmac_secret"
   export OPENAI_API_KEY="$openai_api_key"
+  export COMPANY_OS_RUNTIME_GOOGLE_SERVICE_ACCOUNT_JSON="$google_service_account_json"
   exec "$NODE_BIN" "$CURRENT_DIR/worker/src/server.mjs" daemon
 }
 

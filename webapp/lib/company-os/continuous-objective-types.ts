@@ -18,7 +18,7 @@ export type ContinuousObjectiveStatus = 'ACTIVE' | 'PAUSED' | 'EXPIRED';
 export type ObjectiveUnitStatus = 'PLANNED' | 'QUEUED' | 'ANALYZED' | 'VERIFIED' | 'NEEDS_REVIEW' | 'BLOCKED' | 'SKIPPED';
 export type ContinuousObjectiveAgentId = 'general-manager-ai-v3' | 'systems-manager-ai-v1' | 'data-manager-ai-v1';
 export type ObjectiveUnitSource = {
-  kind: 'CODEX_METADATA' | 'SYSTEMS_BASELINE' | 'DATA_BASELINE' | 'EXTERNAL_SOURCE_BLOCKED';
+  kind: 'CODEX_METADATA' | 'SYSTEMS_BASELINE' | 'DATA_BASELINE' | 'EXTERNAL_SOURCE_BLOCKED' | 'EXTERNAL_SOURCE_LIVE';
   projectName: string;
   title: string;
   threadId?: string;

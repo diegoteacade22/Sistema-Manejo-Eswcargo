@@ -104,6 +104,7 @@ export function loadRuntimeConfig(env = process.env) {
     ollamaModel: modelIdentifier(env.COMPANY_OS_RUNTIME_OLLAMA_MODEL?.trim() || 'qwen3:14b-q4_K_M', 'COMPANY_OS_RUNTIME_OLLAMA_MODEL'),
     localLineageModel: validateLocalLineageModel(env.COMPANY_OS_RUNTIME_LOCAL_LINEAGE_MODEL?.trim() || DEFAULT_LOCAL_LINEAGE_MODEL),
     ollamaTimeoutMs: integerInRange(env.COMPANY_OS_RUNTIME_OLLAMA_TIMEOUT_MS, 120_000, 'COMPANY_OS_RUNTIME_OLLAMA_TIMEOUT_MS', 5_000, 600_000),
+    googleServiceAccountJson: env.COMPANY_OS_RUNTIME_GOOGLE_SERVICE_ACCOUNT_JSON?.trim() || null,
     stateDir,
     logDir: env.COMPANY_OS_RUNTIME_LOG_DIR?.trim() || join(stateDir, 'logs'),
     logMaxBytes: integerInRange(env.COMPANY_OS_RUNTIME_LOG_MAX_BYTES, 5_242_880, 'COMPANY_OS_RUNTIME_LOG_MAX_BYTES', 1_024, 104_857_600),

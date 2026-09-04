@@ -76,12 +76,12 @@ test('snapshots incompletos fallan sin convertir datos ausentes en progreso', ()
   assert.throws(()=>parseContinuousObjectivesSnapshot({objectives:[{...fixture,units:[{...fixture.units[0],sourceResolved:true}]}],allowedProjects:[]}),/alcance/);
 });
 
-test('fuentes externas quedan visibles como alcance preparado y bloqueado', () => {
+test('fuentes externas quedan visibles como alcance vivo y read-only', () => {
   const external = {...fixture, projectAllowlist:[], externalSources:['GOOGLE_DRIVE' as const], units:[]};
   const html=renderToStaticMarkup(createElement(ContinuousObjectiveCard,{objective:external}));
   assert.match(html,/Google Drive/);
-  assert.match(html,/bloqueadas y auditadas/);
-  assert.deepEqual(parseContinuousObjectivesSnapshot({objectives:[external],allowedProjects:[],externalSources:[{id:'GOOGLE_DRIVE',label:'Google Drive',status:'BLOCKED_REQUIRES_RUNTIME_CONNECTOR',note:'La conexión existe en la sesión de trabajo, pero todavía no está disponible para el runtime independiente.'}]}).objectives,[external]);
+  assert.match(html,/se observan por el runtime independiente/);
+  assert.deepEqual(parseContinuousObjectivesSnapshot({objectives:[external],allowedProjects:[],externalSources:[{id:'GOOGLE_DRIVE',label:'Google Drive',status:'LIVE_READONLY',note:'Runtime independiente conectado y observado con permisos de sólo lectura.'}]}).objectives,[external]);
 });
 
 test('formulario inicia en 30 días y muestra controles sólo tras observar proyectos permitidos', () => {

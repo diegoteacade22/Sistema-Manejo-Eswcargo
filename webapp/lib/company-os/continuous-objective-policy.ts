@@ -120,6 +120,20 @@ export function blockedExternalSourceUnit(sourceId: ContinuousObjectiveExternalS
   };
 }
 
+export function liveExternalSourceUnit(sourceId: ContinuousObjectiveExternalSourceId, detail: string | null) {
+  const source = CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES.find((item) => item.id === sourceId)!;
+  const sourceView: ObjectiveUnitSource = {
+    kind: 'EXTERNAL_SOURCE_LIVE', projectName: 'FUENTE EXTERNA', title: `${source.label} · LECTURA VIVA`,
+    category: 'EXTERNAL', nextAction: 'Analizar el snapshot read-only observado por el runtime',
+    reportedResult: safeObjectiveMetadata(detail || 'Conector disponible; snapshot sin detalle adicional.'),
+    authority: 'LIVE_SNAPSHOT_REQUIRED', verificationScope: 'ANALYSIS_ONLY',
+  };
+  return {
+    sourceId: `external:${source.id.toLowerCase()}`, fingerprint: objectiveHash({ sourceId, detail: sourceView.reportedResult }),
+    ownerAgentId: 'general-manager-ai-v3' as const, priority: 0, source: sourceView,
+  };
+}
+
 export function baselineObjectiveUnits(goal: { objective: string; criteria: string[]; projectAllowlist: string[] }, domains: readonly string[], facts: Partial<Record<ContinuousObjectiveAgentId, string>> = {}) {
   return (['systems-manager-ai-v1', 'data-manager-ai-v1'] as const).filter((agent) => !domains.includes(agent)).map((ownerAgentId) => {
     const systems = ownerAgentId === 'systems-manager-ai-v1';
