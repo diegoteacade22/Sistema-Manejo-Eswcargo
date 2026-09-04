@@ -5,10 +5,12 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime, timedelta
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(SCRIPT_DIR, "client-balance-controls.json")
@@ -77,6 +79,29 @@ def transaction_from_balance_change(previous_balance, balance):
     return "PAGO" if amount > 0 else "CARGO", amount
 
 
+def read_sheet_values(service, spreadsheet_id, sheet, max_attempts=4):
+    """Read a sheet with bounded retries for transient Google API failures."""
+    transient_statuses = {429, 500, 502, 503, 504}
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return service.spreadsheets().values().get(
+                spreadsheetId=spreadsheet_id,
+                range=f"'{sheet}'!A1:Z1000",
+                majorDimension="ROWS",
+            ).execute().get("values", [])
+        except HttpError as error:
+            status = getattr(error.resp, "status", None)
+            if status not in transient_statuses or attempt == max_attempts:
+                raise
+            delay = min(2 ** (attempt - 1), 8)
+            print(
+                f"Google Sheets transitorio ({status}) leyendo {sheet}; "
+                f"reintento {attempt + 1}/{max_attempts} en {delay}s.",
+                file=sys.stderr,
+            )
+            time.sleep(delay)
+
+
 def main():
     with open(CONFIG_FILE, "r", encoding="utf-8") as handle:
         config = json.load(handle)
@@ -86,9 +111,7 @@ def main():
 
     for account in config["cashFlowAccounts"]:
         sheet = account["sheet"]
-        values = service.spreadsheets().values().get(
-            spreadsheetId=config["spreadsheetId"], range=f"'{sheet}'!A1:Z1000", majorDimension="ROWS"
-        ).execute().get("values", [])
+        values = read_sheet_values(service, config["spreadsheetId"], sheet)
         header_index, saldo_index = find_header(values)
         previous_balance = 0.0
         sheet_ref = re.sub(r"[^A-Z0-9]+", "_", sheet.upper()).strip("_")
