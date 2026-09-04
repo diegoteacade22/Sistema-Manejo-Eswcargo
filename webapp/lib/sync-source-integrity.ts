@@ -102,9 +102,11 @@ export function isStrictCancelledOrder<T extends { status?: unknown; total_amoun
   const rawTotal = order.total_amount;
   const hasZeroTotal = (typeof rawTotal === 'number' && Number.isFinite(rawTotal) && rawTotal === 0)
     || (typeof rawTotal === 'string' && rawTotal.trim() !== '' && Number.isFinite(Number(rawTotal)) && Number(rawTotal) === 0);
-  return items.length > 0
-    && String(order.status ?? '').trim().toUpperCase() === 'CANCELADO'
-    && hasZeroTotal
+  const headerIsCancelled = String(order.status ?? '').trim().toUpperCase() === 'CANCELADO';
+  const itemsAreCancelled = items.length > 0
     && items.every((item) => String((item as { status?: unknown }).status ?? '').trim().toUpperCase() === 'CANCELADO');
+  return items.length > 0
+    && (headerIsCancelled || itemsAreCancelled)
+    && hasZeroTotal
+    && itemsAreCancelled;
 }
-
