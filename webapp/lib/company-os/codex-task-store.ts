@@ -12,6 +12,7 @@ const MANAGED_TARGET_STATUSES = new Set(['PENDING', 'NEEDS_DIEGO', 'BLOCKED', 'R
 const REOPEN_TARGET_STATUSES = new Set(['PENDING', 'NEEDS_DIEGO']);
 const MANAGEMENT_ACTIONS = new Set(['MOVE', 'MOVE_PROJECT', 'SAVE', 'ARCHIVE', 'CLOSE', 'REOPEN']);
 const CODEX_AUTO_RESUME_ACTOR = 'codex-intake-ai-v1';
+export const CODEX_DISPATCH_SOURCE_HOST = 'DiegoServer.local';
 const CODEX_AUTO_RESUME_STALE_MS = 2 * 60 * 60_000;
 const CODEX_AUTO_RESUME_PROMPT = [
   'Continuá esta tarea desde el punto pendiente y cerrá un resultado verificable dentro del alcance original.',
@@ -346,9 +347,13 @@ export function isApprovedCodexTaskDispatchCandidate(task: DispatchCandidateLike
   const explicitlyConfirmedReply = latestReply?.delivery?.state === 'CONFIRMED'
     && latestReply.sourceFingerprint === task.fingerprint
     && createHash('sha256').update(latestReply.responseText).digest('hex') === latestReply.responseHash;
+  // The board state and its versioned action are the durable human approval.
+  // Do not make dispatch depend on a UI idempotency-key prefix: old approvals
+  // remain valid after a deploy or a client refresh as long as the current
+  // board still points at the same source fingerprint.
   const humanApproval = board?.updatedBy !== machineActor
-    && approval?.actorRef === board?.updatedBy
-    && approval?.idempotencyKey.startsWith('dashboard:auto-resume:');
+    && approval?.newHumanStatus === 'PENDING'
+    && ['MOVE', 'REOPEN', 'SAVE'].includes(approval?.action ?? '');
   const policyApproval = board?.updatedBy === machineActor
     && approval?.actorRef === machineActor
     && (approval?.idempotencyKey.startsWith('codex-auto:eligibility:')
@@ -801,6 +806,8 @@ function taskView(task: TaskWithBoardState) {
               : reopened ? 'Retomar y definir el próximo resultado verificable.' : task.nextAction;
   return {
     threadId: task.threadId,
+    sourceHost: task.sourceHost,
+    sourceStatus: task.sourceStatus,
     title: task.title,
     projectName: effective.projectName,
     sourceProjectName: task.projectName,
@@ -833,7 +840,6 @@ function taskView(task: TaskWithBoardState) {
     autoResumeApproved,
     autoResumeRunning,
     codexUrl: task.codexUrl,
-    sourceStatus: task.sourceStatus,
     fingerprint: task.fingerprint,
     archived: effective.archived,
     boardVersion: effective.boardVersion,
@@ -1026,7 +1032,64 @@ export async function claimApprovedCodexTask(raw: unknown, actorRef: string) {
       const humanCandidate = candidates.find((task) => isApprovedCodexTaskDispatchCandidate(task, safeActorRef));
       const autonomousCandidate = candidates.find((task) => isAutonomousCodexTaskDispatchCandidate(task));
       let candidate = humanCandidate ?? autonomousCandidate;
-      if (!candidate) return { claimed: false, reason: 'NO_APPROVED_TASK' };
+      if (!candidate) {
+        const [sameHostCount, sameHostBySourceStatus, sameHostByBoardStatus, allHostCounts, allHostPendingBoardCounts, allHostConfirmedReplyCounts] = await Promise.all([
+          tx.companyOsCodexTask.count({ where: { sourceHost, archived: false } }),
+          tx.companyOsCodexTask.groupBy({
+            by: ['sourceStatus'],
+            where: { sourceHost, archived: false },
+            _count: { _all: true },
+          }),
+          tx.companyOsCodexTask.groupBy({
+            by: ['humanStatus'],
+            where: { sourceHost, archived: false },
+            _count: { _all: true },
+          }),
+          tx.companyOsCodexTask.groupBy({
+            by: ['sourceHost'],
+            where: { archived: false },
+            _count: { _all: true },
+          }),
+          tx.companyOsCodexTask.groupBy({
+            by: ['sourceHost'],
+            where: {
+              archived: false,
+              sourceStatus: { in: ['IDLE', 'NOT_LOADED'] },
+              boardState: { is: { workflowStatus: 'PENDING', lifecycle: 'OPEN' } },
+            },
+            _count: { _all: true },
+          }),
+          tx.companyOsCodexTask.groupBy({
+            by: ['sourceHost'],
+            where: {
+              archived: false,
+              sourceStatus: { in: ['IDLE', 'NOT_LOADED'] },
+              replyRevisions: { some: { delivery: { is: { state: 'CONFIRMED' } } } },
+            },
+            _count: { _all: true },
+          }),
+        ]);
+        const diagnostic = {
+          candidateCount: candidates.length,
+          sameHostCount,
+          sameHostBySourceStatus,
+          sameHostByBoardStatus,
+          allHostCounts,
+          allHostPendingBoardCounts,
+          allHostConfirmedReplyCounts,
+          pendingBoardCount: candidates.filter((task) => task.boardState?.workflowStatus === 'PENDING' && task.boardState.lifecycle === 'OPEN').length,
+          currentApprovalActionCount: candidates.filter((task) => task.actions[0]?.newHumanStatus === 'PENDING' && task.actions[0]?.newVersion === task.boardState?.version).length,
+          sourceFingerprintMatches: candidates.filter((task) => task.boardState?.sourceFingerprint === task.fingerprint).length,
+          inactiveCount: candidates.filter((task) => ['IDLE', 'NOT_LOADED'].includes(task.sourceStatus)).length,
+          humanCandidateCount: candidates.filter((task) => isApprovedCodexTaskDispatchCandidate(task, safeActorRef)).length,
+          autonomousCandidateCount: candidates.filter((task) => isAutonomousCodexTaskDispatchCandidate(task)).length,
+        };
+        console.warn('company_os_codex_no_approved_task', {
+          sourceHost,
+          ...diagnostic,
+        });
+        return { claimed: false, reason: 'NO_APPROVED_TASK', diagnostic };
+      }
       if (!humanCandidate) {
         await appendDispatchTransition(tx, candidate, 'PENDING', safeActorRef, 'eligibility');
         candidate = await tx.companyOsCodexTask.findUniqueOrThrow({
@@ -1304,7 +1367,10 @@ export async function getHumanWorkCenter() {
   const taskViews = tasks.map(taskView);
   const activeTasks = taskViews.filter((task) => task.lifecycle !== 'ARCHIVED');
   const archivedTasks = taskViews.filter((task) => task.lifecycle === 'ARCHIVED');
-  const approvedPendingTasks = activeTasks.filter((task) => task.humanStatus === 'PENDING' && task.autoResumeApproved);
+  const approvedPendingTasks = activeTasks.filter((task) => task.sourceHost === CODEX_DISPATCH_SOURCE_HOST
+    && ['IDLE', 'NOT_LOADED'].includes(task.sourceStatus)
+    && task.humanStatus === 'PENDING'
+    && task.autoResumeApproved);
   const unapprovedTasks = activeTasks.filter((task) => task.humanStatus === 'UNREVIEWED' || (task.humanStatus === 'PENDING' && !task.autoResumeApproved));
   const byStatus = new Map<string, number>();
   for (const task of activeTasks) byStatus.set(task.humanStatus, (byStatus.get(task.humanStatus) ?? 0) + 1);

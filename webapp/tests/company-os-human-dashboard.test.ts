@@ -232,6 +232,7 @@ test('la respuesta cambia funcionalmente de cola a ejecución, resultado o nueva
 test('sin revisar queda separado de la cola autónoma del agente', () => {
   assert.match(store, /unapprovedTasks = activeTasks\.filter/);
   assert.match(store, /approvedPendingTasks = activeTasks\.filter/);
+  assert.match(store, /task\.sourceHost === CODEX_DISPATCH_SOURCE_HOST/);
   assert.match(store, /unreviewed: unapprovedTasks/);
   assert.match(store, /pending: approvedPendingTasks/);
   assert.doesNotMatch(store, /pending: select\(\['PENDING', 'UNREVIEWED'\]\)/);
@@ -269,7 +270,8 @@ test('el despacho acepta autorización humana o política autónoma durable y nu
   assert.equal(isAutonomousCodexTaskDispatchCandidate({ ...policyApproved, attentionReason: 'Falta OTP', boardState: null, actions: [] }), false);
   assert.equal(isAutonomousCodexTaskDispatchCandidate({ ...policyApproved, boardState: { ...policyApproved.boardState, lifecycle: 'ARCHIVED' }, actions: [] }), false);
   assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, actions: [{ ...base.actions[0], newVersion: 2 }] }), false);
-  assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, actions: [{ ...base.actions[0], idempotencyKey: 'dashboard:legacy-action-1234567890' }] }), false);
+  assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, actions: [{ ...base.actions[0], actorRef: 'legacy-human-actor', idempotencyKey: 'dashboard:legacy-action-1234567890' }] }), true);
+  assert.equal(isApprovedCodexTaskDispatchCandidate({ ...base, actions: [{ ...base.actions[0], action: 'ARCHIVE' }] }), false);
   const responseText = 'Elegí la opción B.';
   const replyApproved = {
     ...base,
@@ -293,7 +295,7 @@ test('el despacho acepta autorización humana o política autónoma durable y nu
 test('la reanudación usa HMAC, journal durable, configuración aprobada y no hereda el secreto', () => {
   assert.match(dispatchRoute, /verifyCodexIntakeRequest/);
   assert.match(dispatchRoute, /acceptCompanyOsRuntimeNonce/);
-  assert.match(dispatchRoute, /DISPATCH_SOURCE_HOST = 'DiegoServer\.local'/);
+  assert.match(dispatchRoute, /CODEX_DISPATCH_SOURCE_HOST/);
   assert.match(dispatchRoute, /input\.instanceId !== DISPATCH_INSTANCE_ID/);
   assert.match(dispatchRoute, /claimApprovedCodexTask/);
   assert.match(dispatchRoute, /reportCodexTaskDispatch/);

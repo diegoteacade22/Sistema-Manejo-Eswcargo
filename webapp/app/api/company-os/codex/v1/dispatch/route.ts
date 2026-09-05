@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import {
   claimApprovedCodexTask,
+  CODEX_DISPATCH_SOURCE_HOST,
   CodexTaskStoreError,
   reportCodexTaskDispatch,
 } from '@/lib/company-os/codex-task-store';
@@ -8,8 +9,8 @@ import { verifyCodexIntakeRequest } from '@/lib/company-os/codex-task-auth';
 import { acceptCompanyOsRuntimeNonce, CompanyOsRuntimeRequestError } from '@/lib/company-os/runtime-store';
 
 export const dynamic = 'force-dynamic';
-const DISPATCH_SOURCE_HOST = 'DiegoServer.local';
-const DISPATCH_INSTANCE_ID = `${DISPATCH_SOURCE_HOST}:codex-auto-resume-v1`;
+const DISPATCH_SOURCE_HOST = CODEX_DISPATCH_SOURCE_HOST;
+const DISPATCH_INSTANCE_ID = `${CODEX_DISPATCH_SOURCE_HOST}:codex-auto-resume-v1`;
 
 export async function POST(request: Request) {
   if (!(request.headers.get('content-type') ?? '').toLowerCase().startsWith('application/json')) {
