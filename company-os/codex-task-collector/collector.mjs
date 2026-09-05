@@ -48,7 +48,7 @@ const AUTO_RESUME_PROMPT = [
   'No reinicies trabajo que ya esté terminado y verificá por readback antes de cerrar.',
   'Para que el tablero sea autosuficiente, antes de la última línea incluí una línea DASHBOARD_RESULT: con el resultado concreto en lenguaje humano, sin secretos, datos personales, enlaces ni rutas.',
   'Si el resultado es NEEDS_USER, incluí también una línea BLOCKER_REASON: con el motivo concreto y una línea DIEGO_DECISION: con la única autorización o decisión que Diego debe escribir en el tablero.',
-  'La última línea debe ser exactamente AUTONOMY_RESULT: COMPLETED si el objetivo quedó verificado, AUTONOMY_RESULT: NEEDS_USER si sólo Diego puede destrabarlo, o AUTONOMY_RESULT: BLOCKED_EXTERNAL si depende de un tercero o servicio externo.',
+  'La última línea debe ser exactamente AUTONOMY_RESULT: COMPLETED si el objetivo quedó verificado, AUTONOMY_RESULT: CONTINUE si el objetivo durable sigue abierto y dejaste un próximo paso seguro verificable, AUTONOMY_RESULT: NEEDS_USER si sólo Diego puede destrabarlo, o AUTONOMY_RESULT: BLOCKED_EXTERNAL si depende de un tercero o servicio externo.',
 ].join(' ');
 
 if (!SECRET && !DRY_RUN && !SELF_TEST) throw new Error('COMPANY_OS_CODEX_INTAKE_SECRET_REQUIRED');
@@ -345,6 +345,18 @@ if (SELF_TEST) {
   if (summarizeBlockerReason(marked) !== 'El despliegue está listo pero falta autorización para producción.') throw new Error('BLOCKER_REASON_SELF_TEST_FAILED');
   if (summarizeHumanRequest(marked) !== 'Confirmá si autorizás desplegar esta versión.') throw new Error('DIEGO_DECISION_SELF_TEST_FAILED');
   if (summarizeTaskResult(marked) !== 'Se preparó y verificó el cambio; todavía no se desplegó.') throw new Error('DASHBOARD_RESULT_SELF_TEST_FAILED');
+  const continuationNow = new Date();
+  const continuation = classify({
+    title: 'Misión durable de prueba',
+    lastStartedAt: new Date(continuationNow.getTime() - 2_000).toISOString(),
+    lastCompletedAt: continuationNow.toISOString(),
+    lastFinalAt: continuationNow.toISOString(),
+    lastUserAt: new Date(continuationNow.getTime() - 3_000).toISOString(),
+    lastFinalText: 'Se cerró este paso y quedó definido el siguiente paso seguro.\nDASHBOARD_RESULT: El objetivo sigue abierto.\nAUTONOMY_RESULT: CONTINUE',
+    updatedAt: continuationNow.toISOString(),
+    archived: false,
+  });
+  if (continuation.humanStatus !== 'PENDING' || continuation.autonomyLevel !== 'A1') throw new Error('AUTONOMY_CONTINUE_SELF_TEST_FAILED');
   const redacted = summarizeHumanRequest('Confirmá si usamos el contacto ventas@example.com o el teléfono +1 305 555 1234.');
   if (redacted !== SENSITIVE_REQUEST_FALLBACK || redacted.includes('example.com') || redacted.includes('305 555')) throw new Error('HUMAN_REQUEST_REDACTION_SELF_TEST_FAILED');
   const redactedPath = summarizeHumanRequest('Confirmá si usamos /Users/diego/proyecto/credenciales.json para continuar.');
@@ -387,6 +399,7 @@ if (SELF_TEST) {
 function finalAutonomyResult(text) {
   const finalLine = text.trimEnd().split(/\r?\n/).at(-1)?.trim() || '';
   if (finalLine === 'AUTONOMY_RESULT: COMPLETED') return 'COMPLETED';
+  if (finalLine === 'AUTONOMY_RESULT: CONTINUE') return 'CONTINUE';
   if (finalLine === 'AUTONOMY_RESULT: NEEDS_USER') return 'NEEDS_USER';
   if (finalLine === 'AUTONOMY_RESULT: BLOCKED_EXTERNAL') return 'BLOCKED_EXTERNAL';
   return null;
@@ -427,6 +440,9 @@ function classify({ title, lastStartedAt, lastCompletedAt, lastFinalAt, lastUser
   }
   if (autonomyResult === 'BLOCKED_EXTERNAL') {
     return { humanStatus: 'BLOCKED', sourceStatus: 'IDLE', autonomyLevel: 'A0', attentionReason: blockerReason || 'La tarea depende de un tercero o servicio externo.', resultSummary, nextAction: 'Mantenerla en espera hasta que cambie la dependencia externa.' };
+  }
+  if (autonomyResult === 'CONTINUE' && completed >= started && completed > 0) {
+    return { humanStatus: 'PENDING', sourceStatus: 'IDLE', autonomyLevel: 'A1', resultSummary, nextAction: 'El objetivo sigue abierto y el agente retomará el próximo paso seguro en el siguiente ciclo.' };
   }
   if (autonomyResult === 'COMPLETED' && completed >= started && completed > 0) {
     return resultSummary
