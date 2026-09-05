@@ -20,6 +20,7 @@ RUNTIME_HMAC_KEYCHAIN_SERVICE="${COMPANY_OS_RUNTIME_HMAC_KEYCHAIN_SERVICE:-com.e
 RUNTIME_OPENAI_KEYCHAIN_SERVICE="${COMPANY_OS_RUNTIME_OPENAI_KEYCHAIN_SERVICE:-OPENAI_API_KEY}"
 RUNTIME_GOOGLE_KEYCHAIN_SERVICE="${COMPANY_OS_RUNTIME_GOOGLE_KEYCHAIN_SERVICE:-com.esw.company-os-runtime.google-service-account}"
 RUNTIME_EXTERNAL_IDENTITY_KEYCHAIN_SERVICE="${COMPANY_OS_RUNTIME_EXTERNAL_IDENTITY_KEYCHAIN_SERVICE:-com.esw.company-os-runtime.external-identity-v1}"
+RUNTIME_CHATGPT_WORK_PROJECT_IDS_EXPLICIT="${+COMPANY_OS_RUNTIME_CHATGPT_WORK_PROJECT_IDS}"
 RUNTIME_CHATGPT_WORK_PROJECT_IDS="${COMPANY_OS_RUNTIME_CHATGPT_WORK_PROJECT_IDS:-}"
 RUNTIME_OLLAMA_FALLBACK_ENABLED="${COMPANY_OS_RUNTIME_OLLAMA_FALLBACK_ENABLED:-true}"
 RUNTIME_OLLAMA_BASE_URL="${COMPANY_OS_RUNTIME_OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
@@ -351,6 +352,21 @@ xml_escape() {
   print -r -- "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' -e 's/"/\&quot;/g' -e "s/'/\&apos;/g"
 }
 
+load_chatgpt_project_ids_configuration() {
+  local existing=""
+  if [[ "$RUNTIME_CHATGPT_WORK_PROJECT_IDS_EXPLICIT" == "0" && -f "$PLIST" ]]; then
+    existing="$(plutil -extract EnvironmentVariables.COMPANY_OS_RUNTIME_CHATGPT_WORK_PROJECT_IDS raw -o - "$PLIST" 2>/dev/null || true)"
+    [[ -z "$existing" ]] || RUNTIME_CHATGPT_WORK_PROJECT_IDS="$existing"
+  fi
+  "$NODE_BIN" -e '
+    const raw = process.argv[1];
+    const values = raw.split(",").map((value) => value.trim()).filter(Boolean);
+    const valid = values.length <= 50 && values.every((value) => /^[A-Za-z0-9._:-]{1,128}$/.test(value));
+    process.exit(valid ? 0 : 1);
+  ' "$RUNTIME_CHATGPT_WORK_PROJECT_IDS" \
+    || die "COMPANY_OS_RUNTIME_CHATGPT_WORK_PROJECT_IDS contiene una allowlist inválida"
+}
+
 render_plist() {
   local destination="$1"
   local manage_path worker_path api_url allowed_hosts worker_id state_dir log_dir keychain_account hmac_service openai_service google_service external_identity_service chatgpt_project_ids agent_ids node_path
@@ -559,6 +575,7 @@ install_action() {
   check_keychain_credentials
   check_ollama_fallback
   ensure_dirs
+  load_chatgpt_project_ids_configuration
   local repo stage backup source_commit source_changes
   repo="$(detect_repo)"
   source_commit="$(git -C "$repo" rev-parse HEAD 2>/dev/null || true)"

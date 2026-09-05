@@ -97,6 +97,19 @@ test('doctor permite cutover de runtime propio previo, rechaza puerto ajeno y va
   assert.match(functionBody(script, 'render_plist'), /COMPANY_OS_RUNTIME_LOCAL_LINEAGE_MODEL/);
 });
 
+test('install conserva la allowlist ChatGPT Work existente salvo override explícito', async () => {
+  const script = await manageScript();
+  const loadAllowlist = functionBody(script, 'load_chatgpt_project_ids_configuration');
+  const install = functionBody(script, 'install_action');
+
+  assert.match(script, /RUNTIME_CHATGPT_WORK_PROJECT_IDS_EXPLICIT="\$\{\+COMPANY_OS_RUNTIME_CHATGPT_WORK_PROJECT_IDS\}"/);
+  assert.match(loadAllowlist, /RUNTIME_CHATGPT_WORK_PROJECT_IDS_EXPLICIT.*== "0"/);
+  assert.match(loadAllowlist, /plutil -extract EnvironmentVariables\.COMPANY_OS_RUNTIME_CHATGPT_WORK_PROJECT_IDS raw/);
+  assert.match(loadAllowlist, /\^\[A-Za-z0-9\._:-\]\{1,128\}\$/);
+  assert.match(loadAllowlist, /values\.length <= 50/);
+  assert.ok(install.indexOf('load_chatgpt_project_ids_configuration') < install.indexOf('render_plist'));
+});
+
 test('install y restart esperan versión objetivo; rollback y restauración esperan runtime propio genérico', async () => {
   const script = await manageScript();
   const install = functionBody(script, 'install_action');
