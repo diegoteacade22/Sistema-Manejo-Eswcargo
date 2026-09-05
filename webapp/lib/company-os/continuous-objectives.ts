@@ -345,6 +345,7 @@ export async function planContinuousObjectiveUnits(input: {
     `);
     const pendingUnits: PendingContinuousObjectiveUnit[] = [];
     let scannedObjectives = 0; let observed = 0; let excluded = 0; let planned = 0;
+    let eligibleSources = 0; let blockedExternal = 0;
     for (const goal of goals) {
       await observeResults(tx, goal);
       if (goal.status === 'EXPIRED') {
@@ -367,6 +368,7 @@ export async function planContinuousObjectiveUnits(input: {
       let observedForRun = 0;
       let excludedForRun = 0;
       let plannedForGoal = 0;
+      let blockedExternalForGoal = 0;
       if (new Date(goal.nextScanAt) <= now && scannedObjectives < limit) {
         const candidates = await sourceCandidates(tx, goal);
         const uniqueCandidates = deduplicateObjectiveSources(candidates);
@@ -380,13 +382,13 @@ export async function planContinuousObjectiveUnits(input: {
         for (const candidate of uniqueCandidates) {
           const result = planObjectiveSource(candidate, goal.projectAllowlist);
           if ('excluded' in result) continue;
+          eligibleSources += 1;
           domains.add(result.ownerAgentId);
           const inserted = await insertPlannedUnit(tx, goal, result);
           planned += inserted;
           plannedForGoal += inserted;
         }
         const complete = candidates.length < SCAN_PAGE_SIZE;
-        let blockedExternal = 0;
         if (complete) for (const sourceId of goal.externalSources) {
           const observation = await latestExternalObservation(tx, sourceId, now);
           const inserted = observation
@@ -394,7 +396,10 @@ export async function planContinuousObjectiveUnits(input: {
             : await insertBlockedExternalUnit(tx, goal, sourceId);
           planned += inserted;
           plannedForGoal += inserted;
-          if (!observation) blockedExternal += 1;
+          if (!observation) {
+            blockedExternal += 1;
+            blockedExternalForGoal += 1;
+          }
         }
         if (complete && goal.projectAllowlist.length > 0) for (const baseline of baselineObjectiveUnits(goal, [...domains], input.baselineFingerprints)) {
           const inserted = await insertPlannedUnit(tx, goal, baseline);
@@ -419,7 +424,7 @@ export async function planContinuousObjectiveUnits(input: {
         scannedObjectives += 1; observed += candidates.length; excluded += pageExcluded;
         observedForRun = candidates.length;
         excludedForRun = pageExcluded;
-        if (blockedExternal > 0 && candidates.length === 0 && plannedForGoal === blockedExternal) {
+        if (blockedExternalForGoal > 0 && candidates.length === 0 && plannedForGoal === blockedExternalForGoal) {
           reconciliationStatus = 'BLOCKED_FINAL'; generationReason = 'BLOCKED_EXTERNAL';
         } else if (excludedReasons.has('STALE_SOURCE')) {
           reconciliationStatus = 'STALE'; generationReason = 'STALE_SOURCE';
@@ -450,7 +455,18 @@ export async function planContinuousObjectiveUnits(input: {
       await recordReconciliation(tx, goal, { runId, status: reconciliationStatus, generatedCount: 0,
         reason: generationReason, observed: observedForRun, excluded: excludedForRun });
     }
-    return { scannedObjectives, observed, excluded, planned, pendingUnits, runId };
+    const noWorkReason = pendingUnits.length > 0
+      ? 'READY_TO_CLAIM'
+      : blockedExternal > 0 && eligibleSources === 0
+        ? 'EXTERNAL_SOURCE_BLOCKED'
+        : eligibleSources > 0
+          ? 'NO_NEW_UNIT_AFTER_DEDUPE_OR_IN_FLIGHT'
+          : scannedObjectives === 0
+            ? 'NO_DUE_OBJECTIVE'
+            : observed > 0 && excluded > 0
+              ? 'ALL_OBSERVED_SOURCES_EXCLUDED'
+              : 'NO_ELIGIBLE_SOURCE';
+    return { scannedObjectives, observed, excluded, planned, eligibleSources, blockedExternal, noWorkReason, pendingUnits, runId };
   }, { timeout: 30_000 });
 }
 

@@ -309,7 +309,8 @@ test('la reanudación usa HMAC, journal durable, configuración aprobada y no he
   assert.match(collector, /claimedLastCompletedAt: state\.dispatch\.lastCompletedAt/);
   assert.match(collector, /TRUSTED_API_ORIGIN/);
   assert.match(collector, /validateClaimDispatch/);
-  assert.match(collector, /dispatch\.sourceProjectName !== local\.projectName/);
+  assert.match(collector, /server-side project label may be a durable board override/);
+  assert.match(collector, /sessionCwd\(dispatch\.threadId\)/);
   assert.match(store, /sourceProjectName: candidate\.projectName/);
   assert.match(collector, /canonicalProjects\(\)/);
   assert.match(collector, /await stopProcessGroup\(child\.pid\)/);

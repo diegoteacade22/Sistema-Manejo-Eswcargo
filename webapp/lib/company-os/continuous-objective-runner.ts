@@ -34,6 +34,7 @@ export async function runContinuousObjectiveCycle() {
   }
   const plan = await planContinuousObjectiveUnits({ limit: 3, baselineFingerprints });
   let generatedCount = 0;
+  const claimReasons = new Map<string, number>();
   for (const planned of plan.pendingUnits) {
     const claim = await withContinuousObjectiveUnitClaim(planned.unitId, async (tx, unit, goal) => {
       const specialist = unit.ownerAgentId === 'general-manager-ai-v3' ? null : unit.ownerAgentId;
@@ -55,6 +56,15 @@ export async function runContinuousObjectiveCycle() {
       return created.id;
     }, { runId: plan.runId });
     if (claim.claimed) generatedCount += 1;
+    else if (claim.reason) claimReasons.set(claim.reason, (claimReasons.get(claim.reason) ?? 0) + 1);
   }
-  return { ...plan, pendingUnits: undefined, generatedCount, modelCalls: 0 };
+  const firstClaimReason = [...claimReasons.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  return {
+    ...plan,
+    pendingUnits: undefined,
+    generatedCount,
+    claimReasons: Object.fromEntries(claimReasons),
+    noWorkReason: generatedCount > 0 ? null : firstClaimReason ?? plan.noWorkReason,
+    modelCalls: 0,
+  };
 }
