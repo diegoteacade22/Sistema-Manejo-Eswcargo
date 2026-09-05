@@ -15,6 +15,13 @@ test('General-led technical cases retain shared evidence without writing a Syste
   assert.match(migration, /FOREIGN KEY \("caseId", "agentId"\)/);
 });
 
+test('continuous cases retain scheduler provenance in their durable message and work item', () => {
+  const store = readFileSync(new URL('../lib/company-os/v3-store.ts', import.meta.url), 'utf8');
+  const create = store.slice(store.indexOf('export async function createCompanyOsCase('), store.indexOf('export async function dispatchCompanyOsWebhook'));
+  assert.match(create, /messageType: \(scheduleRunKey \|\| continuous\) \? 'SCHEDULE_ORDER' : 'HUMAN_ORDER'/);
+  assert.match(create, /triggerType: \(scheduleRunKey \|\| continuous\) \? 'SCHEDULE' : relatedRequestId \? 'EVENT' : 'MANUAL'/);
+});
+
 test('continuous evidence preserves all technical gaps, source dates and negative findings', () => {
   const assets = [
     { assetId: 'worker', healthStatus: 'HEALTHY', observationMode: 'LIVE_OBSERVED', maxSourceUpdatedAt: '2026-09-03T01:00:00Z', warnings: [] },

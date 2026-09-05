@@ -315,7 +315,7 @@ export async function createCompanyOsCase(
       caseId: companyCase.id, role: 'USER', kind: 'ORDER', content: sanitized.safeObjective, actorRef: identity.actorRef,
       fromAgentId: null,
       toAgentId: agentId,
-      messageType: scheduleRunKey ? 'SCHEDULE_ORDER' : 'HUMAN_ORDER',
+      messageType: (scheduleRunKey || continuous) ? 'SCHEDULE_ORDER' : 'HUMAN_ORDER',
       payload: jsonValue({ objective: sanitized.safeObjective }),
       correlationId: requestId,
       deliveryStatus: 'DELIVERED',
@@ -349,7 +349,7 @@ export async function createCompanyOsCase(
         agentId,
         objective: sanitized.safeObjective,
         causalMessageId: initialMessage.id,
-        triggerType: scheduleRunKey ? 'SCHEDULE' : relatedRequestId ? 'EVENT' : 'MANUAL',
+        triggerType: (scheduleRunKey || continuous) ? 'SCHEDULE' : relatedRequestId ? 'EVENT' : 'MANUAL',
         reservedTokens: budgets.targetTotalTokens,
       });
     }
