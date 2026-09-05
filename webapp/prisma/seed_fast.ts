@@ -1022,7 +1022,7 @@ async function main() {
             for (const input of operationalLedgerInputs) {
                 await upsertOperationLedger(tx, input);
             }
-        }, { isolationLevel: 'Serializable', maxWait: 10_000, timeout: 60_000 });
+        }, { isolationLevel: 'Serializable', maxWait: 20_000, timeout: 180_000 });
     }
     console.log(`   ✅ Cuentas operativas conciliadas desde ${ledgerPolicyEffectiveDate.toISOString()}: ${operationalLedgerInputs.length}`);
 
