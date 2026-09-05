@@ -169,7 +169,7 @@ ensure_external_identity_keychain() {
   local payload
   if keychain_has "$RUNTIME_EXTERNAL_IDENTITY_KEYCHAIN_SERVICE"; then return; fi
   payload="$(/usr/bin/openssl rand -hex 32)"
-  [[ "$payload" == [0-9a-f]## && ${#payload} -eq 64 ]] \
+  [[ ${#payload} -eq 64 && "$payload" != *[^0-9a-f]* ]] \
     || die "No se pudo generar la identidad estable de fuentes externas"
   /usr/bin/security add-generic-password -U -a "$RUNTIME_KEYCHAIN_ACCOUNT" -s "$RUNTIME_EXTERNAL_IDENTITY_KEYCHAIN_SERVICE" -w "$payload" >/dev/null \
     || die "No se pudo guardar la identidad estable de fuentes externas en Keychain"
@@ -562,7 +562,7 @@ install_action() {
   local repo stage backup source_commit source_changes
   repo="$(detect_repo)"
   source_commit="$(git -C "$repo" rev-parse HEAD 2>/dev/null || true)"
-  [[ "$source_commit" == [0-9a-f]## && ${#source_commit} -eq 40 ]] || die "El origen del runtime no tiene un commit Git identificable"
+  [[ ${#source_commit} -eq 40 && "$source_commit" != *[^0-9a-f]* ]] || die "El origen del runtime no tiene un commit Git identificable"
   source_changes="$(git -C "$repo" status --porcelain --untracked-files=all 2>/dev/null || true)"
   [[ -z "$source_changes" ]] || die "El origen del runtime tiene cambios sin commit; no se puede certificar la revisión instalada"
   ensure_google_keychain "$repo"
