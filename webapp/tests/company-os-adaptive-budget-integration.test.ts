@@ -12,6 +12,8 @@ async function claimWith(options: {
   specialistReturn?: boolean; contextMessages?: Array<Record<string, unknown>>;
   causalKind?: string; causalDeliveryStatus?: string;
   causalMessageType?: string; causalFromAgentId?: string; causalToAgentId?: string;
+  causalMessageId?: string | null; causalCorrelationId?: string | null; causalCausationId?: string | null;
+  causalExpectsResponse?: boolean; causalIdempotencyKey?: string | null;
 } = {}) {
   const globalDb = globalThis as unknown as { companyOsV3Prisma?: unknown };
   const previous = globalDb.companyOsV3Prisma;
@@ -27,11 +29,21 @@ async function claimWith(options: {
     targetTotalTokens: 12_000, turnCount: 0, maxTurns: 6, workStatus: 'QUEUED',
     attemptCount: 0, maxAttempts: 3, timeoutMs: 120_000, reservedTokens: 12_000,
     contractVersion: contract.version, handlerKey: contract.handlerKey, contract,
+    causalMessageId: options.specialistReturn
+      ? (options.causalMessageId === undefined ? 'specialist' : options.causalMessageId) : null,
     causalMessageType: options.specialistReturn ? (options.causalMessageType ?? 'SPECIALIST_RESULT') : null,
     causalKind: options.specialistReturn ? (options.causalKind ?? 'RESULT') : null,
     causalFromAgentId: options.specialistReturn ? (options.causalFromAgentId ?? 'systems-manager-ai-v1') : null,
     causalToAgentId: options.specialistReturn ? (options.causalToAgentId ?? 'general-manager-ai-v3') : null,
     causalDeliveryStatus: options.specialistReturn ? (options.causalDeliveryStatus ?? 'DELIVERED') : null,
+    causalCorrelationId: options.specialistReturn
+      ? (options.causalCorrelationId === undefined ? 'request-test' : options.causalCorrelationId) : null,
+    causalCausationId: options.specialistReturn
+      ? (options.causalCausationId === undefined ? 'delegation-message' : options.causalCausationId) : null,
+    causalExpectsResponse: options.specialistReturn ? (options.causalExpectsResponse ?? true) : null,
+    causalIdempotencyKey: options.specialistReturn
+      ? (options.causalIdempotencyKey === undefined
+        ? 'runtime-message:specialist-work:attempt:1:result' : options.causalIdempotencyKey) : null,
   };
   const leases: Record<string, unknown>[] = [];
   const workUpdates: Record<string, unknown>[] = [];
@@ -121,6 +133,7 @@ test('specialist return uses compact local context and the exact remaining daily
   assert.equal(result.claim.budgets.input, 5_000);
   assert.equal(result.claim.budgets.maxOutputTokens, 995);
   assert.equal(result.claim.budgets.targetTotalTokens, 5_995);
+  assert.equal(result.claim.runtimePhase, 'INTEGRATE_SPECIALIST_RESULT');
   assert.deepEqual(result.claim.contextMessages.map((message: { id: string }) => message.id), ['specialist']);
   assert.equal(result.leases[0].reservedTokens, 5_995);
 });
@@ -132,6 +145,10 @@ test('compact budget rejects a causal row that is not a delivered result', async
     { causalMessageType: 'MANAGER_RESULT' },
     { causalFromAgentId: 'general-manager-ai-v3' },
     { causalToAgentId: 'systems-manager-ai-v1' },
+    { causalCorrelationId: 'other-request' },
+    { causalCausationId: null },
+    { causalExpectsResponse: false },
+    { causalIdempotencyKey: 'source-controlled-result' },
   ]) {
     const result = await claimWith({ used: 42_005, specialistReturn: true, ...options });
     assert.equal(result.claim, null);
@@ -151,8 +168,11 @@ test('reconsideration advances only an authentic delivered specialist return', a
     agentId: 'general-manager-ai-v3', reservedTokens: 12_000, targetTotalTokens: 12_000,
     maxOutputTokens: 3_000, availableAt: new Date('2026-09-04T04:00:00Z'),
     caseStatus: 'RUNNING', budgetEventId: 'budget-event', causalKind: 'RESULT',
+    causalMessageId: 'specialist-result',
     causalMessageType: 'SPECIALIST_RESULT', causalFromAgentId: 'systems-manager-ai-v1',
     causalToAgentId: 'general-manager-ai-v3', causalDeliveryStatus: 'DELIVERED',
+    causalCorrelationId: 'request-test', causalCausationId: 'delegation-message', causalExpectsResponse: true,
+    causalIdempotencyKey: 'runtime-message:specialist-work:attempt:1:result',
   };
   const tx = {
     async $queryRaw(query: Prisma.Sql) {
@@ -183,11 +203,24 @@ test('reconsideration advances only an authentic delivered specialist return', a
   }
 });
 
-test('standard case keeps manager context even with a specialist causal message', async () => {
+test('standard baseline specialist return is compacted and receives the integration phase', async () => {
   const manager = { id: 'manager', role: 'assistant', kind: 'RESULT', messageType: 'MANAGER_RESULT',
     fromAgentId: 'general-manager-ai-v3', toAgentId: null, content: 'provisional', payload: {}, createdAt: new Date(1) };
-  const result = await claimWith({ caseType: 'ADVISORY', used: 0, specialistReturn: true, contextMessages: [manager] });
+  const specialist = { id: 'specialist', role: 'assistant', kind: 'RESULT', messageType: 'SPECIALIST_RESULT',
+    fromAgentId: 'systems-manager-ai-v1', toAgentId: 'general-manager-ai-v3', content: 'hallazgo', payload: {}, createdAt: new Date(2) };
+  const result = await claimWith({ caseType: 'ADVISORY', used: 0, specialistReturn: true, contextMessages: [specialist, manager] });
   assert.ok(result.claim);
+  assert.equal(result.claim.runtimePhase, 'INTEGRATE_SPECIALIST_RESULT');
+  assert.deepEqual(result.claim.contextMessages.map((message: { id: string }) => message.id), ['specialist']);
+  assert.equal(result.claim.budgets.targetTotalTokens, 12_000);
+});
+
+test('standard initial case keeps its full context and has no integration phase', async () => {
+  const manager = { id: 'manager', role: 'assistant', kind: 'RESULT', messageType: 'MANAGER_RESULT',
+    fromAgentId: 'general-manager-ai-v3', toAgentId: null, content: 'historial', payload: {}, createdAt: new Date(1) };
+  const result = await claimWith({ caseType: 'ADVISORY', used: 0, contextMessages: [manager] });
+  assert.ok(result.claim);
+  assert.equal(result.claim.runtimePhase, null);
   assert.deepEqual(result.claim.contextMessages.map((message: { id: string }) => message.id), ['manager']);
   assert.equal(result.claim.budgets.targetTotalTokens, 12_000);
 });
@@ -263,5 +296,45 @@ test('completion rejects usage above adapted lease even below original work and 
         snapshotBytes: 0, rulesApplied: [],
       },
     }), /Consumo total excede el presupuesto reservado/);
+  } finally { globalDb.companyOsV3Prisma = previous; }
+});
+
+test('completion rejects redelegation after an authentic specialist return', async () => {
+  const globalDb = globalThis as unknown as { companyOsV3Prisma?: unknown };
+  const previous = globalDb.companyOsV3Prisma;
+  const tx = {
+    companyOsWorkItem: {
+      findUnique: async () => ({ id: 'general-return', caseId: 'case-test', agentId: 'general-manager-ai-v3',
+        status: 'CLAIMED', reservedTokens: 12_000, causalMessageId: 'specialist-result' }),
+      update: async () => assert.fail('Rejected redelegation must not advance work'),
+    },
+    companyOsLease: { findFirst: async () => ({ reservedTokens: 12_000 }) },
+    companyOsCase: { findUniqueOrThrow: async () => ({ id: 'case-test', requestId: 'request-test',
+      status: 'CLAIMED', targetTotalTokens: 12_000 }) },
+    companyOsEvidenceRef: { findMany: async () => [{ evidenceKey: 'snapshot', value: {}, createdAt: new Date(1) }] },
+    companyOsMessage: { findUnique: async () => ({
+      id: 'specialist-result', caseId: 'case-test', kind: 'RESULT', messageType: 'SPECIALIST_RESULT',
+      fromAgentId: 'systems-manager-ai-v1', toAgentId: 'general-manager-ai-v3', deliveryStatus: 'DELIVERED',
+      correlationId: 'request-test', causationId: 'delegation-message', expectsResponse: true,
+      idempotencyKey: 'runtime-message:specialist-work:attempt:1:result',
+    }) },
+  };
+  globalDb.companyOsV3Prisma = { $transaction: async (run: (arg: typeof tx) => Promise<unknown>) => run(tx) };
+  try {
+    await assert.rejects(completeCompanyOsRuntimeWork({
+      workItemId: 'general-return', requestId: 'request-test', leaseToken: 'lease-test',
+      workerId: 'worker-test', instanceId: 'instance-test',
+      output: {
+        summary: 'El especialista respondió.', primaryDataQualityProblem: 'Cobertura pendiente.',
+        evidenceRefs: ['snapshot'], recommendedNextStep: 'Integrar el hallazgo.', missions: [],
+        delegations: [{ agentId: 'systems-manager-ai-v1', objective: 'Repetir el mismo análisis.', evidenceRefs: ['snapshot'] }],
+        needsHumanDecision: false, confidence: 0.9,
+      },
+      usage: {
+        provider: 'openai', model: 'test', inputTokens: 1_000, outputTokens: 500, totalTokens: 1_500,
+        cachedTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, durationMs: 10, retries: 0,
+        snapshotBytes: 0, rulesApplied: [],
+      },
+    }), /no puede volver a delegar/);
   } finally { globalDb.companyOsV3Prisma = previous; }
 });

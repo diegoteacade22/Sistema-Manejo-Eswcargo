@@ -1,11 +1,10 @@
 const GENERAL = 'general-manager-ai-v3';
 const SPECIALISTS = new Set(['systems-manager-ai-v1', 'data-manager-ai-v1']);
+export const SPECIALIST_INTEGRATION_PHASE = 'INTEGRATE_SPECIALIST_RESULT';
 
-/** Derive the phase from authenticated runtime metadata, never source prose. */
+/** Trust only the server-owned runtime phase, never source prose. */
 export function continuousIntegrationResults(claim) {
-  if (claim?.agentId !== GENERAL || claim?.dataPolicy?.version !== 1
-    || claim.dataPolicy.inference !== 'LOCAL_ONLY' || claim.dataPolicy.reason !== 'CONTINUOUS_OBJECTIVE'
-    || typeof claim?.evidencePayload?.continuousObjective?.goalId !== 'string') return [];
+  if (claim?.agentId !== GENERAL || claim?.runtimePhase !== SPECIALIST_INTEGRATION_PHASE) return [];
   return (Array.isArray(claim.contextMessages) ? claim.contextMessages : []).filter((message) =>
     message.kind === 'RESULT' && message.messageType === 'SPECIALIST_RESULT'
     && SPECIALISTS.has(message.fromAgentId) && message.toAgentId === GENERAL

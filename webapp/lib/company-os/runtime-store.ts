@@ -299,33 +299,48 @@ type ClaimCandidate = {
   contractVersion: string;
   handlerKey: string;
   contract: Prisma.JsonValue;
+  causalMessageId: string | null;
   causalMessageType: string | null;
   causalKind: string | null;
   causalFromAgentId: string | null;
   causalToAgentId: string | null;
   causalDeliveryStatus: string | null;
+  causalCorrelationId: string | null;
+  causalCausationId: string | null;
+  causalExpectsResponse: boolean | null;
+  causalIdempotencyKey: string | null;
 };
 
-function isLocalSpecialistIntegration(candidate: Pick<ClaimCandidate,
-  'agentId' | 'causalMessageType' | 'causalKind' | 'causalFromAgentId' | 'causalToAgentId' | 'causalDeliveryStatus'>) {
+const SPECIALIST_INTEGRATION_PHASE = 'INTEGRATE_SPECIALIST_RESULT';
+
+function isSpecialistIntegration(candidate: Pick<ClaimCandidate,
+  'requestId' | 'agentId' | 'causalMessageId' | 'causalMessageType' | 'causalKind' | 'causalFromAgentId'
+  | 'causalToAgentId' | 'causalDeliveryStatus' | 'causalCorrelationId' | 'causalCausationId'
+  | 'causalExpectsResponse' | 'causalIdempotencyKey'>) {
   return candidate.agentId === GENERAL_MANAGER_ID
+    && typeof candidate.causalMessageId === 'string' && candidate.causalMessageId.length > 0
     && candidate.causalKind === 'RESULT'
     && candidate.causalMessageType === 'SPECIALIST_RESULT'
     && (candidate.causalFromAgentId === SYSTEMS_MANAGER_ID || candidate.causalFromAgentId === COMPANY_OS_DATA_MANAGER_IDENTITY)
     && candidate.causalToAgentId === GENERAL_MANAGER_ID
-    && candidate.causalDeliveryStatus === 'DELIVERED';
+    && candidate.causalDeliveryStatus === 'DELIVERED'
+    && candidate.causalCorrelationId === candidate.requestId
+    && typeof candidate.causalCausationId === 'string' && candidate.causalCausationId.length > 0
+    && candidate.causalExpectsResponse === true
+    && typeof candidate.causalIdempotencyKey === 'string'
+    && /^runtime-message:[^:]+:attempt:\d+:result$/.test(candidate.causalIdempotencyKey);
 }
 
 function adaptiveBudgetFloors(candidate: ClaimCandidate) {
-  return isLocalSpecialistIntegration(candidate)
+  return isSpecialistIntegration(candidate)
     ? { inputAllowanceTokens: 5_000, minimumOutputTokens: 512 }
     : {};
 }
 
 function runtimeContextMessages<T extends {
   kind: string; messageType: string | null; fromAgentId: string | null;
-}>(candidate: ClaimCandidate, messages: T[], compactLocalIntegration: boolean): T[] {
-  if (!compactLocalIntegration || !isLocalSpecialistIntegration(candidate)) return messages;
+}>(candidate: ClaimCandidate, messages: T[]): T[] {
+  if (!isSpecialistIntegration(candidate)) return messages;
   return messages.filter((message) => !(message.kind === 'RESULT'
     && message.messageType === 'MANAGER_RESULT' && message.fromAgentId === GENERAL_MANAGER_ID));
 }
@@ -394,10 +409,12 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
         company_case."maxOutputTokens", company_case."targetTotalTokens",
         company_case."turnCount", company_case."maxTurns",
         work.status AS "workStatus", work."attemptCount", work."maxAttempts",
-        work."timeoutMs", work."reservedTokens", contract."contractVersion",
+        work."timeoutMs", work."reservedTokens", work."causalMessageId", contract."contractVersion",
         contract."handlerKey", contract.contract, causal.kind AS "causalKind",
         causal."messageType" AS "causalMessageType", causal."fromAgentId" AS "causalFromAgentId",
-        causal."toAgentId" AS "causalToAgentId", causal."deliveryStatus" AS "causalDeliveryStatus"
+        causal."toAgentId" AS "causalToAgentId", causal."deliveryStatus" AS "causalDeliveryStatus",
+        causal."correlationId" AS "causalCorrelationId", causal."causationId" AS "causalCausationId",
+        causal."expectsResponse" AS "causalExpectsResponse", causal."idempotencyKey" AS "causalIdempotencyKey"
       FROM public."CompanyOsWorkItem" work
       JOIN eligible ON eligible."workItemId" = work.id
       JOIN public."CompanyOsCase" company_case ON company_case.id = work."caseId"
@@ -535,7 +552,7 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
       select: { id: true, role: true, kind: true, messageType: true, fromAgentId: true, toAgentId: true, content: true, payload: true, createdAt: true },
     });
     const evidencePayload = Object.fromEntries(evidence.map((item) => [item.evidenceKey, item.value]));
-    const orderedContextMessages = runtimeContextMessages(candidate, contextMessages.reverse(), adaptive !== null);
+    const orderedContextMessages = runtimeContextMessages(candidate, contextMessages.reverse());
     const inputBudget = claimTargetTotal - claimMaxOutput;
     const effectiveInputTokens = estimateJsonTokens({
       requestId: candidate.requestId,
@@ -636,6 +653,7 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
       contractVersion: candidate.contractVersion,
       contract: runtimeContract,
       dataPolicy,
+      runtimePhase: isSpecialistIntegration(candidate) ? SPECIALIST_INTEGRATION_PHASE : null,
       evidencePayload,
       contextMessages: orderedContextMessages,
       budgets: {
@@ -890,6 +908,23 @@ export async function completeCompanyOsRuntimeWork(input: {
       select: { evidenceKey: true, value: true, createdAt: true },
     });
     const { result, delegations } = validateRuntimeOutput(workItem.agentId, input.output, evidence);
+    if (workItem.agentId === GENERAL_MANAGER_ID && delegations.length > 0 && workItem.causalMessageId) {
+      const causal = await tx.companyOsMessage.findUnique({ where: { id: workItem.causalMessageId } });
+      if (causal && causal.caseId === workItem.caseId && isSpecialistIntegration({
+        requestId: companyCase.requestId,
+        agentId: workItem.agentId,
+        causalMessageId: workItem.causalMessageId,
+        causalMessageType: causal.messageType,
+        causalKind: causal.kind,
+        causalFromAgentId: causal.fromAgentId,
+        causalToAgentId: causal.toAgentId,
+        causalDeliveryStatus: causal.deliveryStatus,
+        causalCorrelationId: causal.correlationId,
+        causalCausationId: causal.causationId,
+        causalExpectsResponse: causal.expectsResponse,
+        causalIdempotencyKey: causal.idempotencyKey,
+      })) throw new Error('La integración de un resultado de especialista no puede volver a delegar');
+    }
     const safeResult = asRecord(sanitizeRuntimeValue(result));
     const usage = normalizeUsageForPersistence(input.usage);
     if (usage.totalTokens > lease.reservedTokens || usage.totalTokens > workItem.reservedTokens || usage.totalTokens > companyCase.targetTotalTokens) {
@@ -1471,15 +1506,20 @@ export async function reconsiderLocalObjectiveBudget(tx: Tx, now: Date) {
     workItemId: string; caseId: string; requestId: string; agentId: string;
     reservedTokens: number; targetTotalTokens: number; maxOutputTokens: number;
     availableAt: Date; caseStatus: string; budgetEventId: string;
+    causalMessageId: string | null;
     causalMessageType: string | null; causalKind: string | null; causalFromAgentId: string | null;
     causalToAgentId: string | null; causalDeliveryStatus: string | null;
+    causalCorrelationId: string | null; causalCausationId: string | null;
+    causalExpectsResponse: boolean | null; causalIdempotencyKey: string | null;
   }>>(Prisma.sql`
     SELECT work.id AS "workItemId", work."caseId", company_case."requestId", work."agentId",
       work."reservedTokens", company_case."targetTotalTokens", company_case."maxOutputTokens",
-      work."availableAt", company_case.status AS "caseStatus", budget.id AS "budgetEventId",
+      work."availableAt", company_case.status AS "caseStatus", budget.id AS "budgetEventId", work."causalMessageId",
       causal.kind AS "causalKind", causal."messageType" AS "causalMessageType",
       causal."fromAgentId" AS "causalFromAgentId", causal."toAgentId" AS "causalToAgentId",
-      causal."deliveryStatus" AS "causalDeliveryStatus"
+      causal."deliveryStatus" AS "causalDeliveryStatus", causal."correlationId" AS "causalCorrelationId",
+      causal."causationId" AS "causalCausationId", causal."expectsResponse" AS "causalExpectsResponse",
+      causal."idempotencyKey" AS "causalIdempotencyKey"
     FROM public."CompanyOsWorkItem" work
     JOIN public."CompanyOsCase" company_case ON company_case.id = work."caseId"
     LEFT JOIN public."CompanyOsMessage" causal ON causal.id = work."causalMessageId"
@@ -1524,7 +1564,7 @@ export async function reconsiderLocalObjectiveBudget(tx: Tx, now: Date) {
       reserved: leases._sum.reservedTokens ?? 0, requested: work.reservedTokens,
       dailyLimit: contract.budgets.dailyTokens, monthlyLimit: contract.budgets.monthlyTokens,
       targetTotalTokens: work.targetTotalTokens, maxOutputTokens: work.maxOutputTokens,
-      ...(isLocalSpecialistIntegration(work) ? { inputAllowanceTokens: 5_000, minimumOutputTokens: 512 } : {}) });
+      ...(isSpecialistIntegration(work) ? { inputAllowanceTokens: 5_000, minimumOutputTokens: 512 } : {}) });
     if (!plan.allowed) continue;
     // No reservation here: claim rechecks usage under its existing serializable fence.
     await tx.companyOsWorkItem.update({ where: { id: work.workItemId }, data: { availableAt: now } });

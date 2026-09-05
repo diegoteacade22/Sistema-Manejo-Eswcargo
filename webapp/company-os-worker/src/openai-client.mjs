@@ -358,7 +358,7 @@ export function validateRuntimeContractOutput(claim, value) {
   validateValueAgainstSchema(value, schema);
   verifyEvidenceReferences(value, new Set(Object.keys(claim.evidencePayload || {})));
   if (continuousIntegrationResults(claim).length && Array.isArray(value.delegations) && value.delegations.length) {
-    throw runtimeOutputError('Continuous integration cannot delegate an already completed specialist review');
+    throw runtimeOutputError('Specialist integration cannot delegate an already completed specialist review');
   }
   const minimumConfidence = Number(claim.contract?.lowConfidencePolicy?.minConfidence);
   if (Number.isFinite(minimumConfidence) && typeof value.confidence === 'number'
