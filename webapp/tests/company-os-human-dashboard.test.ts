@@ -198,6 +198,8 @@ test('la ficha cierra motivo, autorización, ejecución y resultado sin obligar 
   assert.match(store, /blockerReason:/);
   assert.match(store, /decisionRequest:/);
   assert.match(store, /resultSummary:/);
+  assert.match(component, /task\.humanStatus !== "NEEDS_DIEGO"/);
+  assert.doesNotMatch(component, /!task\.attentionReason && \["IDLE", "NOT_LOADED"\]/);
 });
 
 test('la respuesta humana se valida antes de persistir o despachar', () => {
