@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { companyOsPrismaUrl } from './prisma-url';
 
 const globalForCompanyOs = globalThis as unknown as { companyOsReadPrisma?: PrismaClient };
 
@@ -10,7 +11,7 @@ function getReadOnlyUrl() {
 }
 
 export function companyReadPrisma() {
-  const url = getReadOnlyUrl();
+  const url = companyOsPrismaUrl(getReadOnlyUrl());
   if (!url) throw new Error('COMPANY_OS_DATABASE_URL no configurada');
   if (!globalForCompanyOs.companyOsReadPrisma) {
     globalForCompanyOs.companyOsReadPrisma = new PrismaClient({

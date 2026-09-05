@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { companyOsPrismaUrl } from './prisma-url';
 
 const globalForCompanyOsV3 = globalThis as unknown as { companyOsV3Prisma?: PrismaClient };
 
@@ -12,10 +13,9 @@ function v3Url() {
 export function companyOsV3Prisma() {
   if (!globalForCompanyOsV3.companyOsV3Prisma) {
     globalForCompanyOsV3.companyOsV3Prisma = new PrismaClient({
-      datasources: { db: { url: v3Url() } },
+      datasources: { db: { url: companyOsPrismaUrl(v3Url()) } },
       log: [],
     });
   }
   return globalForCompanyOsV3.companyOsV3Prisma;
 }
-
