@@ -346,6 +346,9 @@ export class CompanyOsRuntimeDaemon {
       const continuousCountsObserved = continuous !== null && typeof continuous === 'object' && !Array.isArray(continuous)
         && ['generatedCount', 'observed', 'excluded', 'scannedObjectives']
           .every((key) => Number.isSafeInteger(continuous[key]) && continuous[key] >= 0);
+      const continuousReasonObserved = continuousCountsObserved
+        && typeof continuous.noWorkReason === 'string'
+        && /^[A-Z0-9_]{3,80}$/.test(continuous.noWorkReason);
       const finishedAt = this.now();
       this.logger.info('RUNTIME_SCHEDULE_SCAN_FINISHED', {
         ...scan,
@@ -362,6 +365,11 @@ export class CompanyOsRuntimeDaemon {
         continuousSourcesObserved: continuousCountsObserved ? continuous.observed : null,
         continuousExcludedCount: continuousCountsObserved ? continuous.excluded : null,
         continuousObjectivesScanned: continuousCountsObserved ? continuous.scannedObjectives : null,
+        continuousEligibleSourceCount: continuousCountsObserved && Number.isSafeInteger(continuous.eligibleSources) && continuous.eligibleSources >= 0
+          ? continuous.eligibleSources : null,
+        continuousBlockedExternalCount: continuousCountsObserved && Number.isSafeInteger(continuous.blockedExternal) && continuous.blockedExternal >= 0
+          ? continuous.blockedExternal : null,
+        continuousNoWorkReason: continuousReasonObserved ? continuous.noWorkReason : null,
         errorCode: null,
       });
       return result;
@@ -383,6 +391,9 @@ export class CompanyOsRuntimeDaemon {
         continuousSourcesObserved: null,
         continuousExcludedCount: null,
         continuousObjectivesScanned: null,
+        continuousEligibleSourceCount: null,
+        continuousBlockedExternalCount: null,
+        continuousNoWorkReason: null,
         errorCode: safeFailure(error).code,
       });
       return null;

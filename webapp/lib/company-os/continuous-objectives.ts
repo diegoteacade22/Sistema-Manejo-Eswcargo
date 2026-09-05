@@ -289,6 +289,7 @@ export async function planContinuousObjectiveUnits(input: {
     `);
     const pendingUnits: PendingContinuousObjectiveUnit[] = [];
     let scannedObjectives = 0; let observed = 0; let excluded = 0; let planned = 0;
+    let eligibleSources = 0; let blockedExternal = 0;
     for (const goal of goals) {
       await observeResults(tx, goal);
       if (goal.status === 'EXPIRED') continue;
@@ -305,6 +306,7 @@ export async function planContinuousObjectiveUnits(input: {
         for (const candidate of candidates) {
           const result = planObjectiveSource(candidate, goal.projectAllowlist);
           if ('excluded' in result) { pageExcluded += 1; continue; }
+          eligibleSources += 1;
           domains.add(result.ownerAgentId);
           planned += await insertPlannedUnit(tx, goal, result);
         }
@@ -314,6 +316,7 @@ export async function planContinuousObjectiveUnits(input: {
           planned += observation
             ? await insertLiveExternalUnit(tx, goal, sourceId, observation.detail)
             : await insertBlockedExternalUnit(tx, goal, sourceId);
+          if (!observation) blockedExternal += 1;
         }
         if (complete && goal.projectAllowlist.length > 0) for (const baseline of baselineObjectiveUnits(goal, [...domains], input.baselineFingerprints)) {
           planned += await insertPlannedUnit(tx, goal, baseline);
@@ -349,7 +352,18 @@ export async function planContinuousObjectiveUnits(input: {
       `);
       if (candidates[0]) pendingUnits.push(pendingView(candidates[0], goal));
     }
-    return { scannedObjectives, observed, excluded, planned, pendingUnits };
+    const noWorkReason = pendingUnits.length > 0
+      ? 'READY_TO_CLAIM'
+      : blockedExternal > 0 && eligibleSources === 0
+        ? 'EXTERNAL_SOURCE_BLOCKED'
+        : eligibleSources > 0
+          ? 'NO_NEW_UNIT_AFTER_DEDUPE_OR_IN_FLIGHT'
+          : scannedObjectives === 0
+            ? 'NO_DUE_OBJECTIVE'
+            : observed > 0 && excluded > 0
+              ? 'ALL_OBSERVED_SOURCES_EXCLUDED'
+              : 'NO_ELIGIBLE_SOURCE';
+    return { scannedObjectives, observed, excluded, planned, eligibleSources, blockedExternal, noWorkReason, pendingUnits };
   }, { timeout: 30_000 });
 }
 

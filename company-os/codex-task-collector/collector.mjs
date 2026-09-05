@@ -35,6 +35,7 @@ const AUTO_RESUME = process.env.COMPANY_OS_CODEX_AUTO_RESUME === '1';
 const CODEX_BIN = resolve(process.env.COMPANY_OS_CODEX_BIN || '/opt/homebrew/bin/codex');
 const AUTO_RESUME_TIMEOUT_MS = Math.min(3_600_000, Math.max(60_000, Number(process.env.COMPANY_OS_CODEX_AUTO_RESUME_TIMEOUT_MS) || 2_700_000));
 const AUTO_RESUME_MAX_AGE_MS = Math.min(7 * 86_400_000, Math.max(2 * 60 * 60_000, Number(process.env.COMPANY_OS_CODEX_AUTO_RESUME_MAX_AGE_MS) || 3 * 86_400_000));
+const START_GATE_WAIT_MS = 60_000;
 const HTTP_TIMEOUT_MS = Math.min(60_000, Math.max(5_000, Number(process.env.COMPANY_OS_CODEX_HTTP_TIMEOUT_MS) || 30_000));
 const CLAIMED_REASONS = new Set(['APPROVED_TASK_CLAIMED', 'APPROVED_TASK_CLAIM_REPLAYED']);
 const UNCLAIMED_REASONS = new Set(['NO_APPROVED_TASK', 'DISPATCH_ALREADY_ACTIVE', 'STALE_DISPATCH_BLOCKED', 'CLAIM_SOURCE_CHANGED', 'CLAIM_ALREADY_CONSUMED']);
@@ -61,7 +62,7 @@ async function waitForStartGate() {
     || !/^[A-Za-z0-9-]{20,80}$/.test(START_GATE_TOKEN)) {
     throw new Error('COLLECTOR_START_GATE_INVALID');
   }
-  const deadline = Date.now() + 10_000;
+  const deadline = Date.now() + START_GATE_WAIT_MS;
   while (Date.now() < deadline) {
     if (existsSync(START_GATE_PATH)) {
       const info = lstatSync(START_GATE_PATH);
@@ -835,13 +836,15 @@ function validateClaimDispatch(dispatch, projectedTasks) {
   }
   const local = projectedTasks.find((task) => task.threadId === dispatch.threadId);
   const humanResponse = validateHumanResponse(dispatch);
+  // The server-side project label may be a durable board override. The executable
+  // safety boundary is the canonical local cwd, checked below; requiring label
+  // equality here caused valid claims to be stranded after a board move.
   if (!local
     || local.fingerprint !== dispatch.fingerprint
     || local.archived
     || (local.attentionReason && !humanResponse)
     || !['IDLE', 'NOT_LOADED'].includes(local.sourceStatus)
     || (local.lastCompletedAt || null) !== (dispatch.lastCompletedAt || null)
-    || dispatch.sourceProjectName !== local.projectName
     || !sessionCwd(dispatch.threadId)) {
     throw new Error('COMPANY_OS_CODEX_CLAIM_NOT_IN_LOCAL_PROJECTION');
   }

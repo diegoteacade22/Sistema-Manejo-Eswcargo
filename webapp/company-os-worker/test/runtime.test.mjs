@@ -1014,7 +1014,7 @@ test('journal continuo separa generación y cobertura de agendas, sin fabricar c
   const logger = new JsonRotatingLogger({ logDir: join(stateDir, 'logs'), mirrorConsole: false });
   daemon.logger = logger;
   await daemon.start({ runImmediately: false });
-  const observed = { generatedCount: 2, observed: 50, excluded: 7, scannedObjectives: 1 };
+  const observed = { generatedCount: 2, observed: 50, excluded: 7, scannedObjectives: 1, eligibleSources: 4, blockedExternal: 0, noWorkReason: 'READY_TO_CLAIM' };
   const responses = [
     { scheduled: 1, results: [{ reused: true }], continuous: observed },
     { scheduled: 0, results: [], continuous: { generatedCount: 0, observed: 0, excluded: 0, scannedObjectives: 0 } },
@@ -1032,17 +1032,19 @@ test('journal continuo separa generación y cobertura de agendas, sin fabricar c
   await daemon.tickSchedule({ trigger: 'INTERVAL' });
   const finishes = readFileSync(logger.filePath, 'utf8').trim().split('\n').map((line) => JSON.parse(line))
     .filter(({ event }) => event === 'RUNTIME_SCHEDULE_SCAN_FINISHED');
-  const counts = ({ continuousCountsObserved, continuousGeneratedCount, continuousSourcesObserved, continuousExcludedCount, continuousObjectivesScanned }) =>
-    [continuousCountsObserved, continuousGeneratedCount, continuousSourcesObserved, continuousExcludedCount, continuousObjectivesScanned];
-  assert.deepEqual(counts(finishes[0]), [true, 2, 50, 7, 1]);
+  const counts = ({ continuousCountsObserved, continuousGeneratedCount, continuousSourcesObserved, continuousExcludedCount, continuousObjectivesScanned,
+    continuousEligibleSourceCount, continuousBlockedExternalCount, continuousNoWorkReason }) =>
+    [continuousCountsObserved, continuousGeneratedCount, continuousSourcesObserved, continuousExcludedCount, continuousObjectivesScanned,
+      continuousEligibleSourceCount, continuousBlockedExternalCount, continuousNoWorkReason];
+  assert.deepEqual(counts(finishes[0]), [true, 2, 50, 7, 1, 4, 0, 'READY_TO_CLAIM']);
   assert.deepEqual([finishes[0].generatedCount, finishes[0].reusedCount], [0, 1]);
-  assert.deepEqual(counts(finishes[1]), [true, 0, 0, 0, 0]);
-  for (const finish of finishes.slice(2, -2)) assert.deepEqual(counts(finish), [false, null, null, null, null]);
+  assert.deepEqual(counts(finishes[1]), [true, 0, 0, 0, 0, null, null, null]);
+  for (const finish of finishes.slice(2, -2)) assert.deepEqual(counts(finish), [false, null, null, null, null, null, null, null]);
   assert.equal(finishes[2].generatedCount, 1);
-  assert.deepEqual(counts(finishes.at(-2)), [true, 2, 50, 7, 1]);
+  assert.deepEqual(counts(finishes.at(-2)), [true, 2, 50, 7, 1, 4, 0, 'READY_TO_CLAIM']);
   assert.equal(finishes.at(-2).countsObserved, false);
   assert.equal(finishes.at(-2).generatedCount, null);
-  assert.deepEqual(counts(finishes.at(-1)), [false, null, null, null, null]);
+  assert.deepEqual(counts(finishes.at(-1)), [false, null, null, null, null, null, null, null]);
   assert.equal(finishes.at(-1).success, false);
   assert.equal(finishes.at(-1).exitCode, 1);
   assert.equal(new Set(finishes.map(({ scanId }) => scanId)).size, finishes.length);
