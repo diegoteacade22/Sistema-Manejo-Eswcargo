@@ -118,6 +118,8 @@ test('salidas inválidas del modelo consumen intentos restantes y reconciliació
   assert.match(store, /input\.retryable \|\| AUTO_RETRYABLE_MODEL_ERRORS\.has\(input\.errorCode\)/);
   assert.match(store, /recoverPrematureTerminalModelFailures/);
   assert.match(store, /WORK_MODEL_FAILURE_AUTO_RECOVERED/);
+  assert.match(store, /status: 'QUEUED', availableAt: now, nextAttemptAt: null/);
+  assert.match(store, /ORDER BY execution\.attempt DESC/);
   assert.match(store, /work\."attemptCount"<work\."maxAttempts"/);
   assert.match(store, /NOT EXISTS \(SELECT 1 FROM public\."CompanyOsLease"/);
 });

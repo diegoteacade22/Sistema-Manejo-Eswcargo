@@ -1361,7 +1361,7 @@ async function recoverPrematureTerminalModelFailures(tx: Tx, now: Date) {
     JOIN LATERAL (
       SELECT execution."errorCode" FROM public."CompanyOsExecutionAttempt" execution
       WHERE execution."workItemId"=work.id AND execution."finishedAt" IS NOT NULL
-      ORDER BY execution."attemptNo" DESC,execution."finishedAt" DESC LIMIT 1
+      ORDER BY execution.attempt DESC,execution."finishedAt" DESC LIMIT 1
     ) attempt ON true
     WHERE work.status='FAILED_FINAL' AND work."attemptCount"<work."maxAttempts"
       AND attempt."errorCode" IN ('OPENAI_INVALID_RUNTIME_OUTPUT','OPENAI_INVALID_JSON')
@@ -1374,12 +1374,12 @@ async function recoverPrematureTerminalModelFailures(tx: Tx, now: Date) {
   for (const failure of failures) {
     if (!isCompanyOsRuntimeAgentInstalled(failure.agentId)) continue;
     await tx.companyOsWorkItem.update({ where: { id: failure.workItemId }, data: {
-      status: 'FAILED_RETRYABLE', availableAt: now, nextAttemptAt: now,
+      status: 'QUEUED', availableAt: now, nextAttemptAt: null,
     } });
-    await tx.companyOsCase.update({ where: { id: failure.caseId }, data: { status: 'FAILED_RETRYABLE', nextAttemptAt: now } });
+    await tx.companyOsCase.update({ where: { id: failure.caseId }, data: { status: 'QUEUED', nextAttemptAt: null } });
     await appendRuntimeEvent(tx, {
       caseId: failure.caseId, requestId: failure.requestId, eventType: 'WORK_MODEL_FAILURE_AUTO_RECOVERED',
-      fromStatus: 'FAILED_FINAL', toStatus: 'FAILED_RETRYABLE',
+      fromStatus: 'FAILED_FINAL', toStatus: 'QUEUED',
       payload: { workItemId: failure.workItemId, agentId: failure.agentId, errorCode: failure.errorCode,
         attempt: failure.attemptCount, modelCalls: 0 },
       idempotencyKey: `runtime:${failure.requestId}:model-failure-auto-recovered:${failure.workItemId}:${failure.attemptCount}`,
