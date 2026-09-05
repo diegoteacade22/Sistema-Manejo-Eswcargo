@@ -142,7 +142,8 @@ export async function listContinuousObjectives() {
       const dependencyKey = `external-${source.id.toLowerCase().replaceAll('_', '-')}`;
       const observations = await tx.$queryRaw<Array<{ status: string; detail: string | null; observedAt: Date }>>(Prisma.sql`
         SELECT status,detail,"observedAt" FROM public."CompanyOsDependencyObservation"
-        WHERE "dependencyKey"=${dependencyKey} ORDER BY "observedAt" DESC LIMIT 1
+        WHERE "dependencyKey"=${dependencyKey}
+        ORDER BY "observedAt" DESC,"createdAt" DESC,id DESC LIMIT 1
       `);
       const live = isFreshExternalSnapshot(source.id, observations[0], new Date());
       externalSources.push({ ...source,
@@ -298,7 +299,8 @@ async function latestExternalObservation(tx: Tx, sourceId: ContinuousObjectiveEx
   const dependencyKey = `external-${sourceId.toLowerCase().replaceAll('_', '-')}`;
   const rows = await tx.$queryRaw<Array<{ status: string; detail: string | null; observedAt: Date }>>(Prisma.sql`
     SELECT status,detail,"observedAt" FROM public."CompanyOsDependencyObservation"
-    WHERE "dependencyKey"=${dependencyKey} ORDER BY "observedAt" DESC LIMIT 1
+    WHERE "dependencyKey"=${dependencyKey}
+    ORDER BY "observedAt" DESC,"createdAt" DESC,id DESC LIMIT 1
   `);
   const observed = rows[0];
   if (!isFreshExternalSnapshot(sourceId, observed, now)) return null;

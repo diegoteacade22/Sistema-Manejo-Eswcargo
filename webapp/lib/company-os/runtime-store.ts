@@ -1672,7 +1672,8 @@ export async function getCompanyOsRuntimeControlCenter() {
       SELECT DISTINCT ON (observation."dependencyKey")
         observation."dependencyKey", observation.status, observation."observedAt", observation."latencyMs"
       FROM public."CompanyOsDependencyObservation" observation
-      ORDER BY observation."dependencyKey", observation."observedAt" DESC
+      ORDER BY observation."dependencyKey", observation."observedAt" DESC,
+        observation."createdAt" DESC, observation.id DESC
     `),
     db.companyOsMessage.findMany({
       where: { OR: [{ fromAgentId: { not: null } }, { toAgentId: { not: null } }] },

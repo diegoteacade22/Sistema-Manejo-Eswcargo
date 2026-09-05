@@ -223,6 +223,11 @@ test('heartbeat conserva el detalle criptográfico del batch externo ya validado
   assert.match(heartbeat, /dependency\.detail \? cleanText\(dependency\.detail, 500\) : null/);
 });
 
+test('control center desempata dependencias por recepción durable sin alterar su observedAt', () => {
+  const store = readFileSync('lib/company-os/runtime-store.ts', 'utf8');
+  assert.match(store, /observation\."observedAt" DESC,\s+observation\."createdAt" DESC, observation\.id DESC/);
+});
+
 const statusNow = new Date('2026-09-02T12:10:00Z');
 const agentStatusFixture = {
   agentId: 'systems-manager-ai-v1', installed: true, paused: false,

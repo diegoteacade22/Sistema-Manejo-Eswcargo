@@ -103,6 +103,12 @@ test('detalle estructurado conserva hashes validados aunque el redactor libre de
   assert.equal(isFreshExternalSnapshot('GOOGLE_SHEETS', { status: 'HEALTHY', detail, observedAt: now }, now), true);
 });
 
+test('readback externo desempata snapshots con el mismo reloj por la recepción durable más nueva', () => {
+  const store = readFileSync(new URL('../lib/company-os/continuous-objectives.ts', import.meta.url), 'utf8');
+  const tieBreaks = store.match(/ORDER BY "observedAt" DESC,"createdAt" DESC,id DESC LIMIT 1/g) ?? [];
+  assert.equal(tieBreaks.length, 2);
+});
+
 function observedIso() { return '2026-09-03T03:50:00.000Z'; }
 
 test('dedupe no depende del fingerprint temporal del colector, pero cambia con hechos', () => {
