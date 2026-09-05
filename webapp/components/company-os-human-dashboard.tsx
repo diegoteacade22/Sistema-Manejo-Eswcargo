@@ -344,7 +344,11 @@ function TaskManagerDialog({
   const isOpen = task?.lifecycle === "OPEN";
   const canClose = isOpen && task?.humanStatus === "READY_REVIEW";
   const canReopen = Boolean(task && (!isOpen || ["DONE", "DISCARDED"].includes(task.humanStatus)));
-  const canAuthorizeAutoResume = Boolean(task && !task.sourceArchived && !task.attentionReason && ["IDLE", "NOT_LOADED"].includes(task.sourceStatus) && !task.autoResumeRunning);
+  // The API is the source of truth for explicit blockers. The view can show a
+  // generic message for an old BLOCKED board state even when the source task
+  // has no attentionReason; that generic copy must not make recovery impossible.
+  // NEEDS_DIEGO remains gated because it represents an unresolved human decision.
+  const canAuthorizeAutoResume = Boolean(task && !task.sourceArchived && task.humanStatus !== "NEEDS_DIEGO" && ["IDLE", "NOT_LOADED"].includes(task.sourceStatus) && !task.autoResumeRunning);
   const needsHumanDecision = task?.humanStatus === "NEEDS_DIEGO";
   const queuedReplyIsEditable = task?.humanResponseProgress === "CONFIRMED";
   const attention = task ? humanAttentionState(task, true) : { blocker: null, request: null, canAnswerHere: false };
