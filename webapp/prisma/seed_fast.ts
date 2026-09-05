@@ -23,7 +23,16 @@ import { effectiveSourceOrderStatus } from '../lib/sync-status-precedence';
 import { filterPersistableSourceItems, isHistoricalReconciliationEligible, partitionOrdersByItemIntegrity } from '../lib/sync-source-integrity';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
+const OPERATIONAL_LEDGER_BATCH_SIZE = 100;
 let activeSyncRunId: number | null = null;
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+    const chunks: T[][] = [];
+    for (let index = 0; index < items.length; index += size) {
+        chunks.push(items.slice(index, index + size));
+    }
+    return chunks;
+}
 
 type SyncChangeInput = {
     entity: string;
@@ -1018,11 +1027,15 @@ async function main() {
         });
     }
     if (operationalLedgerInputs.length > 0) {
-        await prisma.$transaction(async (tx: any) => {
-            for (const input of operationalLedgerInputs) {
-                await upsertOperationLedger(tx, input);
-            }
-        }, { isolationLevel: 'Serializable', maxWait: 10_000, timeout: 60_000 });
+        const ledgerBatches = chunkArray(operationalLedgerInputs, OPERATIONAL_LEDGER_BATCH_SIZE);
+        for (const [index, batch] of ledgerBatches.entries()) {
+            await prisma.$transaction(async (tx: any) => {
+                for (const input of batch) {
+                    await upsertOperationLedger(tx, input);
+                }
+            }, { isolationLevel: 'Serializable', maxWait: 10_000, timeout: 60_000 });
+            console.log(`   ✅ Lote de cuentas operativas ${index + 1}/${ledgerBatches.length} aplicado (${batch.length} operaciones).`);
+        }
     }
     console.log(`   ✅ Cuentas operativas conciliadas desde ${ledgerPolicyEffectiveDate.toISOString()}: ${operationalLedgerInputs.length}`);
 
