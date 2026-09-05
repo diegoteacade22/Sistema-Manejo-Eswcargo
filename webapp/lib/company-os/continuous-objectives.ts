@@ -207,7 +207,6 @@ export async function controlContinuousObjective(input: ControlContinuousObjecti
     const updated = await tx.$queryRaw<GoalRow[]>(Prisma.sql`
       UPDATE public."CompanyOsContinuousObjective" SET status=${input.action === 'PAUSE' ? 'PAUSED' : ending ? 'EXPIRED' : 'ACTIVE'},
         "controlRevision"="controlRevision"+1,"updatedAt"=clock_timestamp(),
-        "endsAt"=CASE WHEN ${ending} THEN clock_timestamp() ELSE "endsAt" END,
         "nextScanAt"=CASE WHEN ${input.action}='RESUME' THEN clock_timestamp() ELSE "nextScanAt" END
       WHERE id=${goal.id} RETURNING *
     `);

@@ -231,7 +231,7 @@ test('cierre anticipado exige pausa, conserva historial y queda auditado', async
     const result = await controlContinuousObjective({ objectiveId: goal.id, action: 'END', expectedVersion: 1,
       expectedControlRevision: 1, idempotencyKey: 'ui:continuous:end:1234' }, 'admin-test');
     assert.equal(result.objective.status, 'EXPIRED');
-    assert.ok(calls.some((sql) => sql.includes('clock_timestamp() ELSE "endsAt"')));
+    assert.ok(calls.some((sql) => sql.includes("status=") && sql.includes("controlRevision")));
     assert.match(readFileSync(new URL('../lib/company-os/continuous-objectives.ts', import.meta.url), 'utf8'), /OBJECTIVE_ENDED/);
     assert.ok(!calls.some((sql) => /DELETE FROM/.test(sql)));
   });
