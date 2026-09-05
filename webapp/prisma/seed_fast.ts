@@ -23,7 +23,7 @@ import { effectiveSourceOrderStatus } from '../lib/sync-status-precedence';
 import { filterPersistableSourceItems, isHistoricalReconciliationEligible, partitionOrdersByItemIntegrity } from '../lib/sync-source-integrity';
 
 const prisma = new PrismaClient({ log: ['info', 'warn', 'error'] });
-const OPERATIONAL_LEDGER_BATCH_SIZE = 100;
+const OPERATIONAL_LEDGER_BATCH_SIZE = 20;
 let activeSyncRunId: number | null = null;
 
 function chunkArray<T>(items: T[], size: number): T[][] {
