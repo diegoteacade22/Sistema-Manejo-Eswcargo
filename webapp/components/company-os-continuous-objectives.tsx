@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { formatCompanyOsTimestamp } from '@/lib/company-os/runtime-display';
-import { CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES, type ContinuousObjectiveExternalSourceId, type ContinuousObjectiveView } from '@/lib/company-os/continuous-objective-types';
+import { CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES, CONTINUOUS_OBJECTIVE_GENERATION_REASONS, CONTINUOUS_OBJECTIVE_RECONCILIATION_STATUSES, type ContinuousObjectiveExternalSourceId, type ContinuousObjectiveView } from '@/lib/company-os/continuous-objective-types';
 
 export type ContinuousObjectiveDisplay = ContinuousObjectiveView;
 type ExternalSourceDisplay = Omit<typeof CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES[number], 'status' | 'note'> & { status: string; note: string };
@@ -20,6 +20,7 @@ const managerNames: Record<string, string> = {
 };
 const stateNames: Record<string, string> = {
   ACTIVE: 'Activo', PAUSED: 'Pausado', EXPIRED: 'Plazo terminado',
+  QUIESCENT: 'Sin trabajo elegible', PENDING: 'Pendiente', STALE: 'Fuente desactualizada', AWAITING_HUMAN: 'Requiere decisión humana', BLOCKED_FINAL: 'Bloqueada', INVALID: 'Inválida',
   PLANNED: 'Planificada', QUEUED: 'En cola', ANALYZED: 'Análisis de metadatos', VERIFIED: 'Análisis verificado',
   NEEDS_REVIEW: 'Revisión pendiente', BLOCKED: 'Bloqueada', SKIPPED: 'Omitida',
 };
@@ -46,16 +47,21 @@ export function parseContinuousObjectivesSnapshot(raw: unknown): Snapshot {
   for (const item of snapshot.objectives) {
     if (!item || typeof item.id !== 'string' || !Number.isInteger(item.version) || !Number.isInteger(item.controlRevision)
       || !['ACTIVE', 'PAUSED', 'EXPIRED'].includes(item.status)
+      || !CONTINUOUS_OBJECTIVE_RECONCILIATION_STATUSES.includes(item.reconciliationStatus)
+      || !Number.isInteger(item.lastGeneratedCount) || item.lastGeneratedCount < 0
+      || !CONTINUOUS_OBJECTIVE_GENERATION_REASONS.includes(item.zeroGenerationReason)
+      || (item.lastReconciliationRunId !== null && (typeof item.lastReconciliationRunId !== 'string' || item.lastReconciliationRunId.length < 8))
       || !Array.isArray(item.units) || !Array.isArray(item.criteria) || !Array.isArray(item.projectAllowlist)
       || typeof item.title !== 'string' || typeof item.objective !== 'string'
       || ![item.startsAt, item.endsAt, item.nextScanAt, item.createdAt, item.updatedAt].every((date) => typeof date === 'string' && Number.isFinite(Date.parse(date)))
+      || (item.lastReconciledAt !== null && (typeof item.lastReconciledAt !== 'string' || !Number.isFinite(Date.parse(item.lastReconciledAt))))
       || (item.lastScanAt !== null && (typeof item.lastScanAt !== 'string' || !Number.isFinite(Date.parse(item.lastScanAt))))
       || !item.criteria.every((criterion) => typeof criterion === 'string') || !item.projectAllowlist.every((project) => typeof project === 'string')
       || !Number.isInteger(item.sourcesObserved) || item.sourcesObserved < 0
       || !item.counts || !COUNT_KEYS.every((key) => Number.isInteger(item.counts[key]) && item.counts[key] >= 0)) {
       throw new Error('Un objetivo no tiene estado o resultados verificables. Actualizá para reintentar.');
     }
-    if (item.units.some((unit) => !unit || !unit.source || typeof unit.id !== 'string'
+    if (item.units.some((unit) => !unit || !unit.source || typeof unit.id !== 'string' || typeof unit.rootKey !== 'string' || unit.rootKey.length === 0
       || typeof unit.source.title !== 'string' || typeof unit.source.projectName !== 'string'
       || !Array.isArray(unit.resultEvidence) || !unit.resultEvidence.every((evidence) => typeof evidence === 'string')
       || ![unit.createdAt, unit.updatedAt].every((date) => typeof date === 'string' && Number.isFinite(Date.parse(date)))
@@ -90,6 +96,7 @@ export function ContinuousObjectiveCard({ objective, disabled = false, pausing =
       </div>
       <p className="mt-3 whitespace-pre-wrap text-sm text-slate-300">{objective.objective}</p>
       <p className="mt-3 text-xs text-cyan-200">Responsable: Gerente General · apoyo: Sistemas y Datos</p>
+      <p className="mt-2 text-xs text-slate-400">Reconciliación: <span className="text-slate-200">{stateNames[objective.reconciliationStatus]}</span> · último barrido: {objective.lastGeneratedCount} unidad(es) generada(s){objective.lastGeneratedCount === 0 ? ` · motivo: ${objective.zeroGenerationReason}` : ''}</p>
       <div className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
         <div className="rounded-xl bg-slate-900 p-3"><p className="text-xs text-slate-400">Plazo</p><p>{formatCompanyOsTimestamp(objective.endsAt)}</p></div>
         <div className="rounded-xl bg-slate-900 p-3"><p className="text-xs text-slate-400">Próxima revisión</p><p>{objective.status === 'ACTIVE' ? objective.nextScanAt ? formatCompanyOsTimestamp(objective.nextScanAt) : 'Sin fecha observada' : 'No se programan nuevas tareas'}</p></div>

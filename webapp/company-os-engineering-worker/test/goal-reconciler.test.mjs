@@ -137,6 +137,7 @@ test('stale source is durably reported and does not poison the remaining goals',
   assert.equal(observations[0].observedState.code, 'SOURCE_HASH_MISMATCH');
   assert.equal(observations[1].observedState.type, 'FILE_CONTAINS_ALL');
   assert.equal(reconciler.snapshot().goalReconcilerHealthy, false);
+  assert.equal(reconciler.snapshot().lastGoalDecision, 'DEGRADED');
   assert.deepEqual(reconciler.snapshot().goalReconcilerErrorCodes, ['ENGINEERING_GOAL_STALE']);
 });
 

@@ -1,4 +1,4 @@
-import { createSign } from 'node:crypto';
+import { createHash, createSign } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { readFile } from 'node:fs/promises';
@@ -77,6 +77,11 @@ function dependency(sourceId, status, detail, latencyMs, observedAt = new Date()
   return { key: `external-${sourceId.toLowerCase().replaceAll('_', '-')}`, sourceId, status, detail: String(detail).slice(0, 500), latencyMs, observedAt };
 }
 
+function observationProof(value) {
+  const evidenceHash = createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  return { snapshotId: `snapshot:${evidenceHash.slice(0, 32)}`, evidenceHash };
+}
+
 async function googleSnapshot(credentialsJson) {
   const credentials = await readServiceAccount(credentialsJson);
   if (!credentials) throw new Error('GOOGLE_SERVICE_ACCOUNT_INVALID');
@@ -97,10 +102,13 @@ async function googleSnapshot(credentialsJson) {
   const peopleStartedAt = Date.now();
   const people = await fetchJson(`${PEOPLE_URL}?pageSize=1&personFields=metadata`, { headers });
   const peopleCount = Number.isSafeInteger(people.totalPeople) ? people.totalPeople : (Array.isArray(people.connections) ? people.connections.length : 0);
+  const driveProof = observationProof({ files: allFiles.map(({ id, mimeType, modifiedTime }) => ({ id, mimeType, modifiedTime })), cursor: 'pageSize:25' });
+  const sheetsProof = observationProof({ files: Array.isArray(sheetFiles.files) ? sheetFiles.files : [], metadata: sheetMetadata, cursor: 'pageSize:25' });
+  const contactsProof = observationProof({ peopleCount, cursor: 'pageSize:1' });
   return [
-    dependency('GOOGLE_DRIVE', 'HEALTHY', `read_only=true;files_sample=${allFiles.length};scope=drive.readonly`, Date.now() - startedAt),
-    dependency('GOOGLE_SHEETS', 'HEALTHY', `read_only=true;spreadsheets_sample=${Array.isArray(sheetFiles.files) ? sheetFiles.files.length : sheets.length};metadata_read=${sheetMetadata ? 'true' : 'false'};scope=spreadsheets.readonly`, Date.now() - startedAt),
-    dependency('GOOGLE_CONTACTS', 'HEALTHY', `read_only=true;people_count=${Math.max(0, peopleCount)};scope=contacts.readonly`, Date.now() - peopleStartedAt),
+    dependency('GOOGLE_DRIVE', 'HEALTHY', `read_only=true;snapshot_id=${driveProof.snapshotId};evidence_hash=${driveProof.evidenceHash};cursor=pageSize:25;files_sample=${allFiles.length};scope=drive.readonly`, Date.now() - startedAt),
+    dependency('GOOGLE_SHEETS', 'HEALTHY', `read_only=true;snapshot_id=${sheetsProof.snapshotId};evidence_hash=${sheetsProof.evidenceHash};cursor=pageSize:25;spreadsheets_sample=${Array.isArray(sheetFiles.files) ? sheetFiles.files.length : sheets.length};metadata_read=${sheetMetadata ? 'true' : 'false'};scope=spreadsheets.readonly`, Date.now() - startedAt),
+    dependency('GOOGLE_CONTACTS', 'HEALTHY', `read_only=true;snapshot_id=${contactsProof.snapshotId};evidence_hash=${contactsProof.evidenceHash};cursor=pageSize:1;people_count=${Math.max(0, peopleCount)};scope=contacts.readonly`, Date.now() - peopleStartedAt),
   ];
 }
 
@@ -110,7 +118,8 @@ async function localChatgptWorkSnapshot() {
   try {
     const index = await readFile(indexPath, 'utf8');
     const lines = index.split(/\r?\n/).filter(Boolean);
-    return dependency('CHATGPT_WORK', 'HEALTHY', `read_only=true;local_export=index;entries=${Math.min(lines.length, 120)}`, 0);
+    const proof = observationProof({ indexHash: createHash('sha256').update(index).digest('hex'), entries: lines.length, cursor: `entries:${Math.min(lines.length, 120)}` });
+    return dependency('CHATGPT_WORK', 'HEALTHY', `read_only=true;snapshot_id=${proof.snapshotId};evidence_hash=${proof.evidenceHash};cursor=entries:${Math.min(lines.length, 120)};local_export=index;entries=${Math.min(lines.length, 120)}`, 0);
   } catch (error) {
     return dependency('CHATGPT_WORK', 'UNAVAILABLE', `read_only=true;local_export=missing;code=${safeStatus(error)}`, 0);
   }

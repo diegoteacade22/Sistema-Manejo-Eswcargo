@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync } from 'node:fs';
 import {
-  baselineObjectiveUnits, observeObjectiveUnit, planObjectiveSource,
+  baselineObjectiveUnits, deduplicateObjectiveSources, observeObjectiveUnit, planObjectiveSource,
   safeObjectiveMetadata, validateContinuousObjectiveInput, type ObjectiveSourceCandidate,
   objectiveCaseInFlight,
 } from '../lib/company-os/continuous-objective-policy';
-import { createContinuousObjective, controlContinuousObjective, planContinuousObjectiveUnits, withContinuousObjectiveUnitClaim } from '../lib/company-os/continuous-objectives';
+import { createContinuousObjective, controlContinuousObjective, isFreshExternalSnapshot, planContinuousObjectiveUnits, withContinuousObjectiveUnitClaim } from '../lib/company-os/continuous-objectives';
 import { objectiveHash } from '../lib/company-os/continuous-objective-policy';
 
 const input = { title: 'Continuidad operativa', objective: 'Reducir pendientes empresariales con evidencia', criteria: ['Identificar el siguiente paso verificable'],
@@ -43,6 +43,26 @@ test('excluye personales, activos, archivados y pedidos de Diego aun con overlay
     { boardStatus: 'NEEDS_DIEGO' }, { humanStatus: 'BLOCKED' }, { boardStatus: 'IN_PROGRESS' },
     { projectNameOverride: 'PERSONAL' }, { attentionReason: 'PRESENT' },
   ]) assert.ok('excluded' in planObjectiveSource({ ...source, ...patch }, input.projectAllowlist), JSON.stringify(patch));
+});
+
+test('sólo considera IDLE observado y conserva una unidad por raíz coherente', () => {
+  assert.equal('excluded' in planObjectiveSource({ ...source, sourceStatus: 'NOT_LOADED' }, input.projectAllowlist), true);
+  assert.equal('excluded' in planObjectiveSource({ ...source, sourceStatus: 'UNKNOWN' }, input.projectAllowlist), true);
+  const roots = deduplicateObjectiveSources([
+    { ...source, id: 'task-z', threadId: 'root-1', priority: 4 },
+    { ...source, id: 'task-a', threadId: 'child-1', rootThreadId: 'root-1', priority: 2 },
+    { ...source, id: 'task-b', threadId: 'root-2', priority: 2 },
+  ]);
+  assert.deepEqual(roots.map((candidate) => candidate.id), ['task-a', 'task-b']);
+});
+
+test('una fuente externa exige snapshot read-only fresco y CHATGPT_WORK queda bloqueado', () => {
+  const proof = 'read_only=true;snapshot_id=snapshot:' + 'a'.repeat(32) + ';evidence_hash=' + 'b'.repeat(64) + ';cursor=pageSize:25';
+  const observedAt = new Date('2026-09-03T03:50:00Z');
+  assert.equal(isFreshExternalSnapshot('GOOGLE_DRIVE', { status: 'HEALTHY', detail: proof, observedAt }, now), true);
+  assert.equal(isFreshExternalSnapshot('GOOGLE_DRIVE', { status: 'HEALTHY', detail: 'read_only=true', observedAt }, now), false);
+  assert.equal(isFreshExternalSnapshot('GOOGLE_DRIVE', { status: 'HEALTHY', detail: proof, observedAt: new Date(now.getTime() - 31 * 60_000) }, now), false);
+  assert.equal(isFreshExternalSnapshot('CHATGPT_WORK', { status: 'HEALTHY', detail: proof, observedAt }, now), false);
 });
 
 test('dedupe no depende del fingerprint temporal del colector, pero cambia con hechos', () => {
@@ -125,7 +145,7 @@ async function withFakeDb<T>(responses: unknown[], run: (calls: string[], tx: un
 }
 
 test('materialización bloquea objetivo primero y callback comparte transacción con enlace/evento', async () => {
-  await withFakeDb([[goal], [{ eligible: true }], [unit], []], async (calls, tx) => {
+  await withFakeDb([[goal], [{ eligible: true }], [unit], [], [{ lastGeneratedCount: 1 }]], async (calls, tx) => {
     const result = await withContinuousObjectiveUnitClaim(unit.id, async (receivedTx, planned, definition) => {
       assert.equal(receivedTx, tx); assert.equal(planned.unitId, unit.id); assert.equal(definition.id, goal.id);
       return 'case-123456';
@@ -186,7 +206,7 @@ test('sigue observando resultados de objetivos vencidos sin generar casos ni rea
     assert.equal(result.pendingUnits.length, 0);
     assert.equal(result.scannedObjectives, 0);
     assert.ok(calls.some((sql) => sql.includes('UPDATE public."CompanyOsObjectiveUnit"')));
-    assert.ok(!calls.some((sql) => sql.includes('UPDATE public."CompanyOsContinuousObjective"')));
+    assert.ok(calls.some((sql) => sql.includes('UPDATE public."CompanyOsContinuousObjective"')));
   });
 });
 
@@ -207,6 +227,16 @@ test('migración fuerza RLS, niega roles amplios, protege evento y dedupe/una un
   assert.match(migration, /"sourceResolved" = false/);
   assert.match(migration, /FOREIGN KEY \("unitId","goalId"\)/);
   assert.ok(!/GRANT (?:INSERT|UPDATE|DELETE).*ON.*(?:Client|Transaction)/.test(migration));
+});
+
+test('migración agrega readback de reconciliación y dedupe durable por raíz', () => {
+  const migration = readFileSync(new URL('../../supabase/migrations/20260904120000_company_os_continuous_reconciliation.sql', import.meta.url), 'utf8');
+  assert.match(migration, /reconciliationStatus/);
+  assert.match(migration, /lastGeneratedCount/);
+  assert.match(migration, /zeroGenerationReason/);
+  assert.match(migration, /CompanyOsObjectiveUnit_goal_version_root_key/);
+  assert.match(migration, /ALTER COLUMN "rootKey" SET NOT NULL/);
+  assert.match(migration, /No business table or second worker/);
 });
 
 test('a igual prioridad reparte por gerente menos atendido y no por antigüedad de toda la cola General', () => {

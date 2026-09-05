@@ -15,6 +15,16 @@ export type ContinuousObjectiveExternalSourceId = typeof CONTINUOUS_OBJECTIVE_EX
 export type ContinuousObjectiveExternalSourceStatus = typeof CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES[number]['status'];
 
 export type ContinuousObjectiveStatus = 'ACTIVE' | 'PAUSED' | 'EXPIRED';
+export const CONTINUOUS_OBJECTIVE_RECONCILIATION_STATUSES = [
+  'QUIESCENT', 'PENDING', 'STALE', 'AWAITING_HUMAN', 'BLOCKED_FINAL', 'EXPIRED', 'INVALID',
+] as const;
+export type ContinuousObjectiveReconciliationStatus = typeof CONTINUOUS_OBJECTIVE_RECONCILIATION_STATUSES[number];
+export const CONTINUOUS_OBJECTIVE_GENERATION_REASONS = [
+  'GENERATED', 'READY_TO_GENERATE', 'ACTIVE_UNIT_IN_FLIGHT', 'NO_ELIGIBLE_SOURCE',
+  'STALE_SOURCE', 'AWAITING_HUMAN', 'BLOCKED_EXTERNAL', 'OBJECTIVE_PAUSED',
+  'OBJECTIVE_EXPIRED', 'OBJECTIVE_NOT_DUE', 'INVALID_OBJECTIVE',
+] as const;
+export type ContinuousObjectiveGenerationReason = typeof CONTINUOUS_OBJECTIVE_GENERATION_REASONS[number];
 export type ObjectiveUnitStatus = 'PLANNED' | 'QUEUED' | 'ANALYZED' | 'VERIFIED' | 'NEEDS_REVIEW' | 'BLOCKED' | 'SKIPPED';
 export type ContinuousObjectiveAgentId = 'general-manager-ai-v3' | 'systems-manager-ai-v1' | 'data-manager-ai-v1';
 export type ObjectiveUnitSource = {
@@ -31,13 +41,15 @@ export type ObjectiveUnitSource = {
   verificationScope: 'ANALYSIS_ONLY';
 };
 export type ContinuousObjectiveUnitView = {
-  id: string; goalId: string; version: number; sourceId: string; fingerprint: string;
+  id: string; goalId: string; version: number; sourceId: string; rootKey: string; fingerprint: string;
   caseId: string | null; status: ObjectiveUnitStatus; ownerAgentId: ContinuousObjectiveAgentId;
   priority: number; source: ObjectiveUnitSource; resultSummary: string | null;
   resultEvidence: string[]; sourceResolved: false; verificationScope: 'ANALYSIS_ONLY'; createdAt: string; updatedAt: string;
 };
 export type ContinuousObjectiveView = {
   id: string; version: number; controlRevision: number; title: string; objective: string; status: ContinuousObjectiveStatus;
+  reconciliationStatus: ContinuousObjectiveReconciliationStatus; lastGeneratedCount: number;
+  zeroGenerationReason: ContinuousObjectiveGenerationReason; lastReconciliationRunId: string | null; lastReconciledAt: string | null;
   startsAt: string; endsAt: string; projectAllowlist: string[]; criteria: string[];
   externalSources: ContinuousObjectiveExternalSourceId[];
   scanIntervalMinutes: number; nextScanAt: string; createdBy: string; createdAt: string; updatedAt: string;

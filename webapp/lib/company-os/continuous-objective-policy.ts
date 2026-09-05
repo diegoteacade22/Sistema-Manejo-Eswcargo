@@ -4,6 +4,7 @@ import {
   CONTINUOUS_OBJECTIVE_ALLOWED_PROJECTS, CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES, ContinuousObjectiveError,
   type ContinuousObjectiveAgentId, type CreateContinuousObjectiveInput,
   type ContinuousObjectiveExternalSourceId, type ObjectiveUnitSource, type ObjectiveUnitStatus,
+  type ContinuousObjectiveGenerationReason, type ContinuousObjectiveReconciliationStatus,
 } from './continuous-objective-types';
 
 export const OBJECTIVE_SETTLED_CASE_STATUSES = ['COMPLETED', 'CANCELLED', 'FAILED_FINAL', 'NEEDS_REVIEW', 'AWAITING_REVIEW', 'BLOCKED'] as const;
@@ -73,8 +74,28 @@ export type ObjectiveSourceCandidate = {
   id: string; threadId: string; title: string; projectName: string; category: string;
   humanStatus: string; sourceStatus: string; archived: boolean; priority: number;
   nextAction: string; resultSummary: string | null; fingerprint: string; attentionReason: string | null;
-  boardStatus?: string | null; boardLifecycle?: string | null; projectNameOverride?: string | null;
+  boardStatus?: string | null; boardLifecycle?: string | null; projectNameOverride?: string | null; rootThreadId?: string | null;
 };
+
+export function objectiveSourceRoot(candidate: Pick<ObjectiveSourceCandidate, 'threadId'> & { rootThreadId?: string | null }) {
+  const root = typeof candidate.rootThreadId === 'string' && candidate.rootThreadId.trim()
+    ? candidate.rootThreadId.trim() : candidate.threadId;
+  return root;
+}
+
+/** A root conversation may be observed more than once; only its best eligible pointer survives. */
+export function deduplicateObjectiveSources(candidates: readonly ObjectiveSourceCandidate[]) {
+  const roots = new Map<string, ObjectiveSourceCandidate>();
+  for (const candidate of candidates) {
+    const root = objectiveSourceRoot(candidate);
+    const previous = roots.get(root);
+    if (!previous || Number(candidate.priority) < Number(previous.priority)
+      || (Number(candidate.priority) === Number(previous.priority) && candidate.id < previous.id)) {
+      roots.set(root, candidate);
+    }
+  }
+  return [...roots.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([, candidate]) => candidate);
+}
 
 export function planObjectiveSource(candidate: ObjectiveSourceCandidate, projects: readonly string[]) {
   const effectiveProject = candidate.projectNameOverride ?? candidate.projectName;
@@ -82,7 +103,10 @@ export function planObjectiveSource(candidate: ObjectiveSourceCandidate, project
   if (!projects.includes(candidate.projectName) || !projects.includes(effectiveProject)) return { excluded: 'PROJECT_OUT_OF_SCOPE' } as const;
   if (candidate.category === 'PERSONAL') return { excluded: 'PERSONAL' } as const;
   if (candidate.archived || ['ARCHIVED', 'CLOSED'].includes(candidate.boardLifecycle ?? '')) return { excluded: 'CLOSED' } as const;
-  if (!['IDLE', 'NOT_LOADED'].includes(candidate.sourceStatus)) return { excluded: 'ACTIVE_OR_UNOBSERVED' } as const;
+  if (candidate.sourceStatus !== 'IDLE') {
+    return { excluded: candidate.sourceStatus === 'NOT_LOADED' || candidate.sourceStatus === 'UNKNOWN'
+      ? 'STALE_SOURCE' : 'ACTIVE_OR_UNOBSERVED' } as const;
+  }
   if (candidate.attentionReason || disallowedState.includes(candidate.humanStatus) || disallowedState.includes(candidate.boardStatus ?? '')) {
     return { excluded: 'REQUIRES_DECISION_OR_NOT_PENDING' } as const;
   }
@@ -103,7 +127,7 @@ export function planObjectiveSource(candidate: ObjectiveSourceCandidate, project
       ? 'data-manager-ai-v1' : 'general-manager-ai-v3';
   // The collector fingerprint includes timestamps. Deliberately hash only meaningful, sanitized metadata.
   const { sourceFingerprint: _ignored, ...facts } = source;
-  return { sourceId: `codex:${candidate.id}`, fingerprint: objectiveHash(facts), source, ownerAgentId,
+  return { sourceId: `codex:${candidate.id}`, rootKey: objectiveSourceRoot(candidate), fingerprint: objectiveHash(facts), source, ownerAgentId,
     priority: Math.max(2, Math.min(5, Number(candidate.priority) || 3)) };
 }
 
@@ -115,7 +139,7 @@ export function blockedExternalSourceUnit(sourceId: ContinuousObjectiveExternalS
     reportedResult: source.note, authority: 'CONNECTOR_REQUIRED', verificationScope: 'ANALYSIS_ONLY',
   };
   return {
-    sourceId: `external:${source.id.toLowerCase()}`, fingerprint: objectiveHash({ sourceId, status: source.status, note: source.note }),
+    sourceId: `external:${source.id.toLowerCase()}`, rootKey: `external:${source.id.toLowerCase()}`, fingerprint: objectiveHash({ sourceId, status: source.status, note: source.note }),
     ownerAgentId: 'general-manager-ai-v3' as const, priority: 0, source: sourceView,
   };
 }
@@ -129,7 +153,7 @@ export function liveExternalSourceUnit(sourceId: ContinuousObjectiveExternalSour
     authority: 'LIVE_SNAPSHOT_REQUIRED', verificationScope: 'ANALYSIS_ONLY',
   };
   return {
-    sourceId: `external:${source.id.toLowerCase()}`, fingerprint: objectiveHash({ sourceId, detail: sourceView.reportedResult }),
+    sourceId: `external:${source.id.toLowerCase()}`, rootKey: `external:${source.id.toLowerCase()}`, fingerprint: objectiveHash({ sourceId, detail: sourceView.reportedResult }),
     ownerAgentId: 'general-manager-ai-v3' as const, priority: 0, source: sourceView,
   };
 }
@@ -142,10 +166,20 @@ export function baselineObjectiveUnits(goal: { objective: string; criteria: stri
       title: systems ? 'Verificar snapshot técnico vivo y cobertura operativa' : 'Verificar snapshot empresarial vivo, calidad y frescura de datos',
       authority: 'LIVE_SNAPSHOT_REQUIRED', verificationScope: 'ANALYSIS_ONLY',
     };
-    return { sourceId: systems ? 'baseline:systems' : 'baseline:data', ownerAgentId,
+    return { sourceId: systems ? 'baseline:systems' : 'baseline:data', rootKey: systems ? 'baseline:systems' : 'baseline:data', ownerAgentId,
       priority: systems ? 0 : 1, source, fingerprint: objectiveHash({ source, objective: goal.objective, criteria: goal.criteria,
         facts: facts[ownerAgentId] ?? 'INITIAL_SNAPSHOT_REQUIRED' }) };
   });
+}
+
+export function validContinuousObjectiveReconciliationStatus(value: unknown): value is ContinuousObjectiveReconciliationStatus {
+  return typeof value === 'string' && ['QUIESCENT', 'PENDING', 'STALE', 'AWAITING_HUMAN', 'BLOCKED_FINAL', 'EXPIRED', 'INVALID'].includes(value);
+}
+
+export function validContinuousObjectiveGenerationReason(value: unknown): value is ContinuousObjectiveGenerationReason {
+  return typeof value === 'string' && ['GENERATED', 'READY_TO_GENERATE', 'ACTIVE_UNIT_IN_FLIGHT', 'NO_ELIGIBLE_SOURCE',
+    'STALE_SOURCE', 'AWAITING_HUMAN', 'BLOCKED_EXTERNAL', 'OBJECTIVE_PAUSED', 'OBJECTIVE_EXPIRED',
+    'OBJECTIVE_NOT_DUE', 'INVALID_OBJECTIVE'].includes(value);
 }
 
 export function observeObjectiveUnit(input: {

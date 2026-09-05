@@ -32,6 +32,28 @@ The LLM never owns transitions, authorization, budgets, idempotency, leases,
 termination or success. It proposes a bounded implementation inside the
 contract selected by the controller.
 
+## Continuous-objective reconciliation contract
+
+The existing continuous-objective planner is a desired-state reconciler over
+the shared V3 queue. Each run writes a durable readback on the objective:
+`QUIESCENT`, `PENDING`, `STALE`, `AWAITING_HUMAN`, `BLOCKED_FINAL`, `EXPIRED`,
+or `INVALID`; the generated-unit count; and, when that count is zero, the
+explicit reason. `OBJECTIVE_RECONCILED` records the run id, observed and
+excluded counts, and `modelCalls: 0`.
+
+Only allowlisted project metadata with an observed `IDLE` source status can
+produce a planned unit. `NOT_LOADED`, `UNKNOWN`, active, closed, personal,
+blocked, or human-decision sources are excluded. The planner deduplicates by
+coherent root conversation and the database enforces one unit per
+objective/version/root. External sources remain read-only; unavailable
+connectors produce an auditable blocked unit without materializing a case.
+
+The planner and runner continue to use the existing V3 cases, queue, leases,
+locks, budgets and fencing. Continuous-objective cases are analysis-only and
+cannot authorize source edits, deploys, merges, purchases, messages or other
+irreversible effects. The engineering GoalSpec plane remains the authority
+for A1/A2 transitions and its existing readback gates.
+
 ## Activation semantics
 
 No periodic prompt or business cron wakes the model. The worker reconciles on

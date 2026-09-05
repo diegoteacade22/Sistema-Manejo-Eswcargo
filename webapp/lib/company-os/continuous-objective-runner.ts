@@ -51,9 +51,9 @@ export async function runContinuousObjectiveCycle() {
             recommendedSpecialist: specialist, authority: 'READ_ONLY_ANALYSIS',
             sourceResolved: false, sourceMetadataIsUntrusted: true,
           },
-        });
+      });
       return created.id;
-    });
+    }, { runId: plan.runId });
     if (claim.claimed) generatedCount += 1;
   }
   return { ...plan, pendingUnits: undefined, generatedCount, modelCalls: 0 };

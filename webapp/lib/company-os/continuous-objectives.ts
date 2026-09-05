@@ -2,13 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { companyOsV3Prisma } from './v3-prisma';
 import {
-  baselineObjectiveUnits, blockedExternalSourceUnit, objectiveHash, observeObjectiveUnit, planObjectiveSource,
-  safeObjectiveMetadata, validateContinuousObjectiveInput, type ObjectiveSourceCandidate,
+  baselineObjectiveUnits, blockedExternalSourceUnit, deduplicateObjectiveSources, objectiveHash, observeObjectiveUnit, planObjectiveSource,
+  safeObjectiveMetadata, validContinuousObjectiveGenerationReason, validContinuousObjectiveReconciliationStatus, validateContinuousObjectiveInput, type ObjectiveSourceCandidate,
   OBJECTIVE_SETTLED_CASE_STATUSES,
 } from './continuous-objective-policy';
 import {
   CONTINUOUS_OBJECTIVE_ALLOWED_PROJECTS, CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES, ContinuousObjectiveError,
   type ContinuousObjectiveAgentId, type ContinuousObjectiveExternalSourceId, type ContinuousObjectiveIdentity, type ContinuousObjectiveUnitView,
+  type ContinuousObjectiveGenerationReason, type ContinuousObjectiveReconciliationStatus,
   type ContinuousObjectiveView, type ControlContinuousObjectiveInput, type CreateContinuousObjectiveInput,
   type PendingContinuousObjectiveUnit,
 } from './continuous-objective-types';
@@ -20,7 +21,8 @@ export type ContinuousObjectiveDefinition = Omit<ContinuousObjectiveView, 'count
 type GoalRow = Omit<ContinuousObjectiveDefinition, 'startsAt' | 'endsAt' | 'nextScanAt' | 'lastScanAt' | 'createdAt' | 'updatedAt'> & {
   startsAt: Date; endsAt: Date; nextScanAt: Date; lastScanAt: Date | null; createdAt: Date; updatedAt: Date;
   scanCursor: string; scanObserved: number; scanExcluded: number; scanDomains: ContinuousObjectiveAgentId[];
-  externalSources: ContinuousObjectiveExternalSourceId[];
+  externalSources: ContinuousObjectiveExternalSourceId[]; reconciliationStatus: ContinuousObjectiveReconciliationStatus;
+  lastGeneratedCount: number; zeroGenerationReason: ContinuousObjectiveGenerationReason; lastReconciliationRunId: string | null; lastReconciledAt: Date | null;
 };
 type UnitRow = Omit<ContinuousObjectiveUnitView, 'createdAt' | 'updatedAt'> & { createdAt: Date; updatedAt: Date };
 const SCAN_PAGE_SIZE = 200;
@@ -42,7 +44,12 @@ function key(raw: unknown, actorRef: string) {
 function goalDefinition(row: GoalRow): ContinuousObjectiveDefinition {
   return {
     id: row.id, version: row.version, controlRevision: row.controlRevision, title: row.title, objective: row.objective,
-    status: row.status, startsAt: iso(row.startsAt), endsAt: iso(row.endsAt), projectAllowlist: row.projectAllowlist,
+    status: row.status, reconciliationStatus: validContinuousObjectiveReconciliationStatus(row.reconciliationStatus) ? row.reconciliationStatus : 'INVALID',
+    lastGeneratedCount: Number.isSafeInteger(row.lastGeneratedCount) ? row.lastGeneratedCount : 0,
+    zeroGenerationReason: validContinuousObjectiveGenerationReason(row.zeroGenerationReason) ? row.zeroGenerationReason : 'INVALID_OBJECTIVE',
+    lastReconciliationRunId: typeof row.lastReconciliationRunId === 'string' ? row.lastReconciliationRunId : null,
+    lastReconciledAt: row.lastReconciledAt ? iso(row.lastReconciledAt) : null,
+    startsAt: iso(row.startsAt), endsAt: iso(row.endsAt), projectAllowlist: row.projectAllowlist,
     externalSources: row.externalSources,
     criteria: row.criteria, scanIntervalMinutes: row.scanIntervalMinutes, nextScanAt: iso(row.nextScanAt),
     createdBy: row.createdBy, createdAt: iso(row.createdAt), updatedAt: iso(row.updatedAt),
@@ -64,6 +71,43 @@ async function appendEvent(tx: Tx, input: {
       ${input.idempotencyKey},${input.requestHash ?? null},${json(input.payload ?? {})}::jsonb)
     ON CONFLICT ("idempotencyKey") DO NOTHING
   `);
+}
+
+async function recordReconciliation(tx: Tx, goal: GoalRow, input: {
+  runId: string; status: ContinuousObjectiveReconciliationStatus; generatedCount: number;
+  reason: ContinuousObjectiveGenerationReason; observed?: number; excluded?: number;
+}) {
+  await tx.$executeRaw(Prisma.sql`
+    UPDATE public."CompanyOsContinuousObjective"
+    SET "reconciliationStatus"=${input.status},"lastGeneratedCount"=${input.generatedCount},
+      "zeroGenerationReason"=${input.reason},"lastReconciliationRunId"=${input.runId},"lastReconciledAt"=clock_timestamp(),"updatedAt"=clock_timestamp()
+    WHERE id=${goal.id}
+  `);
+  await appendEvent(tx, {
+    goalId: goal.id, eventType: 'OBJECTIVE_RECONCILED', idempotencyKey: `reconcile:${goal.id}:${input.runId}`,
+    payload: {
+      runId: input.runId, status: input.status, generatedCount: input.generatedCount,
+      zeroGenerationReason: input.generatedCount === 0 ? input.reason : null,
+      observed: input.observed ?? 0, excluded: input.excluded ?? 0, modelCalls: 0,
+    },
+  });
+}
+
+async function markGenerated(tx: Tx, goal: GoalRow, unitId: string, runId: string) {
+  const rows = await tx.$queryRaw<Array<{ lastGeneratedCount: number }>>(Prisma.sql`
+    UPDATE public."CompanyOsContinuousObjective"
+    SET "reconciliationStatus"='PENDING',
+      "lastGeneratedCount"=CASE WHEN "lastReconciliationRunId"=${runId} THEN "lastGeneratedCount"+1 ELSE 1 END,
+      "lastReconciliationRunId"=${runId},"zeroGenerationReason"='GENERATED',
+      "lastReconciledAt"=clock_timestamp(),"updatedAt"=clock_timestamp()
+    WHERE id=${goal.id}
+    RETURNING "lastGeneratedCount"
+  `);
+  await appendEvent(tx, {
+    goalId: goal.id, unitId, eventType: 'OBJECTIVE_GENERATED', idempotencyKey: `generated:${unitId}`,
+    payload: { runId, generatedCount: rows[0]?.lastGeneratedCount ?? 1, zeroGenerationReason: null, modelCalls: 0 },
+  });
+  return rows[0]?.lastGeneratedCount ?? 1;
 }
 async function fullView(tx: Tx, goal: GoalRow): Promise<ContinuousObjectiveView> {
   const units = await tx.$queryRaw<UnitRow[]>(Prisma.sql`
@@ -226,9 +270,9 @@ async function observeResults(tx: Tx, goal: GoalRow) {
 
 async function insertPlannedUnit(tx: Tx, goal: GoalRow, planned: Omit<ReturnType<typeof baselineObjectiveUnits>[number], 'ownerAgentId'> & { ownerAgentId: ContinuousObjectiveAgentId }) {
   const rows = await tx.$queryRaw<UnitRow[]>(Prisma.sql`
-    INSERT INTO public."CompanyOsObjectiveUnit" (id,"goalId",version,"sourceId",fingerprint,status,"ownerAgentId",priority,source)
-    VALUES (${randomUUID()},${goal.id},${goal.version},${planned.sourceId},${planned.fingerprint},'PLANNED',${planned.ownerAgentId},${planned.priority},${json(planned.source)}::jsonb)
-    ON CONFLICT ("goalId",version,"sourceId",fingerprint) DO NOTHING RETURNING *
+    INSERT INTO public."CompanyOsObjectiveUnit" (id,"goalId",version,"sourceId","rootKey",fingerprint,status,"ownerAgentId",priority,source)
+    VALUES (${randomUUID()},${goal.id},${goal.version},${planned.sourceId},${planned.rootKey},${planned.fingerprint},'PLANNED',${planned.ownerAgentId},${planned.priority},${json(planned.source)}::jsonb)
+    ON CONFLICT DO NOTHING RETURNING *
   `);
   if (rows[0]) await appendEvent(tx, { goalId: goal.id, unitId: rows[0].id, eventType: 'UNIT_PLANNED',
     idempotencyKey: `planned:${rows[0].id}`, payload: { sourceId: planned.sourceId, fingerprint: planned.fingerprint, ownerAgentId: planned.ownerAgentId } });
@@ -238,10 +282,10 @@ async function insertPlannedUnit(tx: Tx, goal: GoalRow, planned: Omit<ReturnType
 async function insertBlockedExternalUnit(tx: Tx, goal: GoalRow, sourceId: ContinuousObjectiveExternalSourceId) {
   const blocked = blockedExternalSourceUnit(sourceId);
   const rows = await tx.$queryRaw<UnitRow[]>(Prisma.sql`
-    INSERT INTO public."CompanyOsObjectiveUnit" (id,"goalId",version,"sourceId",fingerprint,status,"ownerAgentId",priority,source,"resultSummary")
-    VALUES (${randomUUID()},${goal.id},${goal.version},${blocked.sourceId},${blocked.fingerprint},'BLOCKED',${blocked.ownerAgentId},${blocked.priority},${json(blocked.source)}::jsonb,
+    INSERT INTO public."CompanyOsObjectiveUnit" (id,"goalId",version,"sourceId","rootKey",fingerprint,status,"ownerAgentId",priority,source,"resultSummary")
+    VALUES (${randomUUID()},${goal.id},${goal.version},${blocked.sourceId},${blocked.sourceId},${blocked.fingerprint},'BLOCKED',${blocked.ownerAgentId},${blocked.priority},${json(blocked.source)}::jsonb,
       ${blocked.source.reportedResult})
-    ON CONFLICT ("goalId",version,"sourceId",fingerprint) DO NOTHING RETURNING *
+    ON CONFLICT DO NOTHING RETURNING *
   `);
   if (rows[0]) await appendEvent(tx, { goalId: goal.id, unitId: rows[0].id, eventType: 'EXTERNAL_SOURCE_BLOCKED',
     idempotencyKey: `external-blocked:${goal.id}:${sourceId}`, payload: { sourceId, status: CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES.find((source) => source.id === sourceId)?.status,
@@ -256,8 +300,19 @@ async function latestExternalObservation(tx: Tx, sourceId: ContinuousObjectiveEx
     WHERE "dependencyKey"=${dependencyKey} ORDER BY "observedAt" DESC LIMIT 1
   `);
   const observed = rows[0];
-  if (!observed || observed.status !== 'HEALTHY' || now.getTime() - new Date(observed.observedAt).getTime() > 30 * 60_000) return null;
+  if (!isFreshExternalSnapshot(sourceId, observed, now)) return null;
   return observed;
+}
+
+export function isFreshExternalSnapshot(sourceId: ContinuousObjectiveExternalSourceId, observed: {
+  status: string; detail: string | null; observedAt: Date | string;
+} | null | undefined, now: Date) {
+  // The local ChatGPT index is not an authorized bridge to thread contents.
+  // A generic worker heartbeat must never promote it to a live source.
+  if (sourceId === 'CHATGPT_WORK' || !observed || observed.status !== 'HEALTHY' || Number.isNaN(new Date(observed.observedAt).getTime())
+    || now.getTime() - new Date(observed.observedAt).getTime() > 30 * 60_000
+    || typeof observed.detail !== 'string') return false;
+  return /read_only=true;.*snapshot_id=snapshot:[a-f0-9]{32};.*evidence_hash=[a-f0-9]{64};.*cursor=/.test(observed.detail);
 }
 
 async function insertLiveExternalUnit(tx: Tx, goal: GoalRow, sourceId: ContinuousObjectiveExternalSourceId, detail: string | null) {
@@ -277,9 +332,10 @@ async function insertLiveExternalUnit(tx: Tx, goal: GoalRow, sourceId: Continuou
 
 /** Deterministic only. Returns at most one candidate per goal; the callback below owns atomic case creation. */
 export async function planContinuousObjectiveUnits(input: {
-  limit?: number; now?: Date; baselineFingerprints?: Partial<Record<ContinuousObjectiveAgentId, string>>;
+  limit?: number; now?: Date; runId?: string; baselineFingerprints?: Partial<Record<ContinuousObjectiveAgentId, string>>;
 } = {}) {
   const now = input.now ?? new Date();
+  const runId = input.runId ?? randomUUID();
   const limit = Math.max(1, Math.min(3, Math.floor(input.limit ?? 3)));
   return companyOsV3Prisma().$transaction(async (tx) => {
     const goals = await tx.$queryRaw<GoalRow[]>(Prisma.sql`
@@ -291,32 +347,59 @@ export async function planContinuousObjectiveUnits(input: {
     let scannedObjectives = 0; let observed = 0; let excluded = 0; let planned = 0;
     for (const goal of goals) {
       await observeResults(tx, goal);
-      if (goal.status === 'EXPIRED') continue;
+      if (goal.status === 'EXPIRED') {
+        await recordReconciliation(tx, goal, { runId, status: 'EXPIRED', generatedCount: 0, reason: 'OBJECTIVE_EXPIRED' });
+        continue;
+      }
       if (new Date(goal.endsAt) <= now) {
         await tx.$executeRaw(Prisma.sql`UPDATE public."CompanyOsContinuousObjective" SET status='EXPIRED',"controlRevision"="controlRevision"+1,"updatedAt"=clock_timestamp() WHERE id=${goal.id}`);
         await appendEvent(tx, { goalId: goal.id, eventType: 'OBJECTIVE_EXPIRED', idempotencyKey: `expired:${goal.id}`, payload: { endsAt: iso(goal.endsAt) } });
+        await recordReconciliation(tx, goal, { runId, status: 'EXPIRED', generatedCount: 0, reason: 'OBJECTIVE_EXPIRED' });
         continue;
       }
-      if (goal.status !== 'ACTIVE' || new Date(goal.startsAt) > now) continue;
+      if (goal.status !== 'ACTIVE' || new Date(goal.startsAt) > now) {
+        if (goal.status === 'PAUSED') await recordReconciliation(tx, goal, { runId, status: 'QUIESCENT', generatedCount: 0, reason: 'OBJECTIVE_PAUSED' });
+        else await recordReconciliation(tx, goal, { runId, status: 'QUIESCENT', generatedCount: 0, reason: 'OBJECTIVE_NOT_DUE' });
+        continue;
+      }
+      let reconciliationStatus: ContinuousObjectiveReconciliationStatus = 'QUIESCENT';
+      let generationReason: ContinuousObjectiveGenerationReason = 'OBJECTIVE_NOT_DUE';
+      let observedForRun = 0;
+      let excludedForRun = 0;
+      let plannedForGoal = 0;
       if (new Date(goal.nextScanAt) <= now && scannedObjectives < limit) {
         const candidates = await sourceCandidates(tx, goal);
+        const uniqueCandidates = deduplicateObjectiveSources(candidates);
         const domains = new Set(goal.scanDomains);
         let pageExcluded = 0;
+        const excludedReasons = new Set<string>();
         for (const candidate of candidates) {
           const result = planObjectiveSource(candidate, goal.projectAllowlist);
-          if ('excluded' in result) { pageExcluded += 1; continue; }
+          if ('excluded' in result && typeof result.excluded === 'string') { pageExcluded += 1; excludedReasons.add(result.excluded); continue; }
+        }
+        for (const candidate of uniqueCandidates) {
+          const result = planObjectiveSource(candidate, goal.projectAllowlist);
+          if ('excluded' in result) continue;
           domains.add(result.ownerAgentId);
-          planned += await insertPlannedUnit(tx, goal, result);
+          const inserted = await insertPlannedUnit(tx, goal, result);
+          planned += inserted;
+          plannedForGoal += inserted;
         }
         const complete = candidates.length < SCAN_PAGE_SIZE;
+        let blockedExternal = 0;
         if (complete) for (const sourceId of goal.externalSources) {
           const observation = await latestExternalObservation(tx, sourceId, now);
-          planned += observation
+          const inserted = observation
             ? await insertLiveExternalUnit(tx, goal, sourceId, observation.detail)
             : await insertBlockedExternalUnit(tx, goal, sourceId);
+          planned += inserted;
+          plannedForGoal += inserted;
+          if (!observation) blockedExternal += 1;
         }
         if (complete && goal.projectAllowlist.length > 0) for (const baseline of baselineObjectiveUnits(goal, [...domains], input.baselineFingerprints)) {
-          planned += await insertPlannedUnit(tx, goal, baseline);
+          const inserted = await insertPlannedUnit(tx, goal, baseline);
+          planned += inserted;
+          plannedForGoal += inserted;
         }
         const totalObserved = goal.scanObserved + candidates.length;
         const totalExcluded = goal.scanExcluded + pageExcluded;
@@ -332,8 +415,21 @@ export async function planContinuousObjectiveUnits(input: {
         await appendEvent(tx, { goalId: goal.id, eventType: 'OBJECTIVE_SCANNED',
           idempotencyKey: `scan:${goal.id}:${randomUUID()}`,
           payload: { observed: candidates.length, excluded: pageExcluded, totalObserved, totalExcluded, complete, cursor,
-            scope: 'ALLOWLISTED_PROJECT_METADATA', excludedReasons: 'Personal, activa, archivada, fuera de alcance o requiere decisión', llmCalls: 0 } });
+            scope: 'ALLOWLISTED_PROJECT_METADATA', excludedReasons: [...excludedReasons], llmCalls: 0 } });
         scannedObjectives += 1; observed += candidates.length; excluded += pageExcluded;
+        observedForRun = candidates.length;
+        excludedForRun = pageExcluded;
+        if (blockedExternal > 0 && candidates.length === 0 && plannedForGoal === blockedExternal) {
+          reconciliationStatus = 'BLOCKED_FINAL'; generationReason = 'BLOCKED_EXTERNAL';
+        } else if (excludedReasons.has('STALE_SOURCE')) {
+          reconciliationStatus = 'STALE'; generationReason = 'STALE_SOURCE';
+        } else if (excludedReasons.has('REQUIRES_DECISION_OR_NOT_PENDING')) {
+          reconciliationStatus = 'AWAITING_HUMAN'; generationReason = 'AWAITING_HUMAN';
+        } else if (plannedForGoal > 0) {
+          reconciliationStatus = 'PENDING'; generationReason = 'READY_TO_GENERATE';
+        } else {
+          reconciliationStatus = 'QUIESCENT'; generationReason = 'NO_ELIGIBLE_SOURCE';
+        }
       }
       const candidates = await tx.$queryRaw<UnitRow[]>(Prisma.sql`
         SELECT * FROM public."CompanyOsObjectiveUnit" unit WHERE "goalId"=${goal.id} AND status='PLANNED'
@@ -348,8 +444,13 @@ export async function planContinuousObjectiveUnits(input: {
           "createdAt",id LIMIT 1
       `);
       if (candidates[0]) pendingUnits.push(pendingView(candidates[0], goal));
+      if (candidates[0] && ['OBJECTIVE_NOT_DUE', 'NO_ELIGIBLE_SOURCE'].includes(generationReason)) {
+        reconciliationStatus = 'PENDING'; generationReason = 'ACTIVE_UNIT_IN_FLIGHT';
+      }
+      await recordReconciliation(tx, goal, { runId, status: reconciliationStatus, generatedCount: 0,
+        reason: generationReason, observed: observedForRun, excluded: excludedForRun });
     }
-    return { scannedObjectives, observed, excluded, planned, pendingUnits };
+    return { scannedObjectives, observed, excluded, planned, pendingUnits, runId };
   }, { timeout: 30_000 });
 }
 
@@ -357,8 +458,10 @@ export async function planContinuousObjectiveUnits(input: {
 export async function withContinuousObjectiveUnitClaim(
   unitId: string,
   createCase: (tx: Tx, unit: PendingContinuousObjectiveUnit, goal: ContinuousObjectiveDefinition) => Promise<string>,
+  options: { runId?: string } = {},
 ): Promise<{ claimed: boolean; caseId?: string; unitId: string; reason?: string }> {
   if (typeof unitId !== 'string' || !/^[A-Za-z0-9_-]{8,128}$/.test(unitId)) throw new ContinuousObjectiveError('Unidad inválida');
+  const runId = options.runId ?? `claim-${randomUUID()}`;
   return companyOsV3Prisma().$transaction(async (tx) => {
     const goals = await tx.$queryRaw<GoalRow[]>(Prisma.sql`
       SELECT goal.* FROM public."CompanyOsContinuousObjective" goal WHERE goal.id=(SELECT "goalId" FROM public."CompanyOsObjectiveUnit" WHERE id=${unitId}) FOR UPDATE
@@ -394,6 +497,7 @@ export async function withContinuousObjectiveUnitClaim(
     await tx.$executeRaw(Prisma.sql`UPDATE public."CompanyOsObjectiveUnit" SET status='QUEUED',"caseId"=${caseId},"updatedAt"=clock_timestamp() WHERE id=${unit.id}`);
     await appendEvent(tx, { goalId: goal.id, unitId, eventType: 'UNIT_QUEUED', idempotencyKey: `queued:${unit.id}`,
       payload: { caseId, ownerAgentId: unit.ownerAgentId, verificationScope: 'ANALYSIS_ONLY' } });
+    await markGenerated(tx, goal, unit.id, runId);
     return { claimed: true, unitId, caseId };
   }, { timeout: 30_000 });
 }

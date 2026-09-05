@@ -15,12 +15,13 @@ const createInput = {
 };
 const fixture: ContinuousObjectiveDisplay = {
   id:'objective-1',version:1,controlRevision:0,title:'Calidad de datos',objective:'Revisar fuentes y documentar resultados.',status:'ACTIVE',
+  reconciliationStatus:'QUIESCENT',lastGeneratedCount:0,zeroGenerationReason:'OBJECTIVE_NOT_DUE',lastReconciliationRunId:null,lastReconciledAt:'2026-09-03T01:00:00Z',
   startsAt:'2026-09-03T01:00:00Z',endsAt:'2026-10-03T01:00:00Z',projectAllowlist:['SISTEMA ESWCARGO'],externalSources:[],criteria:['Cada análisis conserva evidencia.'],
   scanIntervalMinutes:60,nextScanAt:'2026-09-03T02:00:00Z',createdBy:'admin',createdAt:'2026-09-03T01:00:00Z',updatedAt:'2026-09-03T01:00:00Z',
   lastScanAt:'2026-09-03T01:00:00Z',sourcesObserved:1,sourcesExcluded:0,
   counts:{planned:0,queued:0,analyzed:0,verified:1,needsReview:0,blocked:0,skipped:0},
   units:[{
-    id:'unit-1',goalId:'objective-1',version:1,sourceId:'source-1',fingerprint:'f'.repeat(64),caseId:'case-1',status:'VERIFIED',ownerAgentId:'data-manager-ai-v1',priority:50,
+    id:'unit-1',goalId:'objective-1',version:1,sourceId:'source-1',rootKey:'root-1',fingerprint:'f'.repeat(64),caseId:'case-1',status:'VERIFIED',ownerAgentId:'data-manager-ai-v1',priority:50,
     source:{kind:'DATA_BASELINE',projectName:'SISTEMA ESWCARGO',title:'Revisión de cobertura',authority:'LIVE_SNAPSHOT_REQUIRED',verificationScope:'ANALYSIS_ONLY'},
     resultSummary:'Análisis cerrado con fuente observada.',resultEvidence:['case:case-1','evidence:quality'],sourceResolved:false,verificationScope:'ANALYSIS_ONLY',createdAt:'2026-09-03T01:00:00Z',updatedAt:'2026-09-03T01:01:00Z',
   }],
@@ -30,7 +31,8 @@ test('objetivo HTTP conserva duración estable y rechaza presupuestos o campos e
   assert.deepEqual(parseContinuousObjectiveRequest(createInput),createInput);
   for (const durationDays of [0,31,1.5,'30']) assert.throws(()=>parseContinuousObjectiveRequest({...createInput,durationDays}),/1 a 30/);
   assert.throws(()=>parseContinuousObjectiveRequest({...createInput,budgetUsd:100}),/campos no permitidos/);
-  assert.deepEqual(parseContinuousObjectiveRequest({...createInput,projectAllowlist:[],externalSources:['GOOGLE_DRIVE']}).projectAllowlist,[]);
+  const externalRequest = parseContinuousObjectiveRequest({...createInput,projectAllowlist:[],externalSources:['GOOGLE_DRIVE']});
+  assert.deepEqual('projectAllowlist' in externalRequest ? externalRequest.projectAllowlist : null,[]);
   assert.throws(()=>parseContinuousObjectiveRequest({...createInput,projectAllowlist:[],externalSources:[]}),/alcance|fuente/i);
   assert.throws(()=>parseContinuousObjectiveRequest({...createInput,criteria:['uno','uno']}),/repetidos/);
   assert.throws(()=>parseContinuousObjectiveRequest({...createInput,idempotencyKey:undefined}),/Clave/);

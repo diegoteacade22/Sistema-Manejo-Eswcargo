@@ -337,8 +337,8 @@ export class EngineeringGoalReconciler {
       }
     }
     this.lastReconciledAt = new Date(this.now()).toISOString();
-    this.lastDecision = materialized > 0 ? 'MATERIALIZED'
-      : invalid > 0 || stale > 0 || blockedFinal > 0 || expired > 0 ? 'DEGRADED'
+    this.lastDecision = invalid > 0 || stale > 0 || blockedFinal > 0 || expired > 0 ? 'DEGRADED'
+      : materialized > 0 ? 'MATERIALIZED'
         : awaitingHuman > 0 ? 'AWAITING_HUMAN'
         : pending > 0 ? 'PENDING' : 'QUIESCENT';
     this.healthy = invalid === 0 && stale === 0 && blockedFinal === 0 && expired === 0;
