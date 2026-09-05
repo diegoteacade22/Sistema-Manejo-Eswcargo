@@ -54,7 +54,7 @@ test('General return is phase-specific and cannot redelegate; original contract 
   assert.match(request.input[0].content, /INTEGRATE_SPECIALIST_RESULT/);
   assert.equal(request.text.format.schema.properties.delegations.maxItems, 0);
   assert.deepEqual(JSON.parse(request.input[1].content).contextMessages, integrationContext(claim));
-  const initial = advisoryRequestBody({ ...claim, contextMessages: [] }, { requireClaimOutputSchema: true });
+  const initial = advisoryRequestBody({ ...claim, runtimePhase: null, contextMessages: [] }, { requireClaimOutputSchema: true });
   assert.doesNotMatch(initial.input[0].content, /INTEGRATE_SPECIALIST_RESULT/);
   assert.equal(initial.text.format.schema.properties.delegations.maxItems, 1);
   assert.deepEqual(claim, before);
@@ -65,6 +65,16 @@ test('General return is phase-specific and cannot redelegate; original contract 
   const local = new OllamaAdvisoryClient({ model: 'qwen3:4b-q4_K_M' }).requestBody(claim);
   assert.equal(local.format.properties.delegations.maxItems, 0);
   assert.equal(local.options.num_predict, 3000);
+});
+
+test('server-owned integration phase stays fail-closed even if context is unexpectedly empty', () => {
+  const missingContext = { ...claim, contextMessages: [] };
+  const request = advisoryRequestBody(missingContext, { requireClaimOutputSchema: true });
+  assert.match(request.input[0].content, /INTEGRATE_SPECIALIST_RESULT/);
+  assert.equal(request.text.format.schema.properties.delegations.maxItems, 0);
+  assert.throws(() => validateRuntimeContractOutput(missingContext, {
+    summary: 'No hay resultado visible.', confidence: 0.9, needsHumanDecision: false, delegations: [{}],
+  }), /cannot delegate/);
 });
 
 test('integration output rejection cannot be bypassed by the model; confidence/review are not rewritten', () => {

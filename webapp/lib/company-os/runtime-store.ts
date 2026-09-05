@@ -551,8 +551,19 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
       take: 30,
       select: { id: true, role: true, kind: true, messageType: true, fromAgentId: true, toAgentId: true, content: true, payload: true, createdAt: true },
     });
+    const integratingSpecialistResult = isSpecialistIntegration(candidate);
+    if (integratingSpecialistResult && !contextMessages.some((message) => message.id === candidate.causalMessageId)) {
+      const causalContextMessage = await tx.companyOsMessage.findFirst({
+        where: { id: candidate.causalMessageId!, caseId: candidate.caseId },
+        select: { id: true, role: true, kind: true, messageType: true, fromAgentId: true, toAgentId: true, content: true, payload: true, createdAt: true },
+      });
+      if (!causalContextMessage) throw new Error('El mensaje causal de integración no está disponible');
+      contextMessages.push(causalContextMessage);
+    }
     const evidencePayload = Object.fromEntries(evidence.map((item) => [item.evidenceKey, item.value]));
-    const orderedContextMessages = runtimeContextMessages(candidate, contextMessages.reverse());
+    const orderedContextMessages = runtimeContextMessages(candidate, contextMessages
+      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+      .reverse());
     const inputBudget = claimTargetTotal - claimMaxOutput;
     const effectiveInputTokens = estimateJsonTokens({
       requestId: candidate.requestId,
@@ -653,7 +664,7 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
       contractVersion: candidate.contractVersion,
       contract: runtimeContract,
       dataPolicy,
-      runtimePhase: isSpecialistIntegration(candidate) ? SPECIALIST_INTEGRATION_PHASE : null,
+      runtimePhase: integratingSpecialistResult ? SPECIALIST_INTEGRATION_PHASE : null,
       evidencePayload,
       contextMessages: orderedContextMessages,
       budgets: {

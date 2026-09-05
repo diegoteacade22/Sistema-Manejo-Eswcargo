@@ -10,6 +10,7 @@ async function claimWith(options: {
   caseType?: string; used?: number; paused?: boolean; objectiveActive?: boolean;
   evidence?: unknown; loseWorkRace?: boolean; allowlist?: string | null; goalIncluded?: boolean;
   specialistReturn?: boolean; contextMessages?: Array<Record<string, unknown>>;
+  causalContextMessage?: Record<string, unknown>;
   causalKind?: string; causalDeliveryStatus?: string;
   causalMessageType?: string; causalFromAgentId?: string; causalToAgentId?: string;
   causalMessageId?: string | null; causalCorrelationId?: string | null; causalCausationId?: string | null;
@@ -79,7 +80,11 @@ async function claimWith(options: {
       findFirst: async () => null,
       update: async ({ data }: { data: Record<string, unknown> }) => { workUpdates.push(data); return {}; },
     },
-    companyOsMessage: { findFirst: async () => null, findMany: async () => options.contextMessages ?? [] },
+    companyOsMessage: {
+      findFirst: async ({ where }: { where: { id: string } }) =>
+        options.causalContextMessage?.id === where.id ? options.causalContextMessage : null,
+      findMany: async () => options.contextMessages ?? [],
+    },
     companyOsEvidenceRef: { findMany: async () => options.evidence ? [{ evidenceKey: 'snapshot', value: options.evidence }] : [] },
     companyOsExecutionAttempt: { count: async () => 0, create: async () => ({ id: 'attempt-test' }) },
     companyOsRuntimeSlot: { update: async () => ({}) },
@@ -213,6 +218,21 @@ test('standard baseline specialist return is compacted and receives the integrat
   assert.equal(result.claim.runtimePhase, 'INTEGRATE_SPECIALIST_RESULT');
   assert.deepEqual(result.claim.contextMessages.map((message: { id: string }) => message.id), ['specialist']);
   assert.equal(result.claim.budgets.targetTotalTokens, 12_000);
+});
+
+test('claim always includes the exact causal result when it falls outside the recent-message window', async () => {
+  const causal = { id: 'specialist', role: 'assistant', kind: 'RESULT', messageType: 'SPECIALIST_RESULT',
+    fromAgentId: 'data-manager-ai-v1', toAgentId: 'general-manager-ai-v3', content: 'resultado exacto', payload: {}, createdAt: new Date(1) };
+  const recent = Array.from({ length: 30 }, (_, index) => ({ id: `recent-${index}`, role: 'user', kind: 'CONTEXT',
+    messageType: null, fromAgentId: null, toAgentId: 'general-manager-ai-v3', content: 'contexto', payload: {},
+    createdAt: new Date(100 + index) }));
+  const result = await claimWith({ caseType: 'ADVISORY', used: 0, specialistReturn: true,
+    causalFromAgentId: 'data-manager-ai-v1', contextMessages: recent, causalContextMessage: causal });
+  assert.ok(result.claim);
+  assert.equal(result.claim.runtimePhase, 'INTEGRATE_SPECIALIST_RESULT');
+  assert.equal(result.claim.contextMessages.length, 31);
+  assert.equal(result.claim.contextMessages[0].id, 'specialist');
+  assert.equal(result.claim.contextMessages.filter((message: { id: string }) => message.id === 'specialist').length, 1);
 });
 
 test('standard initial case keeps its full context and has no integration phase', async () => {

@@ -1,5 +1,5 @@
 import { requiresLocalInference } from './data-policy.mjs';
-import { continuousIntegrationResults, CONTINUOUS_INTEGRATION_RULE, integrationContext } from './continuous-integration.mjs';
+import { CONTINUOUS_INTEGRATION_RULE, integrationContext, isSpecialistIntegrationClaim } from './continuous-integration.mjs';
 
 export const ADVISORY_OUTPUT_SCHEMA = Object.freeze({
   type: 'object',
@@ -357,7 +357,7 @@ export function validateRuntimeContractOutput(claim, value) {
   const schema = runtimeOutputSchemaForClaim(claim);
   validateValueAgainstSchema(value, schema);
   verifyEvidenceReferences(value, new Set(Object.keys(claim.evidencePayload || {})));
-  if (continuousIntegrationResults(claim).length && Array.isArray(value.delegations) && value.delegations.length) {
+  if (isSpecialistIntegrationClaim(claim) && Array.isArray(value.delegations) && value.delegations.length) {
     throw runtimeOutputError('Specialist integration cannot delegate an already completed specialist review');
   }
   const minimumConfidence = Number(claim.contract?.lowConfidencePolicy?.minConfidence);
@@ -375,7 +375,7 @@ function retryableStatus(status) {
 export function advisoryRequestBody(claim, { model = 'gpt-5.6-sol', requireClaimOutputSchema = false } = {}) {
   const systemsManager = claim.agentId === 'systems-manager-ai-v1';
   const runtimeSchema = requireClaimOutputSchema ? runtimeOutputSchemaForClaim(claim) : null;
-  const integrating = continuousIntegrationResults(claim).length > 0;
+  const integrating = isSpecialistIntegrationClaim(claim);
   if (integrating && runtimeSchema?.properties?.delegations) {
     runtimeSchema.properties.delegations.maxItems = 0;
   }
