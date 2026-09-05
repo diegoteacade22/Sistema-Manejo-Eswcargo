@@ -23,7 +23,7 @@ const CODEX_AUTO_RESUME_PROMPT = [
   'No reinicies trabajo que ya esté terminado y verificá por readback antes de cerrar.',
   'Para que el tablero sea autosuficiente, antes de la última línea incluí una línea DASHBOARD_RESULT: con el resultado concreto en lenguaje humano, sin secretos, datos personales, enlaces ni rutas.',
   'Si el resultado es NEEDS_USER, incluí también una línea BLOCKER_REASON: con el motivo concreto y una línea DIEGO_DECISION: con la única autorización o decisión que Diego debe escribir en el tablero.',
-  'La última línea debe ser exactamente AUTONOMY_RESULT: COMPLETED si el objetivo quedó verificado, AUTONOMY_RESULT: NEEDS_USER si sólo Diego puede destrabarlo, o AUTONOMY_RESULT: BLOCKED_EXTERNAL si depende de un tercero o servicio externo.',
+  'La última línea debe ser exactamente AUTONOMY_RESULT: COMPLETED si el objetivo quedó verificado, AUTONOMY_RESULT: CONTINUE si el objetivo durable sigue abierto y dejaste un próximo paso seguro verificable, AUTONOMY_RESULT: NEEDS_USER si sólo Diego puede destrabarlo, o AUTONOMY_RESULT: BLOCKED_EXTERNAL si depende de un tercero o servicio externo.',
 ].join(' ');
 const REPLY_DELIVERY_STATES = new Set(['CONFIRMED', 'CLAIMED', 'DELIVERED', 'FAILED', 'UNKNOWN_OUTCOME', 'SUPERSEDED']);
 const SENSITIVE_REPLY_ERROR = 'No guardes contraseñas, tokens, códigos, correos, teléfonos, enlaces ni rutas. Respondé sólo la decisión necesaria para esta tarea.';
@@ -1156,6 +1156,25 @@ export async function reportCodexTaskDispatch(raw: unknown, actorRef: string) {
     );
     const completedAfterPrompt = Boolean(promptObservedAt && task.lastCompletedAt && task.lastCompletedAt > promptObservedAt);
     const hasDashboardResult = Boolean(task.resultSummary?.trim());
+    const continuationVerified = outcome === 'SUCCEEDED'
+      && promptObserved
+      && completedAfterClaim
+      && completedAfterPrompt
+      && hasDashboardResult
+      && task.humanStatus === 'PENDING'
+      && task.autonomyLevel === 'A1';
+    if (continuationVerified) {
+      await appendDispatchTransition(tx, task, 'PENDING', safeActorRef, 'continue-verified');
+      return {
+        reported: true,
+        changed: true,
+        verifiedCompletion: false,
+        continuationVerified: true,
+        outcome,
+        humanStatus: 'PENDING',
+        reason: 'CONTINUATION_VERIFIED',
+      };
+    }
     if (outcome === 'SUCCEEDED' && promptObserved && completedAfterClaim && completedAfterPrompt && hasDashboardResult) {
       const verifiedStatus = ['UNREVIEWED', 'NEEDS_DIEGO', 'BLOCKED', 'READY_REVIEW', 'MONITORING'].includes(task.humanStatus)
         ? task.humanStatus as 'UNREVIEWED' | 'NEEDS_DIEGO' | 'BLOCKED' | 'READY_REVIEW' | 'MONITORING'

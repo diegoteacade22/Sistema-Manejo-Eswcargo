@@ -337,6 +337,11 @@ test('la reanudación usa HMAC, journal durable, configuración aprobada y no he
   assert.match(collector, /humanResponseHash: claim\.dispatch\.humanResponseHash \|\| null,\s+promptHash: null,/);
   assert.match(store, /claimKeyPrefix/);
   assert.match(store, /outcome === 'SUCCEEDED' && promptObserved && completedAfterClaim && completedAfterPrompt/);
+  assert.match(store, /const continuationVerified/);
+  assert.match(store, /task\.humanStatus === 'PENDING'/);
+  assert.match(store, /task\.autonomyLevel === 'A1'/);
+  assert.match(store, /'continue-verified'/);
+  assert.match(store, /reason: 'CONTINUATION_VERIFIED'/);
   assert.match(store, /task\.lastCompletedAt > promptObservedAt/);
   assert.match(store, /state: 'UNKNOWN_OUTCOME'/);
   assert.match(store, /previous && previous\.fingerprint !== task\.fingerprint[\s\S]*state: 'CONFIRMED'[\s\S]*state: 'SUPERSEDED'/);
