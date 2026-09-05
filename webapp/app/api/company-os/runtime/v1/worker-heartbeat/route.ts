@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { recordCompanyOsWorkerHeartbeat } from '@/lib/company-os/runtime-store';
+import { ExternalSourceItemError, parseRuntimeExternalSourceBatches } from '@/lib/company-os/runtime-external-items';
 import { requiredString, verifiedRuntimeJson } from '../_request';
 
 export const dynamic = 'force-dynamic';
@@ -16,15 +17,36 @@ export async function POST(request: Request) {
   if (!workerId || !instanceId || !host || !version || !state || !startedAt) {
     return NextResponse.json({ error: 'Heartbeat del worker incompleto' }, { status: 400 });
   }
-  const dependencies = Array.isArray(verified.input.dependencies)
+  const baseDependencies = Array.isArray(verified.input.dependencies)
     ? verified.input.dependencies.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item))).map((item) => ({
       key: String(item.key ?? ''), status: String(item.status ?? ''),
       observedAt: typeof item.observedAt === 'string' ? item.observedAt : undefined,
       latencyMs: item.latencyMs == null ? null : Number(item.latencyMs),
       detail: typeof item.detail === 'string' ? item.detail : null,
       caseId: typeof item.caseId === 'string' ? item.caseId : null,
-    })) : [];
+    })).filter((item) => !item.key.startsWith('external-')) : [];
   try {
+    const externalSourceBatches = parseRuntimeExternalSourceBatches(verified.input.externalSources);
+    const batchesBySource = new Map(externalSourceBatches.map((batch) => [batch.sourceId, batch]));
+    const externalDependencies = Array.isArray(verified.input.externalSources)
+      ? verified.input.externalSources.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && !Array.isArray(item)))
+        .flatMap((item) => {
+          const sourceId = typeof item.sourceId === 'string' ? item.sourceId : '';
+          const batch = batchesBySource.get(sourceId as typeof externalSourceBatches[number]['sourceId']);
+          if (item.status === 'HEALTHY' && batch) return [{
+            key: `external-${batch.sourceId.toLowerCase().replaceAll('_', '-')}`, status: 'HEALTHY', observedAt: batch.capturedAt,
+            latencyMs: item.latencyMs == null ? null : Number(item.latencyMs), caseId: null,
+            detail: `read_only=true;items_schema=v1;items_count=${batch.items.length};snapshot_id=${batch.snapshotId};evidence_hash=${batch.evidenceHash};complete=${batch.complete};authority_mode=${batch.authorityMode};cursor_hash=${batch.cursorHash}`,
+          }];
+          if (item.status === 'UNAVAILABLE' && /^(GOOGLE_DRIVE|GOOGLE_SHEETS|GOOGLE_CONTACTS|CHATGPT_WORK)$/.test(sourceId)) return [{
+            key: `external-${sourceId.toLowerCase().replaceAll('_', '-')}`, status: 'UNAVAILABLE',
+            observedAt: typeof item.observedAt === 'string' ? item.observedAt : undefined,
+            latencyMs: item.latencyMs == null ? null : Number(item.latencyMs), caseId: null,
+            detail: typeof item.detail === 'string' ? item.detail : 'read_only=true;code=UNAVAILABLE',
+          }];
+          return [];
+        }) : [];
+    const dependencies = [...baseDependencies, ...externalDependencies];
     const result = await recordCompanyOsWorkerHeartbeat({
       workerId, instanceId, host, version, state, startedAt,
       currentWork: Array.isArray(verified.input.currentWork) ? verified.input.currentWork : [],
@@ -33,9 +55,13 @@ export async function POST(request: Request) {
         ? verified.input.allowedAgentIds.filter((item): item is string => typeof item === 'string') : [],
       lastErrorCode: typeof verified.input.lastErrorCode === 'string' ? verified.input.lastErrorCode : null,
       dependencies,
+      externalSourceBatches,
     });
     return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Heartbeat rechazado' }, { status: 409 });
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : 'Heartbeat rechazado',
+      ...(error instanceof ExternalSourceItemError ? { code: error.code } : {}),
+    }, { status: 409 });
   }
 }

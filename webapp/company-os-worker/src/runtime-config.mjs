@@ -67,6 +67,9 @@ export function loadRuntimeConfig(env = process.env) {
   }
 
   const stateDir = env.COMPANY_OS_RUNTIME_STATE_DIR?.trim() || join(homedir(), '.company-os-runtime');
+  const chatgptWorkProjectIds = (env.COMPANY_OS_RUNTIME_CHATGPT_WORK_PROJECT_IDS || '')
+    .split(',').map((value) => value.trim()).filter(Boolean)
+    .map((value) => identifier(value, 'COMPANY_OS_RUNTIME_CHATGPT_WORK_PROJECT_IDS'));
   const externalNotificationsEnabled = booleanValue(
     env.COMPANY_OS_RUNTIME_EXTERNAL_NOTIFICATIONS_ENABLED,
     false,
@@ -74,6 +77,10 @@ export function loadRuntimeConfig(env = process.env) {
   );
   if (externalNotificationsEnabled) {
     throw new Error('COMPANY_OS_RUNTIME_EXTERNAL_NOTIFICATIONS_ENABLED must remain false for runtime v1');
+  }
+  const sourceRevision = env.COMPANY_OS_RUNTIME_SOURCE_REVISION?.trim() || null;
+  if (sourceRevision !== null && !/^[a-f0-9]{40}$/.test(sourceRevision)) {
+    throw new Error('COMPANY_OS_RUNTIME_SOURCE_REVISION must be a full Git commit');
   }
 
   return Object.freeze({
@@ -88,6 +95,7 @@ export function loadRuntimeConfig(env = process.env) {
     version: COMPANY_OS_RUNTIME_VERSION,
     binaryVersion: COMPANY_OS_RUNTIME_BINARY_VERSION,
     contractVersion: COMPANY_OS_RUNTIME_CONTRACT_VERSION,
+    sourceRevision,
     healthHost: '127.0.0.1',
     healthPort: integerInRange(env.COMPANY_OS_RUNTIME_HEALTH_PORT, 8794, 'COMPANY_OS_RUNTIME_HEALTH_PORT', 1024, 65535),
     pollIntervalMs: integerInRange(env.COMPANY_OS_RUNTIME_POLL_INTERVAL_MS, 15_000, 'COMPANY_OS_RUNTIME_POLL_INTERVAL_MS', 5_000, 300_000),
@@ -105,6 +113,9 @@ export function loadRuntimeConfig(env = process.env) {
     localLineageModel: validateLocalLineageModel(env.COMPANY_OS_RUNTIME_LOCAL_LINEAGE_MODEL?.trim() || DEFAULT_LOCAL_LINEAGE_MODEL),
     ollamaTimeoutMs: integerInRange(env.COMPANY_OS_RUNTIME_OLLAMA_TIMEOUT_MS, 120_000, 'COMPANY_OS_RUNTIME_OLLAMA_TIMEOUT_MS', 5_000, 600_000),
     googleServiceAccountJson: env.COMPANY_OS_RUNTIME_GOOGLE_SERVICE_ACCOUNT_JSON?.trim() || null,
+    externalIdentitySecret: required('COMPANY_OS_EXTERNAL_IDENTITY_HMAC_SECRET', env),
+    chatgptWorkExportPath: join(stateDir, 'bridges', 'chatgpt-work.json'),
+    chatgptWorkProjectIds,
     stateDir,
     logDir: env.COMPANY_OS_RUNTIME_LOG_DIR?.trim() || join(stateDir, 'logs'),
     logMaxBytes: integerInRange(env.COMPANY_OS_RUNTIME_LOG_MAX_BYTES, 5_242_880, 'COMPANY_OS_RUNTIME_LOG_MAX_BYTES', 1_024, 104_857_600),

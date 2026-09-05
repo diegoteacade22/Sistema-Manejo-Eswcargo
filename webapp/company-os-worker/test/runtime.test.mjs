@@ -744,6 +744,7 @@ test('p√©rdida de heartbeat aborta el modelo activo y reporta el lease como rein
 test('config runtime fija intervalos, concurrencia, health local y notificaciones apagadas', () => {
   const config = loadRuntimeConfig({
     COMPANY_OS_RUNTIME_HMAC_SECRET: 'runtime-secret',
+    COMPANY_OS_EXTERNAL_IDENTITY_HMAC_SECRET: 'external-identity-secret',
     OPENAI_API_KEY: 'openai-test',
   });
   assert.equal(config.pollIntervalMs, 15_000);
@@ -757,6 +758,7 @@ test('config runtime fija intervalos, concurrencia, health local y notificacione
   assert.equal(config.version, '1.1.0');
   assert.equal(config.binaryVersion, '1.1.0');
   assert.equal(config.contractVersion, 'runtime-v1');
+  assert.equal(config.sourceRevision, null);
   assert.equal(config.externalNotificationsEnabled, false);
   assert.equal(config.ollamaFallbackEnabled, true);
   assert.equal(config.ollamaBaseUrl, 'http://127.0.0.1:11434');
@@ -764,6 +766,7 @@ test('config runtime fija intervalos, concurrencia, health local y notificacione
   assert.equal(config.localLineageModel, 'qwen3:4b-q4_K_M');
   assert.throws(() => loadRuntimeConfig({
     COMPANY_OS_RUNTIME_HMAC_SECRET: 'runtime-secret', OPENAI_API_KEY: 'openai-test',
+    COMPANY_OS_EXTERNAL_IDENTITY_HMAC_SECRET: 'external-identity-secret',
     COMPANY_OS_RUNTIME_LOCAL_LINEAGE_MODEL: 'qwen3:14b-q4_K_M',
   }), /allowlisted local model/);
   assert.throws(() => validateRuntimeApiBaseUrl('http://webapp-weld-psi.vercel.app'), /pure HTTPS origin/);
@@ -771,14 +774,21 @@ test('config runtime fija intervalos, concurrencia, health local y notificacione
   assert.throws(() => validateRuntimeApiBaseUrl('https://attacker.example'), /not allowlisted/);
   assert.throws(() => loadRuntimeConfig({
     COMPANY_OS_RUNTIME_HMAC_SECRET: 'runtime-secret', OPENAI_API_KEY: 'openai-test',
+    COMPANY_OS_EXTERNAL_IDENTITY_HMAC_SECRET: 'external-identity-secret',
     COMPANY_OS_RUNTIME_EXTERNAL_NOTIFICATIONS_ENABLED: 'true',
   }), /must remain false/);
+  assert.throws(() => loadRuntimeConfig({
+    COMPANY_OS_RUNTIME_HMAC_SECRET: 'runtime-secret', OPENAI_API_KEY: 'openai-test',
+    COMPANY_OS_EXTERNAL_IDENTITY_HMAC_SECRET: 'external-identity-secret',
+    COMPANY_OS_RUNTIME_SOURCE_REVISION: 'short-revision',
+  }), /full Git commit/);
 });
 
 test('daemon runtime cablea el fallback Ollama sin habilitarlo como proveedor primario', (t) => {
   const stateDir = tempDirectory(t);
   const config = loadRuntimeConfig({
     COMPANY_OS_RUNTIME_HMAC_SECRET: 'runtime-secret',
+    COMPANY_OS_EXTERNAL_IDENTITY_HMAC_SECRET: 'external-identity-secret',
     OPENAI_API_KEY: 'openai-test',
     COMPANY_OS_RUNTIME_STATE_DIR: stateDir,
   });
@@ -816,6 +826,7 @@ test('Data y su retorno General usan Qwen4b sin cambiar fallback14b ni validaci√
   const stateDir = tempDirectory(t);
   const config = loadRuntimeConfig({
     COMPANY_OS_RUNTIME_HMAC_SECRET: 'runtime-secret', OPENAI_API_KEY: 'openai-test',
+    COMPANY_OS_EXTERNAL_IDENTITY_HMAC_SECRET: 'external-identity-secret',
     COMPANY_OS_RUNTIME_STATE_DIR: stateDir,
   });
   const dataOutput = {

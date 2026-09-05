@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
+import { persistExternalSourceItems, type ExternalSourceItemBatch } from './runtime-external-items';
 import { sanitizeCompanyText } from './objective';
 import {
   COMPANY_OS_INSTALLED_AGENT_IDS,
@@ -36,6 +37,7 @@ const DEFAULT_LEASE_MS = 300_000;
 const DAILY_AGENT_TOKEN_LIMIT = 48_000;
 const MONTHLY_AGENT_TOKEN_LIMIT = 1_000_000;
 const REQUESTS_PER_MINUTE = 240;
+const AUTO_RETRYABLE_MODEL_ERRORS = new Set(['OPENAI_INVALID_RUNTIME_OUTPUT', 'OPENAI_INVALID_JSON']);
 
 // An explicit rollout scope prevents a budget fix from activating other goals.
 function adaptiveLocalGoalIds() {
@@ -1107,7 +1109,8 @@ export async function failCompanyOsRuntimeWork(input: {
       leaseToken: input.leaseToken,
       finishedAt: null,
     } });
-    const retryable = input.retryable && workItem.attemptCount < workItem.maxAttempts;
+    const retryable = (input.retryable || AUTO_RETRYABLE_MODEL_ERRORS.has(input.errorCode))
+      && workItem.attemptCount < workItem.maxAttempts;
     const nextAttemptAt = retryable ? new Date(Date.now() + retryDelayMs(workItem.attemptCount, workItem.id)) : null;
     const workStatus = retryable ? 'FAILED_RETRYABLE' : 'FAILED_FINAL';
     const outcome = input.errorCode === 'MODEL_TIMEOUT' || input.errorCode === 'LEASE_EXPIRED' ? 'TIMED_OUT' : 'FAILED';
@@ -1191,6 +1194,7 @@ export async function recordCompanyOsWorkerHeartbeat(input: {
   allowedAgentIds?: string[];
   lastErrorCode?: string | null;
   dependencies?: Array<{ key: string; status: string; observedAt?: string; latencyMs?: number | null; detail?: string | null; caseId?: string | null }>;
+  externalSourceBatches?: ExternalSourceItemBatch[];
 }) {
   if (!WORKER_STATES.has(input.state)) throw new Error('Estado de worker inválido');
   const startedAt = new Date(input.startedAt);
@@ -1251,7 +1255,8 @@ export async function recordCompanyOsWorkerHeartbeat(input: {
         observedAt: Number.isNaN(observedAt.getTime()) ? now : observedAt,
       } });
     }
-    return { recorded: true, observedAt: now.toISOString() };
+    const externalItems = await persistExternalSourceItems(tx, input.workerId, input.externalSourceBatches ?? [], now);
+    return { recorded: true, observedAt: now.toISOString(), externalItems };
   });
 }
 
@@ -1346,6 +1351,50 @@ async function recoverBudgetBlockedWork(tx: Tx, now: Date) {
   return recovered;
 }
 
+async function recoverPrematureTerminalModelFailures(tx: Tx, now: Date) {
+  const failures = await tx.$queryRaw<Array<{
+    workItemId: string; caseId: string; requestId: string; agentId: string; attemptCount: number; errorCode: string;
+  }>>(Prisma.sql`
+    SELECT work.id AS "workItemId",work."caseId",company_case."requestId",work."agentId",work."attemptCount",attempt."errorCode"
+    FROM public."CompanyOsWorkItem" work
+    JOIN public."CompanyOsCase" company_case ON company_case.id=work."caseId"
+    JOIN LATERAL (
+      SELECT execution."errorCode" FROM public."CompanyOsExecutionAttempt" execution
+      WHERE execution."workItemId"=work.id AND execution."finishedAt" IS NOT NULL
+      ORDER BY execution."attemptNo" DESC,execution."finishedAt" DESC LIMIT 1
+    ) attempt ON true
+    WHERE work.status='FAILED_FINAL' AND work."attemptCount"<work."maxAttempts"
+      AND attempt."errorCode" IN ('OPENAI_INVALID_RUNTIME_OUTPUT','OPENAI_INVALID_JSON')
+      AND company_case.status IN ('FAILED_FINAL','BLOCKED')
+      AND NOT EXISTS (SELECT 1 FROM public."CompanyOsLease" lease WHERE lease."workItemId"=work.id
+        AND lease.status='ACTIVE' AND lease."expiresAt">${now})
+    ORDER BY work."updatedAt",work.id FOR UPDATE OF work SKIP LOCKED LIMIT 25
+  `);
+  let recovered = 0;
+  for (const failure of failures) {
+    if (!isCompanyOsRuntimeAgentInstalled(failure.agentId)) continue;
+    await tx.companyOsWorkItem.update({ where: { id: failure.workItemId }, data: {
+      status: 'FAILED_RETRYABLE', availableAt: now, nextAttemptAt: now,
+    } });
+    await tx.companyOsCase.update({ where: { id: failure.caseId }, data: { status: 'FAILED_RETRYABLE', nextAttemptAt: now } });
+    await appendRuntimeEvent(tx, {
+      caseId: failure.caseId, requestId: failure.requestId, eventType: 'WORK_MODEL_FAILURE_AUTO_RECOVERED',
+      fromStatus: 'FAILED_FINAL', toStatus: 'FAILED_RETRYABLE',
+      payload: { workItemId: failure.workItemId, agentId: failure.agentId, errorCode: failure.errorCode,
+        attempt: failure.attemptCount, modelCalls: 0 },
+      idempotencyKey: `runtime:${failure.requestId}:model-failure-auto-recovered:${failure.workItemId}:${failure.attemptCount}`,
+    });
+    const idempotencyKey = `audit:runtime:${failure.workItemId}:${failure.attemptCount}:model-failure-auto-recovered`;
+    if (!await tx.companyOsAuditEvent.findUnique({ where: { idempotencyKey } })) await tx.companyOsAuditEvent.create({ data: {
+      requestId: failure.requestId, action: 'RUNTIME_MODEL_FAILURE_AUTO_RECOVERED', actorRef: 'company-os-reconciler',
+      metadata: jsonValue({ agentId: failure.agentId, workItemId: failure.workItemId, errorCode: failure.errorCode,
+        businessWrites: 0, infrastructureWrites: 0 }), idempotencyKey,
+    } });
+    recovered += 1;
+  }
+  return recovered;
+}
+
 /** Reconsider only a budget-imposed delay, never a human pause or retry backoff. */
 export async function reconsiderLocalObjectiveBudget(tx: Tx, now: Date) {
   const goalIds = adaptiveLocalGoalIds();
@@ -1429,6 +1478,7 @@ export async function reconcileCompanyOsRuntime(workerId: string) {
   return db.$transaction(async (tx) => {
     const now = new Date();
     const expiredLeases = await expireLeases(tx, now);
+    const modelFailuresRecovered = await recoverPrematureTerminalModelFailures(tx, now);
     const budgetRecovered = await recoverBudgetBlockedWork(tx, now);
     const runtimeControl = await tx.companyOsRuntimeControl.findUniqueOrThrow({ where: { id: 'primary' } });
     const budgetReconsidered = runtimeControl.paused ? 0 : await reconsiderLocalObjectiveBudget(tx, now);
@@ -1509,13 +1559,19 @@ export async function reconcileCompanyOsRuntime(workerId: string) {
       summary: `${expiredLeases} leases vencidos fueron recuperados de forma segura`,
       detail: { expiredLeases, reconciledBy: workerId },
     });
+    if (modelFailuresRecovered > 0) detected.push({
+      dedupeKey: `model-failure-auto-recovered:${now.toISOString().slice(0, 13)}`,
+      type: 'MODEL_FAILURE_AUTO_RECOVERED', severity: 'INFO',
+      summary: `${modelFailuresRecovered} fallos de salida del modelo volvieron a la cola con intentos restantes`,
+      detail: { recovered: modelFailuresRecovered, reconciledBy: workerId },
+    });
     for (const incident of detected) await upsertIncident(tx, incident, now);
     const activeKeys = detected.map((item) => item.dedupeKey);
     await tx.companyOsIncident.updateMany({
       where: { status: { in: ['OPEN', 'ACKNOWLEDGED'] }, ...(activeKeys.length ? { dedupeKey: { notIn: activeKeys } } : {}) },
       data: { status: 'RESOLVED', lastSeenAt: now },
     });
-    return { reconciledAt: now.toISOString(), expiredLeases, budgetRecovered, budgetReconsidered, incidentsOpen: detected.length };
+    return { reconciledAt: now.toISOString(), expiredLeases, modelFailuresRecovered, budgetRecovered, budgetReconsidered, incidentsOpen: detected.length };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 

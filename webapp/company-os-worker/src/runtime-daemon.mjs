@@ -168,6 +168,7 @@ export class CompanyOsRuntimeDaemon {
       version: this.config.version,
       binaryVersion: this.config.binaryVersion || this.config.version,
       contractVersion: this.config.contractVersion || 'runtime-v1',
+      sourceRevision: this.config.sourceRevision || null,
       state: this.effectiveState(),
       startedAt: this.startedAt,
       lastWorkerHeartbeatAt: this.lastWorkerHeartbeatAt,
@@ -203,7 +204,9 @@ export class CompanyOsRuntimeDaemon {
         { key: 'openclaw-optional', status: 'UNOBSERVED', observedAt: null, detail: 'Optional dependency not configured' },
         ...this.externalDependencies,
       ],
-      externalSources: this.externalDependencies.map(({ key, sourceId, status, observedAt, detail, latencyMs }) => ({ key, sourceId, status, observedAt, detail, latencyMs })),
+      externalSources: this.externalDependencies.map(({ key, sourceId, status, observedAt, detail, latencyMs, itemBatch }) => ({
+        key, sourceId, status, observedAt, detail, latencyMs, ...(itemBatch ? { itemBatch } : {}),
+      })),
     };
   }
 

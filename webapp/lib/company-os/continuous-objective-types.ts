@@ -5,10 +5,10 @@ export const CONTINUOUS_OBJECTIVE_ALLOWED_PROJECTS = [
 ] as const;
 
 export const CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES = [
-  { id: 'GOOGLE_DRIVE', label: 'Google Drive', status: 'BLOCKED_REQUIRES_RUNTIME_CONNECTOR', note: 'La conexión existe en la sesión de trabajo, pero todavía no está disponible para el runtime independiente.' },
-  { id: 'GOOGLE_SHEETS', label: 'Google Sheets', status: 'BLOCKED_REQUIRES_RUNTIME_CONNECTOR', note: 'Requiere OAuth de sólo lectura instalado en el runtime de Company OS.' },
-  { id: 'GOOGLE_CONTACTS', label: 'Contactos Google', status: 'BLOCKED_REQUIRES_RUNTIME_CONNECTOR', note: 'Requiere OAuth de sólo lectura instalado en el runtime de Company OS.' },
-  { id: 'CHATGPT_WORK', label: 'ChatGPT Work', status: 'BLOCKED_REQUIRES_READONLY_BRIDGE', note: 'No hay un puente autorizado que entregue contenido de hilos al runtime; queda preparado como integración read-only.' },
+  { id: 'GOOGLE_DRIVE', label: 'Google Drive', status: 'BLOCKED_REQUIRES_RUNTIME_CONNECTOR', note: 'Requiere una lectura canónica reciente y autorizada del runtime.' },
+  { id: 'GOOGLE_SHEETS', label: 'Google Sheets', status: 'BLOCKED_REQUIRES_RUNTIME_CONNECTOR', note: 'Requiere una lectura canónica reciente y autorizada del runtime.' },
+  { id: 'GOOGLE_CONTACTS', label: 'Contactos Google', status: 'BLOCKED_REQUIRES_RUNTIME_CONNECTOR', note: 'Requiere OAuth de usuario o delegación de dominio de sólo lectura; una cuenta de servicio aislada no alcanza.' },
+  { id: 'CHATGPT_WORK', label: 'ChatGPT Work', status: 'BLOCKED_REQUIRES_READONLY_BRIDGE', note: 'Requiere una exportación autorizada, reciente y de sólo metadata; el índice local de Codex no cuenta.' },
 ] as const;
 
 export type ContinuousObjectiveExternalSourceId = typeof CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES[number]['id'];
@@ -28,7 +28,7 @@ export type ContinuousObjectiveGenerationReason = typeof CONTINUOUS_OBJECTIVE_GE
 export type ObjectiveUnitStatus = 'PLANNED' | 'QUEUED' | 'ANALYZED' | 'VERIFIED' | 'NEEDS_REVIEW' | 'BLOCKED' | 'SKIPPED';
 export type ContinuousObjectiveAgentId = 'general-manager-ai-v3' | 'systems-manager-ai-v1' | 'data-manager-ai-v1';
 export type ObjectiveUnitSource = {
-  kind: 'CODEX_METADATA' | 'SYSTEMS_BASELINE' | 'DATA_BASELINE' | 'EXTERNAL_SOURCE_BLOCKED' | 'EXTERNAL_SOURCE_LIVE';
+  kind: 'CODEX_METADATA' | 'SYSTEMS_BASELINE' | 'DATA_BASELINE' | 'EXTERNAL_SOURCE_BLOCKED' | 'EXTERNAL_SOURCE_LIVE' | 'EXTERNAL_ITEM_METADATA';
   projectName: string;
   title: string;
   threadId?: string;
@@ -37,6 +37,11 @@ export type ObjectiveUnitSource = {
   sourceFingerprint?: string;
   nextAction?: string;
   reportedResult?: string;
+  externalSourceId?: ContinuousObjectiveExternalSourceId;
+  itemKey?: string;
+  revisionFingerprint?: string;
+  sourceUpdatedAt?: string | null;
+  deadline?: string;
   authority: 'UNTRUSTED_METADATA_ONLY' | 'LIVE_SNAPSHOT_REQUIRED' | 'CONNECTOR_REQUIRED';
   verificationScope: 'ANALYSIS_ONLY';
 };

@@ -36,6 +36,7 @@ const claim = {
 function runtime(fetchImpl) {
   const config = loadRuntimeConfig({
     COMPANY_OS_RUNTIME_HMAC_SECRET: 'test-runtime-secret',
+    COMPANY_OS_EXTERNAL_IDENTITY_HMAC_SECRET: 'test-external-identity-secret',
     OPENAI_API_KEY: 'test-openai-key',
     COMPANY_OS_RUNTIME_STATE_DIR: '/private/tmp/company-os-policy-test-unused',
     COMPANY_OS_RUNTIME_OLLAMA_FALLBACK_ENABLED: 'false',

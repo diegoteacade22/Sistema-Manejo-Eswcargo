@@ -176,7 +176,12 @@ export function buildDaemonRuntime(config, overrides = {}) {
     healthServerFactory: overrides.healthServerFactory,
     now: overrides.now,
     sleep: overrides.sleep,
-    externalSourceProbe: overrides.externalSourceProbe || (() => probeExternalSources({ googleServiceAccountJson: config.googleServiceAccountJson })),
+    externalSourceProbe: overrides.externalSourceProbe || (() => probeExternalSources({
+      googleServiceAccountJson: config.googleServiceAccountJson,
+      externalIdentitySecret: config.externalIdentitySecret,
+      chatgptWorkExportPath: config.chatgptWorkExportPath,
+      chatgptWorkProjectIds: config.chatgptWorkProjectIds,
+    })),
   });
   return { daemon, api, processor, logger, instanceId };
 }

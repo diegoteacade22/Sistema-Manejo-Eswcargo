@@ -112,6 +112,16 @@ test('runtime durable contiene concurrencia, leases, retry, heartbeat idle y no-
   assert.match(daemon, /globalConcurrency/);
 });
 
+test('salidas inválidas del modelo consumen intentos restantes y reconciliación recupera terminales prematuros', () => {
+  const store = readFileSync('lib/company-os/runtime-store.ts', 'utf8');
+  assert.match(store, /AUTO_RETRYABLE_MODEL_ERRORS = new Set\(\['OPENAI_INVALID_RUNTIME_OUTPUT', 'OPENAI_INVALID_JSON'\]\)/);
+  assert.match(store, /input\.retryable \|\| AUTO_RETRYABLE_MODEL_ERRORS\.has\(input\.errorCode\)/);
+  assert.match(store, /recoverPrematureTerminalModelFailures/);
+  assert.match(store, /WORK_MODEL_FAILURE_AUTO_RECOVERED/);
+  assert.match(store, /work\."attemptCount"<work\."maxAttempts"/);
+  assert.match(store, /NOT EXISTS \(SELECT 1 FROM public\."CompanyOsLease"/);
+});
+
 test('usage local conserva provider Ollama y el servidor asigna costo cero', () => {
   const usage = normalizeRuntimeUsage({
     provider: 'ollama',

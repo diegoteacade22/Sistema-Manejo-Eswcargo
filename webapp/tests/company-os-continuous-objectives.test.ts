@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import {
   baselineObjectiveUnits, deduplicateObjectiveSources, observeObjectiveUnit, planObjectiveSource,
-  safeObjectiveMetadata, validateContinuousObjectiveInput, type ObjectiveSourceCandidate,
+  planExternalSourceItem, safeObjectiveMetadata, validateContinuousObjectiveInput, type ObjectiveSourceCandidate,
   objectiveCaseInFlight,
 } from '../lib/company-os/continuous-objective-policy';
 import { createContinuousObjective, controlContinuousObjective, isFreshExternalSnapshot, planContinuousObjectiveUnits, withContinuousObjectiveUnitClaim } from '../lib/company-os/continuous-objectives';
 import { objectiveHash } from '../lib/company-os/continuous-objective-policy';
+import { parseRuntimeExternalSourceBatches } from '../lib/company-os/runtime-external-items';
 
 const input = { title: 'Continuidad operativa', objective: 'Reducir pendientes empresariales con evidencia', criteria: ['Identificar el siguiente paso verificable'],
   projectAllowlist: ['AGENTE MANAGER'], externalSources: [], durationDays: 30, idempotencyKey: 'ui:continuous:create:1234' };
@@ -56,14 +58,38 @@ test('sólo considera IDLE observado y conserva una unidad por raíz coherente',
   assert.deepEqual(roots.map((candidate) => candidate.id), ['task-a', 'task-b']);
 });
 
-test('una fuente externa exige snapshot read-only fresco y CHATGPT_WORK queda bloqueado', () => {
-  const proof = 'read_only=true;snapshot_id=snapshot:' + 'a'.repeat(32) + ';evidence_hash=' + 'b'.repeat(64) + ';cursor=pageSize:25';
+test('una fuente externa exige snapshot fresco y autoridad canónica por origen', () => {
+  const proof = (authority: string) => 'read_only=true;items_schema=v1;items_count=1;snapshot_id=snapshot:' + 'a'.repeat(32)
+    + ';evidence_hash=' + 'b'.repeat(64) + ';complete=true;authority_mode=' + authority + ';cursor_hash=' + 'c'.repeat(64);
   const observedAt = new Date('2026-09-03T03:50:00Z');
-  assert.equal(isFreshExternalSnapshot('GOOGLE_DRIVE', { status: 'HEALTHY', detail: proof, observedAt }, now), true);
+  assert.equal(isFreshExternalSnapshot('GOOGLE_DRIVE', { status: 'HEALTHY', detail: proof('GOOGLE_SERVICE_ACCOUNT_READONLY'), observedAt }, now), true);
   assert.equal(isFreshExternalSnapshot('GOOGLE_DRIVE', { status: 'HEALTHY', detail: 'read_only=true', observedAt }, now), false);
-  assert.equal(isFreshExternalSnapshot('GOOGLE_DRIVE', { status: 'HEALTHY', detail: proof, observedAt: new Date(now.getTime() - 31 * 60_000) }, now), false);
-  assert.equal(isFreshExternalSnapshot('CHATGPT_WORK', { status: 'HEALTHY', detail: proof, observedAt }, now), false);
+  assert.equal(isFreshExternalSnapshot('GOOGLE_DRIVE', { status: 'HEALTHY', detail: proof('GOOGLE_SERVICE_ACCOUNT_READONLY'), observedAt: new Date(now.getTime() - 31 * 60_000) }, now), false);
+  assert.equal(isFreshExternalSnapshot('CHATGPT_WORK', { status: 'HEALTHY', detail: proof('GOOGLE_SERVICE_ACCOUNT_READONLY'), observedAt }, now), false);
+  assert.equal(isFreshExternalSnapshot('CHATGPT_WORK', { status: 'HEALTHY', detail: proof('AUTHORIZED_CHATGPT_WORK_EXPORT_V1'), observedAt }, now), true);
+  assert.equal(isFreshExternalSnapshot('GOOGLE_CONTACTS', { status: 'HEALTHY', detail: proof('GOOGLE_SERVICE_ACCOUNT_READONLY'), observedAt }, now), false);
 });
+
+test('batch externo durable verifica identidad de revisión y planifica sin PII', () => {
+  const item = { itemKey: '1'.repeat(64), providerRevisionHash: '2'.repeat(64), itemKind: 'SHEET_METADATA',
+    changeKind: 'UPDATED', sourceUpdatedAt: '2026-09-03T03:45:00.000Z' };
+  const revisionFingerprint = createHash('sha256').update(JSON.stringify({ sourceId: 'GOOGLE_SHEETS', ...item })).digest('hex');
+  const items = [{ ...item, revisionFingerprint }];
+  const evidenceHash = createHash('sha256').update(JSON.stringify(items)).digest('hex');
+  const batch = { schemaVersion: 1, sourceId: 'GOOGLE_SHEETS', status: 'HEALTHY', readOnly: true,
+    authorityMode: 'GOOGLE_SERVICE_ACCOUNT_READONLY', principalRefHash: '3'.repeat(64), observedAt: observedIso(), capturedAt: observedIso(),
+    snapshotId: `snapshot:${evidenceHash.slice(0, 32)}`, evidenceHash, complete: true, cursorHash: '4'.repeat(64), items };
+  const parsed = parseRuntimeExternalSourceBatches([{ itemBatch: batch }], now);
+  assert.equal(parsed[0].items.length, 1);
+  const planned = planExternalSourceItem({ id: 'external-row', sourceId: 'GOOGLE_SHEETS', ...parsed[0].items[0] }, '2026-09-04T04:00:00Z');
+  assert.equal(planned.ownerAgentId, 'data-manager-ai-v1');
+  assert.equal(planned.source.kind, 'EXTERNAL_ITEM_METADATA');
+  assert.equal(planned.source.deadline, '2026-09-04T04:00:00.000Z');
+  assert.doesNotMatch(JSON.stringify(planned), /title@example|provider|spreadsheetId|content/i);
+  assert.equal(observeObjectiveUnit({ ...completed, sourceKind: 'EXTERNAL_ITEM_METADATA', evidenceIds: ['snapshot-1234'] })?.status, 'ANALYZED');
+});
+
+function observedIso() { return '2026-09-03T03:50:00.000Z'; }
 
 test('dedupe no depende del fingerprint temporal del colector, pero cambia con hechos', () => {
   const first = planObjectiveSource(source, input.projectAllowlist);
@@ -237,6 +263,16 @@ test('migración agrega readback de reconciliación y dedupe durable por raíz',
   assert.match(migration, /CompanyOsObjectiveUnit_goal_version_root_key/);
   assert.match(migration, /ALTER COLUMN "rootKey" SET NOT NULL/);
   assert.match(migration, /No business table or second worker/);
+});
+
+test('migración externa conserva revisiones append-only, autoridad por fuente y RLS cerrado', () => {
+  const migration = readFileSync(new URL('../../supabase/migrations/20260905183000_company_os_external_source_items.sql', import.meta.url), 'utf8');
+  assert.match(migration, /UNIQUE \("sourceId","itemKey","revisionFingerprint"\)/);
+  assert.match(migration, /External source item revision is immutable/);
+  assert.match(migration, /GOOGLE_CONTACTS'[\s\S]*GOOGLE_USER_OAUTH_READONLY/);
+  assert.match(migration, /CHATGPT_WORK'[\s\S]*AUTHORIZED_CHATGPT_WORK_EXPORT_V1/);
+  assert.match(migration, /FORCE ROW LEVEL SECURITY/);
+  assert.match(migration, /REVOKE ALL ON TABLE[\s\S]*service_role,company_os_reader/);
 });
 
 test('a igual prioridad reparte por gerente menos atendido y no por antigüedad de toda la cola General', () => {

@@ -19,6 +19,8 @@ RUNTIME_ALLOWED_AGENT_IDS="${COMPANY_OS_RUNTIME_ALLOWED_AGENT_IDS:-general-manag
 RUNTIME_HMAC_KEYCHAIN_SERVICE="${COMPANY_OS_RUNTIME_HMAC_KEYCHAIN_SERVICE:-com.esw.company-os-runtime.hmac}"
 RUNTIME_OPENAI_KEYCHAIN_SERVICE="${COMPANY_OS_RUNTIME_OPENAI_KEYCHAIN_SERVICE:-OPENAI_API_KEY}"
 RUNTIME_GOOGLE_KEYCHAIN_SERVICE="${COMPANY_OS_RUNTIME_GOOGLE_KEYCHAIN_SERVICE:-com.esw.company-os-runtime.google-service-account}"
+RUNTIME_EXTERNAL_IDENTITY_KEYCHAIN_SERVICE="${COMPANY_OS_RUNTIME_EXTERNAL_IDENTITY_KEYCHAIN_SERVICE:-com.esw.company-os-runtime.external-identity-v1}"
+RUNTIME_CHATGPT_WORK_PROJECT_IDS="${COMPANY_OS_RUNTIME_CHATGPT_WORK_PROJECT_IDS:-}"
 RUNTIME_OLLAMA_FALLBACK_ENABLED="${COMPANY_OS_RUNTIME_OLLAMA_FALLBACK_ENABLED:-true}"
 RUNTIME_OLLAMA_BASE_URL="${COMPANY_OS_RUNTIME_OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
 RUNTIME_OLLAMA_MODEL="${COMPANY_OS_RUNTIME_OLLAMA_MODEL:-qwen3:14b-q4_K_M}"
@@ -51,6 +53,13 @@ detect_repo() {
   if [[ -n "${COMPANY_OS_RUNTIME_SOURCE_REPO:-}" ]] && valid_repo "$COMPANY_OS_RUNTIME_SOURCE_REPO"; then
     print -r -- "${COMPANY_OS_RUNTIME_SOURCE_REPO:A}"
     return
+  fi
+  if [[ -x "$NODE_BIN" && -f "$CURRENT_DIR/install-manifest.json" ]]; then
+    candidate="$("$NODE_BIN" -p 'try { JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).sourceRepo || "" } catch { "" }' "$CURRENT_DIR/install-manifest.json" 2>/dev/null || true)"
+    if [[ -n "$candidate" ]] && valid_repo "$candidate"; then
+      print -r -- "${candidate:A}"
+      return
+    fi
   fi
   candidate="$(cd "$SCRIPT_DIR/../.." 2>/dev/null && pwd -P || true)"
   if [[ -n "$candidate" ]] && valid_repo "$candidate"; then
@@ -152,6 +161,21 @@ check_keychain_credentials() {
     || die "Falta credencial Keychain service=$RUNTIME_HMAC_KEYCHAIN_SERVICE account=$RUNTIME_KEYCHAIN_ACCOUNT"
   keychain_has "$RUNTIME_OPENAI_KEYCHAIN_SERVICE" \
     || die "Falta credencial Keychain service=$RUNTIME_OPENAI_KEYCHAIN_SERVICE account=$RUNTIME_KEYCHAIN_ACCOUNT"
+  keychain_has "$RUNTIME_EXTERNAL_IDENTITY_KEYCHAIN_SERVICE" \
+    || die "Falta credencial Keychain service=$RUNTIME_EXTERNAL_IDENTITY_KEYCHAIN_SERVICE account=$RUNTIME_KEYCHAIN_ACCOUNT"
+}
+
+ensure_external_identity_keychain() {
+  local payload
+  if keychain_has "$RUNTIME_EXTERNAL_IDENTITY_KEYCHAIN_SERVICE"; then return; fi
+  payload="$(/usr/bin/openssl rand -hex 32)"
+  [[ "$payload" == [0-9a-f]## && ${#payload} -eq 64 ]] \
+    || die "No se pudo generar la identidad estable de fuentes externas"
+  /usr/bin/security add-generic-password -U -a "$RUNTIME_KEYCHAIN_ACCOUNT" -s "$RUNTIME_EXTERNAL_IDENTITY_KEYCHAIN_SERVICE" -w "$payload" >/dev/null \
+    || die "No se pudo guardar la identidad estable de fuentes externas en Keychain"
+  unset payload
+  keychain_has "$RUNTIME_EXTERNAL_IDENTITY_KEYCHAIN_SERVICE" \
+    || die "No se pudo verificar la identidad estable de fuentes externas en Keychain"
 }
 
 google_keychain_has() {
@@ -174,8 +198,43 @@ ensure_google_keychain() {
 }
 
 ensure_dirs() {
-  mkdir -p "$RUNTIME_STATE_DIR" "$BACKUPS_DIR" "$LOG_DIR" "$HOME/Library/LaunchAgents"
-  chmod 700 "$RUNTIME_STATE_DIR" "$BACKUPS_DIR" "$LOG_DIR"
+  mkdir -p "$RUNTIME_STATE_DIR" "$BACKUPS_DIR" "$LOG_DIR" "$RUNTIME_STATE_DIR/bridges" "$HOME/Library/LaunchAgents"
+  chmod 700 "$RUNTIME_STATE_DIR" "$BACKUPS_DIR" "$LOG_DIR" "$RUNTIME_STATE_DIR/bridges"
+}
+
+runtime_source_digest() {
+  local worker_dir="$1"
+  "$NODE_BIN" -e '
+    const fs=require("node:fs"),path=require("node:path"),crypto=require("node:crypto");
+    const root=process.argv[1],files=[];
+    function walk(dir){ for(const name of fs.readdirSync(dir).sort()){ const full=path.join(dir,name),stat=fs.lstatSync(full); if(stat.isSymbolicLink()) throw new Error("symlink"); if(stat.isDirectory()) walk(full); else if(stat.isFile()) files.push(full); } }
+    walk(path.join(root,"src")); for(const name of ["package.json","package-lock.json"]) if(fs.existsSync(path.join(root,name))) files.push(path.join(root,name));
+    const hash=crypto.createHash("sha256"); for(const file of [...new Set(files)].sort()){ hash.update(path.relative(root,file)); hash.update("\0"); hash.update(fs.readFileSync(file)); hash.update("\0"); } process.stdout.write(hash.digest("hex"));
+  ' "$worker_dir"
+}
+
+write_install_manifest() {
+  local install_dir="$1" repo="$2" source_commit="$3" worker_digest manage_digest
+  worker_digest="$(runtime_source_digest "$install_dir/worker")"
+  manage_digest="$(/usr/bin/shasum -a 256 "$install_dir/manage.sh" | /usr/bin/awk '{print $1}')"
+  "$NODE_BIN" -e '
+    const fs=require("node:fs"); const [target,sourceRepo,sourceCommit,workerSourceSha256,manageSha256]=process.argv.slice(1);
+    fs.writeFileSync(target,JSON.stringify({schemaVersion:1,installedAt:new Date().toISOString(),sourceRepo,sourceCommit,workerSourceSha256,manageSha256})+"\n",{mode:0o600});
+  ' "$install_dir/install-manifest.json" "$repo" "$source_commit" "$worker_digest" "$manage_digest"
+  chmod 600 "$install_dir/install-manifest.json"
+}
+
+verify_install_manifest() {
+  local install_dir="${1:-$CURRENT_DIR}" worker_digest manage_digest
+  [[ -f "$install_dir/install-manifest.json" && -f "$install_dir/manage.sh" && -d "$install_dir/worker/src" ]] || return 1
+  worker_digest="$(runtime_source_digest "$install_dir/worker")" || return 1
+  manage_digest="$(/usr/bin/shasum -a 256 "$install_dir/manage.sh" | /usr/bin/awk '{print $1}')" || return 1
+  "$NODE_BIN" -e '
+    const fs=require("node:fs"),path=require("node:path"); const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+    const valid=value.schemaVersion===1 && typeof value.installedAt==="string" && !Number.isNaN(Date.parse(value.installedAt))
+      && typeof value.sourceRepo==="string" && path.isAbsolute(value.sourceRepo) && /^[a-f0-9]{40}$/.test(value.sourceCommit)
+      && value.workerSourceSha256===process.argv[2] && value.manageSha256===process.argv[3]; process.exit(valid?0:1);
+  ' "$install_dir/install-manifest.json" "$worker_digest" "$manage_digest"
 }
 
 service_loaded() {
@@ -247,7 +306,7 @@ health_is_target_runtime() {
     let input=""; process.stdin.on("data", (chunk) => input += chunk); process.stdin.on("end", () => {
       try {
         const value=JSON.parse(input);
-        process.exit(value.service === "company-os-runtime" && value.binaryVersion === "1.1.0" && value.contractVersion === "runtime-v1" ? 0 : 1);
+        process.exit(value.service === "company-os-runtime" && value.binaryVersion === "1.1.0" && value.contractVersion === "runtime-v1" && /^[a-f0-9]{40}$/.test(value.sourceRevision) ? 0 : 1);
       }
       catch { process.exit(1); }
     });
@@ -264,7 +323,7 @@ health_is_target_operational() {
         const value=JSON.parse(input);
         const remoteHeartbeatConfirmed = typeof value.lastWorkerHeartbeatAt === "string" && !Number.isNaN(Date.parse(value.lastWorkerHeartbeatAt));
         const operational = value.acceptingWork === true && ["IDLE", "BUSY"].includes(value.state);
-        const target = value.binaryVersion === "1.1.0" && value.contractVersion === "runtime-v1";
+        const target = value.binaryVersion === "1.1.0" && value.contractVersion === "runtime-v1" && /^[a-f0-9]{40}$/.test(value.sourceRevision);
         process.exit(value.service === "company-os-runtime" && target && value.ok === true && remoteHeartbeatConfirmed && operational ? 0 : 1);
       }
       catch { process.exit(1); }
@@ -294,7 +353,7 @@ xml_escape() {
 
 render_plist() {
   local destination="$1"
-  local manage_path worker_path api_url allowed_hosts worker_id state_dir log_dir keychain_account hmac_service openai_service google_service agent_ids node_path
+  local manage_path worker_path api_url allowed_hosts worker_id state_dir log_dir keychain_account hmac_service openai_service google_service external_identity_service chatgpt_project_ids agent_ids node_path
   manage_path="$(xml_escape "$CURRENT_DIR/manage.sh")"
   worker_path="$(xml_escape "$CURRENT_DIR/worker")"
   api_url="$(xml_escape "$RUNTIME_API_BASE_URL")"
@@ -306,6 +365,8 @@ render_plist() {
   hmac_service="$(xml_escape "$RUNTIME_HMAC_KEYCHAIN_SERVICE")"
   openai_service="$(xml_escape "$RUNTIME_OPENAI_KEYCHAIN_SERVICE")"
   google_service="$(xml_escape "$RUNTIME_GOOGLE_KEYCHAIN_SERVICE")"
+  external_identity_service="$(xml_escape "$RUNTIME_EXTERNAL_IDENTITY_KEYCHAIN_SERVICE")"
+  chatgpt_project_ids="$(xml_escape "$RUNTIME_CHATGPT_WORK_PROJECT_IDS")"
   agent_ids="$(xml_escape "$RUNTIME_ALLOWED_AGENT_IDS")"
   node_path="$(xml_escape "$NODE_BIN")"
   /bin/cat > "$destination" <<EOF
@@ -334,6 +395,8 @@ render_plist() {
     <key>COMPANY_OS_RUNTIME_HMAC_KEYCHAIN_SERVICE</key><string>$hmac_service</string>
     <key>COMPANY_OS_RUNTIME_OPENAI_KEYCHAIN_SERVICE</key><string>$openai_service</string>
     <key>COMPANY_OS_RUNTIME_GOOGLE_KEYCHAIN_SERVICE</key><string>$google_service</string>
+    <key>COMPANY_OS_RUNTIME_EXTERNAL_IDENTITY_KEYCHAIN_SERVICE</key><string>$external_identity_service</string>
+    <key>COMPANY_OS_RUNTIME_CHATGPT_WORK_PROJECT_IDS</key><string>$chatgpt_project_ids</string>
     <key>COMPANY_OS_RUNTIME_OLLAMA_FALLBACK_ENABLED</key><string>$RUNTIME_OLLAMA_FALLBACK_ENABLED</string>
     <key>COMPANY_OS_RUNTIME_OLLAMA_BASE_URL</key><string>$(xml_escape "$RUNTIME_OLLAMA_BASE_URL")</string>
     <key>COMPANY_OS_RUNTIME_OLLAMA_MODEL</key><string>$(xml_escape "$RUNTIME_OLLAMA_MODEL")</string>
@@ -470,31 +533,38 @@ doctor_action() {
 status_action() {
   validate_state_dir
   ensure_node
-  local loaded=false own_operational=false target_operational=false listener_owned=false body=""
+  local loaded=false own_operational=false target_operational=false listener_owned=false lineage_verified=false body=""
   service_loaded && loaded=true
   body="$(health_body || true)"
   runtime_listener_is_owned && listener_owned=true
   runtime_own_is_operational && own_operational=true
   runtime_target_is_operational && target_operational=true
+  verify_install_manifest "$CURRENT_DIR" && lineage_verified=true
   say "label=$LAUNCH_LABEL"
   say "loaded=$loaded"
   say "listenerOwned=$listener_owned"
   say "ownOperational=$own_operational"
   say "targetOperational=$target_operational"
+  say "lineageVerified=$lineage_verified"
   say "installed=$([[ -f "$CURRENT_DIR/worker/src/server.mjs" ]] && print true || print false)"
   say "health=${body:-UNAVAILABLE}"
-  [[ "$loaded" == true && "$target_operational" == true ]] || return 1
+  [[ "$loaded" == true && "$target_operational" == true && "$lineage_verified" == true ]] || return 1
 }
 
 install_action() {
   validate_state_dir
   ensure_node
   validate_api_origin
+  ensure_external_identity_keychain
   check_keychain_credentials
   check_ollama_fallback
   ensure_dirs
-  local repo stage backup
+  local repo stage backup source_commit source_changes
   repo="$(detect_repo)"
+  source_commit="$(git -C "$repo" rev-parse HEAD 2>/dev/null || true)"
+  [[ "$source_commit" == [0-9a-f]## && ${#source_commit} -eq 40 ]] || die "El origen del runtime no tiene un commit Git identificable"
+  source_changes="$(git -C "$repo" status --porcelain --untracked-files=all 2>/dev/null || true)"
+  [[ -z "$source_changes" ]] || die "El origen del runtime tiene cambios sin commit; no se puede certificar la revisión instalada"
   ensure_google_keychain "$repo"
   stage="$(mktemp -d "$RUNTIME_STATE_DIR/.install.XXXXXX")"
   trap '[[ -n "${stage:-}" && "${stage:A}" == "${RUNTIME_STATE_DIR:A}"/.install.* ]] && rm -rf -- "$stage"' EXIT INT TERM
@@ -502,6 +572,8 @@ install_action() {
   /usr/bin/ditto "$repo/webapp/company-os-worker" "$stage/current/worker"
   cp "$repo/company-os/runtime/manage.sh" "$stage/current/manage.sh"
   chmod 700 "$stage/current/manage.sh"
+  write_install_manifest "$stage/current" "$repo" "$source_commit"
+  verify_install_manifest "$stage/current" || die "No se pudo verificar el manifiesto de revisión del runtime"
   "$NODE_BIN" --check "$stage/current/worker/src/server.mjs"
   /bin/zsh -n "$stage/current/manage.sh"
   (cd "$stage/current/worker" && npm test)
@@ -515,6 +587,7 @@ install_action() {
   mv "$stage/current" "$CURRENT_DIR"
   mv "$stage/launchd.plist" "$PLIST"
   chmod 700 "$CURRENT_DIR/manage.sh"
+  verify_install_manifest "$CURRENT_DIR" || die "El runtime instalado no coincide con su manifiesto de revisión"
 
   if ! bootstrap_service; then
     [[ -d "$CURRENT_DIR" ]] && mv "$CURRENT_DIR" "$backup/failed-current"
@@ -613,14 +686,19 @@ run_action() {
   [[ -f "$CURRENT_DIR/worker/src/server.mjs" ]] || die "Runtime instalado incompleto: $CURRENT_DIR/worker/src/server.mjs"
   [[ "${EXTERNAL_NOTIFICATIONS_ENABLED:l}" == "false" ]] \
     || die "Las notificaciones externas deben permanecer deshabilitadas en la instalación Mac genérica"
-  local runtime_hmac_secret openai_api_key
+  local runtime_hmac_secret openai_api_key external_identity_secret source_revision
   local google_service_account_json
   runtime_hmac_secret="$(keychain_get "$RUNTIME_HMAC_KEYCHAIN_SERVICE")"
   openai_api_key="$(keychain_get "$RUNTIME_OPENAI_KEYCHAIN_SERVICE")"
   google_service_account_json="$(keychain_get "$RUNTIME_GOOGLE_KEYCHAIN_SERVICE")"
+  external_identity_secret="$(keychain_get "$RUNTIME_EXTERNAL_IDENTITY_KEYCHAIN_SERVICE")"
+  verify_install_manifest "$CURRENT_DIR" || die "La revisión instalada del runtime no coincide con su manifiesto"
+  source_revision="$("$NODE_BIN" -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")).sourceCommit' "$CURRENT_DIR/install-manifest.json")"
   export COMPANY_OS_RUNTIME_HMAC_SECRET="$runtime_hmac_secret"
   export OPENAI_API_KEY="$openai_api_key"
   export COMPANY_OS_RUNTIME_GOOGLE_SERVICE_ACCOUNT_JSON="$google_service_account_json"
+  export COMPANY_OS_EXTERNAL_IDENTITY_HMAC_SECRET="$external_identity_secret"
+  export COMPANY_OS_RUNTIME_SOURCE_REVISION="$source_revision"
   exec "$NODE_BIN" "$CURRENT_DIR/worker/src/server.mjs" daemon
 }
 

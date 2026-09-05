@@ -77,6 +77,40 @@ export type ObjectiveSourceCandidate = {
   boardStatus?: string | null; boardLifecycle?: string | null; projectNameOverride?: string | null; rootThreadId?: string | null;
 };
 
+export type ExternalObjectiveSourceCandidate = {
+  id: string;
+  sourceId: ContinuousObjectiveExternalSourceId;
+  itemKey: string;
+  revisionFingerprint: string;
+  itemKind: 'FILE_METADATA' | 'SHEET_METADATA' | 'CONTACT_METADATA' | 'THREAD_REQUEST';
+  changeKind: 'CREATED' | 'UPDATED' | 'PENDING_REVIEW';
+  sourceUpdatedAt: Date | string | null;
+};
+
+export function planExternalSourceItem(candidate: ExternalObjectiveSourceCandidate, deadline: Date | string) {
+  const sourceDefinition = CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES.find((item) => item.id === candidate.sourceId)!;
+  const deadlineIso = new Date(deadline).toISOString();
+  const ownerAgentId: ContinuousObjectiveAgentId = ['GOOGLE_SHEETS', 'GOOGLE_CONTACTS'].includes(candidate.sourceId)
+    ? 'data-manager-ai-v1' : 'general-manager-ai-v3';
+  const source: ObjectiveUnitSource = {
+    kind: 'EXTERNAL_ITEM_METADATA', projectName: 'FUENTE EXTERNA', title: `${sourceDefinition.label} · cambio pendiente`,
+    category: 'EXTERNAL', externalSourceId: candidate.sourceId, itemKey: candidate.itemKey,
+    revisionFingerprint: candidate.revisionFingerprint,
+    sourceUpdatedAt: candidate.sourceUpdatedAt ? new Date(candidate.sourceUpdatedAt).toISOString() : null,
+    deadline: deadlineIso,
+    nextAction: 'Analizar el cambio read-only, producir un resultado útil y documentar el cierre dentro de Company OS.',
+    authority: 'UNTRUSTED_METADATA_ONLY', verificationScope: 'ANALYSIS_ONLY',
+  };
+  return {
+    sourceId: `external:${candidate.sourceId.toLowerCase()}:${candidate.itemKey.slice(0, 32)}`,
+    rootKey: `external:${candidate.sourceId.toLowerCase()}:${candidate.itemKey.slice(0, 32)}`,
+    fingerprint: objectiveHash({ sourceId: candidate.sourceId, itemKey: candidate.itemKey, revisionFingerprint: candidate.revisionFingerprint }),
+    ownerAgentId,
+    priority: candidate.changeKind === 'PENDING_REVIEW' ? 1 : 2,
+    source,
+  };
+}
+
 export function objectiveSourceRoot(candidate: Pick<ObjectiveSourceCandidate, 'threadId'> & { rootThreadId?: string | null }) {
   const root = typeof candidate.rootThreadId === 'string' && candidate.rootThreadId.trim()
     ? candidate.rootThreadId.trim() : candidate.threadId;
@@ -195,7 +229,8 @@ export function observeObjectiveUnit(input: {
   if (!['COMPLETED', 'NEEDS_REVIEW', 'AWAITING_REVIEW'].includes(input.caseStatus)) return null;
   const completed = input.caseStatus === 'COMPLETED' && input.resultMessageId
     && input.confidence !== null && input.confidence >= 0.75 && input.needsHumanDecision === false;
-  const verified = completed && input.sourceKind !== 'CODEX_METADATA' && input.evidenceIds.length > 0;
+  const metadataOnly = input.sourceKind === 'CODEX_METADATA' || input.sourceKind === 'EXTERNAL_ITEM_METADATA';
+  const verified = completed && !metadataOnly && input.evidenceIds.length > 0;
   return {
     status: verified ? 'VERIFIED' : completed ? 'ANALYZED' : 'NEEDS_REVIEW',
     resultSummary: `${verified ? 'Análisis con evidencia de snapshot' : completed ? 'Análisis de metadata concluido' : 'Análisis requiere revisión'}. No certifica la ejecución de la tarea fuente. ${safeObjectiveMetadata(input.resultSummary, 1200)}`.trim(),

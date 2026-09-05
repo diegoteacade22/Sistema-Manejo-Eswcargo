@@ -3,7 +3,8 @@ import { Prisma } from '@prisma/client';
 import { companyOsV3Prisma } from './v3-prisma';
 import {
   baselineObjectiveUnits, blockedExternalSourceUnit, deduplicateObjectiveSources, objectiveHash, observeObjectiveUnit, planObjectiveSource,
-  safeObjectiveMetadata, validContinuousObjectiveGenerationReason, validContinuousObjectiveReconciliationStatus, validateContinuousObjectiveInput, type ObjectiveSourceCandidate,
+  planExternalSourceItem, safeObjectiveMetadata, validContinuousObjectiveGenerationReason, validContinuousObjectiveReconciliationStatus,
+  validateContinuousObjectiveInput, type ExternalObjectiveSourceCandidate, type ObjectiveSourceCandidate,
   OBJECTIVE_SETTLED_CASE_STATUSES,
 } from './continuous-objective-policy';
 import {
@@ -11,9 +12,8 @@ import {
   type ContinuousObjectiveAgentId, type ContinuousObjectiveExternalSourceId, type ContinuousObjectiveIdentity, type ContinuousObjectiveUnitView,
   type ContinuousObjectiveGenerationReason, type ContinuousObjectiveReconciliationStatus,
   type ContinuousObjectiveView, type ControlContinuousObjectiveInput, type CreateContinuousObjectiveInput,
-  type PendingContinuousObjectiveUnit,
+  type ObjectiveUnitSource, type PendingContinuousObjectiveUnit,
 } from './continuous-objective-types';
-import { liveExternalSourceUnit } from './continuous-objective-policy';
 
 export * from './continuous-objective-types';
 type Tx = Prisma.TransactionClient;
@@ -140,19 +140,14 @@ export async function listContinuousObjectives() {
     const externalSources = [];
     for (const source of CONTINUOUS_OBJECTIVE_EXTERNAL_SOURCES) {
       const dependencyKey = `external-${source.id.toLowerCase().replaceAll('_', '-')}`;
-      const observations = await tx.$queryRaw<Array<{ status: string; observedAt: Date }>>(Prisma.sql`
-        SELECT status,"observedAt" FROM public."CompanyOsDependencyObservation"
+      const observations = await tx.$queryRaw<Array<{ status: string; detail: string | null; observedAt: Date }>>(Prisma.sql`
+        SELECT status,detail,"observedAt" FROM public."CompanyOsDependencyObservation"
         WHERE "dependencyKey"=${dependencyKey} ORDER BY "observedAt" DESC LIMIT 1
       `);
-      const live = observations[0] && observations[0].status === 'HEALTHY'
-        && new Date().getTime() - new Date(observations[0].observedAt).getTime() <= 30 * 60_000;
+      const live = isFreshExternalSnapshot(source.id, observations[0], new Date());
       externalSources.push({ ...source,
         status: live ? 'LIVE_READONLY' : source.status,
-        note: live
-          ? source.id === 'CHATGPT_WORK'
-            ? 'Puente local de índice/exportación observado en modo read-only; no representa acceso directo al historial de ChatGPT Work.'
-            : 'Runtime independiente conectado y observado con permisos de sólo lectura.'
-          : source.note,
+        note: live ? 'Runtime independiente conectado con autoridad read-only y batch durable reciente.' : source.note,
       });
     }
     return { objectives, allowedProjects: [...CONTINUOUS_OBJECTIVE_ALLOWED_PROJECTS], externalSources };
@@ -268,7 +263,12 @@ async function observeResults(tx: Tx, goal: GoalRow) {
   }
 }
 
-async function insertPlannedUnit(tx: Tx, goal: GoalRow, planned: Omit<ReturnType<typeof baselineObjectiveUnits>[number], 'ownerAgentId'> & { ownerAgentId: ContinuousObjectiveAgentId }) {
+type PlannedObjectiveUnit = {
+  sourceId: string; rootKey: string; fingerprint: string; ownerAgentId: ContinuousObjectiveAgentId;
+  priority: number; source: ObjectiveUnitSource;
+};
+
+async function insertPlannedUnit(tx: Tx, goal: GoalRow, planned: PlannedObjectiveUnit) {
   const rows = await tx.$queryRaw<UnitRow[]>(Prisma.sql`
     INSERT INTO public."CompanyOsObjectiveUnit" (id,"goalId",version,"sourceId","rootKey",fingerprint,status,"ownerAgentId",priority,source)
     VALUES (${randomUUID()},${goal.id},${goal.version},${planned.sourceId},${planned.rootKey},${planned.fingerprint},'PLANNED',${planned.ownerAgentId},${planned.priority},${json(planned.source)}::jsonb)
@@ -307,27 +307,47 @@ async function latestExternalObservation(tx: Tx, sourceId: ContinuousObjectiveEx
 export function isFreshExternalSnapshot(sourceId: ContinuousObjectiveExternalSourceId, observed: {
   status: string; detail: string | null; observedAt: Date | string;
 } | null | undefined, now: Date) {
-  // The local ChatGPT index is not an authorized bridge to thread contents.
-  // A generic worker heartbeat must never promote it to a live source.
-  if (sourceId === 'CHATGPT_WORK' || !observed || observed.status !== 'HEALTHY' || Number.isNaN(new Date(observed.observedAt).getTime())
+  if (!observed || observed.status !== 'HEALTHY' || Number.isNaN(new Date(observed.observedAt).getTime())
     || now.getTime() - new Date(observed.observedAt).getTime() > 30 * 60_000
     || typeof observed.detail !== 'string') return false;
-  return /read_only=true;.*snapshot_id=snapshot:[a-f0-9]{32};.*evidence_hash=[a-f0-9]{64};.*cursor=/.test(observed.detail);
+  const fields = Object.fromEntries(observed.detail.split(';').map((entry) => entry.split('=', 2)).filter((entry) => entry.length === 2));
+  const authority = fields.authority_mode;
+  const allowedAuthority: Record<ContinuousObjectiveExternalSourceId, readonly string[]> = {
+    GOOGLE_DRIVE: ['GOOGLE_SERVICE_ACCOUNT_READONLY', 'GOOGLE_USER_OAUTH_READONLY'],
+    GOOGLE_SHEETS: ['GOOGLE_SERVICE_ACCOUNT_READONLY', 'GOOGLE_USER_OAUTH_READONLY'],
+    GOOGLE_CONTACTS: ['GOOGLE_USER_OAUTH_READONLY', 'GOOGLE_DELEGATED_USER_READONLY'],
+    CHATGPT_WORK: ['AUTHORIZED_CHATGPT_WORK_EXPORT_V1'],
+  };
+  return fields.read_only === 'true' && fields.items_schema === 'v1'
+    && /^snapshot:[a-f0-9]{32}$/.test(fields.snapshot_id ?? '')
+    && /^[a-f0-9]{64}$/.test(fields.evidence_hash ?? '')
+    && /^[a-f0-9]{64}$/.test(fields.cursor_hash ?? '')
+    && ['true', 'false'].includes(fields.complete ?? '')
+    && allowedAuthority[sourceId].includes(authority ?? '');
 }
 
-async function insertLiveExternalUnit(tx: Tx, goal: GoalRow, sourceId: ContinuousObjectiveExternalSourceId, detail: string | null) {
-  const live = liveExternalSourceUnit(sourceId, detail);
-  const promoted = await tx.$queryRaw<UnitRow[]>(Prisma.sql`
-    UPDATE public."CompanyOsObjectiveUnit" SET version=${goal.version},fingerprint=${live.fingerprint},status='PLANNED',source=${json(live.source)}::jsonb,
-      "resultSummary"=NULL,"updatedAt"=clock_timestamp()
-    WHERE "goalId"=${goal.id} AND "sourceId"=${live.sourceId} AND status='BLOCKED' RETURNING *
+async function externalItemCandidates(tx: Tx, goal: GoalRow, sourceId: ContinuousObjectiveExternalSourceId, now: Date, itemKey?: string) {
+  if (!await latestExternalObservation(tx, sourceId, now)) return [];
+  return tx.$queryRaw<ExternalObjectiveSourceCandidate[]>(Prisma.sql`
+    SELECT DISTINCT ON (item."sourceId",item."itemKey") item.id,item."sourceId",item."itemKey",item."revisionFingerprint",
+      item."itemKind",item."changeKind",item."sourceUpdatedAt"
+    FROM public."CompanyOsExternalSourceItem" item
+    WHERE item."sourceId"=${sourceId} AND item."lastObservedAt">=${new Date(now.getTime() - 30 * 60_000)}
+      AND ${itemKey ? Prisma.sql`item."itemKey"=${itemKey}` : Prisma.sql`true`}
+    ORDER BY item."sourceId",item."itemKey",item."lastObservedAt" DESC,item."createdAt" DESC,item.id
+    LIMIT ${itemKey ? 1 : 10}
   `);
-  if (promoted[0]) {
-    await appendEvent(tx, { goalId: goal.id, unitId: promoted[0].id, eventType: 'UNIT_PLANNED',
-      idempotencyKey: `live-planned:${promoted[0].id}:${live.fingerprint}`, payload: { sourceId, live: true, verificationScope: 'ANALYSIS_ONLY' } });
-    return 1;
-  }
-  return insertPlannedUnit(tx, goal, { ...live, ownerAgentId: 'general-manager-ai-v3' });
+}
+
+async function resolveBlockedExternalUnit(tx: Tx, goal: GoalRow, sourceId: ContinuousObjectiveExternalSourceId) {
+  const sourceKey = `external:${sourceId.toLowerCase()}`;
+  const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    UPDATE public."CompanyOsObjectiveUnit" SET status='SKIPPED',
+      "resultSummary"='La fuente quedó conectada; el bloqueo fue reemplazado por revisiones durables.',"updatedAt"=clock_timestamp()
+    WHERE "goalId"=${goal.id} AND "sourceId"=${sourceKey} AND status='BLOCKED' RETURNING id
+  `);
+  for (const row of rows) await appendEvent(tx, { goalId: goal.id, unitId: row.id, eventType: 'EXTERNAL_SOURCE_CONNECTED',
+    idempotencyKey: `external-connected:${row.id}`, payload: { sourceId, verificationScope: 'ANALYSIS_ONLY' } });
 }
 
 /** Deterministic only. Returns at most one candidate per goal; the callback below owns atomic case creation. */
@@ -368,6 +388,7 @@ export async function planContinuousObjectiveUnits(input: {
       let observedForRun = 0;
       let excludedForRun = 0;
       let plannedForGoal = 0;
+      let externalPlannedForGoal = 0;
       let blockedExternalForGoal = 0;
       if (new Date(goal.nextScanAt) <= now && scannedObjectives < limit) {
         const candidates = await sourceCandidates(tx, goal);
@@ -391,14 +412,24 @@ export async function planContinuousObjectiveUnits(input: {
         const complete = candidates.length < SCAN_PAGE_SIZE;
         if (complete) for (const sourceId of goal.externalSources) {
           const observation = await latestExternalObservation(tx, sourceId, now);
-          const inserted = observation
-            ? await insertLiveExternalUnit(tx, goal, sourceId, observation.detail)
-            : await insertBlockedExternalUnit(tx, goal, sourceId);
-          planned += inserted;
-          plannedForGoal += inserted;
           if (!observation) {
+            const inserted = await insertBlockedExternalUnit(tx, goal, sourceId);
+            planned += inserted;
+            plannedForGoal += inserted;
             blockedExternal += 1;
             blockedExternalForGoal += 1;
+            continue;
+          }
+          await resolveBlockedExternalUnit(tx, goal, sourceId);
+          const externalCandidates = await externalItemCandidates(tx, goal, sourceId, now);
+          for (const candidate of externalCandidates.slice(0, Math.max(0, 10 - externalPlannedForGoal))) {
+            eligibleSources += 1;
+            const plannedExternal = planExternalSourceItem(candidate, goal.endsAt);
+            domains.add(plannedExternal.ownerAgentId);
+            const inserted = await insertPlannedUnit(tx, goal, plannedExternal);
+            planned += inserted;
+            plannedForGoal += inserted;
+            externalPlannedForGoal += inserted;
           }
         }
         if (complete && goal.projectAllowlist.length > 0) for (const baseline of baselineObjectiveUnits(goal, [...domains], input.baselineFingerprints)) {
@@ -505,6 +536,21 @@ export async function withContinuousObjectiveUnitClaim(
       if (!current || 'excluded' in current || current.fingerprint !== unit.fingerprint) {
         await tx.$executeRaw(Prisma.sql`UPDATE public."CompanyOsObjectiveUnit" SET status='SKIPPED',"resultSummary"='La fuente cambió o ya no es elegible; no se ejecutó.',"updatedAt"=clock_timestamp() WHERE id=${unit.id}`);
         await appendEvent(tx, { goalId: goal.id, unitId, eventType: 'UNIT_SOURCE_CHANGED', idempotencyKey: `source-changed:${unit.id}` });
+        return { claimed: false, unitId, reason: 'SOURCE_CHANGED' };
+      }
+    }
+    if (unit.source.kind === 'EXTERNAL_ITEM_METADATA') {
+      const sourceId = unit.source.externalSourceId;
+      const itemKey = unit.source.itemKey;
+      if (!sourceId || !itemKey) return { claimed: false, unitId, reason: 'EXTERNAL_SOURCE_INVALID' };
+      const candidates = await externalItemCandidates(tx, goal, sourceId, new Date(), itemKey);
+      const current = candidates[0] ? planExternalSourceItem(candidates[0], goal.endsAt) : null;
+      if (!current) return { claimed: false, unitId, reason: 'EXTERNAL_SOURCE_STALE' };
+      if (current.fingerprint !== unit.fingerprint) {
+        await tx.$executeRaw(Prisma.sql`UPDATE public."CompanyOsObjectiveUnit" SET status='SKIPPED',
+          "resultSummary"='La revisión externa cambió antes del claim; no se ejecutó la revisión anterior.',"updatedAt"=clock_timestamp() WHERE id=${unit.id}`);
+        await appendEvent(tx, { goalId: goal.id, unitId, eventType: 'UNIT_SOURCE_CHANGED', idempotencyKey: `external-source-changed:${unit.id}`,
+          payload: { sourceId, verificationScope: 'ANALYSIS_ONLY' } });
         return { claimed: false, unitId, reason: 'SOURCE_CHANGED' };
       }
     }

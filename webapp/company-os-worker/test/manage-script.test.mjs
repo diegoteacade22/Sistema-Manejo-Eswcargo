@@ -45,8 +45,10 @@ test('health genérico acepta versión propia previa y health objetivo fija runt
   assert.doesNotMatch(ownHealth, /binaryVersion|contractVersion/);
   assert.match(targetIdentity, /value\.binaryVersion === "1\.1\.0"/);
   assert.match(targetIdentity, /value\.contractVersion === "runtime-v1"/);
+  assert.match(targetIdentity, /sourceRevision/);
   assert.match(targetHealth, /value\.binaryVersion === "1\.1\.0"/);
   assert.match(targetHealth, /value\.contractVersion === "runtime-v1"/);
+  assert.match(targetHealth, /sourceRevision/);
   assert.match(ownOperational, /health_is_own_operational && runtime_listener_is_owned/);
   assert.match(targetOperational, /health_is_target_operational && runtime_listener_is_owned/);
 });
@@ -125,4 +127,18 @@ test('snapshot es único, actualiza last-backup atómicamente y auto-rollback ve
   assert.ok((rollback.match(/restore_snapshot_and_verify "\$safety"/g) ?? []).length >= 2);
   assert.match(install, /restaurado y verificado/);
   assert.match(rollback, /restaurado y verificado/);
+});
+
+test('instalación exige commit limpio y verifica manifiesto de revisión antes de ejecutar', async () => {
+  const script = await manageScript();
+  const install = functionBody(script, 'install_action');
+  const run = functionBody(script, 'run_action');
+  const status = functionBody(script, 'status_action');
+  assert.match(install, /git -C "\$repo" rev-parse HEAD/);
+  assert.match(install, /status --porcelain --untracked-files=all/);
+  assert.match(install, /write_install_manifest/);
+  assert.ok((install.match(/verify_install_manifest/g) ?? []).length >= 2);
+  assert.match(run, /verify_install_manifest/);
+  assert.match(run, /COMPANY_OS_RUNTIME_SOURCE_REVISION/);
+  assert.match(status, /lineageVerified/);
 });
