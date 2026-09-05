@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import { recordCompanyOsWorkerHeartbeat } from '@/lib/company-os/runtime-store';
-import { ExternalSourceItemError, parseRuntimeExternalSourceBatches } from '@/lib/company-os/runtime-external-items';
+import {
+  ExternalSourceItemError,
+  externalSourceDependencyKey,
+  formatExternalSourceDependencyDetail,
+  parseRuntimeExternalSourceBatches,
+} from '@/lib/company-os/runtime-external-items';
 import { requiredString, verifiedRuntimeJson } from '../_request';
 
 export const dynamic = 'force-dynamic';
@@ -34,9 +39,9 @@ export async function POST(request: Request) {
           const sourceId = typeof item.sourceId === 'string' ? item.sourceId : '';
           const batch = batchesBySource.get(sourceId as typeof externalSourceBatches[number]['sourceId']);
           if (item.status === 'HEALTHY' && batch) return [{
-            key: `external-${batch.sourceId.toLowerCase().replaceAll('_', '-')}`, status: 'HEALTHY', observedAt: batch.capturedAt,
+            key: externalSourceDependencyKey(batch.sourceId), status: 'HEALTHY', observedAt: batch.capturedAt,
             latencyMs: item.latencyMs == null ? null : Number(item.latencyMs), caseId: null,
-            detail: `read_only=true;items_schema=v1;items_count=${batch.items.length};snapshot_id=${batch.snapshotId};evidence_hash=${batch.evidenceHash};complete=${batch.complete};authority_mode=${batch.authorityMode};cursor_hash=${batch.cursorHash}`,
+            detail: formatExternalSourceDependencyDetail(batch),
           }];
           if (item.status === 'UNAVAILABLE' && /^(GOOGLE_DRIVE|GOOGLE_SHEETS|GOOGLE_CONTACTS|CHATGPT_WORK)$/.test(sourceId)) return [{
             key: `external-${sourceId.toLowerCase().replaceAll('_', '-')}`, status: 'UNAVAILABLE',

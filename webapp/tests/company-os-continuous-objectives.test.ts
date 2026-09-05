@@ -9,7 +9,8 @@ import {
 } from '../lib/company-os/continuous-objective-policy';
 import { createContinuousObjective, controlContinuousObjective, isFreshExternalSnapshot, planContinuousObjectiveUnits, withContinuousObjectiveUnitClaim } from '../lib/company-os/continuous-objectives';
 import { objectiveHash } from '../lib/company-os/continuous-objective-policy';
-import { parseRuntimeExternalSourceBatches } from '../lib/company-os/runtime-external-items';
+import { formatExternalSourceDependencyDetail, parseRuntimeExternalSourceBatches } from '../lib/company-os/runtime-external-items';
+import { sanitizeCompanyText } from '../lib/company-os/objective';
 
 const input = { title: 'Continuidad operativa', objective: 'Reducir pendientes empresariales con evidencia', criteria: ['Identificar el siguiente paso verificable'],
   projectAllowlist: ['AGENTE MANAGER'], externalSources: [], durationDays: 30, idempotencyKey: 'ui:continuous:create:1234' };
@@ -87,6 +88,19 @@ test('batch externo durable verifica identidad de revisión y planifica sin PII'
   assert.equal(planned.source.deadline, '2026-09-04T04:00:00.000Z');
   assert.doesNotMatch(JSON.stringify(planned), /title@example|provider|spreadsheetId|content/i);
   assert.equal(observeObjectiveUnit({ ...completed, sourceKind: 'EXTERNAL_ITEM_METADATA', evidenceIds: ['snapshot-1234'] })?.status, 'ANALYZED');
+});
+
+test('detalle estructurado conserva hashes validados aunque el redactor libre detecte un número', () => {
+  const evidenceHash = `a${'1'.repeat(12)}${'b'.repeat(51)}`;
+  const batch = {
+    schemaVersion: 1 as const, sourceId: 'GOOGLE_SHEETS' as const, status: 'HEALTHY' as const, readOnly: true as const,
+    authorityMode: 'GOOGLE_SERVICE_ACCOUNT_READONLY', principalRefHash: 'd'.repeat(64), observedAt: observedIso(), capturedAt: observedIso(),
+    snapshotId: `snapshot:${evidenceHash.slice(0, 32)}`, evidenceHash, complete: false, cursorHash: 'c'.repeat(64), items: [],
+  };
+  const detail = formatExternalSourceDependencyDetail(batch);
+  assert.match(sanitizeCompanyText(detail, 500).safeText, /NUMBER_REDACTED/);
+  assert.match(detail, new RegExp(`evidence_hash=${evidenceHash}(?:;|$)`));
+  assert.equal(isFreshExternalSnapshot('GOOGLE_SHEETS', { status: 'HEALTHY', detail, observedAt: now }, now), true);
 });
 
 function observedIso() { return '2026-09-03T03:50:00.000Z'; }

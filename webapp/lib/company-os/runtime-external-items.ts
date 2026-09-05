@@ -48,6 +48,17 @@ export type ExternalSourceItemBatch = {
   items: ExternalSourceItem[];
 };
 
+export function externalSourceDependencyKey(sourceId: ExternalSourceItemBatch['sourceId']) {
+  return `external-${sourceId.toLowerCase().replaceAll('_', '-')}`;
+}
+
+// This detail is derived only from a batch that passed parseBatch's exact-schema,
+// authority and cryptographic checks. Keep its opaque hashes byte-for-byte stable:
+// the free-text redactor can otherwise mistake a numeric hash run for a phone.
+export function formatExternalSourceDependencyDetail(batch: ExternalSourceItemBatch) {
+  return `read_only=true;items_schema=v1;items_count=${batch.items.length};snapshot_id=${batch.snapshotId};evidence_hash=${batch.evidenceHash};complete=${batch.complete};authority_mode=${batch.authorityMode};cursor_hash=${batch.cursorHash}`;
+}
+
 export class ExternalSourceItemError extends Error {
   readonly code: string;
   constructor(message: string, code = 'EXTERNAL_ITEM_INVALID') {

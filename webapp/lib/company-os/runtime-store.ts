@@ -1,6 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import { persistExternalSourceItems, type ExternalSourceItemBatch } from './runtime-external-items';
+import {
+  externalSourceDependencyKey,
+  formatExternalSourceDependencyDetail,
+  persistExternalSourceItems,
+  type ExternalSourceItemBatch,
+} from './runtime-external-items';
 import { sanitizeCompanyText } from './objective';
 import {
   COMPANY_OS_INSTALLED_AGENT_IDS,
@@ -1201,6 +1206,8 @@ export async function recordCompanyOsWorkerHeartbeat(input: {
   if (Number.isNaN(startedAt.getTime())) throw new Error('startedAt inválido');
   const now = new Date();
   const currentWork = Array.isArray(input.currentWork) ? input.currentWork.slice(0, 2) : [];
+  const externalBatchByDependencyKey = new Map((input.externalSourceBatches ?? [])
+    .map((batch) => [externalSourceDependencyKey(batch.sourceId), batch] as const));
   const db = companyOsV3Prisma();
   return db.$transaction(async (tx) => {
     await tx.companyOsWorker.upsert({
@@ -1244,6 +1251,9 @@ export async function recordCompanyOsWorkerHeartbeat(input: {
     for (const dependency of (input.dependencies ?? []).slice(0, 20)) {
       if (!DEPENDENCY_STATES.has(dependency.status)) continue;
       const observedAt = dependency.observedAt ? new Date(dependency.observedAt) : now;
+      const validatedExternalBatch = dependency.status === 'HEALTHY'
+        ? externalBatchByDependencyKey.get(dependency.key)
+        : undefined;
       await tx.companyOsDependencyObservation.create({ data: {
         id: randomUUID(),
         dependencyKey: cleanText(dependency.key, 120),
@@ -1251,7 +1261,9 @@ export async function recordCompanyOsWorkerHeartbeat(input: {
         workerId: input.workerId,
         caseId: dependency.caseId ?? null,
         latencyMs: dependency.latencyMs == null ? null : Math.max(0, Math.trunc(dependency.latencyMs)),
-        detail: dependency.detail ? cleanText(dependency.detail, 500) : null,
+        detail: validatedExternalBatch
+          ? formatExternalSourceDependencyDetail(validatedExternalBatch)
+          : dependency.detail ? cleanText(dependency.detail, 500) : null,
         observedAt: Number.isNaN(observedAt.getTime()) ? now : observedAt,
       } });
     }

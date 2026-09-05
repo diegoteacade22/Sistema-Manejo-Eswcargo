@@ -212,6 +212,17 @@ test('control rechaza claves inválidas o demasiado largas sin truncarlas a otra
   assert.equal(validateRuntimeControlIdempotencyKey(limitKey), limitKey);
 });
 
+test('heartbeat conserva el detalle criptográfico del batch externo ya validado', () => {
+  const store = readFileSync('lib/company-os/runtime-store.ts', 'utf8');
+  const heartbeat = store.slice(
+    store.indexOf('export async function recordCompanyOsWorkerHeartbeat'),
+    store.indexOf('\nasync function upsertIncident'),
+  );
+  assert.match(heartbeat, /externalBatchByDependencyKey/);
+  assert.match(heartbeat, /formatExternalSourceDependencyDetail\(validatedExternalBatch\)/);
+  assert.match(heartbeat, /dependency\.detail \? cleanText\(dependency\.detail, 500\) : null/);
+});
+
 const statusNow = new Date('2026-09-02T12:10:00Z');
 const agentStatusFixture = {
   agentId: 'systems-manager-ai-v1', installed: true, paused: false,
