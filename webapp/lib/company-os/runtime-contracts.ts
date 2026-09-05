@@ -9,6 +9,10 @@ import type {
   CompanyOsSystemsWorkerResult,
   CompanyOsWorkerResult,
 } from './v3-types';
+import {
+  SPECIALIST_CAPABILITIES,
+  validateSpecialistDelegation,
+} from './specialist-routing';
 
 export const COMPANY_OS_RUNTIME_CONTRACT_VERSION = '1.0.0' as const;
 export const COMPANY_OS_TIME_ZONE = 'America/New_York' as const;
@@ -23,7 +27,7 @@ export type CompanyOsInstalledAgentId =
   (typeof COMPANY_OS_INSTALLED_AGENT_IDS)[number];
 
 export const COMPANY_OS_RUNTIME_CONTRACT_VERSIONS = {
-  [COMPANY_OS_V3_IDENTITY]: '3.1.2',
+  [COMPANY_OS_V3_IDENTITY]: '3.1.3',
   [COMPANY_OS_SYSTEMS_MANAGER_IDENTITY]: '1.1.1',
   [COMPANY_OS_DATA_MANAGER_IDENTITY]: '1.0.0',
 } as const satisfies Record<CompanyOsInstalledAgentId, string>;
@@ -42,8 +46,11 @@ export type CompanyOsAgentInstallationStatus = 'INSTALLED' | 'NOT_INSTALLED';
 export type CompanyOsGeneralManagerRuntimeOutput = CompanyOsWorkerResult & {
   delegations: Array<{
     agentId: CompanyOsInstalledAgentId;
+    capability?: (typeof SPECIALIST_CAPABILITIES)[number];
     objective: string;
     evidenceRefs: string[];
+    taskStatus?: 'READY' | 'NEEDS_USER' | 'BLOCKED_EXTERNAL';
+    depth?: number;
   }>;
   needsHumanDecision: boolean;
   confidence: number;
@@ -239,8 +246,14 @@ const GENERAL_MANAGER_OUTPUT_SCHEMA = {
             type: 'string',
             enum: [COMPANY_OS_SYSTEMS_MANAGER_IDENTITY, COMPANY_OS_DATA_MANAGER_IDENTITY],
           },
+          capability: {
+            type: 'string',
+            enum: [...SPECIALIST_CAPABILITIES],
+          },
           objective: { type: 'string', minLength: 1 },
           evidenceRefs: { type: 'array', items: { type: 'string', minLength: 1 } },
+          taskStatus: { type: 'string', enum: ['READY', 'NEEDS_USER', 'BLOCKED_EXTERNAL'] },
+          depth: { type: 'integer', minimum: 1, maximum: 1 },
         },
       },
     },
@@ -1088,18 +1101,10 @@ function validateGeneralManagerOutput(
     requireExactKeys(
       delegation,
       ['agentId', 'objective', 'evidenceRefs'],
-      new Set(['agentId', 'objective', 'evidenceRefs']),
+      new Set(['agentId', 'capability', 'objective', 'evidenceRefs', 'taskStatus', 'depth']),
       label,
     );
-    const targetAgentId = requireNonEmptyString(delegation.agentId, `${label}.agentId`);
-    if (
-      !isInstalledCompanyOsAgentId(targetAgentId) ||
-      targetAgentId === COMPANY_OS_V3_IDENTITY
-    ) {
-      throw new Error(`${label}.agentId: target must be an installed specialist`);
-    }
-    requireNonEmptyString(delegation.objective, `${label}.objective`);
-    requireStringArray(delegation.evidenceRefs, `${label}.evidenceRefs`);
+    validateSpecialistDelegation(delegation);
   });
   validateDecisionAndConfidence(
     value,

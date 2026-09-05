@@ -29,7 +29,7 @@ const DATA_CONTRACT_MIGRATION_URL = new URL(
   import.meta.url,
 );
 const GENERAL_CONTRACT_MIGRATION_URL = new URL(
-  '../../supabase/migrations/20260902090100_company_os_general_manager_runtime_3_1_2.sql',
+  '../../supabase/migrations/20260904120000_company_os_specialist_plane.sql',
   import.meta.url,
 );
 

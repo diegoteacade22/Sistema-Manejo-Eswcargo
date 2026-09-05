@@ -11,6 +11,7 @@ import { companyOsV3Prisma } from './v3-prisma';
 import { resolveCompanyOsRuntimeDataPolicy } from './runtime-data-policy';
 import { runtimeResultNeedsReview } from './runtime-outcome';
 import { findCompletedRuntimeDelegation, runtimeFollowUpCapacity } from './runtime-delegation';
+import { validateSpecialistDelegation } from './specialist-routing';
 import { deriveRuntimeAgentState, type RuntimeAgentStateWork } from './runtime-agent-status';
 import { planAdaptiveRuntimeBudget, planRuntimeBudget, startOfZonedPeriod } from './runtime-budget';
 import { withRuntimeObjectiveClaimFence } from './runtime-objective-guard';
@@ -783,11 +784,7 @@ function validateRuntimeOutput(
   if (delegations.length > 1) throw new Error('Sólo se permite una delegación durable por turno');
   if (agentId !== GENERAL_MANAGER_ID && delegations.length > 0) throw new Error('Sólo el Gerente General puede delegar trabajo');
   for (const delegation of delegations) {
-    if (!INSTALLED_AGENT_IDS.includes(delegation.agentId as typeof INSTALLED_AGENT_IDS[number])
-      || delegation.agentId === GENERAL_MANAGER_ID) {
-      throw new Error(`Agente delegado ${String(delegation.agentId)} NOT_INSTALLED`);
-    }
-    if (typeof delegation.objective !== 'string' || !delegation.objective.trim() || delegation.objective.length > 600) throw new Error('Objetivo delegado inválido');
+    validateSpecialistDelegation(delegation);
   }
   if (agentId === SYSTEMS_MANAGER_ID) {
     const assetsValue = evidence.find((entry) => entry.evidenceKey === 'assets')?.value;
@@ -898,7 +895,8 @@ export async function completeCompanyOsRuntimeWork(input: {
         const delegationEvidenceRefs = (delegation.evidenceRefs as unknown[])
           .filter((value): value is string => typeof value === 'string')
           .map((value) => cleanText(value, 200));
-        const targetAgentId = delegation.agentId as typeof INSTALLED_AGENT_IDS[number];
+        const routedDelegation = validateSpecialistDelegation(delegation);
+        const targetAgentId = routedDelegation.agentId;
         const completed = findCompletedRuntimeDelegation({ agentId: targetAgentId, objective, evidenceRefs: delegationEvidenceRefs }, completedDelegations);
         if (completed) {
           duplicateDelegations += 1;
@@ -935,7 +933,7 @@ export async function completeCompanyOsRuntimeWork(input: {
             fromAgentId: GENERAL_MANAGER_ID,
             toAgentId: targetAgentId,
             messageType: 'DELEGATION',
-            payload: jsonValue({ objective, evidenceRefs: delegationEvidenceRefs }),
+            payload: jsonValue({ objective, capability: routedDelegation.capability, depth: routedDelegation.depth, evidenceRefs: delegationEvidenceRefs }),
             schemaVersion: 1,
             evidenceRefs: jsonValue(delegationEvidenceRefs),
             correlationId: companyCase.requestId,
@@ -956,7 +954,7 @@ export async function completeCompanyOsRuntimeWork(input: {
             triggerType: 'AGENT_MESSAGE',
             priority: Math.max(0, workItem.priority - 1),
             causalMessageId: delegationMessage.id,
-            inputPayload: jsonValue({ objective, fromAgentId: GENERAL_MANAGER_ID, evidenceRefs: delegationEvidenceRefs }),
+            inputPayload: jsonValue({ objective, capability: routedDelegation.capability, depth: routedDelegation.depth, fromAgentId: GENERAL_MANAGER_ID, evidenceRefs: delegationEvidenceRefs }),
             idempotencyKey: `work:${companyCase.requestId}:delegation:${workItem.id}:${index}:${targetAgentId}`,
             maxAttempts: 3,
             timeoutMs: 120_000,
