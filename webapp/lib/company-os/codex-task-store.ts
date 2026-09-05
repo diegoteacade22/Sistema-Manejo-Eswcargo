@@ -293,7 +293,13 @@ type BoardStateLike = {
   updatedAt: Date;
 } | null;
 type TaskWithBoardState = Prisma.CompanyOsCodexTaskGetPayload<{ include: { boardState: true } }> & {
-  actions?: Array<{ idempotencyKey: string; newVersion: number }>;
+  actions?: Array<{
+    action: string;
+    actorRef: string;
+    idempotencyKey: string;
+    newHumanStatus: string;
+    newVersion: number;
+  }>;
   replyRevisions?: Array<{
     id: string;
     revision: number;
@@ -748,14 +754,19 @@ export function reusesReplyFromPreviousCodexRequest(
 function taskView(task: TaskWithBoardState) {
   const effective = effectiveCodexTaskState(task, task.boardState);
   const reopened = Boolean(task.boardState && ['DONE', 'DISCARDED'].includes(task.humanStatus) && effective.lifecycle === 'OPEN');
-  const lastActionKey = task.actions?.[0]?.idempotencyKey ?? '';
+  const latestAction = task.actions?.[0] ?? null;
+  const lastActionKey = latestAction?.idempotencyKey ?? '';
   const latestReply = task.replyRevisions?.[0] ?? null;
   const replyWasConfirmed = latestReply?.delivery?.state === 'CONFIRMED'
     && latestReply.sourceFingerprint === task.fingerprint
     && createHash('sha256').update(latestReply.responseText).digest('hex') === latestReply.responseHash;
-  const durableAutoResumeAuthorization = lastActionKey.startsWith('dashboard:auto-resume:')
-    || lastActionKey.startsWith('codex-auto:eligibility:')
-    || lastActionKey.startsWith('codex-auto:retry-');
+  const humanBoardApproval = task.boardState?.updatedBy !== CODEX_AUTO_RESUME_ACTOR
+    && latestAction?.newHumanStatus === 'PENDING'
+    && ['MOVE', 'REOPEN', 'SAVE'].includes(latestAction.action);
+  const policyBoardApproval = task.boardState?.updatedBy === CODEX_AUTO_RESUME_ACTOR
+    && latestAction?.actorRef === CODEX_AUTO_RESUME_ACTOR
+    && (lastActionKey.startsWith('codex-auto:eligibility:') || lastActionKey.startsWith('codex-auto:retry-'));
+  const durableAutoResumeAuthorization = humanBoardApproval || policyBoardApproval;
   const durableBoardAutoResumeApproved = Boolean(
     task.boardState
     && task.boardState.workflowStatus === 'PENDING'
@@ -987,10 +998,23 @@ export async function claimApprovedCodexTask(raw: unknown, actorRef: string) {
       if (replayAction) {
         return { claimed: false, replay: true, reason: 'CLAIM_ALREADY_CONSUMED', activeThreadId: replayAction.task.threadId };
       }
+      // A completed inventory is the local source of truth. Older rows can
+      // remain in the database when a Codex session was archived or moved;
+      // they must not block or win a new local claim.
+      const latestInventorySync = await tx.companyOsCodexInventorySync.findFirst({
+        where: { sourceHost },
+        orderBy: { completedAt: 'desc' },
+        select: { completedAt: true },
+      });
+      const freshInventoryFilter = latestInventorySync
+        ? { lastObservedAt: { gte: latestInventorySync.completedAt } }
+        : {};
+
       const active = await tx.companyOsCodexTask.findFirst({
         where: {
           sourceHost,
           archived: false,
+          ...freshInventoryFilter,
           boardState: { is: { workflowStatus: 'IN_PROGRESS', lifecycle: 'OPEN', updatedBy: safeActorRef } },
         },
         include: { boardState: true, actions: { orderBy: { newVersion: 'desc' }, take: 1 } },
@@ -1014,6 +1038,7 @@ export async function claimApprovedCodexTask(raw: unknown, actorRef: string) {
         where: {
           sourceHost,
           archived: false,
+          ...freshInventoryFilter,
           sourceStatus: { in: ['IDLE', 'NOT_LOADED'] },
           OR: [
             { boardState: { is: { workflowStatus: 'PENDING', lifecycle: 'OPEN' } } },
