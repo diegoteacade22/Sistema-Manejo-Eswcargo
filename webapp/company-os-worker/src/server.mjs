@@ -179,6 +179,7 @@ export function buildDaemonRuntime(config, overrides = {}) {
     externalSourceProbe: overrides.externalSourceProbe || (() => probeExternalSources({
       googleServiceAccountJson: config.googleServiceAccountJson,
       externalIdentitySecret: config.externalIdentitySecret,
+      googleContactsExportPath: config.googleContactsExportPath,
       chatgptWorkExportPath: config.chatgptWorkExportPath,
       chatgptWorkProjectIds: config.chatgptWorkProjectIds,
     })),

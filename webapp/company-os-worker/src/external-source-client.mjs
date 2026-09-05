@@ -175,8 +175,43 @@ async function googleSnapshots(credentialsJson, identitySecret, observedAt) {
   return [
     dependency('GOOGLE_DRIVE', 'HEALTHY', batchDetail(driveBatch), Date.now() - startedAt, observedAt, driveBatch),
     dependency('GOOGLE_SHEETS', 'HEALTHY', batchDetail(sheetsBatch), Date.now() - startedAt, observedAt, sheetsBatch),
-    dependency('GOOGLE_CONTACTS', 'UNAVAILABLE', 'read_only=true;code=GOOGLE_USER_OAUTH_OR_DELEGATION_REQUIRED', 0, observedAt),
   ];
+}
+
+async function googleContactsSnapshot({ exportPath, identitySecret, observedAt }) {
+  const startedAt = Date.now();
+  if (!identitySecret) return dependency('GOOGLE_CONTACTS', 'UNAVAILABLE', 'read_only=true;code=EXTERNAL_IDENTITY_SECRET_MISSING', 0, observedAt);
+  try {
+    const metadata = await lstat(exportPath);
+    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size > MAX_EXPORT_BYTES
+      || (metadata.mode & 0o077) !== 0 || (typeof process.getuid === 'function' && metadata.uid !== process.getuid())) {
+      throw new Error('GOOGLE_CONTACTS_EXPORT_UNSAFE');
+    }
+    const parsed = JSON.parse(await readFile(exportPath, 'utf8'));
+    const capturedAt = new Date(parsed?.exportedAt);
+    const nowMs = new Date(observedAt).getTime();
+    if (!exactKeys(parsed, ['schemaVersion', 'canonicalSource', 'principalRef', 'exportedAt', 'queryCursor', 'complete', 'items'])
+      || parsed?.schemaVersion !== 1 || parsed?.canonicalSource !== 'codex_app'
+      || typeof parsed?.principalRef !== 'string' || parsed.principalRef.length < 3
+      || typeof parsed?.queryCursor !== 'string' || !/^[0-9a-z]$/.test(parsed.queryCursor)
+      || typeof parsed?.complete !== 'boolean' || !Array.isArray(parsed.items) || parsed.items.length > MAX_ITEMS_PER_SOURCE
+      || Number.isNaN(capturedAt.getTime()) || capturedAt.getTime() > nowMs + FUTURE_TOLERANCE_MS
+      || nowMs - capturedAt.getTime() > SNAPSHOT_FRESH_MS) throw new Error('GOOGLE_CONTACTS_EXPORT_INVALID');
+    const items = parsed.items.map((candidate) => {
+      if (!exactKeys(candidate, ['contactId', 'status']) || typeof candidate.contactId !== 'string'
+        || !/^(people|otherContacts)\/[A-Za-z0-9_-]{8,160}$/.test(candidate.contactId)
+        || candidate.status !== 'PENDING_REVIEW') throw new Error('GOOGLE_CONTACTS_ITEM_INVALID');
+      return externalItem({ identitySecret, sourceId: 'GOOGLE_CONTACTS', providerId: candidate.contactId,
+        providerRevision: 'contact-id-v1', itemKind: 'CONTACT_METADATA', changeKind: 'CREATED', sourceUpdatedAt: null });
+    });
+    if (new Set(items.map((item) => item.itemKey)).size !== items.length) throw new Error('GOOGLE_CONTACTS_ITEM_DUPLICATE');
+    const batch = itemBatch({ sourceId: 'GOOGLE_CONTACTS', authorityMode: 'GOOGLE_USER_OAUTH_READONLY',
+      principalRefHash: sha(parsed.principalRef), observedAt: capturedAt.toISOString(), complete: parsed.complete,
+      cursor: `google-contacts:${parsed.queryCursor}:${items.length}`, items });
+    return dependency('GOOGLE_CONTACTS', 'HEALTHY', batchDetail(batch), Date.now() - startedAt, capturedAt.toISOString(), batch);
+  } catch (error) {
+    return dependency('GOOGLE_CONTACTS', 'UNAVAILABLE', `read_only=true;code=${safeStatus(error)}`, Date.now() - startedAt, observedAt);
+  }
 }
 
 async function chatgptWorkSnapshot({ exportPath, allowedProjectIds, identitySecret, observedAt }) {
@@ -222,6 +257,7 @@ async function chatgptWorkSnapshot({ exportPath, allowedProjectIds, identitySecr
 export async function probeExternalSources({
   googleServiceAccountJson,
   externalIdentitySecret,
+  googleContactsExportPath = join(homedir(), '.company-os-runtime', 'bridges', 'google-contacts.json'),
   chatgptWorkExportPath = join(homedir(), '.company-os-runtime', 'bridges', 'chatgpt-work.json'),
   chatgptWorkProjectIds = [],
   now = () => new Date(),
@@ -233,15 +269,16 @@ export async function probeExternalSources({
       results.push(...await googleSnapshots(googleServiceAccountJson, externalIdentitySecret, observedAt));
     } catch (error) {
       const code = safeStatus(error);
-      for (const sourceId of ['GOOGLE_DRIVE', 'GOOGLE_SHEETS', 'GOOGLE_CONTACTS']) {
+      for (const sourceId of ['GOOGLE_DRIVE', 'GOOGLE_SHEETS']) {
         results.push(dependency(sourceId, 'UNAVAILABLE', `read_only=true;code=${code}`, 0, observedAt));
       }
     }
   } else {
-    for (const sourceId of ['GOOGLE_DRIVE', 'GOOGLE_SHEETS', 'GOOGLE_CONTACTS']) {
+    for (const sourceId of ['GOOGLE_DRIVE', 'GOOGLE_SHEETS']) {
       results.push(dependency(sourceId, 'UNAVAILABLE', 'read_only=true;code=GOOGLE_CREDENTIAL_NOT_LOADED', 0, observedAt));
     }
   }
+  results.push(await googleContactsSnapshot({ exportPath: googleContactsExportPath, identitySecret: externalIdentitySecret, observedAt }));
   results.push(await chatgptWorkSnapshot({ exportPath: chatgptWorkExportPath, allowedProjectIds: chatgptWorkProjectIds,
     identitySecret: externalIdentitySecret, observedAt }));
   return results;

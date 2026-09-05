@@ -15,7 +15,7 @@ function serviceAccount() {
     private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }) });
 }
 
-test('Drive y Sheets emiten sólo identidades HMAC y Contacts no acepta una cuenta de servicio aislada', async () => {
+test('Drive y Sheets emiten sólo identidades HMAC y Contacts exige un puente OAuth separado', async () => {
   const priorFetch = globalThis.fetch;
   globalThis.fetch = async (url, init = {}) => {
     const value = String(url);
@@ -34,6 +34,7 @@ test('Drive y Sheets emiten sólo identidades HMAC y Contacts no acepta una cuen
   };
   try {
     const results = await probeExternalSources({ googleServiceAccountJson: serviceAccount(), externalIdentitySecret: identitySecret,
+      googleContactsExportPath: '/definitely/missing/google-contacts.json',
       chatgptWorkExportPath: '/definitely/missing/chatgpt-work.json', now: () => observedAt });
     const drive = results.find((entry) => entry.sourceId === 'GOOGLE_DRIVE');
     const sheets = results.find((entry) => entry.sourceId === 'GOOGLE_SHEETS');
@@ -41,7 +42,7 @@ test('Drive y Sheets emiten sólo identidades HMAC y Contacts no acepta una cuen
     assert.equal(drive.status, 'HEALTHY');
     assert.equal(sheets.status, 'HEALTHY');
     assert.equal(contacts.status, 'UNAVAILABLE');
-    assert.match(contacts.detail, /GOOGLE_USER_OAUTH_OR_DELEGATION_REQUIRED/);
+    assert.match(contacts.detail, /ENOENT/);
     const durable = JSON.stringify([drive.itemBatch, sheets.itemBatch]);
     assert.doesNotMatch(durable, /raw-drive-id|raw-sheet-id|runtime-reader@example|ephemeral-test-token/);
     assert.match(drive.itemBatch.items[0].itemKey, /^[a-f0-9]{64}$/);
@@ -49,6 +50,31 @@ test('Drive y Sheets emiten sólo identidades HMAC y Contacts no acepta una cuen
   } finally {
     globalThis.fetch = priorFetch;
   }
+});
+
+test('Google Contacts acepta un export OAuth 0600 sin persistir datos personales', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'company-os-contacts-export-'));
+  const exportPath = join(directory, 'google-contacts.json');
+  const document = { schemaVersion: 1, canonicalSource: 'codex_app', principalRef: 'google-contacts-bridge-v1',
+    exportedAt: observedAt.toISOString(), queryCursor: 'a', complete: false,
+    items: [{ contactId: 'people/c1234567890', status: 'PENDING_REVIEW' },
+      { contactId: 'otherContacts/c0987654321', status: 'PENDING_REVIEW' }] };
+  writeFileSync(exportPath, JSON.stringify(document), { mode: 0o600 });
+  chmodSync(exportPath, 0o600);
+  const results = await probeExternalSources({ externalIdentitySecret: identitySecret, googleContactsExportPath: exportPath,
+    chatgptWorkExportPath: '/definitely/missing/chatgpt-work.json', now: () => observedAt });
+  const contacts = results.find((entry) => entry.sourceId === 'GOOGLE_CONTACTS');
+  assert.equal(contacts.status, 'HEALTHY');
+  assert.equal(contacts.itemBatch.authorityMode, 'GOOGLE_USER_OAUTH_READONLY');
+  assert.equal(contacts.itemBatch.complete, false);
+  assert.equal(contacts.itemBatch.items.length, 2);
+  assert.doesNotMatch(JSON.stringify(contacts.itemBatch), /people\/c|otherContacts\/c|google-contacts-bridge/);
+
+  writeFileSync(exportPath, JSON.stringify({ ...document, items: [{ ...document.items[0], email: 'private@example.invalid' }] }));
+  chmodSync(exportPath, 0o600);
+  const rejected = await probeExternalSources({ externalIdentitySecret: identitySecret, googleContactsExportPath: exportPath,
+    chatgptWorkExportPath: '/definitely/missing/chatgpt-work.json', now: () => observedAt });
+  assert.equal(rejected.find((entry) => entry.sourceId === 'GOOGLE_CONTACTS').status, 'UNAVAILABLE');
 });
 
 test('ChatGPT Work acepta sólo exportación canónica 0600 allowlisted y nunca el índice local', async () => {

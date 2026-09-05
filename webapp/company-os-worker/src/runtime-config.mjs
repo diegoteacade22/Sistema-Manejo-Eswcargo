@@ -114,6 +114,7 @@ export function loadRuntimeConfig(env = process.env) {
     ollamaTimeoutMs: integerInRange(env.COMPANY_OS_RUNTIME_OLLAMA_TIMEOUT_MS, 120_000, 'COMPANY_OS_RUNTIME_OLLAMA_TIMEOUT_MS', 5_000, 600_000),
     googleServiceAccountJson: env.COMPANY_OS_RUNTIME_GOOGLE_SERVICE_ACCOUNT_JSON?.trim() || null,
     externalIdentitySecret: required('COMPANY_OS_EXTERNAL_IDENTITY_HMAC_SECRET', env),
+    googleContactsExportPath: join(stateDir, 'bridges', 'google-contacts.json'),
     chatgptWorkExportPath: join(stateDir, 'bridges', 'chatgpt-work.json'),
     chatgptWorkProjectIds,
     stateDir,
