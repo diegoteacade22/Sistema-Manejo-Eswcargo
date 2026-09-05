@@ -184,7 +184,7 @@ export async function createContinuousObjective(input: CreateContinuousObjective
 export async function controlContinuousObjective(input: ControlContinuousObjectiveInput, identity: ContinuousObjectiveIdentity) {
   const actorRef = actor(identity);
   const idempotencyKey = key(input.idempotencyKey, actorRef);
-  if (!['PAUSE', 'RESUME'].includes(input.action) || !Number.isInteger(input.expectedVersion) || !Number.isInteger(input.expectedControlRevision)
+  if (!['PAUSE', 'RESUME', 'END'].includes(input.action) || !Number.isInteger(input.expectedVersion) || !Number.isInteger(input.expectedControlRevision)
     || typeof input.objectiveId !== 'string' || !/^[A-Za-z0-9_-]{8,128}$/.test(input.objectiveId)) {
     throw new ContinuousObjectiveError('Control de objetivo inválido');
   }
@@ -203,13 +203,15 @@ export async function controlContinuousObjective(input: ControlContinuousObjecti
     if (goal.status === 'EXPIRED' || new Date(goal.endsAt) <= new Date()) throw new ContinuousObjectiveError('El objetivo venció y no puede reactivarse', 409, 'OBJECTIVE_EXPIRED');
     const expected = input.action === 'PAUSE' ? 'ACTIVE' : 'PAUSED';
     if (goal.status !== expected) throw new ContinuousObjectiveError('El objetivo ya está en ese estado', 409, 'OBJECTIVE_CHANGED');
+    const ending = input.action === 'END';
     const updated = await tx.$queryRaw<GoalRow[]>(Prisma.sql`
-      UPDATE public."CompanyOsContinuousObjective" SET status=${input.action === 'PAUSE' ? 'PAUSED' : 'ACTIVE'},
+      UPDATE public."CompanyOsContinuousObjective" SET status=${input.action === 'PAUSE' ? 'PAUSED' : ending ? 'EXPIRED' : 'ACTIVE'},
         "controlRevision"="controlRevision"+1,"updatedAt"=clock_timestamp(),
+        "endsAt"=CASE WHEN ${ending} THEN clock_timestamp() ELSE "endsAt" END,
         "nextScanAt"=CASE WHEN ${input.action}='RESUME' THEN clock_timestamp() ELSE "nextScanAt" END
       WHERE id=${goal.id} RETURNING *
     `);
-    await appendEvent(tx, { goalId: goal.id, eventType: input.action === 'PAUSE' ? 'OBJECTIVE_PAUSED' : 'OBJECTIVE_RESUMED',
+    await appendEvent(tx, { goalId: goal.id, eventType: input.action === 'PAUSE' ? 'OBJECTIVE_PAUSED' : ending ? 'OBJECTIVE_ENDED' : 'OBJECTIVE_RESUMED',
       actorRef, idempotencyKey, requestHash, payload: { version: goal.version, controlRevision: updated[0].controlRevision } });
     return { objective: await fullView(tx, updated[0]), reused: false };
   });

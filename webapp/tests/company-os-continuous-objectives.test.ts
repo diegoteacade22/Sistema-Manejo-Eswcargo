@@ -224,6 +224,23 @@ test('control rechaza revisión vieja sin actualizar ni alterar versión semánt
   });
 });
 
+test('cierre anticipado exige pausa, conserva historial y queda auditado', async () => {
+  const paused = { ...goal, status: 'PAUSED' as const, controlRevision: 1 };
+  const ended = { ...paused, status: 'EXPIRED' as const, controlRevision: 2, endsAt: now };
+  await withFakeDb([[], [paused], [], [ended], [], []], async (calls) => {
+    const result = await controlContinuousObjective({ objectiveId: goal.id, action: 'END', expectedVersion: 1,
+      expectedControlRevision: 1, idempotencyKey: 'ui:continuous:end:1234' }, 'admin-test');
+    assert.equal(result.objective.status, 'EXPIRED');
+    assert.ok(calls.some((sql) => sql.includes('clock_timestamp() ELSE "endsAt"')));
+    assert.match(readFileSync(new URL('../lib/company-os/continuous-objectives.ts', import.meta.url), 'utf8'), /OBJECTIVE_ENDED/);
+    assert.ok(!calls.some((sql) => /DELETE FROM/.test(sql)));
+  });
+  await withFakeDb([[], [goal], []], async () => {
+    await assert.rejects(controlContinuousObjective({ objectiveId: goal.id, action: 'END', expectedVersion: 1,
+      expectedControlRevision: 0, idempotencyKey: 'ui:continuous:end-active:1234' }, 'admin-test'), /estado/);
+  });
+});
+
 test('sigue observando resultados de objetivos vencidos sin generar casos ni reactivarlos', async () => {
   const finishedUnit = { ...unit, status: 'QUEUED', caseId: 'case-123456', caseStatus: 'COMPLETED', hasPendingWork: false,
     resultMessageId: 'message-123456', resultPayload: { summary: 'Snapshot observado', confidence: 0.95, needsHumanDecision: false }, evidenceIds: ['evidence-123456'] };

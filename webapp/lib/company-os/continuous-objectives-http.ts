@@ -9,7 +9,7 @@ type CreateRequest = {
   projectAllowlist: string[]; externalSources: string[]; criteria: string[]; idempotencyKey: string;
 };
 type ControlRequest = {
-  action: 'PAUSE' | 'RESUME'; objectiveId: string; expectedVersion: number; expectedControlRevision: number; idempotencyKey: string;
+  action: 'PAUSE' | 'RESUME' | 'END'; objectiveId: string; expectedVersion: number; expectedControlRevision: number; idempotencyKey: string;
 };
 
 function text(value: unknown, name: string, min: number, max: number) {
@@ -66,7 +66,7 @@ export function parseContinuousObjectiveRequest(value: unknown): CreateRequest |
       criteria: textList(input.criteria, 'Criterios', 12, 3, 500),
     };
   }
-  if (input.action !== 'PAUSE' && input.action !== 'RESUME') throw new ContinuousObjectiveRequestError('Acción no permitida.');
+  if (input.action !== 'PAUSE' && input.action !== 'RESUME' && input.action !== 'END') throw new ContinuousObjectiveRequestError('Acción no permitida.');
   if (!Number.isInteger(input.expectedVersion) || Number(input.expectedVersion) < 1) throw new ContinuousObjectiveRequestError('La versión del objetivo es obligatoria.');
   if (!Number.isInteger(input.expectedControlRevision) || Number(input.expectedControlRevision) < 0) throw new ContinuousObjectiveRequestError('La revisión de control es obligatoria.');
   return {

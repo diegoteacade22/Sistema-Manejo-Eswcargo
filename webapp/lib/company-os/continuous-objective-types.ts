@@ -67,7 +67,7 @@ export type CreateContinuousObjectiveInput = {
   durationDays?: number; endsAt?: string; scanIntervalMinutes?: number; idempotencyKey: string;
 };
 export type ControlContinuousObjectiveInput = {
-  objectiveId: string; action: 'PAUSE' | 'RESUME'; expectedVersion: number; expectedControlRevision: number; idempotencyKey: string;
+  objectiveId: string; action: 'PAUSE' | 'RESUME' | 'END'; expectedVersion: number; expectedControlRevision: number; idempotencyKey: string;
 };
 export type ContinuousObjectiveIdentity = string;
 export type PendingContinuousObjectiveUnit = ContinuousObjectiveUnitView & {

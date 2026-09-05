@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { CalendarClock, CheckCircle2, Loader2, Pause, Play, RefreshCw, Target } from 'lucide-react';
+import { CalendarClock, CheckCircle2, CircleStop, Loader2, Pause, Play, RefreshCw, Target } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -81,9 +81,10 @@ export function objectiveTaskProgress(objective: ContinuousObjectiveDisplay) {
   };
 }
 
-export function ContinuousObjectiveCard({ objective, disabled = false, pausing = false, onPause, onConfirmPause, onCancelPause, onResume }: {
-  objective: ContinuousObjectiveDisplay; disabled?: boolean; pausing?: boolean;
+export function ContinuousObjectiveCard({ objective, disabled = false, pausing = false, ending = false, onPause, onConfirmPause, onCancelPause, onResume, onEnd, onConfirmEnd, onCancelEnd }: {
+  objective: ContinuousObjectiveDisplay; disabled?: boolean; pausing?: boolean; ending?: boolean;
   onPause?: () => void; onConfirmPause?: () => void; onCancelPause?: () => void; onResume?: () => void;
+  onEnd?: () => void; onConfirmEnd?: () => void; onCancelEnd?: () => void;
 }) {
   const progress = objectiveTaskProgress(objective);
   const sources = [...new Map(objective.units.map((unit) => [unit.sourceId, unit.source])).values()];
@@ -92,7 +93,7 @@ export function ContinuousObjectiveCard({ objective, disabled = false, pausing =
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div><span className={`rounded-full px-2.5 py-1 text-xs ${objective.status === 'ACTIVE' ? 'bg-emerald-500/15 text-emerald-300' : 'bg-slate-800 text-slate-300'}`}>{stateNames[objective.status]}</span><h3 className="mt-3 text-xl font-semibold">{objective.title}</h3></div>
         {objective.status === 'ACTIVE' && <Button variant="outline" disabled={disabled} onClick={onPause}><Pause className="mr-2 h-4 w-4" />Pausar</Button>}
-        {objective.status === 'PAUSED' && <Button variant="outline" disabled={disabled} onClick={onResume}><Play className="mr-2 h-4 w-4" />Reanudar</Button>}
+        {objective.status === 'PAUSED' && <div className="flex gap-2"><Button variant="outline" disabled={disabled} onClick={onResume}><Play className="mr-2 h-4 w-4" />Reanudar</Button><Button variant="outline" disabled={disabled} onClick={onEnd}><CircleStop className="mr-2 h-4 w-4" />Terminar</Button></div>}
       </div>
       <p className="mt-3 whitespace-pre-wrap text-sm text-slate-300">{objective.objective}</p>
       <p className="mt-3 text-xs text-cyan-200">Responsable: Gerente General · apoyo: Sistemas y Datos</p>
@@ -103,6 +104,7 @@ export function ContinuousObjectiveCard({ objective, disabled = false, pausing =
       </div>
       <p className="mt-2 text-xs text-slate-500">Desde {formatCompanyOsTimestamp(objective.startsAt)} · Último barrido: {objective.lastScanAt ? formatCompanyOsTimestamp(objective.lastScanAt) : 'Todavía no observado'}</p>
       {pausing && <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/5 p-3" role="alert"><p className="text-sm text-amber-100">Al pausar no se tomarán nuevas tareas. Una tarea que ya está corriendo puede terminar.</p><div className="mt-3 flex gap-2"><Button disabled={disabled} onClick={onConfirmPause}>Confirmar pausa</Button><Button variant="ghost" disabled={disabled} onClick={onCancelPause}>Cancelar</Button></div></div>}
+      {ending && <div className="mt-4 rounded-xl border border-amber-400/30 bg-amber-400/5 p-3" role="alert"><p className="text-sm text-amber-100">El objetivo quedará terminado y conservará todo su historial. No podrá reanudarse.</p><div className="mt-3 flex gap-2"><Button disabled={disabled} onClick={onConfirmEnd}>Confirmar cierre</Button><Button variant="ghost" disabled={disabled} onClick={onCancelEnd}>Cancelar</Button></div></div>}
       <div className="mt-5 flex flex-wrap gap-5 border-y border-slate-800 py-4">
         <div><p className="text-xl font-semibold text-emerald-300">{progress.verified}</p><p className="text-xs text-slate-400">Análisis con evidencia</p></div>
         <div><p className="text-xl font-semibold">{progress.analyzed}</p><p className="text-xs text-slate-400">Análisis de metadatos</p></div>
@@ -127,6 +129,7 @@ export function CompanyOsContinuousObjectives() {
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [pauseTarget, setPauseTarget] = useState<string | null>(null);
+  const [endTarget, setEndTarget] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [objective, setObjective] = useState('');
   const [durationDays, setDurationDays] = useState(30);
@@ -170,7 +173,7 @@ export function CompanyOsContinuousObjectives() {
     if (typeof result?.objective?.id !== 'string') throw new Error('La operación no devolvió un objetivo verificable.');
     const readback = await refresh();
     const saved = readback.objectives.find((item) => item.id === result.objective.id);
-    const expectedStatus = payload.action === 'PAUSE' ? 'PAUSED' : 'ACTIVE';
+    const expectedStatus = payload.action === 'PAUSE' ? 'PAUSED' : payload.action === 'END' ? 'EXPIRED' : 'ACTIVE';
     if (!saved || saved.status !== expectedStatus) throw new Error('La operación respondió, pero el estado esperado no aparece en la lectura posterior.');
     mutationKey.current = null;
     return saved;
@@ -188,13 +191,14 @@ export function CompanyOsContinuousObjectives() {
     finally { setBusy(null); }
   }
 
-  async function control(item: ContinuousObjectiveDisplay, action: 'PAUSE' | 'RESUME') {
+  async function control(item: ContinuousObjectiveDisplay, action: 'PAUSE' | 'RESUME' | 'END') {
     if (busy || !current) return;
     setBusy(item.id); setError(''); setNotice('');
     try {
       await mutate({action,objectiveId:item.id,expectedVersion:item.version,expectedControlRevision:item.controlRevision});
       setPauseTarget(null);
-      setNotice(action === 'PAUSE' ? 'Objetivo pausado. Las tareas que ya corrían pueden terminar.' : 'Objetivo reanudado y confirmado.');
+      setEndTarget(null);
+      setNotice(action === 'PAUSE' ? 'Objetivo pausado. Las tareas que ya corrían pueden terminar.' : action === 'END' ? 'Objetivo terminado. Su historial permanece disponible.' : 'Objetivo reanudado y confirmado.');
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo confirmar el cambio.'); }
     finally { setBusy(null); }
   }
@@ -217,7 +221,7 @@ export function CompanyOsContinuousObjectives() {
         </form>
         <section className="space-y-4" aria-label="Objetivos y resultados">
           <div className="flex items-center justify-between gap-3"><h2 className="flex items-center gap-2 text-lg font-semibold"><CalendarClock className="h-5 w-5 text-cyan-300" />Objetivos y resultados</h2><Button variant="outline" size="sm" disabled={!!busy} onClick={()=>void refresh().catch(()=>{})}><RefreshCw className="mr-2 h-4 w-4" />Actualizar</Button></div>
-          {!snapshot ? <p className="rounded-xl border border-slate-800 p-5 text-sm text-slate-400">{error?'Estado sin observar. Usá Actualizar para reintentar.':'Leyendo objetivos…'}</p> : snapshot.objectives.length===0 ? <div className="rounded-xl border border-slate-800 p-6"><CheckCircle2 className="mb-2 h-5 w-5 text-slate-500" /><p className="text-sm text-slate-400">Todavía no hay objetivos continuos. Creá el primero con los proyectos y criterios que querés trabajar.</p></div> : snapshot.objectives.map((item)=><ContinuousObjectiveCard key={item.id} objective={item} disabled={!!busy||!current} pausing={pauseTarget===item.id} onPause={()=>setPauseTarget(item.id)} onCancelPause={()=>setPauseTarget(null)} onConfirmPause={()=>void control(item,'PAUSE')} onResume={()=>void control(item,'RESUME')} />)}
+          {!snapshot ? <p className="rounded-xl border border-slate-800 p-5 text-sm text-slate-400">{error?'Estado sin observar. Usá Actualizar para reintentar.':'Leyendo objetivos…'}</p> : snapshot.objectives.length===0 ? <div className="rounded-xl border border-slate-800 p-6"><CheckCircle2 className="mb-2 h-5 w-5 text-slate-500" /><p className="text-sm text-slate-400">Todavía no hay objetivos continuos. Creá el primero con los proyectos y criterios que querés trabajar.</p></div> : snapshot.objectives.map((item)=><ContinuousObjectiveCard key={item.id} objective={item} disabled={!!busy||!current} pausing={pauseTarget===item.id} ending={endTarget===item.id} onPause={()=>{setPauseTarget(item.id);setEndTarget(null);}} onCancelPause={()=>setPauseTarget(null)} onConfirmPause={()=>void control(item,'PAUSE')} onResume={()=>void control(item,'RESUME')} onEnd={()=>{setEndTarget(item.id);setPauseTarget(null);}} onCancelEnd={()=>setEndTarget(null)} onConfirmEnd={()=>void control(item,'END')} />)}
           <p className="text-xs text-slate-500">Lectura automática cada 15 segundos. Las fuentes y resultados se muestran sólo después de persistirse.</p>
         </section>
       </div>

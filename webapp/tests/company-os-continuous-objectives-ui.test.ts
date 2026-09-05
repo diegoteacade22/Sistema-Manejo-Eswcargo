@@ -38,10 +38,11 @@ test('objetivo HTTP conserva duración estable y rechaza presupuestos o campos e
   assert.throws(()=>parseContinuousObjectiveRequest({...createInput,idempotencyKey:undefined}),/Clave/);
 });
 
-test('pausa y reanudación requieren versión, revisión de control y clave idempotente', () => {
+test('pausa, reanudación y cierre requieren versión, revisión de control y clave idempotente', () => {
   const input={action:'PAUSE',objectiveId:'objective-1',expectedVersion:1,expectedControlRevision:0,idempotencyKey:createInput.idempotencyKey};
   assert.deepEqual(parseContinuousObjectiveRequest(input),input);
   assert.deepEqual(parseContinuousObjectiveRequest({...input,action:'RESUME'}),{...input,action:'RESUME'});
+  assert.deepEqual(parseContinuousObjectiveRequest({...input,action:'END'}),{...input,action:'END'});
   assert.throws(()=>parseContinuousObjectiveRequest({...input,expectedControlRevision:undefined}),/revisión/);
   assert.throws(()=>parseContinuousObjectiveRequest({...input,expectedVersion:0}),/versión/);
 });
@@ -65,6 +66,13 @@ test('análisis verificado muestra evidencia sin declarar la meta cumplida ni re
   assert.match(html,/Confirmar pausa/);
   assert.doesNotMatch(html,/100%|Meta cumplida|Objetivo completado/);
   assert.deepEqual(objectiveTaskProgress(fixture),{verified:1,analyzed:0,pending:0,skipped:0});
+});
+
+test('un objetivo pausado puede terminarse con confirmación y sin borrar historial', () => {
+  const html=renderToStaticMarkup(createElement(ContinuousObjectiveCard,{objective:{...fixture,status:'PAUSED'},ending:true}));
+  assert.match(html,/Terminar/);
+  assert.match(html,/Confirmar cierre/);
+  assert.match(html,/conservará todo su historial/);
 });
 
 test('un barrido aún no observado no presenta cero fuentes como lectura real', () => {
