@@ -21,6 +21,7 @@ import { validateSpecialistDelegation } from './specialist-routing';
 import { deriveRuntimeAgentState, type RuntimeAgentStateWork } from './runtime-agent-status';
 import { planAdaptiveRuntimeBudget, planRuntimeBudget, startOfZonedPeriod } from './runtime-budget';
 import { withRuntimeObjectiveClaimFence } from './runtime-objective-guard';
+import { RUNTIME_CONTINUATION_PRIORITY_GAP, RUNTIME_RETRY_FAIRNESS_AGE_MS } from './runtime-queue-policy';
 import {
   COMPANY_OS_DATA_MANAGER_IDENTITY,
   COMPANY_OS_SYSTEMS_MANAGER_IDENTITY,
@@ -333,6 +334,7 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
   const db = companyOsV3Prisma();
   return db.$transaction(async (tx) => {
     const now = new Date();
+    const agedRetryBefore = new Date(now.getTime() - RUNTIME_RETRY_FAIRNESS_AGE_MS);
     await expireLeases(tx, now);
     const control = await tx.companyOsRuntimeControl.findUniqueOrThrow({ where: { id: 'primary' } });
     if (control.paused) return null;
@@ -348,6 +350,43 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
     const slot = slots[0];
     if (!slot) return null;
     const selectCandidates = (workItemId: string | null) => tx.$queryRaw<ClaimCandidate[]>(Prisma.sql`
+      WITH family_service AS MATERIALIZED (
+        SELECT
+          COALESCE('goal:' || served_unit."goalId", 'case-type:' || served_case."caseType") AS "familyKey",
+          MAX(served_work."completedAt") AS "lastCompletedAt"
+        FROM public."CompanyOsWorkItem" served_work
+        JOIN public."CompanyOsCase" served_case ON served_case.id = served_work."caseId"
+        LEFT JOIN public."CompanyOsObjectiveUnit" served_unit ON served_unit."caseId" = served_work."caseId"
+        WHERE served_work.status = 'COMPLETED'
+        GROUP BY COALESCE('goal:' || served_unit."goalId", 'case-type:' || served_case."caseType")
+      ), eligible AS MATERIALIZED (
+        SELECT
+          candidate_work.id AS "workItemId",
+          MAX(candidate_work.priority) OVER () AS "maxEligiblePriority"
+        FROM public."CompanyOsWorkItem" candidate_work
+        JOIN public."CompanyOsCase" company_case ON company_case.id = candidate_work."caseId"
+        WHERE candidate_work.status IN ('QUEUED','FAILED_RETRYABLE')
+          AND COALESCE(candidate_work."nextAttemptAt", candidate_work."availableAt") <= ${now}
+          AND company_case.status NOT IN ('COMPLETED','CANCELLED','FAILED_FINAL')
+          AND (company_case."caseType" <> 'CONTINUOUS_OBJECTIVE' OR EXISTS (
+            SELECT 1 FROM public."CompanyOsObjectiveUnit" linked WHERE linked."caseId" = candidate_work."caseId"
+          ))
+          AND NOT EXISTS (
+            SELECT 1 FROM public."CompanyOsObjectiveUnit" unit
+            JOIN public."CompanyOsContinuousObjective" objective ON objective.id = unit."goalId"
+            WHERE unit."caseId" = candidate_work."caseId"
+              AND (objective.status <> 'ACTIVE' OR objective."startsAt" > clock_timestamp() OR objective."endsAt" <= clock_timestamp())
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM public."CompanyOsLease" active
+            WHERE active."agentId" = candidate_work."agentId"
+              AND active.status = 'ACTIVE' AND active."expiresAt" > ${now}
+          )
+          AND EXISTS (
+            SELECT 1 FROM public."CompanyOsAgentContract" installed
+            WHERE installed."agentId" = candidate_work."agentId" AND installed.status = 'INSTALLED'
+          )
+      )
       SELECT
         work.id AS "workItemId", work."caseId", company_case."requestId", work."agentId",
         company_case.objective, work."inputPayload"->>'objective' AS "workObjective",
@@ -360,7 +399,12 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
         causal."messageType" AS "causalMessageType", causal."fromAgentId" AS "causalFromAgentId",
         causal."toAgentId" AS "causalToAgentId", causal."deliveryStatus" AS "causalDeliveryStatus"
       FROM public."CompanyOsWorkItem" work
+      JOIN eligible ON eligible."workItemId" = work.id
       JOIN public."CompanyOsCase" company_case ON company_case.id = work."caseId"
+      LEFT JOIN public."CompanyOsObjectiveUnit" scheduling_unit ON scheduling_unit."caseId" = work."caseId"
+      LEFT JOIN family_service ON family_service."familyKey" = COALESCE(
+        'goal:' || scheduling_unit."goalId", 'case-type:' || company_case."caseType"
+      )
       LEFT JOIN public."CompanyOsMessage" causal ON causal.id = work."causalMessageId"
         AND causal."caseId" = work."caseId"
       JOIN LATERAL (
@@ -370,25 +414,37 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
         ORDER BY installed."createdAt" DESC
         LIMIT 1
       ) contract ON true
-      WHERE work.status IN ('QUEUED','FAILED_RETRYABLE')
-        AND (${workItemId}::text IS NULL OR work.id = ${workItemId})
-        AND COALESCE(work."nextAttemptAt", work."availableAt") <= ${now}
-        AND company_case.status NOT IN ('COMPLETED','CANCELLED','FAILED_FINAL')
-        AND (company_case."caseType" <> 'CONTINUOUS_OBJECTIVE' OR EXISTS (
-          SELECT 1 FROM public."CompanyOsObjectiveUnit" linked WHERE linked."caseId" = work."caseId"
-        ))
-        AND NOT EXISTS (
-          SELECT 1 FROM public."CompanyOsObjectiveUnit" unit
-          JOIN public."CompanyOsContinuousObjective" objective ON objective.id = unit."goalId"
-          WHERE unit."caseId" = work."caseId"
-            AND (objective.status <> 'ACTIVE' OR objective."startsAt" > clock_timestamp() OR objective."endsAt" <= clock_timestamp())
-        )
-        AND NOT EXISTS (
-          SELECT 1 FROM public."CompanyOsLease" active
-          WHERE active."agentId" = work."agentId"
-            AND active.status = 'ACTIVE' AND active."expiresAt" > ${now}
-        )
-      ORDER BY work.priority DESC, work."availableAt", work."createdAt"
+      WHERE (${workItemId}::text IS NULL OR work.id = ${workItemId})
+      -- Finish only authentic first-attempt handoffs, and never jump more than the
+      -- single priority point assigned by the runtime itself.
+      ORDER BY CASE WHEN work."attemptCount" = 0
+          AND causal."caseId" = work."caseId"
+          AND causal."deliveryStatus" = 'DELIVERED'
+          AND causal."correlationId" = company_case."requestId"
+          AND causal."expectsResponse" = true
+          AND causal."causationId" IS NOT NULL
+          AND (
+            (work."agentId" IN (${SYSTEMS_MANAGER_ID}, ${COMPANY_OS_DATA_MANAGER_IDENTITY})
+              AND causal.kind = 'ORDER' AND causal."messageType" = 'DELEGATION'
+              AND causal."fromAgentId" = ${GENERAL_MANAGER_ID} AND causal."toAgentId" = work."agentId"
+              AND causal."idempotencyKey" LIKE 'runtime-message:%:delegation:%:' || work."agentId")
+            OR (work."agentId" = ${GENERAL_MANAGER_ID}
+              AND causal.kind = 'RESULT' AND causal."messageType" = 'SPECIALIST_RESULT'
+              AND causal."fromAgentId" IN (${SYSTEMS_MANAGER_ID}, ${COMPANY_OS_DATA_MANAGER_IDENTITY})
+              AND causal."toAgentId" = ${GENERAL_MANAGER_ID}
+              AND causal."idempotencyKey" LIKE 'runtime-message:%:attempt:%:result')
+          )
+          AND work.priority >= eligible."maxEligiblePriority" - ${RUNTIME_CONTINUATION_PRIORITY_GAP}
+        THEN 0 ELSE 1 END,
+        work.priority DESC,
+        CASE
+          WHEN work."attemptCount" > 0
+            AND COALESCE(work."nextAttemptAt", work."availableAt") <= ${agedRetryBefore} THEN 0
+          WHEN work."attemptCount" = 0 THEN 1
+          ELSE 2
+        END,
+        CASE WHEN work."attemptCount" = 0 THEN family_service."lastCompletedAt" END ASC NULLS FIRST,
+        COALESCE(work."nextAttemptAt", work."availableAt"), work."createdAt", work.id
       ${workItemId === null ? Prisma.empty : Prisma.sql`FOR UPDATE OF work SKIP LOCKED`}
       LIMIT 1
     `);

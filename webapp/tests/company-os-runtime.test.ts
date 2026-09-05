@@ -6,6 +6,12 @@ import { estimateRuntimeCost, normalizeUsageForPersistence, validateRuntimeContr
 import { sanitizeCompanyText } from '../lib/company-os/objective';
 import { deriveRuntimeAgentState, type RuntimeAgentStateWork } from '../lib/company-os/runtime-agent-status';
 import {
+  compareRuntimeQueuePolicy,
+  isAuthenticatedRuntimeContinuation,
+  runtimeQueuePolicyKey,
+  type RuntimeQueuePolicyCandidate,
+} from '../lib/company-os/runtime-queue-policy';
+import {
   signCompanyOsEngineeringPayload,
   signCompanyOsRuntimePayload,
   verifyCompanyOsEngineeringRequest,
@@ -226,6 +232,110 @@ test('heartbeat conserva el detalle criptográfico del batch externo ya validado
 test('control center desempata dependencias por recepción durable sin alterar su observedAt', () => {
   const store = readFileSync('lib/company-os/runtime-store.ts', 'utf8');
   assert.match(store, /observation\."observedAt" DESC,\s+observation\."createdAt" DESC, observation\.id DESC/);
+});
+
+function queueCandidate(overrides: Partial<RuntimeQueuePolicyCandidate> = {}): RuntimeQueuePolicyCandidate {
+  return {
+    workItemId: 'work-root-01',
+    caseId: 'case-01',
+    requestId: 'request-01',
+    agentId: 'general-manager-ai-v3',
+    priority: 50,
+    attemptCount: 0,
+    availableAt: new Date('2026-09-06T04:00:00Z'),
+    nextAttemptAt: null,
+    createdAt: new Date('2026-09-05T18:00:00Z'),
+    familyLastCompletedAt: null,
+    causalCaseId: 'case-01',
+    causalKind: 'ORDER',
+    causalMessageType: 'HUMAN_ORDER',
+    causalFromAgentId: null,
+    causalToAgentId: 'general-manager-ai-v3',
+    causalDeliveryStatus: 'DELIVERED',
+    causalCorrelationId: 'request-01',
+    causalIdempotencyKey: 'runtime-message:root:order',
+    causalExpectsResponse: false,
+    causalCausationId: null,
+    ...overrides,
+  };
+}
+
+test('claim implementa lanes de retry, servicio por familia y continuaciones causales acotadas', () => {
+  const store = readFileSync('lib/company-os/runtime-store.ts', 'utf8');
+  const claim = store.slice(
+    store.indexOf('export async function claimCompanyOsRuntimeWork'),
+    store.indexOf('\nasync function requireRuntimeLease'),
+  );
+  const policy = readFileSync('lib/company-os/runtime-queue-policy.ts', 'utf8');
+  assert.match(policy, /RUNTIME_RETRY_FAIRNESS_AGE_MS = 15 \* 60_000/);
+  assert.match(policy, /RUNTIME_CONTINUATION_PRIORITY_GAP = 1/);
+  assert.match(claim, /WITH family_service AS MATERIALIZED/);
+  assert.match(claim, /MAX\(candidate_work\.priority\) OVER \(\) AS "maxEligiblePriority"/);
+  assert.match(claim, /company_case\.status NOT IN \('COMPLETED','CANCELLED','FAILED_FINAL'\)/);
+  assert.match(claim, /objective\.status <> 'ACTIVE'/);
+  assert.match(claim, /CompanyOsAgentContract" installed[\s\S]*installed\.status = 'INSTALLED'/);
+  assert.match(claim, /causal\."deliveryStatus" = 'DELIVERED'/);
+  assert.match(claim, /causal\."correlationId" = company_case\."requestId"/);
+  assert.match(claim, /causal\."idempotencyKey" LIKE 'runtime-message:%:delegation:%:' \|\| work\."agentId"/);
+  assert.match(claim, /causal\."idempotencyKey" LIKE 'runtime-message:%:attempt:%:result'/);
+  assert.match(claim, /work\.priority >= eligible\."maxEligiblePriority" - \$\{RUNTIME_CONTINUATION_PRIORITY_GAP\}/);
+  assert.match(claim, /WHEN work\."attemptCount" > 0\s+AND COALESCE\(work\."nextAttemptAt", work\."availableAt"\) <= \$\{agedRetryBefore\} THEN 0/);
+  assert.match(claim, /WHEN work\."attemptCount" = 0 THEN 1\s+ELSE 2/);
+  assert.match(claim, /CASE WHEN work\."attemptCount" = 0 THEN family_service\."lastCompletedAt" END ASC NULLS FIRST/);
+  assert.match(claim, /COALESCE\(work\."nextAttemptAt", work\."availableAt"\), work\."createdAt", work\.id/);
+  assert.match(claim, /FOR UPDATE OF work SKIP LOCKED/);
+});
+
+test('retry usa nextAttemptAt y cambia de lane exactamente a los 15 minutos', () => {
+  const now = new Date('2026-09-06T04:30:00Z');
+  const base = queueCandidate({ attemptCount: 1, availableAt: new Date('2026-09-04T04:00:00Z') });
+  const recent = queueCandidate({ ...base, workItemId: 'retry-1459', nextAttemptAt: new Date('2026-09-06T04:15:01Z') });
+  const aged = queueCandidate({ ...base, workItemId: 'retry-1500', nextAttemptAt: new Date('2026-09-06T04:15:00Z') });
+  assert.equal(runtimeQueuePolicyKey(recent, { now, maxEligiblePriority: 50 })[2], 2);
+  assert.equal(runtimeQueuePolicyKey(aged, { now, maxEligiblePriority: 50 })[2], 0);
+  assert.equal(runtimeQueuePolicyKey(recent, { now, maxEligiblePriority: 50 })[4], recent.nextAttemptAt?.getTime());
+});
+
+test('delegación y retorno auténticos adelantan un punto, pero no dos', () => {
+  const delegation = queueCandidate({
+    workItemId: 'delegation-01', agentId: 'data-manager-ai-v1', priority: 49,
+    causalKind: 'ORDER', causalMessageType: 'DELEGATION', causalFromAgentId: 'general-manager-ai-v3',
+    causalToAgentId: 'data-manager-ai-v1', causalExpectsResponse: true, causalCausationId: 'result-root-01',
+    causalIdempotencyKey: 'runtime-message:root-work:delegation:0:data-manager-ai-v1',
+  });
+  const specialistReturn = queueCandidate({
+    workItemId: 'return-01', priority: 49, causalKind: 'RESULT', causalMessageType: 'SPECIALIST_RESULT',
+    causalFromAgentId: 'data-manager-ai-v1', causalToAgentId: 'general-manager-ai-v3',
+    causalExpectsResponse: true, causalCausationId: 'delegation-message-01',
+    causalIdempotencyKey: 'runtime-message:specialist-work:attempt:1:result',
+  });
+  const root = queueCandidate({ workItemId: 'priority-50-root', priority: 50 });
+  const input = { now: new Date('2026-09-06T04:00:01Z'), maxEligiblePriority: 50 };
+  assert.equal(isAuthenticatedRuntimeContinuation(delegation), true);
+  assert.equal(isAuthenticatedRuntimeContinuation(specialistReturn), true);
+  assert.ok(compareRuntimeQueuePolicy(delegation, root, input) < 0);
+  assert.ok(compareRuntimeQueuePolicy(specialistReturn, root, input) < 0);
+  assert.equal(runtimeQueuePolicyKey({ ...delegation, priority: 48 }, input)[0], 1);
+});
+
+test('continuación pendiente, falsificada, cruzada o reintentada no recibe preferencia', () => {
+  const authentic = queueCandidate({
+    agentId: 'systems-manager-ai-v1', priority: 49,
+    causalKind: 'ORDER', causalMessageType: 'DELEGATION', causalFromAgentId: 'general-manager-ai-v3',
+    causalToAgentId: 'systems-manager-ai-v1', causalExpectsResponse: true, causalCausationId: 'root-result-01',
+    causalIdempotencyKey: 'runtime-message:root-work:delegation:0:systems-manager-ai-v1',
+  });
+  assert.equal(isAuthenticatedRuntimeContinuation({ ...authentic, causalDeliveryStatus: 'PENDING' }), false);
+  assert.equal(isAuthenticatedRuntimeContinuation({ ...authentic, causalFromAgentId: 'data-manager-ai-v1' }), false);
+  assert.equal(isAuthenticatedRuntimeContinuation({ ...authentic, causalCaseId: 'case-other' }), false);
+  assert.equal(isAuthenticatedRuntimeContinuation({ ...authentic, attemptCount: 1 }), false);
+});
+
+test('familia sin servicio obtiene un turno antes de familias ya atendidas', () => {
+  const now = new Date('2026-09-06T04:00:01Z');
+  const served = queueCandidate({ workItemId: 'served-family', familyLastCompletedAt: new Date('2026-09-05T04:00:00Z'), createdAt: new Date('2026-09-05T04:00:00Z') });
+  const unserved = queueCandidate({ workItemId: 'unserved-family', familyLastCompletedAt: null, createdAt: new Date('2026-09-05T18:00:00Z') });
+  assert.ok(compareRuntimeQueuePolicy(unserved, served, { now, maxEligiblePriority: 50 }) < 0);
 });
 
 const statusNow = new Date('2026-09-02T12:10:00Z');
