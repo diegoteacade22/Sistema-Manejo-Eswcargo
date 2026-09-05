@@ -355,8 +355,9 @@ xml_escape() {
 load_chatgpt_project_ids_configuration() {
   local existing=""
   if [[ "$RUNTIME_CHATGPT_WORK_PROJECT_IDS_EXPLICIT" == "0" && -f "$PLIST" ]]; then
-    existing="$(plutil -extract EnvironmentVariables.COMPANY_OS_RUNTIME_CHATGPT_WORK_PROJECT_IDS raw -o - "$PLIST" 2>/dev/null || true)"
-    [[ -z "$existing" ]] || RUNTIME_CHATGPT_WORK_PROJECT_IDS="$existing"
+    existing="$(plutil -extract EnvironmentVariables.COMPANY_OS_RUNTIME_CHATGPT_WORK_PROJECT_IDS raw -o - "$PLIST" 2>/dev/null)" \
+      || die "No se pudo conservar COMPANY_OS_RUNTIME_CHATGPT_WORK_PROJECT_IDS desde el plist vigente"
+    RUNTIME_CHATGPT_WORK_PROJECT_IDS="$existing"
   fi
   "$NODE_BIN" -e '
     const raw = process.argv[1];

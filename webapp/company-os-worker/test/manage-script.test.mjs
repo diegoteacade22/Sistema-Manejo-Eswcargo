@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
 async function manageScript() {
@@ -105,9 +108,56 @@ test('install conserva la allowlist ChatGPT Work existente salvo override explí
   assert.match(script, /RUNTIME_CHATGPT_WORK_PROJECT_IDS_EXPLICIT="\$\{\+COMPANY_OS_RUNTIME_CHATGPT_WORK_PROJECT_IDS\}"/);
   assert.match(loadAllowlist, /RUNTIME_CHATGPT_WORK_PROJECT_IDS_EXPLICIT.*== "0"/);
   assert.match(loadAllowlist, /plutil -extract EnvironmentVariables\.COMPANY_OS_RUNTIME_CHATGPT_WORK_PROJECT_IDS raw/);
+  assert.doesNotMatch(loadAllowlist, /\|\| true/);
   assert.match(loadAllowlist, /\^\[A-Za-z0-9\._:-\]\{1,128\}\$/);
   assert.match(loadAllowlist, /values\.length <= 50/);
   assert.ok(install.indexOf('load_chatgpt_project_ids_configuration') < install.indexOf('render_plist'));
+});
+
+test('preservación ChatGPT Work funciona con plist real y falla cerrado ante corrupción', async () => {
+  const script = await manageScript();
+  const helperSource = script.slice(0, script.indexOf('case "$ACTION" in'));
+  const root = await mkdtemp(join(tmpdir(), 'company-os-manage-test.'));
+  const launchAgents = join(root, 'Library', 'LaunchAgents');
+  const helper = join(root, 'manage-functions.zsh');
+  const plist = join(launchAgents, 'com.esw.company-os-runtime.plist');
+  await mkdir(launchAgents, { recursive: true });
+  await writeFile(helper, helperSource, { mode: 0o700 });
+
+  const validPlist = (value) => `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict><key>EnvironmentVariables</key><dict>
+<key>COMPANY_OS_RUNTIME_CHATGPT_WORK_PROJECT_IDS</key><string>${value}</string>
+</dict></dict></plist>\n`;
+  const run = (extraEnv = {}) => spawnSync('/bin/zsh', ['-c', 'source "$HELPER"; load_chatgpt_project_ids_configuration; print -rn -- "$RUNTIME_CHATGPT_WORK_PROJECT_IDS"'], {
+    encoding: 'utf8', env: { ...process.env, HOME: root, HELPER: helper, ...extraEnv },
+  });
+
+  try {
+    await writeFile(plist, validPlist('project-one,project-two'));
+    let result = run();
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout, 'project-one,project-two');
+
+    result = run({ COMPANY_OS_RUNTIME_CHATGPT_WORK_PROJECT_IDS: 'override-one' });
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout, 'override-one');
+
+    result = run({ COMPANY_OS_RUNTIME_CHATGPT_WORK_PROJECT_IDS: '' });
+    assert.equal(result.status, 0);
+    assert.equal(result.stdout, '');
+
+    await writeFile(plist, validPlist('project one'));
+    result = run();
+    assert.notEqual(result.status, 0);
+
+    await writeFile(plist, 'not-a-plist');
+    result = run();
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /No se pudo conservar COMPANY_OS_RUNTIME_CHATGPT_WORK_PROJECT_IDS/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test('install y restart esperan versión objetivo; rollback y restauración esperan runtime propio genérico', async () => {
