@@ -32,6 +32,10 @@ const GENERAL_CONTRACT_MIGRATION_URL = new URL(
   '../../supabase/migrations/20260906040410_company_os_general_manager_runtime_3_1_4.sql',
   import.meta.url,
 );
+const GENERAL_BUDGET_MIGRATION_URL = new URL(
+  '../../supabase/migrations/20260906225230_company_os_general_manager_runtime_3_1_5.sql',
+  import.meta.url,
+);
 
 function extractDollarQuotedJson(sql: string, delimiter: string): unknown {
   const marker = `$${delimiter}$`;
@@ -59,11 +63,15 @@ test('keeps the append-only SQL revisions materially identical to the TypeScript
   const sql = readFileSync(CANONICAL_CONTRACT_MIGRATION_URL, 'utf8');
   const dataSql = readFileSync(DATA_CONTRACT_MIGRATION_URL, 'utf8');
   const generalSql = readFileSync(GENERAL_CONTRACT_MIGRATION_URL, 'utf8');
+  const generalBudgetSql = readFileSync(GENERAL_BUDGET_MIGRATION_URL, 'utf8');
+  const persistedGeneral = structuredClone(extractDollarQuotedJson(
+    generalSql,
+    'company_os_general_manager_contract',
+  )) as { version: string; budgets: { dailyTokens: number } };
+  persistedGeneral.version = '3.1.5';
+  persistedGeneral.budgets.dailyTokens = 192_000;
   const persistedContracts = {
-    'general-manager-ai-v3': extractDollarQuotedJson(
-      generalSql,
-      'company_os_general_manager_contract',
-    ),
+    'general-manager-ai-v3': persistedGeneral,
     'systems-manager-ai-v1': extractDollarQuotedJson(
       sql,
       'company_os_systems_manager_contract',
@@ -83,7 +91,7 @@ test('keeps the append-only SQL revisions materially identical to the TypeScript
       COMPANY_OS_RUNTIME_CONTRACT_VERSIONS[agentId],
     );
     assert.ok(
-      (agentId === 'general-manager-ai-v3' ? generalSql : agentId === 'data-manager-ai-v1' ? dataSql : sql).includes(
+      (agentId === 'general-manager-ai-v3' ? generalBudgetSql : agentId === 'data-manager-ai-v1' ? dataSql : sql).includes(
         `'agent-contract:${agentId}:${COMPANY_OS_RUNTIME_CONTRACT_VERSIONS[agentId]}'`,
       ),
     );
@@ -101,6 +109,11 @@ test('keeps the append-only SQL revisions materially identical to the TypeScript
   assert.equal((sql.match(/AND contract = [a-z_]+_contract/g) ?? []).length, 2);
   assert.match(dataSql, /ON CONFLICT \("agentId", "contractVersion"\) DO NOTHING/);
   assert.match(generalSql, /ON CONFLICT \("agentId", "contractVersion"\) DO NOTHING/);
+  assert.match(generalBudgetSql, /ON CONFLICT \("agentId", "contractVersion"\) DO NOTHING/);
+  assert.match(generalBudgetSql, /'\{budgets,dailyTokens\}', '192000'::jsonb/);
+  assert.match(generalBudgetSql, /contract->'budgets'->>'monthlyTokens' = '1000000'/);
+  assert.match(generalBudgetSql, /contract->'budgets'->>'targetTotalTokensPerAttempt' = '12000'/);
+  assert.doesNotMatch(generalBudgetSql, /\b(?:UPDATE|DELETE)\s+public\."CompanyOsAgentContract"/i);
 });
 
 test('publishes the three verified, versioned advisory handlers', () => {

@@ -133,7 +133,7 @@ test('salidas inválidas del modelo consumen intentos restantes y reconciliació
 test('una revisión de contrato devuelve una sola vez los intentos consumidos antes del modelo', () => {
   const store = readFileSync('lib/company-os/runtime-store.ts', 'utf8');
   assert.match(store, /recoverExhaustedGeneralManagerContract313Failures/);
-  assert.match(store, /GENERAL_MANAGER_CONTRACT_RECOVERY_VERSION = '3\.1\.4'/);
+  assert.match(store, /GENERAL_MANAGER_CONTRACT_RECOVERY_VERSION = '3\.1\.5'/);
   assert.match(store, /contractVersion: '3\.1\.3'/);
   assert.match(store, /WORK_RUNTIME_CONTRACT_AUTO_RECOVERED/);
   assert.match(store, /RUNTIME_CONTRACT_FAILURE_AUTO_RECOVERED/);
@@ -148,7 +148,7 @@ test('una revisión de contrato devuelve una sola vez los intentos consumidos an
   assert.match(store, /execution\."startedAt">=\$\{installedContract\.createdAt\}/);
   assert.match(store, /execution\."finishedAt" IS NULL/);
   assert.match(store, /event\."eventType"='WORK_RUNTIME_CONTRACT_AUTO_RECOVERED'/);
-  assert.match(store, /company-os-runtime-contract-recovery:3\.1\.3:3\.1\.4/);
+  assert.match(store, /company-os-runtime-contract-recovery:3\.1\.3:3\.1\.5/);
   assert.match(store, /pending\.status IN \('QUEUED','CLAIMED','RUNNING','FAILED_RETRYABLE'\)/);
   assert.match(store, /recovered_case\."caseType" <> 'CONTINUOUS_OBJECTIVE'/);
   assert.match(store, /objective\.status <> 'ACTIVE'/);

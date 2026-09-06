@@ -105,6 +105,11 @@ consume otra llamada al modelo durante la espera. Si una reserva supera por
 sí sola el límite, queda `BLOCKED`. Los límites no se amplían para conseguir
 un cierre. La vigencia del objetivo tampoco se renueva por decisión del modelo.
 
+El contrato General 3.1.5 usa un límite diario de 192.000 tokens y conserva el
+límite mensual de 1.000.000. Este cambio fue autorizado por Diego después de
+confirmar capacidad disponible. No cambia el tamaño de cada intento, la
+concurrencia ni los permisos; el uso local y remoto se sigue contabilizando.
+
 ### Prueba de funcionamiento continuo
 
 La validación operativa requiere un caso real generado, reclamado, ejecutado y

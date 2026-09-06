@@ -27,7 +27,7 @@ export type CompanyOsInstalledAgentId =
   (typeof COMPANY_OS_INSTALLED_AGENT_IDS)[number];
 
 export const COMPANY_OS_RUNTIME_CONTRACT_VERSIONS = {
-  [COMPANY_OS_V3_IDENTITY]: '3.1.4',
+  [COMPANY_OS_V3_IDENTITY]: '3.1.5',
   [COMPANY_OS_SYSTEMS_MANAGER_IDENTITY]: '1.1.1',
   [COMPANY_OS_DATA_MANAGER_IDENTITY]: '1.0.0',
 } as const satisfies Record<CompanyOsInstalledAgentId, string>;
@@ -456,7 +456,7 @@ const CONTRACT_DEFINITIONS = {
     timeoutMs: 120_000,
     concurrency: 1,
     budgets: {
-      dailyTokens: 48_000,
+      dailyTokens: 192_000,
       monthlyTokens: 1_000_000,
       maxOutputTokens: 3_000,
       targetTotalTokensPerAttempt: 12_000,

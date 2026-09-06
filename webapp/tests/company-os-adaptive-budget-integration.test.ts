@@ -4,6 +4,8 @@ import type { Prisma } from '@prisma/client';
 import { claimCompanyOsRuntimeWork, completeCompanyOsRuntimeWork, reconsiderLocalObjectiveBudget } from '../lib/company-os/runtime-store';
 import { getCompanyOsRuntimeContract } from '../lib/company-os/runtime-contracts';
 
+const GENERAL_DAILY_LIMIT = getCompanyOsRuntimeContract('general-manager-ai-v3').budgets.dailyTokens;
+
 // Executes the real claim orchestration against a transaction double. It does
 // not simulate PostgreSQL locking/filter semantics or make database requests.
 async function claimWith(options: {
@@ -63,7 +65,7 @@ async function claimWith(options: {
         status: options.objectiveActive === false ? 'PAUSED' : 'ACTIVE',
         startsAt: new Date(0), endsAt: new Date('2100-01-01'), checkedAt: new Date(),
       }];
-      if (query.sql.includes('FROM public."CompanyOsUsage"')) return [{ totalTokens: options.used ?? 37_582, estimatedCostUsd: 0 }];
+      if (query.sql.includes('FROM public."CompanyOsUsage"')) return [{ totalTokens: options.used ?? GENERAL_DAILY_LIMIT - 10_418, estimatedCostUsd: 0 }];
       if (query.sql.includes('SELECT true AS enabled FROM public."CompanyOsObjectiveUnit"')) {
         allowlistQueries.push(query.values);
         return options.goalIncluded === false ? [] : [{ enabled: true }];
@@ -133,7 +135,7 @@ test('specialist return uses compact local context and the exact remaining daily
     fromAgentId: 'general-manager-ai-v3', toAgentId: null, content: 'x'.repeat(4_000), payload: {}, createdAt: new Date(1) };
   const specialist = { id: 'specialist', role: 'assistant', kind: 'RESULT', messageType: 'SPECIALIST_RESULT',
     fromAgentId: 'systems-manager-ai-v1', toAgentId: 'general-manager-ai-v3', content: 'hallazgo', payload: {}, createdAt: new Date(2) };
-  const result = await claimWith({ used: 42_005, specialistReturn: true, contextMessages: [specialist, manager] });
+  const result = await claimWith({ used: GENERAL_DAILY_LIMIT - 5_995, specialistReturn: true, contextMessages: [specialist, manager] });
   assert.ok(result.claim);
   assert.equal(result.claim.budgets.input, 5_000);
   assert.equal(result.claim.budgets.maxOutputTokens, 995);
@@ -155,7 +157,7 @@ test('compact budget rejects a causal row that is not a delivered result', async
     { causalExpectsResponse: false },
     { causalIdempotencyKey: 'source-controlled-result' },
   ]) {
-    const result = await claimWith({ used: 42_005, specialistReturn: true, ...options });
+    const result = await claimWith({ used: GENERAL_DAILY_LIMIT - 5_995, specialistReturn: true, ...options });
     assert.equal(result.claim, null);
     assert.equal(result.leases.length, 0);
     assert.equal(result.events[0].eventType, 'WORK_DEFERRED_RUNTIME_BUDGET');
@@ -198,7 +200,7 @@ test('reconsideration advances only an authentic delivered specialist return', a
   const tx = {
     async $queryRaw(query: Prisma.Sql) {
       if (query.sql.includes('FROM public."CompanyOsWorkItem" work')) return [row];
-      if (query.sql.includes('FROM public."CompanyOsUsage"')) return [{ totalTokens: 42_005, estimatedCostUsd: 0 }];
+      if (query.sql.includes('FROM public."CompanyOsUsage"')) return [{ totalTokens: GENERAL_DAILY_LIMIT - 5_995, estimatedCostUsd: 0 }];
       assert.fail(`Unexpected SQL in reconsider transaction: ${query.sql}`);
     },
     companyOsLease: { aggregate: async () => ({ _sum: { reservedTokens: 0 } }) },
@@ -296,7 +298,7 @@ test('standard/cloud cases retain full reservation and defer without a lease', a
 
 test('minimum output, full input gate, runtime pause, objective pause and lost race remain closed', async () => {
   for (const options of [
-    { used: 38_001 }, { evidence: 'x'.repeat(40_000) }, { paused: true },
+    { used: GENERAL_DAILY_LIMIT - 9_999 }, { evidence: 'x'.repeat(40_000) }, { paused: true },
     { objectiveActive: false }, { loseWorkRace: true },
   ]) {
     const result = await claimWith(options);

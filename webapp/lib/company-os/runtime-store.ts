@@ -42,11 +42,10 @@ const TERMINAL_CASE_STATUSES = new Set(['COMPLETED', 'CANCELLED']);
 const WORKER_STALE_MS = 150_000;
 const DEPENDENCY_STALE_MS = 150_000;
 const DEFAULT_LEASE_MS = 300_000;
-const DAILY_AGENT_TOKEN_LIMIT = 48_000;
 const MONTHLY_AGENT_TOKEN_LIMIT = 1_000_000;
 const REQUESTS_PER_MINUTE = 240;
 const AUTO_RETRYABLE_MODEL_ERRORS = new Set(['OPENAI_INVALID_RUNTIME_OUTPUT', 'OPENAI_INVALID_JSON']);
-const GENERAL_MANAGER_CONTRACT_RECOVERY_VERSION = '3.1.4';
+const GENERAL_MANAGER_CONTRACT_RECOVERY_VERSION = '3.1.5';
 
 // An explicit rollout scope prevents a budget fix from activating other goals.
 function adaptiveLocalGoalIds() {
@@ -863,7 +862,8 @@ async function persistRuntimeUsage(tx: Tx, input: {
   const estimatedCostUsd = estimateRuntimeCost(input.usage);
   const dailyTotalTokens = prior.totalTokens + usage.totalTokens;
   const dailyCostUsd = prior.estimatedCostUsd + estimatedCostUsd;
-  const percentage = Math.round((dailyTotalTokens / DAILY_AGENT_TOKEN_LIMIT) * 100);
+  const dailyLimit = getCompanyOsRuntimeContract(input.agentId).budgets.dailyTokens;
+  const percentage = Math.round((dailyTotalTokens / dailyLimit) * 100);
   const alertLevel = percentage >= 100 ? 100 : percentage >= 80 ? 80 : null;
   return tx.companyOsUsage.create({ data: {
     caseId: input.caseId,
@@ -1711,7 +1711,7 @@ async function recoverExhaustedGeneralManagerContract313Failures(tx: Tx, now: Da
   await tx.$queryRaw(Prisma.sql`
     SELECT 1 AS locked
     FROM pg_catalog.pg_advisory_xact_lock(
-      pg_catalog.hashtextextended('company-os-runtime-contract-recovery:3.1.3:3.1.4', 0)
+      pg_catalog.hashtextextended('company-os-runtime-contract-recovery:3.1.3:3.1.5', 0)
     )
   `);
   const installedContract = await tx.companyOsAgentContract.findUnique({
@@ -2062,14 +2062,16 @@ export async function reconcileCompanyOsRuntime(workerId: string) {
       _sum: { totalTokens: true },
     });
     for (const usage of dayUsage) {
+      if (!usage.agentId || !isCompanyOsRuntimeAgentInstalled(usage.agentId)) continue;
       const tokens = usage._sum.totalTokens ?? 0;
-      const percentage = Math.round((tokens / DAILY_AGENT_TOKEN_LIMIT) * 100);
+      const dailyLimit = getCompanyOsRuntimeContract(usage.agentId).budgets.dailyTokens;
+      const percentage = Math.round((tokens / dailyLimit) * 100);
       if (percentage >= 80) detected.push({
         dedupeKey: `budget:${usage.agentId}:${percentage >= 100 ? 100 : 80}`,
         type: 'BUDGET_THRESHOLD',
         severity: percentage >= 100 ? 'CRITICAL' : 'WARNING',
         summary: `${usage.agentId} alcanzó ${percentage}% del presupuesto diario`,
-        detail: { tokens, limit: DAILY_AGENT_TOKEN_LIMIT, percentage },
+        detail: { tokens, limit: dailyLimit, percentage },
       });
     }
     if (expiredLeases > 0) detected.push({
@@ -2089,7 +2091,7 @@ export async function reconcileCompanyOsRuntime(workerId: string) {
       dedupeKey: `runtime-contract-auto-recovered:${now.toISOString().slice(0, 13)}`,
       type: 'RUNTIME_CONTRACT_AUTO_RECOVERED', severity: 'WARNING',
       summary: `${contractFailuresRecovered} trabajos recuperaron sus intentos tras corregir el contrato runtime`,
-      detail: { recovered: contractFailuresRecovered, contractVersion: '3.1.4', reconciledBy: workerId },
+      detail: { recovered: contractFailuresRecovered, contractVersion: GENERAL_MANAGER_CONTRACT_RECOVERY_VERSION, reconciledBy: workerId },
     });
     for (const incident of detected) await upsertIncident(tx, incident, now);
     const activeKeys = detected.map((item) => item.dedupeKey);

@@ -30,7 +30,8 @@ persistida en el plist. El modelo de fallback permanece separado en
 
 El servidor conserva la autoridad sobre claims, slots, leases, reintentos,
 presupuestos y transiciones. Obtener `204` en `claim` no llama OpenAI.
-El presupuesto por agente sigue en 48.000 tokens diarios y 1.000.000 mensuales.
+El presupuesto diario depende del contrato instalado: General usa 192.000 tokens;
+Sistemas y Datos conservan 48.000. El límite mensual sigue en 1.000.000 por agente.
 Cuando la siguiente reserva no cabe, el trabajo permanece `QUEUED` con
 `availableAt` en el próximo reset de Nueva York; si también agotó el mes,
 espera al primer día del mes siguiente. No crea lease, intento ni llamada al
