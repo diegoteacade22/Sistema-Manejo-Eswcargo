@@ -6,6 +6,9 @@ on:
       - main
     paths:
       - '.github/workflows/audit-packing.yml'
+      - 'download_sheet.py'
+      - 'extract_consolidated.py'
+      - 'requirements-sync.txt'
       - 'webapp/prisma/packing-readiness-exceptions.json'
       - 'webapp/prisma/schema.prisma'
       - 'webapp/prisma/shipments_seed.json'
@@ -24,6 +27,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements-sync.txt
+      - name: Descargar y extraer la fuente vigente
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements-sync.txt
+          printf '%s' "$GOOGLE_CREDENTIALS_JSON" > google_credentials.json
+          python download_sheet.py
+          python extract_consolidated.py FULL
       - name: Revisar packing lists activos
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
