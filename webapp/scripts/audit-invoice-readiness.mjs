@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PrismaClient } from '@prisma/client';
+import { activeInvoiceItems, activeInvoiceTotal } from './invoice-readiness-policy.mjs';
 
 const prisma = new PrismaClient();
 
@@ -20,7 +21,7 @@ async function main() {
   }
 
   const sourceOrders = [...sourceByNumber.values()]
-    .filter((order) => Array.isArray(order.items) && order.items.length > 0);
+    .filter((order) => activeInvoiceItems(order.items).length > 0);
   if (!sourceOrders.length) {
     console.log('✅ Auditoría de invoices omitida: la actualización no contiene pedidos con productos.');
     return;
@@ -39,10 +40,7 @@ async function main() {
   const issues = [];
 
   for (const source of sourceOrders) {
-    const sourceTotal = roundMoney(source.items.reduce(
-      (sum, item) => sum + Number(item.quantity || 0) * Number(item.unit_price || 0),
-      0,
-    ));
+    const sourceTotal = roundMoney(activeInvoiceTotal(source.items));
     const dbOrder = dbByNumber.get(source.order_number);
     if (!dbOrder) {
       issues.push(`#${source.order_number}: el pedido no existe en la base.`);

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PrismaClient } from '@prisma/client';
+import { isAuditableShipmentItem } from './shipment-reconciliation-policy.mjs';
 
 const prisma = new PrismaClient();
 
@@ -23,7 +24,7 @@ async function main() {
   const shipmentReferences = new Map();
   for (const order of sourceOrders) {
     for (const item of order.items || []) {
-      if (!item.shipment_number) continue;
+      if (!isAuditableShipmentItem(item)) continue;
       const orders = shipmentReferences.get(item.shipment_number) || new Set();
       orders.add(order.order_number);
       shipmentReferences.set(item.shipment_number, orders);
@@ -48,7 +49,7 @@ async function main() {
   const expected = new Map();
   for (const order of sourceOrders) {
     for (const item of order.items || []) {
-      if (!item.shipment_number) continue;
+      if (!isAuditableShipmentItem(item)) continue;
       if (!existingShipmentNumbers.has(item.shipment_number)) continue;
       addItem(expected, itemKey(
         order.order_number,

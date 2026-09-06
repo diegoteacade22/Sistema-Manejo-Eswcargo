@@ -46,6 +46,9 @@ jobs:
           npm run test:document-export-policy
           npm run test:document-filenames
 
+      - name: Test sync audit policies
+        run: npm run test:sync-audits
+
       - name: Typecheck
         run: npx tsc --noEmit
 

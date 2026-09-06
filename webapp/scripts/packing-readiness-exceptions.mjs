@@ -3,20 +3,36 @@ import path from 'node:path';
 
 const normalizeStatus = (value) => String(value || '').trim().toUpperCase();
 
-export function buildSourceStatuses(records) {
-  const statusesByShipment = new Map();
+export function buildSourcePackingFingerprints(records) {
+  const fingerprintsByShipment = new Map();
 
   for (const record of records) {
     if (!Number.isInteger(record?.shipment_number)) continue;
-    const statuses = statusesByShipment.get(record.shipment_number) || new Set();
-    statuses.add(normalizeStatus(record.status));
-    statusesByShipment.set(record.shipment_number, statuses);
+    const fingerprint = fingerprintsByShipment.get(record.shipment_number) || {
+      statuses: new Set(),
+      recordCount: 0,
+    };
+    fingerprint.statuses.add(normalizeStatus(record.status));
+    fingerprint.recordCount += 1;
+    fingerprintsByShipment.set(record.shipment_number, fingerprint);
   }
 
   return new Map(
-    [...statusesByShipment].map(([shipmentNumber, statuses]) => [
+    [...fingerprintsByShipment].map(([shipmentNumber, fingerprint]) => [
       shipmentNumber,
-      [...statuses].sort(),
+      {
+        statuses: [...fingerprint.statuses].sort(),
+        recordCount: fingerprint.recordCount,
+      },
+    ])
+  );
+}
+
+export function buildSourceStatuses(records) {
+  return new Map(
+    [...buildSourcePackingFingerprints(records)].map(([shipmentNumber, fingerprint]) => [
+      shipmentNumber,
+      fingerprint.statuses,
     ])
   );
 }
@@ -46,7 +62,7 @@ export function loadKnownEmptyPackingExceptions(prismaDir) {
   return exceptions;
 }
 
-export function matchesKnownEmptyPackingException(shipment, exception, sourceStatuses = []) {
+export function matchesKnownEmptyPackingException(shipment, exception, sourceObservation = []) {
   if (!exception) return false;
   if (!exception.expected) return true;
 
@@ -57,10 +73,19 @@ export function matchesKnownEmptyPackingException(shipment, exception, sourceSta
   if (Number.isInteger(expected.item_count) && shipment.item_count !== expected.item_count) {
     return false;
   }
+  const sourceStatuses = Array.isArray(sourceObservation)
+    ? sourceObservation
+    : sourceObservation?.statuses || [];
   if (Array.isArray(expected.source_statuses)) {
     const actualStatuses = [...sourceStatuses].map(normalizeStatus).sort();
     const expectedStatuses = expected.source_statuses.map(normalizeStatus).sort();
     if (JSON.stringify(actualStatuses) !== JSON.stringify(expectedStatuses)) return false;
+  }
+  if (
+    Number.isInteger(expected.source_record_count)
+    && (!sourceObservation || Array.isArray(sourceObservation) || sourceObservation.recordCount !== expected.source_record_count)
+  ) {
+    return false;
   }
 
   return true;

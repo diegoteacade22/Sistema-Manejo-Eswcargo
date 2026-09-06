@@ -25,6 +25,7 @@
     "resolve:marcos-cashflow-dupes": "node scripts/resolve-marcos-cashflow-duplicates-20260718.mjs",
     "restore:jose-jr-shipment-charges": "node scripts/restore-jose-jr-shipment-charges-20260718.mjs",
     "audit:cashflow-invoices": "python3 scripts/audit-cashflow-invoice-references.py --summary",
+    "test:sync-audits": "node --test scripts/invoice-readiness-policy.test.mjs scripts/ledger-audit-reference.test.mjs scripts/packing-readiness-exceptions.test.mjs scripts/shipment-reconciliation-policy.test.mjs",
     "test:payment-duplicate-guard": "tsx scripts/test-payment-duplicate-guard.ts",
     "test:payment-target-guard": "tsx scripts/test-payment-target-guard.ts",
     "test:financial-concurrency-guards": "tsx scripts/test-financial-concurrency-guards.ts",
