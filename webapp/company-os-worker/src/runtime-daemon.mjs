@@ -91,7 +91,7 @@ export class CompanyOsRuntimeDaemon {
     if (this.stopped) return 'STOPPED';
     if (this.draining) return 'DRAINING';
     if (this.starting) return 'STARTING';
-    if (this.failures.size > 0) return 'DEGRADED';
+    if (this.failures.size > 0 || this.processor.persistenceBlocked) return 'DEGRADED';
     if (this.activeWork.size > 0) return 'BUSY';
     return 'IDLE';
   }
@@ -174,7 +174,8 @@ export class CompanyOsRuntimeDaemon {
       lastWorkerHeartbeatAt: this.lastWorkerHeartbeatAt,
       activeCount: this.activeWork.size,
       capacity: this.config.globalConcurrency,
-      acceptingWork: this.running && !this.draining,
+      acceptingWork: this.running && !this.draining && !this.processor.persistenceBlocked,
+      pendingCompletionCount: this.processor.pendingCompletionCount || 0,
       currentWork: this.currentWork(),
       lastErrorCode: this.failures.values().next().value || null,
     };
@@ -253,7 +254,8 @@ export class CompanyOsRuntimeDaemon {
         externalNotificationsEnabled: this.config.externalNotificationsEnabled,
       });
       await this.tickExternalSources();
-      await this.tickWorkerHeartbeat('STARTING');
+      await this.recoverCompletions();
+      await this.tickWorkerHeartbeat(this.processor.persistenceBlocked ? 'DEGRADED' : 'STARTING');
       this.starting = false;
       this.transitionIfNeeded('startup-complete');
       if (this.failures.has('worker-heartbeat')) this.installTimeout(() => this.tickWorkerHeartbeat(), 5_000);
@@ -464,6 +466,25 @@ export class CompanyOsRuntimeDaemon {
     return execution;
   }
 
+  async recoverCompletions() {
+    if (typeof this.processor.drainCompletions !== 'function') return true;
+    try {
+      const result = await this.processor.drainCompletions();
+      if (result.blocked) {
+        this.failures.set('completion-persistence', 'COMPLETION_PENDING');
+        this.transitionIfNeeded('completion:pending');
+        return false;
+      }
+      this.failures.delete('completion-persistence');
+      this.transitionIfNeeded('completion:confirmed');
+      return true;
+    } catch {
+      this.failures.set('completion-persistence', 'COMPLETION_OUTBOX_UNAVAILABLE');
+      this.transitionIfNeeded('completion:unavailable');
+      return false;
+    }
+  }
+
   async tickPoll() {
     if (!this.running || this.draining || this.polling) return null;
     this.polling = true;
@@ -471,7 +492,8 @@ export class CompanyOsRuntimeDaemon {
     let attempts = 0;
     const maxAttempts = this.config.globalConcurrency * 4;
     try {
-      while (!this.draining && this.activeWork.size < this.config.globalConcurrency && attempts < maxAttempts) {
+      if (!await this.recoverCompletions()) return { claimed: 0, attempts: 0, pendingCompletions: this.processor.pendingCompletionCount || 0 };
+      while (!this.draining && !this.processor.persistenceBlocked && this.activeWork.size < this.config.globalConcurrency && attempts < maxAttempts) {
         attempts += 1;
         const claim = await this.api.claim();
         this.markSuccess('claim');

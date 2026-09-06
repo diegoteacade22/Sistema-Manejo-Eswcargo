@@ -12,6 +12,7 @@ function claimIdentity(claim) {
     attemptId: claim.attemptId,
     agentId: claim.agentId,
     slotNo: claim.slotNo,
+    leaseInstanceId: claim.leaseInstanceId,
   };
 }
 
@@ -27,8 +28,8 @@ export class CompanyOsRuntimeApiClient {
     this.nonceFactory = nonceFactory;
   }
 
-  async post(endpoint, payload = {}) {
-    const body = { ...payload, workerId: this.workerId, instanceId: this.instanceId };
+  async post(endpoint, payload = {}, workerId = this.workerId) {
+    const body = { ...payload, workerId, instanceId: this.instanceId };
     const rawBody = JSON.stringify(body);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -36,7 +37,7 @@ export class CompanyOsRuntimeApiClient {
     try {
       const headers = runtimeSignedHeaders({
         secret: this.hmacSecret,
-        workerId: this.workerId,
+        workerId,
         rawBody,
         nowMs: this.now(),
         ...(this.nonceFactory ? { nonce: this.nonceFactory() } : {}),
@@ -88,7 +89,11 @@ export class CompanyOsRuntimeApiClient {
   }
 
   complete(claim, output, usage) {
-    return this.post('complete', { ...claimIdentity(claim), output, usage });
+    return this.post('complete', { ...claimIdentity(claim), output, usage }, claim.workerId || this.workerId);
+  }
+
+  resultStatus(claim) {
+    return this.post('result-status', claimIdentity(claim), claim.workerId || this.workerId);
   }
 
   fail(claim, error) {

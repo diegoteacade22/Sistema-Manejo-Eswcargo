@@ -11,6 +11,7 @@ import { TelegramNotificationClient } from './notification-client.mjs';
 import { CompanyOsRuntimeApiClient } from './runtime-api-client.mjs';
 import { loadRuntimeConfig, validateLocalLineageModel } from './runtime-config.mjs';
 import { CompanyOsRuntimeDaemon } from './runtime-daemon.mjs';
+import { CompletionOutbox } from './completion-outbox.mjs';
 import { probeExternalSources } from './external-source-client.mjs';
 import { SIGNATURE_HEADER, TIMESTAMP_HEADER, verifySignedBody } from './signing.mjs';
 import { CompanyOsWorker, SerialWebhookQueue } from './worker.mjs';
@@ -164,6 +165,7 @@ export function buildDaemonRuntime(config, overrides = {}) {
     notifier,
     heartbeatIntervalMs: config.leaseHeartbeatIntervalMs,
     failClosedInitialHeartbeat: true,
+    outbox: overrides.outbox || new CompletionOutbox({ stateDir: config.stateDir }),
     onError: (error) => logger.error('CLAIM_BACKGROUND_ERROR', { code: error?.code || 'UNKNOWN', message: error?.message || 'Background error' }),
   });
   const daemon = new CompanyOsRuntimeDaemon({

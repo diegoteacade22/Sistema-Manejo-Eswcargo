@@ -111,13 +111,14 @@ export function planAdaptiveRuntimeBudget(input: RuntimeBudgetInput & {
   const targetTotalTokens = Math.min(
     input.requested,
     input.targetTotalTokens,
+    inputAllowance + input.maxOutputTokens,
     input.dailyLimit - input.dailyUsed - input.reserved,
     input.monthlyLimit - input.monthlyUsed - input.reserved,
   );
   if (targetTotalTokens < inputAllowance + minimumOutput) {
     return { ...originalPlan, ...unchanged };
   }
-  const maxOutputTokens = targetTotalTokens - inputAllowance;
+  const maxOutputTokens = Math.min(input.maxOutputTokens, targetTotalTokens - inputAllowance);
   const admitted = planRuntimeBudget({ ...input, requested: targetTotalTokens });
   if (!admitted.allowed) throw new Error('Adaptive runtime budget failed its admission gate');
   return {
@@ -125,6 +126,7 @@ export function planAdaptiveRuntimeBudget(input: RuntimeBudgetInput & {
     requestedTokens: targetTotalTokens,
     targetTotalTokens,
     maxOutputTokens,
-    adapted: targetTotalTokens !== input.targetTotalTokens || targetTotalTokens !== input.requested,
+    adapted: targetTotalTokens !== input.targetTotalTokens || targetTotalTokens !== input.requested
+      || maxOutputTokens !== input.maxOutputTokens || inputAllowance !== originalInputAllowance,
   };
 }

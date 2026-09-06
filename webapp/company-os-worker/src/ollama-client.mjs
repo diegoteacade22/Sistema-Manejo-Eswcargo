@@ -207,14 +207,19 @@ export class OllamaAdvisoryClient {
       if (raw?.done !== true) {
         throw new OllamaWorkerError('Ollama response was not a completed generation', { code: 'OLLAMA_INCOMPLETE_RESPONSE' });
       }
-      const inputTokens = nonNegativeInteger(raw?.prompt_eval_count);
-      const outputTokens = nonNegativeInteger(raw?.eval_count);
+      const inputTokens = raw?.prompt_eval_count;
+      const outputTokens = raw?.eval_count;
+      const usageKnown = Number.isSafeInteger(inputTokens) && inputTokens >= 0
+        && Number.isSafeInteger(outputTokens) && outputTokens >= 0
+        && Number.isSafeInteger(inputTokens + outputTokens);
       usage = {
         provider: 'ollama',
         model: this.model,
-        input_tokens: inputTokens,
-        output_tokens: outputTokens,
-        total_tokens: inputTokens + outputTokens,
+        ...(usageKnown ? {
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
+          total_tokens: inputTokens + outputTokens,
+        } : { usage_known: false }),
         input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 },
         output_tokens_details: { reasoning_tokens: 0 },
         response_id: null,
@@ -230,6 +235,16 @@ export class OllamaAdvisoryClient {
             : requiresLocalInference(claim) ? 'data-manager-lineage-local-only' : 'openai-retryable-fallback-only',
         ],
       };
+      if (!usageKnown) {
+        usage.rules_applied.push('usage-unobserved-provider-counters', 'reserve-pending-accounting-reconciliation');
+        const accountingError = new OllamaWorkerError('Ollama response omitted valid token counters; usage requires accounting reconciliation', {
+          retryable: false,
+          code: 'OLLAMA_USAGE_UNOBSERVED',
+        });
+        accountingError.usageKnown = false;
+        accountingError.usage = usage;
+        throw accountingError;
+      }
       const parsed = parseOllamaOutput(raw);
       let output;
       try {
@@ -327,6 +342,20 @@ export class RetryableModelFallbackClient {
         };
       } catch (fallbackError) {
         if (options.signal?.aborted) throw fallbackError;
+        // An accounting failure is not another transient inference failure.
+        // Preserve unknown counters and avoid repeating a completed generation.
+        if (fallbackError?.usageKnown === false) {
+          fallbackError.usage = {
+            ...fallbackError.usage,
+            usage_known: false,
+            retry_count: nonNegativeInteger(fallbackError.usage?.retry_count)
+              + nonNegativeInteger(error.retryCount) + 1,
+            duration_ms: Math.max(0, this.now() - startedAt),
+            fallback_from_provider: 'openai',
+            fallback_reason: error.code,
+          };
+          throw fallbackError;
+        }
         const primaryCode = safeProviderErrorCode(error.code, 'OPENAI_UNKNOWN_ERROR');
         const fallbackCode = safeProviderErrorCode(fallbackError?.code, 'OLLAMA_UNKNOWN_ERROR');
         const primaryRetries = Number.isSafeInteger(error.retryCount) ? error.retryCount : 0;

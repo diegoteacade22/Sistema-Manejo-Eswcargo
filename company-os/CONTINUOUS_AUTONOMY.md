@@ -54,6 +54,64 @@ cannot authorize source edits, deploys, merges, purchases, messages or other
 irreversible effects. The engineering GoalSpec plane remains the authority
 for A1/A2 transitions and its existing readback gates.
 
+## Contrato de continuidad y cierre verificable
+
+El proceso permanece disponible y busca trabajo autorizado mientras el equipo
+está encendido y tiene conexión. Continúa dentro de la vigencia, los permisos,
+los turnos y el presupuesto del objetivo. Estar `IDLE` o responder al chequeo
+de salud demuestra disponibilidad; no demuestra que un objetivo esté cumplido.
+
+Hay tres recorridos distintos en el mismo control plane:
+
+- **Objetivos continuos V3:** observan fuentes autorizadas y generan análisis
+  en la cola existente. No resuelven ni modifican esas fuentes.
+- **Tareas Codex A1:** ejecutan pasos autorizados y pueden pedir `CONTINUE`.
+  La continuación conserva identidad, huella y autorización. Una fuente
+  modificada, un bloqueo humano, un archivo o un cambio de política suspenden
+  esa elegibilidad.
+- **Engineering GoalSpec:** aplica los criterios y límites versionados de
+  ingeniería. Los permisos de este recorrido no se transfieren a los otros.
+
+### Revisión y evidencia del análisis
+
+Si el contexto persistido exige un especialista, el cierre requiere una
+delegación al agente exacto, un intento exitoso y un resultado entregado con
+confianza suficiente y referencias. Después, General debe integrar ese
+resultado mediante su identificador causal y citar sus referencias. El servidor
+encola la revisión omitida o la integración faltante, dentro de los turnos
+disponibles. Reutiliza una respuesta entregada y no repite el especialista.
+
+`VERIFIED` sólo certifica el análisis interno de una línea base de sistemas o
+datos que pasa la comprobación de contenido. Exige referencias citadas,
+contexto coincidente con objetivo, versión, unidad y huella, un mismo snapshot
+y fecha de lectura, y contenido leído como máximo 30 minutos antes del
+resultado. El servidor guarda el criterio de verificación y la huella del
+contenido. Las observaciones de metadata externa permanecen `ANALYZED`.
+Siempre se conserva `verificationScope=ANALYSIS_ONLY` y
+`sourceResolved=false`: los criterios empresariales de la fuente no se
+certifican mediante esta comprobación.
+
+### Entrega, continuación y presupuesto
+
+`deliveryVerified` significa que la respuesta quedó entregada.
+`continuationVerified` significa que el paso siguiente quedó persistido y
+puede volver a reclamarse. Ninguno significa que el objetivo esté cumplido.
+Un marcador del modelo o un resumen no producen `DONE` automáticamente;
+`verifiedCompletion` requiere una verificación de aceptación independiente.
+
+Cuando falta presupuesto, el servidor registra el aplazamiento y mantiene la
+reserva en `QUEUED`, con `availableAt` en el próximo reinicio aplicable. No
+consume otra llamada al modelo durante la espera. Si una reserva supera por
+sí sola el límite, queda `BLOCKED`. Los límites no se amplían para conseguir
+un cierre. La vigencia del objetivo tampoco se renueva por decisión del modelo.
+
+### Prueba de funcionamiento continuo
+
+La validación operativa requiere un caso real generado, reclamado, ejecutado y
+con resultado persistido y releído. Después deben observarse dos ciclos
+naturales del supervisor, sin duplicar ese trabajo y sin leases retenidos.
+Una prueba local o un reinicio saludable no sustituyen esa comprobación.
+
 ## Activation semantics
 
 No periodic prompt or business cron wakes the model. The worker reconciles on

@@ -86,6 +86,27 @@ test('no aumenta una reserva previa ni un máximo de salida menor a 1000', () =>
   assert.equal(planAdaptiveRuntimeBudget({ ...smallOutput, dailyUsed: 36_001 }).allowed, false);
 });
 
+test('integración con saldo amplio conserva el tope de salida y registra el reparto compacto', () => {
+  for (const dailyUsed of [0, 35_000, 40_000]) {
+    assert.deepEqual(planAdaptiveRuntimeBudget({
+      ...adaptiveBase, dailyUsed, inputAllowanceTokens: 5_000, minimumOutputTokens: 512,
+    }), {
+      allowed: true, requestedTokens: 8_000, targetTotalTokens: 8_000, maxOutputTokens: 3_000, adapted: true,
+    });
+  }
+  for (const maxOutputTokens of [512, 1_000, 3_000]) {
+    for (const dailyUsed of [0, 39_500, 42_000, 42_489]) {
+      const plan = planAdaptiveRuntimeBudget({
+        ...adaptiveBase, dailyUsed, maxOutputTokens, inputAllowanceTokens: 5_000, minimumOutputTokens: 512,
+      });
+      if (!plan.allowed) continue;
+      assert.ok(plan.maxOutputTokens <= maxOutputTokens);
+      assert.equal(plan.targetTotalTokens - plan.maxOutputTokens, 5_000);
+      assert.equal(plan.adapted, true);
+    }
+  }
+});
+
 test('contratos y aritmética inválidos fallan cerrado sin reparación implícita', () => {
   for (const patch of [
     { targetTotalTokens: 0 }, { targetTotalTokens: Number.NaN }, { maxOutputTokens: 0 },
