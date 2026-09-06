@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import { runtimeOutputSchemaForClaim } from '../src/openai-client.mjs';
@@ -10,7 +12,15 @@ const CONTRACT_MIGRATION_URL = new URL(
 );
 
 function persistedGeneralManagerContract() {
-  const sql = readFileSync(CONTRACT_MIGRATION_URL, 'utf8');
+  let migrationPath = fileURLToPath(CONTRACT_MIGRATION_URL);
+  if (!existsSync(migrationPath)) {
+    const manifest = JSON.parse(readFileSync(new URL('../../install-manifest.json', import.meta.url), 'utf8'));
+    migrationPath = resolve(
+      manifest.sourceRepo,
+      'supabase/migrations/20260906040410_company_os_general_manager_runtime_3_1_4.sql',
+    );
+  }
+  const sql = readFileSync(migrationPath, 'utf8');
   const delimiter = '$company_os_general_manager_contract$';
   const start = sql.indexOf(delimiter);
   const end = sql.indexOf(delimiter, start + delimiter.length);
