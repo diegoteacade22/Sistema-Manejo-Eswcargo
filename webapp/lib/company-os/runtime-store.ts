@@ -15,7 +15,7 @@ import {
 } from './runtime-contracts';
 import { companyOsV3Prisma } from './v3-prisma';
 import { resolveCompanyOsRuntimeDataPolicy } from './runtime-data-policy';
-import { runtimeResultNeedsReview } from './runtime-outcome';
+import { planRequiredRuntimeReview, runtimeResultNeedsReview } from './runtime-outcome';
 import { findCompletedRuntimeDelegation, runtimeFollowUpCapacity } from './runtime-delegation';
 import { validateSpecialistDelegation } from './specialist-routing';
 import { deriveRuntimeAgentState, type RuntimeAgentStateWork } from './runtime-agent-status';
@@ -955,6 +955,31 @@ export async function completeCompanyOsRuntimeWork(input: {
     } });
     const followUpCapacity = runtimeFollowUpCapacity(nextTurn, companyCase.maxTurns, pendingTurns);
     const canContinue = followUpCapacity.canReturnToGeneral;
+    const reviewContext = evidence.find((ref) => ref.evidenceKey === 'continuousObjective')?.value;
+    const [reviewWorks, reviewMessages] = companyCase.caseType === 'CONTINUOUS_OBJECTIVE'
+      ? await Promise.all([
+        tx.companyOsWorkItem.findMany({ where: { caseId: companyCase.id },
+          select: { id: true, agentId: true, status: true, causalMessageId: true,
+            attempts: { where: { outcome: 'SUCCEEDED' }, select: { outcome: true } } } }),
+        tx.companyOsMessage.findMany({ where: { caseId: companyCase.id, messageType: { in: ['DELEGATION', 'SPECIALIST_RESULT'] } },
+          select: { id: true, fromAgentId: true, toAgentId: true, messageType: true, deliveryStatus: true,
+            causationId: true, deliveredAt: true, evidenceRefs: true, payload: true } }),
+      ]) : [[], []];
+    const requiredReview = planRequiredRuntimeReview({
+      caseType: companyCase.caseType, context: reviewContext, installedAgentIds: INSTALLED_AGENT_IDS,
+      minimumConfidenceByAgent: Object.fromEntries(INSTALLED_AGENT_IDS.map((id) => [id, getCompanyOsRuntimeContract(id).lowConfidencePolicy.minConfidence])),
+      currentWork: workItem, attemptStartedAt: attempt.startedAt, output: result,
+      works: reviewWorks, messages: reviewMessages,
+    });
+    // Repair an omitted mandatory review inside the existing queue and turn budget.
+    // Once a specialist has answered, only General integration may be scheduled.
+    const plannedDelegations = requiredReview.requiredSpecialist
+      ? requiredReview.action === 'DELEGATE' && result.needsHumanDecision !== true
+        ? [delegations.find((delegation) => delegation.agentId === requiredReview.requiredSpecialist) ?? { agentId: requiredReview.requiredSpecialist,
+          objective: 'Revisá la unidad continuousObjective con la evidencia adjunta. Emití un análisis acotado y citá las referencias utilizadas. Sin efectos externos.',
+          evidenceRefs: evidence.map((ref) => ref.evidenceKey) }]
+        : []
+      : delegations;
     const messageKey = `runtime-message:${workItem.id}:attempt:${workItem.attemptCount}:result`;
     const priorResultMessage = await tx.companyOsMessage.findUnique({ where: { idempotencyKey: messageKey } });
     const resultMessage = priorResultMessage ?? await tx.companyOsMessage.create({
@@ -982,7 +1007,7 @@ export async function completeCompanyOsRuntimeWork(input: {
     let duplicateDelegations = 0;
     let turnBudgetSuppressed = 0;
     const effectiveDelegations: typeof delegations = [];
-    if (workItem.agentId === GENERAL_MANAGER_ID && delegations.length) {
+    if (workItem.agentId === GENERAL_MANAGER_ID && plannedDelegations.length) {
       const completedWorks = await tx.companyOsWorkItem.findMany({
         where: { caseId: companyCase.id, status: 'COMPLETED', agentId: { not: GENERAL_MANAGER_ID } },
         select: { id: true, agentId: true, inputPayload: true, createdAt: true,
@@ -999,7 +1024,7 @@ export async function completeCompanyOsRuntimeWork(input: {
             : evidence.filter((ref) => ref.createdAt <= evidenceAt).map((ref) => ref.evidenceKey),
         };
       });
-      for (const [index, delegation] of delegations.entries()) {
+      for (const [index, delegation] of plannedDelegations.entries()) {
         const objective = cleanText(delegation.objective, 600);
         const delegationEvidenceRefs = (delegation.evidenceRefs as unknown[])
           .filter((value): value is string => typeof value === 'string')
@@ -1094,6 +1119,19 @@ export async function completeCompanyOsRuntimeWork(input: {
       });
       followUpCount += 1;
     }
+    if (workItem.agentId === GENERAL_MANAGER_ID && requiredReview.action === 'INTEGRATE'
+      && requiredReview.resultMessageId && canContinue && result.needsHumanDecision !== true) {
+      const integrationKey = `work:${companyCase.requestId}:required-integration:${requiredReview.resultMessageId}:${workItem.id}`;
+      await tx.companyOsWorkItem.upsert({ where: { idempotencyKey: integrationKey }, update: {}, create: {
+        id: randomUUID(), caseId: companyCase.id, agentId: GENERAL_MANAGER_ID,
+        triggerType: 'AGENT_MESSAGE', priority: workItem.priority,
+        causalMessageId: requiredReview.resultMessageId,
+        inputPayload: jsonValue({ objective: `Integrá el resultado ${requiredReview.resultMessageId} del especialista ya entregado. Citá todas sus referencias de evidencia: ${requiredReview.evidenceRefs.join(', ')}. Cerrá o escalá; no repitas la delegación.`,
+          fromAgentId: requiredReview.requiredSpecialist, evidenceRefs: requiredReview.evidenceRefs }),
+        idempotencyKey: integrationKey, maxAttempts: 3, timeoutMs: 120_000, reservedTokens: companyCase.targetTotalTokens,
+      } });
+      followUpCount += 1;
+    }
     if (Array.isArray(result.missions) && result.missions.length > 0) {
       const missions = result.missions.slice(0, 10).map(asRecord).filter((mission) => typeof mission.title === 'string' && typeof mission.objective === 'string');
       if (missions.length) await tx.companyOsMission.createMany({ data: missions.map((mission) => ({
@@ -1104,7 +1142,7 @@ export async function completeCompanyOsRuntimeWork(input: {
         status: 'PLANNED',
       })) });
     }
-    const needsHumanDecision = turnBudgetSuppressed > 0 || runtimeResultNeedsReview({
+    const needsHumanDecision = !requiredReview.satisfied || turnBudgetSuppressed > 0 || runtimeResultNeedsReview({
       output: { ...result, delegations: effectiveDelegations },
       agentId: workItem.agentId,
       canContinue,
@@ -1164,6 +1202,10 @@ export async function completeCompanyOsRuntimeWork(input: {
         followUpCount,
         duplicateDelegations,
         turnBudgetSuppressed,
+        requiredSpecialist: requiredReview.requiredSpecialist,
+        specialistReviewSatisfied: requiredReview.satisfied,
+        specialistReviewAction: requiredReview.action,
+        specialistResultMessageId: requiredReview.resultMessageId,
         remainingRunnable,
         remainingBlocked,
         turn: nextTurn,

@@ -216,11 +216,63 @@ export function validContinuousObjectiveGenerationReason(value: unknown): value 
     'OBJECTIVE_NOT_DUE', 'INVALID_OBJECTIVE'].includes(value);
 }
 
-export function observeObjectiveUnit(input: {
+export type ObjectiveEvidence = {
+  id: string; evidenceKey: string; value: unknown; sourceRef: string; observedAt: string | Date | null;
+};
+type ObjectiveObservation = {
   caseStatus: string; hasPendingWork: boolean; resultMessageId: string | null;
   confidence: number | null; needsHumanDecision: boolean | null;
-  evidenceIds: string[]; resultSummary: string | null; sourceKind?: ObjectiveUnitSource['kind'];
-}): { status: ObjectiveUnitStatus; resultSummary: string; resultEvidence: string[] } | null {
+  evidenceIds?: string[]; resultSummary: string | null; sourceKind?: ObjectiveUnitSource['kind'];
+  evidence?: ObjectiveEvidence[]; citedEvidenceKeys?: string[];
+  goalId?: string; goalVersion?: number; unitId?: string; sourceId?: string; fingerprint?: string; criteria?: string[];
+  resultCreatedAt?: string | Date | null; minConfidence?: number;
+};
+const objectValue = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
+const timestamp = (value: string | Date | null | undefined) => value == null ? NaN : new Date(value).getTime();
+
+/** This certifies a bounded snapshot readback, never satisfaction of free-text business criteria.
+ * Provenance comes from server-written EvidenceRefs and the immutable case context, not model output.
+ * External connector probes have no content binding and deliberately cannot pass this gate.
+ */
+function verifiedBaselineEvidence(input: ObjectiveObservation, evidence: ObjectiveEvidence[]) {
+  const systems = input.sourceKind === 'SYSTEMS_BASELINE';
+  if (!systems && input.sourceKind !== 'DATA_BASELINE') return null;
+  if (input.sourceId !== (systems ? 'baseline:systems' : 'baseline:data')
+    || !input.goalId || !input.unitId || !input.goalVersion || !input.fingerprint || !input.criteria?.length) return null;
+  const contextRef = evidence.find((ref) => ref.evidenceKey === 'continuousObjective');
+  const context = objectValue(contextRef?.value);
+  const source = objectValue(context?.source);
+  if (!context || !source || context.goalId !== input.goalId || context.version !== input.goalVersion
+    || context.unitId !== input.unitId || context.sourceId !== input.sourceId || context.fingerprint !== input.fingerprint
+    || context.authority !== 'READ_ONLY_ANALYSIS' || context.sourceResolved !== false
+    || source.kind !== input.sourceKind || source.authority !== 'LIVE_SNAPSHOT_REQUIRED'
+    || source.verificationScope !== 'ANALYSIS_ONLY' || objectiveHash(context.criteria) !== objectiveHash(input.criteria)) return null;
+
+  const keys = systems ? ['assets', 'dependencies', 'risks'] : ['metrics', 'quality', 'freshness'];
+  const cited = new Set(input.citedEvidenceKeys ?? []);
+  const refs = keys.map((key) => evidence.find((ref) => ref.evidenceKey === key));
+  if (keys.some((key) => !cited.has(key)) || refs.some((ref) => !ref)) return null;
+  const contentRefs = refs as ObjectiveEvidence[];
+  if (systems ? contentRefs.some((ref) => !Array.isArray(ref.value))
+    : contentRefs.some((ref) => !objectValue(ref.value) || Object.keys(ref.value as object).length === 0)) return null;
+  const snapshotRef = contentRefs[0].sourceRef.match(/^company-os-snapshot:([a-zA-Z0-9-]+)#/);
+  const snapshotId = snapshotRef?.[1];
+  if (!snapshotId || !contextRef) return null;
+  const resultAt = timestamp(input.resultCreatedAt);
+  const observedAt = timestamp(contextRef.observedAt);
+  if (!Number.isFinite(resultAt) || !Number.isFinite(observedAt)
+    || resultAt < observedAt || resultAt - observedAt > 30 * 60_000) return null;
+  if ([contextRef, ...contentRefs].some((ref) => ref.sourceRef !== `company-os-snapshot:${snapshotId}#${ref.evidenceKey}`
+    || timestamp(ref.observedAt) !== observedAt)) return null;
+  return {
+    criterion: systems ? 'SYSTEMS_SNAPSHOT_CONTENT_READBACK_V1' : 'DATA_SNAPSHOT_CONTENT_READBACK_V1',
+    evidenceIds: contentRefs.map((ref) => ref.id), snapshotId,
+    contentHash: objectiveHash(contentRefs.map((ref) => [ref.evidenceKey, ref.value])),
+  };
+}
+
+export function observeObjectiveUnit(input: ObjectiveObservation): { status: ObjectiveUnitStatus; resultSummary: string; resultEvidence: string[] } | null {
   if (input.hasPendingWork) return null;
   if (['FAILED_FINAL', 'BLOCKED'].includes(input.caseStatus)) {
     return { status: 'BLOCKED', resultSummary: 'El caso quedó bloqueado; no se certificó el resultado.', resultEvidence: [] };
@@ -228,12 +280,17 @@ export function observeObjectiveUnit(input: {
   if (input.caseStatus === 'CANCELLED') return { status: 'SKIPPED', resultSummary: 'Caso cancelado; no se ejecutó ni verificó la tarea fuente.', resultEvidence: [] };
   if (!['COMPLETED', 'NEEDS_REVIEW', 'AWAITING_REVIEW'].includes(input.caseStatus)) return null;
   const completed = input.caseStatus === 'COMPLETED' && input.resultMessageId
-    && input.confidence !== null && input.confidence >= 0.75 && input.needsHumanDecision === false;
-  const metadataOnly = input.sourceKind === 'CODEX_METADATA' || input.sourceKind === 'EXTERNAL_ITEM_METADATA';
-  const verified = completed && !metadataOnly && input.evidenceIds.length > 0;
+    && input.confidence !== null && Number.isFinite(input.confidence) && input.confidence <= 1
+    && input.confidence >= (input.minConfidence ?? 0.75) && input.needsHumanDecision === false;
+  const evidence = input.evidence ?? [];
+  const cited = new Set(input.citedEvidenceKeys ?? []);
+  const proof = completed ? verifiedBaselineEvidence(input, evidence) : null;
+  const usedEvidence = proof?.evidenceIds ?? evidence.filter((ref) => cited.has(ref.evidenceKey)).map((ref) => ref.id);
   return {
-    status: verified ? 'VERIFIED' : completed ? 'ANALYZED' : 'NEEDS_REVIEW',
-    resultSummary: `${verified ? 'Análisis con evidencia de snapshot' : completed ? 'Análisis de metadata concluido' : 'Análisis requiere revisión'}. No certifica la ejecución de la tarea fuente. ${safeObjectiveMetadata(input.resultSummary, 1200)}`.trim(),
-    resultEvidence: [...(input.resultMessageId ? [`message:${input.resultMessageId}`] : []), ...input.evidenceIds.map((id) => `evidence:${id}`)],
+    status: proof ? 'VERIFIED' : completed ? 'ANALYZED' : 'NEEDS_REVIEW',
+    resultSummary: `${proof ? 'Análisis con lectura de snapshot propio, citado y vigente al resultado; criterios empresariales no evaluados' : completed ? 'Análisis concluido sin prueba suficiente para verificar la fuente' : 'Análisis requiere revisión'}. No certifica la ejecución de la tarea fuente. ${safeObjectiveMetadata(input.resultSummary, 1200)}`.trim(),
+    resultEvidence: [...(input.resultMessageId ? [`message:${input.resultMessageId}`] : []),
+      ...usedEvidence.map((id) => `evidence:${id}`),
+      ...(proof ? [`criterion:${proof.criterion}`, `snapshot:${proof.snapshotId}`, `content-sha256:${proof.contentHash}`] : [])],
   };
 }

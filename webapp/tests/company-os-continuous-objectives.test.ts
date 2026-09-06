@@ -82,7 +82,11 @@ test('batch externo durable verifica identidad de revisión y planifica sin PII'
     snapshotId: `snapshot:${evidenceHash.slice(0, 32)}`, evidenceHash, complete: true, cursorHash: '4'.repeat(64), items };
   const parsed = parseRuntimeExternalSourceBatches([{ itemBatch: batch }], now);
   assert.equal(parsed[0].items.length, 1);
-  const planned = planExternalSourceItem({ id: 'external-row', sourceId: 'GOOGLE_SHEETS', ...parsed[0].items[0] }, '2026-09-04T04:00:00Z');
+  const parsedItem = parsed[0].items[0];
+  assert.equal(parsedItem.itemKind, 'SHEET_METADATA');
+  assert.equal(parsedItem.changeKind, 'UPDATED');
+  const planned = planExternalSourceItem({ id: 'external-row', sourceId: 'GOOGLE_SHEETS', ...parsedItem,
+    itemKind: 'SHEET_METADATA', changeKind: 'UPDATED' }, '2026-09-04T04:00:00Z');
   assert.equal(planned.ownerAgentId, 'data-manager-ai-v1');
   assert.equal(planned.source.kind, 'EXTERNAL_ITEM_METADATA');
   assert.equal(planned.source.deadline, '2026-09-04T04:00:00.000Z');
@@ -147,7 +151,7 @@ test('metadata-only se marca ANALYZED, no escala falso pedido ni certifica tarea
   assert.equal(observed?.status, 'ANALYZED');
   assert.match(observed!.resultSummary, /No certifica la ejecución de la tarea fuente/);
   assert.deepEqual(observed?.resultEvidence, ['message:general-result-1234']);
-  assert.equal(observeObjectiveUnit({ ...completed, evidenceIds: ['snapshot-1234'] })?.status, 'VERIFIED');
+  assert.equal(observeObjectiveUnit({ ...completed, evidenceIds: ['snapshot-1234'] })?.status, 'ANALYZED');
   assert.equal(observeObjectiveUnit({ ...completed, sourceKind: 'CODEX_METADATA', evidenceIds: ['snapshot-1234'] })?.status, 'ANALYZED');
 });
 

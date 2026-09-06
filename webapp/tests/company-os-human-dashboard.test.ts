@@ -350,11 +350,11 @@ test('la reanudación usa HMAC, journal durable, configuración aprobada y no he
   assert.match(store, /task\.lastCompletedAt > promptObservedAt/);
   assert.match(store, /state: 'UNKNOWN_OUTCOME'/);
   assert.match(store, /previous && previous\.fingerprint !== task\.fingerprint[\s\S]*state: 'CONFIRMED'[\s\S]*state: 'SUPERSEDED'/);
-  assert.match(store, /verifiedStatus === 'READY_REVIEW' && task\.autonomyLevel === 'A1' && !replyDelivery/);
+  assert.match(store, /deliveryVerified: true, verifiedCompletion: false/);
   assert.match(store, /terminalBlocker[\s\S]*NEEDS_USER[\s\S]*BLOCKED_EXTERNAL/);
   assert.match(store, /executionSeriesStart[\s\S]*createdAt: \{ gte: executionSeriesStart\.createdAt \}/);
   assert.match(store, /SAFE_RETRY_SCHEDULED/);
-  assert.match(store, /'DONE'[\s\S]*'complete-verified'[\s\S]*'CLOSED'/);
+  assert.doesNotMatch(store, /'DONE', safeActorRef, 'complete-verified'/);
   assert.match(collectorManager, /StartInterval<\/key><integer>300/);
   assert.match(collectorManager, /COMPANY_OS_CODEX_AUTO_RESUME<\/key><string>1/);
   assert.match(collectorManager, /Falta Codex CLI para reanudación automática/);

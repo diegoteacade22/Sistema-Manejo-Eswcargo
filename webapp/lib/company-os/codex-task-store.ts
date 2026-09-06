@@ -363,7 +363,9 @@ export function isApprovedCodexTaskDispatchCandidate(task: DispatchCandidateLike
   const policyApproval = board?.updatedBy === machineActor
     && approval?.actorRef === machineActor
     && (approval?.idempotencyKey.startsWith('codex-auto:eligibility:')
-      || approval?.idempotencyKey.startsWith('codex-auto:retry-'));
+      || approval?.idempotencyKey.startsWith('codex-auto:retry-')
+      || (approval?.idempotencyKey.startsWith('codex-auto:continue-verified:')
+        && task.humanStatus === 'PENDING' && task.autonomyLevel === 'A1'));
   const durableBoardApproval = task.attentionReason == null
     && board?.workflowStatus === 'PENDING'
     && board.lifecycle === 'OPEN'
@@ -765,7 +767,9 @@ function taskView(task: TaskWithBoardState) {
     && ['MOVE', 'REOPEN', 'SAVE'].includes(latestAction.action);
   const policyBoardApproval = task.boardState?.updatedBy === CODEX_AUTO_RESUME_ACTOR
     && latestAction?.actorRef === CODEX_AUTO_RESUME_ACTOR
-    && (lastActionKey.startsWith('codex-auto:eligibility:') || lastActionKey.startsWith('codex-auto:retry-'));
+    && (lastActionKey.startsWith('codex-auto:eligibility:') || lastActionKey.startsWith('codex-auto:retry-')
+      || (lastActionKey.startsWith('codex-auto:continue-verified:')
+        && task.humanStatus === 'PENDING' && task.autonomyLevel === 'A1'));
   const durableAutoResumeAuthorization = humanBoardApproval || policyBoardApproval;
   const durableBoardAutoResumeApproved = Boolean(
     task.boardState
@@ -1253,11 +1257,16 @@ export async function reportCodexTaskDispatch(raw: unknown, actorRef: string) {
       && task.autonomyLevel === 'A1';
     if (continuationVerified) {
       await appendDispatchTransition(tx, task, 'PENDING', safeActorRef, 'continue-verified');
+      if (replyDelivery?.state === 'CLAIMED') await tx.companyOsCodexTaskReplyDelivery.update({
+        where: { id: replyDelivery.id },
+        data: { state: 'DELIVERED', completedAt: new Date(), outcome, evidenceFingerprint: task.fingerprint, ...deliveryEvidence },
+      });
       return {
         reported: true,
         changed: true,
         verifiedCompletion: false,
         continuationVerified: true,
+        deliveryVerified: true,
         outcome,
         humanStatus: 'PENDING',
         reason: 'CONTINUATION_VERIFIED',
@@ -1267,16 +1276,18 @@ export async function reportCodexTaskDispatch(raw: unknown, actorRef: string) {
       const verifiedStatus = ['UNREVIEWED', 'NEEDS_DIEGO', 'BLOCKED', 'READY_REVIEW', 'MONITORING'].includes(task.humanStatus)
         ? task.humanStatus as 'UNREVIEWED' | 'NEEDS_DIEGO' | 'BLOCKED' | 'READY_REVIEW' | 'MONITORING'
         : 'UNREVIEWED';
-      if (verifiedStatus === 'READY_REVIEW' && task.autonomyLevel === 'A1' && !replyDelivery) {
-        await appendDispatchTransition(tx, task, 'DONE', safeActorRef, 'complete-verified', 'CLOSED');
-        return { reported: true, changed: true, verifiedCompletion: true, outcome, humanStatus: 'DONE', lifecycle: 'CLOSED' };
-      }
+      // This receipt proves delivery of a fresh turn, not the original goal's
+      // acceptance criteria. Source tasks close only through their own verifier
+      // or an explicit human close; a model marker must not certify itself.
       await appendDispatchTransition(tx, task, verifiedStatus, safeActorRef, 'complete');
       if (replyDelivery?.state === 'CLAIMED') await tx.companyOsCodexTaskReplyDelivery.update({
         where: { id: replyDelivery.id },
         data: { state: 'DELIVERED', completedAt: new Date(), outcome, evidenceFingerprint: task.fingerprint, ...deliveryEvidence },
       });
-      return { reported: true, changed: true, verifiedCompletion: true, outcome, humanStatus: verifiedStatus };
+      return { reported: true, changed: true, deliveryVerified: true, verifiedCompletion: false, outcome, humanStatus: verifiedStatus,
+        reason: verifiedStatus === 'NEEDS_DIEGO' ? 'NEEDS_USER'
+          : verifiedStatus === 'BLOCKED' ? 'BLOCKED_EXTERNAL'
+            : verifiedStatus === 'READY_REVIEW' ? 'ACCEPTANCE_READBACK_REQUIRED' : 'RESULT_DELIVERED' };
     }
     const terminalBlocker = task.fingerprint !== claimedFingerprint
       && task.sourceStatus !== 'ACTIVE'

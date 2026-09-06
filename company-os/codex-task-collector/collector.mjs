@@ -676,10 +676,18 @@ function sessionCwd(threadId) {
       .flatMap((root) => {
         try { return existsSync(root) ? [realpathSync(root)] : []; } catch { return []; }
       });
-    const allowedRoots = canonicalProjects().flatMap((project) => {
+    const configuredRoots = canonicalProjects().map((project) => project.root);
+    // Codex workspaces are valid local execution roots even when they are not
+    // registered as canonical business projects yet. Keep the boundary narrow
+    // to the two managed workspace families; never open the whole home folder.
+    const managedWorkspaceRoots = [
+      join(userRoot, 'Documents', 'Codex'),
+      join(userRoot, '02_DESARROLLO'),
+    ];
+    const allowedRoots = [...configuredRoots, ...managedWorkspaceRoots].flatMap((candidateRoot) => {
       try {
-        if (!existsSync(project.root)) return [];
-        const root = realpathSync(project.root);
+        if (!existsSync(candidateRoot)) return [];
+        const root = realpathSync(candidateRoot);
         const insideHome = root !== userRoot && root.startsWith(`${userRoot}/`);
         const blocked = blockedRoots.some((blockedRoot) => root === blockedRoot || root.startsWith(`${blockedRoot}/`));
         return insideHome && !blocked ? [root] : [];
@@ -839,13 +847,14 @@ function validateClaimDispatch(dispatch, projectedTasks) {
   // The server-side project label may be a durable board override. The executable
   // safety boundary is the canonical local cwd, checked below; requiring label
   // equality here caused valid claims to be stranded after a board move.
+  const localCwd = sessionCwd(dispatch.threadId);
   if (!local
     || local.fingerprint !== dispatch.fingerprint
     || local.archived
     || (local.attentionReason && !humanResponse)
     || !['IDLE', 'NOT_LOADED'].includes(local.sourceStatus)
     || (local.lastCompletedAt || null) !== (dispatch.lastCompletedAt || null)
-    || !sessionCwd(dispatch.threadId)) {
+    || !localCwd) {
     throw new Error('COMPANY_OS_CODEX_CLAIM_NOT_IN_LOCAL_PROJECTION');
   }
   return local;
@@ -1009,6 +1018,8 @@ async function reportExecutedState(state) {
     event: 'AUTO_RESUME_FINISHED', threadId: state.dispatch.threadId, outcome: state.outcome,
     exitCode: state.exitCode, treeStopped: state.treeStopped, refreshOk: true,
     verifiedCompletion: report.verifiedCompletion === true, status: report.humanStatus || null,
+    deliveryVerified: report.deliveryVerified === true, continuationVerified: report.continuationVerified === true,
+    reason: report.reason || null,
   }) + '\n');
   return report;
 }

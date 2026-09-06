@@ -4,7 +4,7 @@ import { companyOsV3Prisma } from './v3-prisma';
 import {
   baselineObjectiveUnits, blockedExternalSourceUnit, deduplicateObjectiveSources, objectiveHash, observeObjectiveUnit, planObjectiveSource,
   planExternalSourceItem, safeObjectiveMetadata, validContinuousObjectiveGenerationReason, validContinuousObjectiveReconciliationStatus,
-  validateContinuousObjectiveInput, type ExternalObjectiveSourceCandidate, type ObjectiveSourceCandidate,
+  validateContinuousObjectiveInput, type ExternalObjectiveSourceCandidate, type ObjectiveSourceCandidate, type ObjectiveEvidence,
   OBJECTIVE_SETTLED_CASE_STATUSES,
 } from './continuous-objective-policy';
 import {
@@ -14,6 +14,7 @@ import {
   type ContinuousObjectiveView, type ControlContinuousObjectiveInput, type CreateContinuousObjectiveInput,
   type ObjectiveUnitSource, type PendingContinuousObjectiveUnit,
 } from './continuous-objective-types';
+import { getCompanyOsRuntimeContract } from './runtime-contracts';
 
 export * from './continuous-objective-types';
 type Tx = Prisma.TransactionClient;
@@ -238,15 +239,17 @@ async function sourceCandidates(tx: Tx, goal: GoalRow, sourceId?: string) {
 async function observeResults(tx: Tx, goal: GoalRow) {
   const units = await tx.$queryRaw<Array<UnitRow & {
     caseStatus: string; hasPendingWork: boolean; resultMessageId: string | null; resultPayload: Record<string, unknown> | null;
-    evidenceIds: string[];
+    evidence: ObjectiveEvidence[]; resultCreatedAt: Date | null;
   }>>(Prisma.sql`
-    SELECT unit.*,c.status AS "caseStatus",m.id AS "resultMessageId",m.payload AS "resultPayload",
+    SELECT unit.*,c.status AS "caseStatus",m.id AS "resultMessageId",m.payload AS "resultPayload",m."createdAt" AS "resultCreatedAt",
       EXISTS(SELECT 1 FROM public."CompanyOsWorkItem" w WHERE w."caseId"=c.id AND w.status IN ('QUEUED','CLAIMED','RUNNING','FAILED_RETRYABLE')) AS "hasPendingWork",
-      COALESCE((SELECT jsonb_agg(e.id ORDER BY e.id) FROM public."CompanyOsEvidenceRef" e WHERE e."caseId"=c.id
-        AND e."evidenceKey" IN ('metrics','quality','freshness','assets','dependencies','health','coverage','risks','systemsSnapshot','systems-snapshot','dataSnapshot','data-snapshot')), '[]'::jsonb) AS "evidenceIds"
+      COALESCE((SELECT jsonb_agg(jsonb_build_object('id',e.id,'evidenceKey',e."evidenceKey",'value',e.value,
+        'sourceRef',e."sourceRef",'observedAt',e."observedAt") ORDER BY e.id)
+        FROM public."CompanyOsEvidenceRef" e WHERE e."caseId"=c.id
+        AND (e."evidenceKey"='continuousObjective' OR COALESCE(m.payload->'evidenceRefs','[]'::jsonb) ? e."evidenceKey")), '[]'::jsonb) AS evidence
     FROM public."CompanyOsObjectiveUnit" unit
     JOIN public."CompanyOsCase" c ON c.id=unit."caseId"
-    LEFT JOIN LATERAL (SELECT id,payload FROM public."CompanyOsMessage" WHERE "caseId"=c.id
+    LEFT JOIN LATERAL (SELECT id,payload,"createdAt" FROM public."CompanyOsMessage" WHERE "caseId"=c.id
       AND kind='RESULT' AND "fromAgentId"='general-manager-ai-v3' ORDER BY "createdAt" DESC,id DESC LIMIT 1) m ON true
     WHERE unit."goalId"=${goal.id} AND unit.status IN ('QUEUED','BLOCKED','NEEDS_REVIEW')
     FOR UPDATE OF unit
@@ -256,7 +259,12 @@ async function observeResults(tx: Tx, goal: GoalRow) {
     const result = observeObjectiveUnit({ caseStatus: unit.caseStatus, hasPendingWork: unit.hasPendingWork,
       resultMessageId: unit.resultMessageId, confidence: typeof output.confidence === 'number' ? output.confidence : null,
       needsHumanDecision: typeof output.needsHumanDecision === 'boolean' ? output.needsHumanDecision : null,
-      evidenceIds: unit.evidenceIds, sourceKind: unit.source.kind, resultSummary: typeof output.summary === 'string' ? output.summary : null });
+      evidence: unit.evidence, citedEvidenceKeys: Array.isArray(output.evidenceRefs)
+        ? output.evidenceRefs.filter((ref): ref is string => typeof ref === 'string') : [],
+      goalId: goal.id, goalVersion: goal.version, criteria: goal.criteria, unitId: unit.id,
+      sourceId: unit.sourceId, fingerprint: unit.fingerprint, resultCreatedAt: unit.resultCreatedAt,
+      minConfidence: getCompanyOsRuntimeContract('general-manager-ai-v3').lowConfidencePolicy.minConfidence,
+      sourceKind: unit.source.kind, resultSummary: typeof output.summary === 'string' ? output.summary : null });
     if (!result || (result.status === unit.status && result.resultSummary === unit.resultSummary && json(result.resultEvidence) === json(unit.resultEvidence))) continue;
     await tx.$executeRaw(Prisma.sql`UPDATE public."CompanyOsObjectiveUnit" SET status=${result.status},"resultSummary"=${result.resultSummary},
       "resultEvidence"=${json(result.resultEvidence)}::jsonb,"updatedAt"=clock_timestamp() WHERE id=${unit.id}`);
