@@ -100,9 +100,25 @@ test('mantiene compatibilidad con excepciones conocidas sin huella', () => {
 test('expande la configuración agrupada de los 27 históricos verificados', () => {
   const exceptions = loadKnownEmptyPackingExceptions(path.join(scriptDir, '..', 'prisma'));
 
-  assert.equal(exceptions.size, 27);
+  assert.equal(exceptions.size, 28);
   assert.equal(exceptions.get(579).expected.database_status, 'MIAMI');
   assert.equal(exceptions.get(660).expected.database_status, 'ENTREGADO');
-  assert.equal(exceptions.has(659), false);
+  assert.equal(exceptions.get(659).expected.source_record_count, 2);
+  assert.equal(
+    matchesKnownEmptyPackingException(
+      { status: 'ENTREGADO', item_count: 1 },
+      exceptions.get(659),
+      { statuses: [''], recordCount: 2 }
+    ),
+    true
+  );
+  assert.equal(
+    matchesKnownEmptyPackingException(
+      { status: 'ENTREGADO', item_count: 1 },
+      exceptions.get(659),
+      { statuses: [''], recordCount: 1 }
+    ),
+    false
+  );
   assert.equal(exceptions.get(1048).expected, null);
 });
