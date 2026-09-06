@@ -162,6 +162,22 @@ test('compact budget rejects a causal row that is not a delivered result', async
   }
 });
 
+test('specialist return with ample balance caps output and persists the compact reservation', async () => {
+  const specialist = { id: 'specialist', role: 'assistant', kind: 'RESULT', messageType: 'SPECIALIST_RESULT',
+    fromAgentId: 'systems-manager-ai-v1', toAgentId: 'general-manager-ai-v3', content: 'hallazgo', payload: {}, createdAt: new Date(2) };
+  const result = await claimWith({ used: 0, specialistReturn: true, contextMessages: [specialist] });
+  assert.ok(result.claim);
+  assert.equal(result.claim.budgets.input, 5_000);
+  assert.equal(result.claim.budgets.maxOutputTokens, 3_000);
+  assert.equal(result.claim.budgets.targetTotalTokens, 8_000);
+  assert.equal(result.leases[0].reservedTokens, 8_000);
+  const event = result.events.find((item) => item.eventType === 'RUNTIME_WORK_CLAIMED');
+  const budget = (event?.payload as { budget: Record<string, unknown> }).budget;
+  assert.equal(budget.adapted, true);
+  assert.equal(budget.originalReservation, 12_000);
+  assert.equal(budget.reservedTokens, 8_000);
+});
+
 test('reconsideration advances only an authentic delivered specialist return', async () => {
   const previousAllowlist = process.env.COMPANY_OS_ADAPTIVE_LOCAL_GOAL_IDS;
   process.env.COMPANY_OS_ADAPTIVE_LOCAL_GOAL_IDS = '565970b3-6e88-4226-8c2a-146e34d6633b';

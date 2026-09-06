@@ -127,6 +127,7 @@ export type CompanyOsDataManagerWorkerResult = {
 };
 
 export type CompanyOsWorkerUsage = {
+  usageKnown?: boolean;
   provider: 'openai' | 'ollama';
   model: string;
   inputTokens: number;

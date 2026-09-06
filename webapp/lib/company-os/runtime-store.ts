@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { receiveRuntimeResult, requireRuntimeCompletionLease, getCompanyOsRuntimeResultStatus, RuntimeResultSuperseded, resultReceiptKey, resultArchiveKey, type RuntimeResultInput } from './runtime-result-receipts';
 import { Prisma } from '@prisma/client';
 import {
   externalSourceDependencyKey,
@@ -36,6 +37,7 @@ const INSTALLED_AGENT_IDS = COMPANY_OS_INSTALLED_AGENT_IDS;
 const GENERAL_MANAGER_ID = COMPANY_OS_V3_IDENTITY;
 const SYSTEMS_MANAGER_ID = COMPANY_OS_SYSTEMS_MANAGER_IDENTITY;
 const ACTIVE_WORK_STATUSES = ['CLAIMED', 'RUNNING'] as const;
+const PENDING_WORK_STATUSES = ['QUEUED', 'CLAIMED', 'RUNNING', 'FAILED_RETRYABLE'] as const;
 const TERMINAL_CASE_STATUSES = new Set(['COMPLETED', 'CANCELLED']);
 const WORKER_STALE_MS = 150_000;
 const DEPENDENCY_STALE_MS = 150_000;
@@ -104,6 +106,15 @@ function sanitizeRuntimeValue(value: unknown): unknown {
         : sanitizeRuntimeValue(nested),
     ]));
   }
+  return value;
+}
+
+function sanitizeRuntimeReceiptOutput(value: unknown): unknown {
+  if (typeof value === 'string') return cleanText(value, 1_048_576);
+  if (Array.isArray(value)) return value.map(sanitizeRuntimeReceiptOutput);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key,
+    /(authorization|cookie|password|secret|token|api.?key|private.?key|credential)/i.test(key)
+      ? '[SECRET_REDACTED]' : sanitizeRuntimeReceiptOutput(nested)]));
   return value;
 }
 
@@ -241,6 +252,7 @@ async function expireLeases(tx: Tx, now: Date) {
   for (const lease of expired) {
     const workItem = lease.workItemId ? await tx.companyOsWorkItem.findUnique({ where: { id: lease.workItemId } }) : null;
     const attempt = await tx.companyOsExecutionAttempt.findFirst({ where: { leaseToken: lease.leaseToken, finishedAt: null } });
+    const pendingResult = attempt ? await tx.companyOsAuditEvent.findUnique({ where: { idempotencyKey: resultReceiptKey(attempt.id) } }) : null;
     const retryable = Boolean(workItem && workItem.attemptCount < workItem.maxAttempts);
     if (attempt) await tx.companyOsExecutionAttempt.update({ where: { id: attempt.id }, data: {
       outcome: 'TIMED_OUT', errorCode: 'LEASE_EXPIRED', detail: 'Lease expired before completion', finishedAt: now,
@@ -250,7 +262,7 @@ async function expireLeases(tx: Tx, now: Date) {
       where: { slotNo: lease.slotNo, leaseToken: lease.leaseToken },
       data: { leaseToken: null, agentId: null, workerId: null, expiresAt: null },
     });
-    if (workItem && ACTIVE_WORK_STATUSES.includes(workItem.status as typeof ACTIVE_WORK_STATUSES[number])) {
+    if (!pendingResult && workItem && ACTIVE_WORK_STATUSES.includes(workItem.status as typeof ACTIVE_WORK_STATUSES[number])) {
       await tx.companyOsWorkItem.update({ where: { id: workItem.id }, data: {
         status: retryable ? 'FAILED_RETRYABLE' : 'FAILED_FINAL',
         nextAttemptAt: retryable ? new Date(now.getTime() + 30_000) : null,
@@ -258,7 +270,7 @@ async function expireLeases(tx: Tx, now: Date) {
       const otherActive = await tx.companyOsWorkItem.count({ where: {
         caseId: lease.caseId,
         id: { not: workItem.id },
-        status: { in: [...ACTIVE_WORK_STATUSES] },
+        status: { in: [...PENDING_WORK_STATUSES] },
       } });
       const companyCase = await tx.companyOsCase.findUnique({ where: { id: lease.caseId } });
       const toStatus = otherActive > 0 ? companyCase?.status : retryable ? 'FAILED_RETRYABLE' : 'FAILED_FINAL';
@@ -382,6 +394,16 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
         FROM public."CompanyOsWorkItem" candidate_work
         JOIN public."CompanyOsCase" company_case ON company_case.id = candidate_work."caseId"
         WHERE candidate_work.status IN ('QUEUED','FAILED_RETRYABLE')
+          AND NOT EXISTS (
+            SELECT 1 FROM public."CompanyOsAuditEvent" receipt
+            WHERE receipt.action = 'RUNTIME_RESULT_RECEIVED'
+              AND receipt.metadata->>'workItemId' = candidate_work.id
+              AND receipt.metadata->>'state' = 'RECEIVED'
+              AND NOT EXISTS (SELECT 1 FROM public."CompanyOsAuditEvent" archived
+                WHERE archived."idempotencyKey" = 'runtime-result-archived:' || (receipt.metadata->>'attemptId'))
+              AND NOT EXISTS (SELECT 1 FROM public."CompanyOsExecutionAttempt" applied
+                WHERE applied.id = receipt.metadata->>'attemptId' AND applied.outcome = 'SUCCEEDED')
+          )
           AND COALESCE(candidate_work."nextAttemptAt", candidate_work."availableAt") <= ${now}
           AND company_case.status NOT IN ('COMPLETED','CANCELLED','FAILED_FINAL')
           AND (company_case."caseType" <> 'CONTINUOUS_OBJECTIVE' OR EXISTS (
@@ -773,10 +795,20 @@ type RuntimeUsageTotalsRow = {
   estimatedCostUsd: Prisma.Decimal | number;
 };
 
-async function runtimeUsageTotals(tx: Tx, agentId: string, since: Date) {
+async function runtimeUsageTotals(tx: Tx, agentId: string, since: Date, excludeAttemptId: string | null = null) {
   const rows = await tx.$queryRaw<RuntimeUsageTotalsRow[]>(Prisma.sql`
     SELECT
-      COALESCE(sum(usage."totalTokens"), 0)::bigint AS "totalTokens",
+      (COALESCE(sum(usage."totalTokens"), 0) + COALESCE((
+        SELECT sum(CASE WHEN receipt.metadata->'usage'->>'usageKnown' = 'false' THEN pending_lease."reservedTokens" ELSE (receipt.metadata->'usage'->>'totalTokens')::bigint END)
+        FROM public."CompanyOsAuditEvent" receipt
+        JOIN public."CompanyOsExecutionAttempt" pending_attempt ON pending_attempt.id = receipt.metadata->>'attemptId'
+        JOIN public."CompanyOsLease" pending_lease ON pending_lease."leaseToken" = pending_attempt."leaseToken"
+        WHERE receipt.action = 'RUNTIME_RESULT_RECEIVED' AND receipt."createdAt" >= ${since}
+          AND pending_attempt."agentId" = ${agentId}
+          AND (pending_lease.status <> 'ACTIVE' OR pending_lease."expiresAt" <= clock_timestamp())
+          AND (${excludeAttemptId}::text IS NULL OR pending_attempt.id <> ${excludeAttemptId})
+          AND NOT EXISTS (SELECT 1 FROM public."CompanyOsUsage" measured WHERE measured."attemptId" = pending_attempt.id)
+      ), 0))::bigint AS "totalTokens",
       COALESCE(sum(usage."estimatedCostUsd"), 0)::numeric AS "estimatedCostUsd"
     FROM public."CompanyOsUsage" usage
     JOIN public."CompanyOsCase" company_case ON company_case.id = usage."caseId"
@@ -791,7 +823,8 @@ async function runtimeUsageTotals(tx: Tx, agentId: string, since: Date) {
 
 export function normalizeUsageForPersistence(usage: CompanyOsWorkerUsage) {
   return {
-    provider: usage.provider === 'ollama' ? 'ollama' : 'openai',
+    usageKnown: usage.usageKnown !== false,
+    provider: usage.provider === 'ollama' ? 'ollama' as const : 'openai' as const,
     model: cleanText(usage.model || 'unknown', 120),
     inputTokens: Math.max(0, Math.trunc(usage.inputTokens || 0)),
     cachedTokens: Math.max(0, Math.trunc(usage.cachedTokens || 0)),
@@ -807,6 +840,13 @@ export function normalizeUsageForPersistence(usage: CompanyOsWorkerUsage) {
   };
 }
 
+export function accountRuntimeUsage(usage: CompanyOsWorkerUsage, reservedTokens: number): CompanyOsWorkerUsage {
+  const normalized = normalizeUsageForPersistence(usage);
+  if (usage.usageKnown !== false) return normalized;
+  return { ...normalized, usageKnown: false, totalTokens: reservedTokens,
+    rulesApplied: [...normalized.rulesApplied.slice(0, 27), 'usage-unobserved', 'tokens-are-reserved-estimate', 'accounting-reconciliation-required'] };
+}
+
 async function persistRuntimeUsage(tx: Tx, input: {
   caseId: string;
   agentId: string;
@@ -819,7 +859,7 @@ async function persistRuntimeUsage(tx: Tx, input: {
   const existing = await tx.companyOsUsage.findUnique({ where: { attemptId: input.attemptId } });
   if (existing) return existing;
   const start = startOfZonedPeriod(new Date(), 'day');
-  const prior = await runtimeUsageTotals(tx, input.agentId, start);
+  const prior = await runtimeUsageTotals(tx, input.agentId, start, input.attemptId);
   const estimatedCostUsd = estimateRuntimeCost(input.usage);
   const dailyTotalTokens = prior.totalTokens + usage.totalTokens;
   const dailyCostUsd = prior.estimatedCostUsd + estimatedCostUsd;
@@ -895,30 +935,38 @@ function validateRuntimeOutput(
   return { result, delegations };
 }
 
+export class RuntimeOutputRejected extends Error {}
+
 export async function completeCompanyOsRuntimeWork(input: {
   workItemId: string;
   requestId: string;
   leaseToken: string;
   workerId: string;
   instanceId: string;
+  leaseInstanceId?: string;
+  attemptId?: string;
   output: unknown;
   usage: CompanyOsWorkerUsage;
-}) {
+}, hasDurableReceipt = false, trustedReceiptReplay = false) {
   const db = companyOsV3Prisma();
   return db.$transaction(async (tx) => {
+    const receiptIdentity = hasDurableReceipt ? await requireRuntimeCompletionLease(tx, input, trustedReceiptReplay) : null;
     const workItem = await tx.companyOsWorkItem.findUnique({ where: { id: input.workItemId } });
     if (!workItem || workItem.caseId === '') throw new Error('Work item inexistente');
     if (workItem.status === 'COMPLETED' || workItem.status === 'NEEDS_REVIEW') {
       return { reused: true, status: workItem.status };
     }
-    const lease = await requireRuntimeLease(tx, input);
+    const lease = receiptIdentity?.lease ?? await requireRuntimeLease(tx, input);
     const companyCase = await tx.companyOsCase.findUniqueOrThrow({ where: { requestId: input.requestId } });
     if (companyCase.id !== workItem.caseId || companyCase.status === 'CANCELLED') throw new Error('Caso incompatible con el work item');
     const evidence = await tx.companyOsEvidenceRef.findMany({
       where: { caseId: companyCase.id },
       select: { evidenceKey: true, value: true, createdAt: true },
     });
-    const { result, delegations } = validateRuntimeOutput(workItem.agentId, input.output, evidence);
+    let validated: ReturnType<typeof validateRuntimeOutput>;
+    try { validated = validateRuntimeOutput(workItem.agentId, input.output, evidence); }
+    catch { throw new RuntimeOutputRejected('Resultado incompatible con el contrato y evidencia del intento'); }
+    const { result, delegations } = validated;
     if (workItem.agentId === GENERAL_MANAGER_ID && delegations.length > 0 && workItem.causalMessageId) {
       const causal = await tx.companyOsMessage.findUnique({ where: { id: workItem.causalMessageId } });
       if (causal && causal.caseId === workItem.caseId && isSpecialistIntegration({
@@ -934,16 +982,30 @@ export async function completeCompanyOsRuntimeWork(input: {
         causalCausationId: causal.causationId,
         causalExpectsResponse: causal.expectsResponse,
         causalIdempotencyKey: causal.idempotencyKey,
-      })) throw new Error('La integración de un resultado de especialista no puede volver a delegar');
+      })) throw new RuntimeOutputRejected('La integración de un resultado de especialista no puede volver a delegar');
     }
     const safeResult = asRecord(sanitizeRuntimeValue(result));
+    if (input.usage.usageKnown === false) throw new RuntimeOutputRejected('Consumo del resultado no observado');
     const usage = normalizeUsageForPersistence(input.usage);
     if (usage.totalTokens > lease.reservedTokens || usage.totalTokens > workItem.reservedTokens || usage.totalTokens > companyCase.targetTotalTokens) {
-      throw new Error('Consumo total excede el presupuesto reservado');
+      throw new RuntimeOutputRejected('Consumo total excede el presupuesto reservado');
+    }
+    if (receiptIdentity) {
+      // Resume materialization of this attempt; never claim or increment an attempt.
+      if (['FAILED_FINAL', 'FAILED_RETRYABLE', 'QUEUED'].includes(workItem.status)) {
+        if (workItem.status !== 'QUEUED') await tx.companyOsWorkItem.update({ where: { id: workItem.id }, data: { status: 'QUEUED' } });
+        await tx.companyOsWorkItem.update({ where: { id: workItem.id }, data: { status: 'CLAIMED' } });
+        workItem.status = 'CLAIMED';
+      }
+      if (['FAILED_FINAL', 'FAILED_RETRYABLE', 'QUEUED'].includes(companyCase.status)) {
+        if (companyCase.status !== 'QUEUED') await tx.companyOsCase.update({ where: { id: companyCase.id }, data: { status: 'QUEUED' } });
+        await tx.companyOsCase.update({ where: { id: companyCase.id }, data: { status: 'CLAIMED', nextAttemptAt: null } });
+        companyCase.status = 'CLAIMED';
+      }
     }
     if (workItem.status === 'CLAIMED') await tx.companyOsWorkItem.update({ where: { id: workItem.id }, data: { status: 'RUNNING' } });
     if (companyCase.status === 'CLAIMED') await tx.companyOsCase.update({ where: { id: companyCase.id }, data: { status: 'RUNNING' } });
-    const attempt = await tx.companyOsExecutionAttempt.findFirstOrThrow({ where: {
+    const attempt = receiptIdentity?.attempt ?? await tx.companyOsExecutionAttempt.findFirstOrThrow({ where: {
       workItemId: workItem.id,
       leaseToken: input.leaseToken,
       finishedAt: null,
@@ -1172,7 +1234,7 @@ export async function completeCompanyOsRuntimeWork(input: {
       completedAt: finalStatus === 'COMPLETED' ? new Date() : null,
     } });
     await tx.companyOsExecutionAttempt.update({ where: { id: attempt.id }, data: {
-      outcome: 'SUCCEEDED',
+      outcome: 'SUCCEEDED', errorCode: null, detail: null,
       model: usage.model,
       durationMs: usage.durationMs,
       inputTokens: usage.inputTokens,
@@ -1231,6 +1293,95 @@ export async function completeCompanyOsRuntimeWork(input: {
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
+async function archiveRuntimeResult(input: RuntimeResultInput, reason: string) {
+  const db = companyOsV3Prisma();
+  return db.$transaction(async (tx) => {
+    const { authenticatedRuntimeResult } = await import('./runtime-result-receipts');
+    const { work, lease, attempt, companyCase } = await authenticatedRuntimeResult(tx, input, true);
+    const prior = await tx.companyOsAuditEvent.findUnique({ where: { idempotencyKey: resultArchiveKey(attempt.id) } });
+    if (prior) return;
+    await persistRuntimeUsage(tx, { caseId: work.caseId, agentId: work.agentId, workerId: input.workerId,
+      attemptId: attempt.id, outcome: 'FAILED', usage: accountRuntimeUsage(input.usage, lease.reservedTokens) });
+    if (attempt.outcome !== 'SUCCEEDED') await tx.companyOsExecutionAttempt.update({ where: { id: attempt.id }, data: {
+      outcome: 'FAILED', errorCode: reason, finishedAt: new Date(),
+    } });
+    const newer = await tx.companyOsExecutionAttempt.findFirst({ where: { workItemId: work.id, attempt: { gt: attempt.attempt } } });
+    if (!newer && ['QUEUED', 'CLAIMED', 'RUNNING', 'FAILED_RETRYABLE'].includes(work.status)) {
+      await tx.companyOsWorkItem.update({ where: { id: work.id }, data: { status: 'FAILED_FINAL', nextAttemptAt: null } });
+      const pending = await tx.companyOsWorkItem.count({ where: { caseId: work.caseId, id: { not: work.id }, status: { in: [...PENDING_WORK_STATUSES] } } });
+      if (!pending && ['QUEUED', 'CLAIMED', 'RUNNING', 'FAILED_RETRYABLE'].includes(companyCase.status)) {
+        await tx.companyOsCase.update({ where: { id: work.caseId }, data: { status: 'FAILED_FINAL', nextAttemptAt: null } });
+      }
+    }
+    if (lease.status === 'ACTIVE') await releaseRuntimeLease(tx, lease, 'RELEASED');
+    await tx.companyOsAuditEvent.create({ data: {
+      requestId: input.requestId, actorRef: input.workerId, action: 'RUNTIME_RESULT_ARCHIVED',
+      idempotencyKey: resultArchiveKey(attempt.id), metadata: jsonValue({ workItemId: work.id, attemptId: attempt.id, reason, businessWrites: 0 }),
+    } });
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+}
+
+export async function receiveAndCompleteCompanyOsRuntimeWork(input: RuntimeResultInput) {
+  // Never persist lease tokens, prompts or source context inside a receipt.
+  input = { ...input, usage: normalizeUsageForPersistence(input.usage) };
+  const receipt = await receiveRuntimeResult(input, sanitizeRuntimeReceiptOutput(input.output));
+  if (receipt.state === 'SUPERSEDED') {
+    await archiveRuntimeResult(input, 'RESULT_SUPERSEDED');
+  } else {
+    try { await completeCompanyOsRuntimeWork(input, true); }
+    catch (error) {
+      if (!(error instanceof RuntimeOutputRejected) && !(error instanceof RuntimeResultSuperseded)) throw error;
+      await archiveRuntimeResult(input, 'RESULT_VALIDATION_REJECTED');
+    }
+  }
+  return getCompanyOsRuntimeResultStatus(input);
+}
+
+/** The existing reconciler can finish a committed receipt even if its host is lost. */
+export async function recoverRuntimeResults() {
+  const db = companyOsV3Prisma();
+  const pending = await db.$queryRaw<Array<{ metadata: Prisma.JsonValue }>>(Prisma.sql`
+    SELECT receipt.metadata FROM public."CompanyOsAuditEvent" receipt
+    JOIN public."CompanyOsExecutionAttempt" attempt ON attempt.id = receipt.metadata->>'attemptId'
+    WHERE receipt.action = 'RUNTIME_RESULT_RECEIVED' AND attempt.outcome <> 'SUCCEEDED'
+      AND NOT EXISTS (SELECT 1 FROM public."CompanyOsAuditEvent" archived
+        WHERE archived."idempotencyKey" = 'runtime-result-archived:' || attempt.id)
+    ORDER BY (
+      SELECT max(tried."createdAt") FROM public."CompanyOsAuditEvent" tried
+      WHERE tried.action = 'RUNTIME_RESULT_RECOVERY_ATTEMPT'
+        AND tried.metadata->>'attemptId' = attempt.id
+    ) ASC NULLS FIRST, receipt."createdAt" LIMIT 10
+  `);
+  let recovered = 0;
+  for (const row of pending) {
+    const metadata = asRecord(row.metadata);
+    const attempt = await db.companyOsExecutionAttempt.findUniqueOrThrow({ where: { id: String(metadata.attemptId) } });
+    const input: RuntimeResultInput = { workItemId: String(metadata.workItemId), requestId: attempt.requestId,
+      attemptId: attempt.id, leaseToken: attempt.leaseToken, workerId: attempt.workerId!, instanceId: attempt.instanceId!,
+      leaseInstanceId: attempt.instanceId!, output: metadata.output, usage: metadata.usage as CompanyOsWorkerUsage };
+    let recoveryError: string | null = null;
+    try {
+      if (metadata.state === 'SUPERSEDED') await archiveRuntimeResult(input, 'RESULT_SUPERSEDED');
+      else await completeCompanyOsRuntimeWork(input, true, true);
+      recovered++;
+    } catch (error) {
+      if (error instanceof RuntimeOutputRejected || error instanceof RuntimeResultSuperseded) {
+        await archiveRuntimeResult(input, 'RESULT_VALIDATION_REJECTED');
+        recovered++;
+      }
+      recoveryError = error instanceof RuntimeOutputRejected || error instanceof RuntimeResultSuperseded ? 'RESULT_ARCHIVED' : 'RESULT_APPLY_PENDING';
+      // Transient errors preserve the receipt; the next regular scan retries it.
+    }
+    const recoveryKey = `runtime-result-recovery:${attempt.id}:${Math.floor(Date.now() / 60_000)}`;
+    if (!await db.companyOsAuditEvent.findUnique({ where: { idempotencyKey: recoveryKey } })) {
+      await db.companyOsAuditEvent.create({ data: { requestId: input.requestId, actorRef: input.workerId,
+        action: 'RUNTIME_RESULT_RECOVERY_ATTEMPT', idempotencyKey: recoveryKey,
+        metadata: jsonValue({ attemptId: attempt.id, workItemId: input.workItemId, errorCode: recoveryError }) } });
+    }
+  }
+  return { recovered, scanned: pending.length, pendingInBatch: pending.length - recovered };
+}
+
 function retryDelayMs(workAttempt: number, workItemId: string) {
   const base = Math.min(15 * 60_000, 30_000 * (2 ** Math.max(0, workAttempt - 1)));
   const jitter = Number.parseInt(hash(`${workItemId}:${workAttempt}`).slice(0, 6), 16) % 10_000;
@@ -1251,6 +1402,7 @@ export async function failCompanyOsRuntimeWork(input: {
   const db = companyOsV3Prisma();
   return db.$transaction(async (tx) => {
     const lease = await requireRuntimeLease(tx, input);
+    if (input.usage) input = { ...input, usage: accountRuntimeUsage(input.usage, lease.reservedTokens) };
     const workItem = await tx.companyOsWorkItem.findUniqueOrThrow({ where: { id: input.workItemId } });
     const companyCase = await tx.companyOsCase.findUniqueOrThrow({ where: { requestId: input.requestId } });
     const attempt = await tx.companyOsExecutionAttempt.findFirstOrThrow({ where: {
@@ -1258,6 +1410,8 @@ export async function failCompanyOsRuntimeWork(input: {
       leaseToken: input.leaseToken,
       finishedAt: null,
     } });
+    const receipt = await tx.companyOsAuditEvent.findUnique({ where: { idempotencyKey: resultReceiptKey(attempt.id) } });
+    if (receipt) return { status: 'RESULT_RECEIVED', retryable: false, nextAttemptAt: null };
     const retryable = (input.retryable || AUTO_RETRYABLE_MODEL_ERRORS.has(input.errorCode))
       && workItem.attemptCount < workItem.maxAttempts;
     const nextAttemptAt = retryable ? new Date(Date.now() + retryDelayMs(workItem.attemptCount, workItem.id)) : null;
@@ -1291,7 +1445,7 @@ export async function failCompanyOsRuntimeWork(input: {
     const otherActive = await tx.companyOsWorkItem.count({ where: {
       caseId: companyCase.id,
       id: { not: workItem.id },
-      status: { in: [...ACTIVE_WORK_STATUSES] },
+      status: { in: [...PENDING_WORK_STATUSES] },
     } });
     const caseStatus = otherActive > 0 ? companyCase.status : workStatus;
     if (caseStatus !== companyCase.status && !TERMINAL_CASE_STATUSES.has(companyCase.status)) {
@@ -1808,13 +1962,43 @@ export async function reconsiderLocalObjectiveBudget(tx: Tx, now: Date) {
   return reconsidered;
 }
 
+export async function recoverRuntimePendingCases(tx: Tx) {
+  const candidates = await tx.$queryRaw<Array<{ id: string; requestId: string }>>(Prisma.sql`
+    SELECT company_case.id, company_case."requestId"
+    FROM public."CompanyOsCase" company_case
+    JOIN LATERAL (
+      SELECT event."eventType" FROM public."CompanyOsCaseEvent" event
+      WHERE event."caseId" = company_case.id AND event."toStatus" IS DISTINCT FROM event."fromStatus"
+      ORDER BY event.sequence DESC LIMIT 1
+    ) last_transition ON true
+    WHERE company_case.status = 'FAILED_FINAL'
+      AND last_transition."eventType" IN ('LEASE_EXPIRED', 'RUNTIME_WORK_FAILED_FINAL')
+      AND EXISTS (SELECT 1 FROM public."CompanyOsWorkItem" pending
+        WHERE pending."caseId" = company_case.id AND pending.status IN ('QUEUED','FAILED_RETRYABLE'))
+      AND NOT EXISTS (SELECT 1 FROM public."CompanyOsObjectiveUnit" unit
+        JOIN public."CompanyOsContinuousObjective" goal ON goal.id = unit."goalId"
+        WHERE unit."caseId" = company_case.id AND (goal.status <> 'ACTIVE' OR goal."endsAt" <= clock_timestamp()))
+    FOR UPDATE OF company_case SKIP LOCKED LIMIT 25
+  `);
+  for (const candidate of candidates) {
+    await tx.companyOsCase.update({ where: { id: candidate.id }, data: { status: 'QUEUED', nextAttemptAt: null } });
+    await appendRuntimeEvent(tx, { caseId: candidate.id, requestId: candidate.requestId,
+      eventType: 'RUNTIME_PENDING_CASE_RECOVERED', fromStatus: 'FAILED_FINAL', toStatus: 'QUEUED',
+      payload: { reason: 'existing-runnable-sibling', businessWrites: 0 },
+      idempotencyKey: `runtime:${candidate.requestId}:pending-case-recovered` });
+  }
+  return candidates.length;
+}
+
 export async function reconcileCompanyOsRuntime(workerId: string) {
   const db = companyOsV3Prisma();
-  return db.$transaction(async (tx) => {
+  const results = await recoverRuntimeResults();
+  const reconciled = await db.$transaction(async (tx) => {
     const now = new Date();
     const expiredLeases = await expireLeases(tx, now);
     const contractFailuresRecovered = await recoverExhaustedGeneralManagerContract313Failures(tx, now);
     const modelFailuresRecovered = await recoverPrematureTerminalModelFailures(tx, now);
+    const pendingCasesRecovered = await recoverRuntimePendingCases(tx);
     const budgetRecovered = await recoverBudgetBlockedWork(tx, now);
     const runtimeControl = await tx.companyOsRuntimeControl.findUniqueOrThrow({ where: { id: 'primary' } });
     const budgetReconsidered = runtimeControl.paused ? 0 : await reconsiderLocalObjectiveBudget(tx, now);
@@ -1915,6 +2099,7 @@ export async function reconcileCompanyOsRuntime(workerId: string) {
     });
     return { reconciledAt: now.toISOString(), expiredLeases, contractFailuresRecovered, modelFailuresRecovered, budgetRecovered, budgetReconsidered, incidentsOpen: detected.length };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  return { ...reconciled, resultRecovery: results };
 }
 
 type RuntimeScheduleRow = {

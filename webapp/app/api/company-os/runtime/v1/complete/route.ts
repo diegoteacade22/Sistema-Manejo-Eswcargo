@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { completeCompanyOsRuntimeWork } from '@/lib/company-os/runtime-store';
+import { receiveAndCompleteCompanyOsRuntimeWork } from '@/lib/company-os/runtime-store';
 import { normalizeRuntimeUsage, requiredString, verifiedRuntimeJson } from '../_request';
 
 export const dynamic = 'force-dynamic';
@@ -14,9 +14,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Resultado incompleto' }, { status: 400 });
   }
   try {
-    const result = await completeCompanyOsRuntimeWork({
+    const result = await receiveAndCompleteCompanyOsRuntimeWork({
       workerId: values.workerId!, instanceId: values.instanceId!, workItemId: values.workItemId!,
       requestId: values.requestId!, leaseToken: values.leaseToken!, output: verified.input.output,
+      attemptId: requiredString(verified.input, 'attemptId') ?? undefined,
+      leaseInstanceId: requiredString(verified.input, 'leaseInstanceId') ?? undefined,
       usage: normalizeRuntimeUsage(verified.input.usage),
     });
     return NextResponse.json({ ...result, businessWrites: 0, infrastructureWrites: 0 });

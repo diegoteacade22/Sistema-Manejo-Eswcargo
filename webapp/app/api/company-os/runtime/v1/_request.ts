@@ -61,6 +61,7 @@ export function normalizeRuntimeUsage(raw: unknown): CompanyOsWorkerUsage {
   const provider = source.provider === 'ollama' ? 'ollama' : 'openai';
   return {
     provider,
+    usageKnown: source.usageKnown !== false && source.usage_known !== false,
     model: String(source.model ?? (provider === 'ollama' ? 'qwen3:14b-q4_K_M' : process.env.COMPANY_OS_V3_MODEL ?? 'gpt-5.6-sol')),
     inputTokens: integer(source.inputTokens ?? source.input_tokens),
     cachedTokens: integer(source.cachedTokens ?? inputDetails.cached_tokens),
