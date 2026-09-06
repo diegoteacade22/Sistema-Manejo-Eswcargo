@@ -15,7 +15,7 @@ La reserva y el consumo de un receipt no se suman dos veces. Si Ollama no inform
 - `npm run test:company-os` desde `webapp/` incluye pruebas transaccionales sintéticas: rollback posterior al receipt, replay/reinicio, vencimiento, identidad incorrecta, cancelación, caso bloqueado, revisión humana e idempotencia.
 - `npm test` desde `webapp/company-os-worker/` incluye pruebas de disco y proceso separado: corte después de fsync, caída de API, respuestas perdidas, disco no disponible y recuperación de temporales.
 - `npm run build` y `npx tsc --noEmit` desde `webapp/`.
-- La migración `20260906230000_company_os_result_receipt_indexes.sql` sólo agrega índices parciales al audit existente. No crea una cola ni cambia tablas de negocio.
+- La migración `20260906223205_company_os_result_receipt_indexes.sql` sólo agrega índices parciales al audit existente. No crea una cola ni cambia tablas de negocio.
 - `npx tsx scripts/readback-company-os-runtime.ts` usa la conexión del runtime ya configurada. Sólo lee metadatos de Company OS. No carga archivos secretos, devuelve prompts/resultados completos ni imprime tokens de lease.
 
 Instalar API y worker desde una única integración. Conservar `stateDir` durante la actualización. Antes de declarar éxito productivo, verificar un resultado recibido y aplicado, replay sin otro intento, consumo único, lease y slot liberados y ausencia de pendientes técnicos recuperables. Las pruebas locales no sustituyen esa comprobación.

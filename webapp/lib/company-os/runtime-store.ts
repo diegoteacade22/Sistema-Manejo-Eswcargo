@@ -1963,11 +1963,11 @@ export async function reconsiderLocalObjectiveBudget(tx: Tx, now: Date) {
 }
 
 export async function recoverRuntimePendingCases(tx: Tx) {
-  const candidates = await tx.$queryRaw<Array<{ id: string; requestId: string }>>(Prisma.sql`
-    SELECT company_case.id, company_case."requestId"
+  const candidates = await tx.$queryRaw<Array<{ id: string; requestId: string; transitionSequence: number }>>(Prisma.sql`
+    SELECT company_case.id, company_case."requestId", last_transition.sequence AS "transitionSequence"
     FROM public."CompanyOsCase" company_case
     JOIN LATERAL (
-      SELECT event."eventType" FROM public."CompanyOsCaseEvent" event
+      SELECT event."eventType", event.sequence FROM public."CompanyOsCaseEvent" event
       WHERE event."caseId" = company_case.id AND event."toStatus" IS DISTINCT FROM event."fromStatus"
       ORDER BY event.sequence DESC LIMIT 1
     ) last_transition ON true
@@ -1985,7 +1985,7 @@ export async function recoverRuntimePendingCases(tx: Tx) {
     await appendRuntimeEvent(tx, { caseId: candidate.id, requestId: candidate.requestId,
       eventType: 'RUNTIME_PENDING_CASE_RECOVERED', fromStatus: 'FAILED_FINAL', toStatus: 'QUEUED',
       payload: { reason: 'existing-runnable-sibling', businessWrites: 0 },
-      idempotencyKey: `runtime:${candidate.requestId}:pending-case-recovered` });
+      idempotencyKey: `runtime:${candidate.requestId}:pending-case-recovered:${candidate.transitionSequence}` });
   }
   return candidates.length;
 }
