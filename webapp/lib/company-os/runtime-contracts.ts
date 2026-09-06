@@ -27,7 +27,7 @@ export type CompanyOsInstalledAgentId =
   (typeof COMPANY_OS_INSTALLED_AGENT_IDS)[number];
 
 export const COMPANY_OS_RUNTIME_CONTRACT_VERSIONS = {
-  [COMPANY_OS_V3_IDENTITY]: '3.1.3',
+  [COMPANY_OS_V3_IDENTITY]: '3.1.4',
   [COMPANY_OS_SYSTEMS_MANAGER_IDENTITY]: '1.1.1',
   [COMPANY_OS_DATA_MANAGER_IDENTITY]: '1.0.0',
 } as const satisfies Record<CompanyOsInstalledAgentId, string>;
@@ -246,14 +246,8 @@ const GENERAL_MANAGER_OUTPUT_SCHEMA = {
             type: 'string',
             enum: [COMPANY_OS_SYSTEMS_MANAGER_IDENTITY, COMPANY_OS_DATA_MANAGER_IDENTITY],
           },
-          capability: {
-            type: 'string',
-            enum: [...SPECIALIST_CAPABILITIES],
-          },
           objective: { type: 'string', minLength: 1 },
           evidenceRefs: { type: 'array', items: { type: 'string', minLength: 1 } },
-          taskStatus: { type: 'string', enum: ['READY', 'NEEDS_USER', 'BLOCKED_EXTERNAL'] },
-          depth: { type: 'integer', minimum: 1, maximum: 1 },
         },
       },
     },
@@ -789,6 +783,64 @@ function validateStrictSchema(value: unknown, label: string): void {
   }
 }
 
+const STRUCTURED_OUTPUT_SCHEMA_KEYS = new Set([
+  'type',
+  'additionalProperties',
+  'required',
+  'properties',
+  'items',
+  'enum',
+  'const',
+  'minLength',
+  'maxLength',
+  'minItems',
+  'maxItems',
+  'minimum',
+  'maximum',
+]);
+
+function validateStructuredOutputSchema(
+  value: unknown,
+  label: string,
+  depth = 0,
+): void {
+  if (!isRecord(value) || depth > 20) {
+    throw new Error(`${label}: invalid structured output schema`);
+  }
+  for (const key of Object.keys(value)) {
+    if (!STRUCTURED_OUTPUT_SCHEMA_KEYS.has(key)) {
+      throw new Error(`${label}: unsupported structured output keyword ${key}`);
+    }
+  }
+  if (value.enum !== undefined && (!Array.isArray(value.enum) || value.enum.length === 0)) {
+    throw new Error(`${label}: enum must be a non-empty array`);
+  }
+  if (value.type === undefined && (value.const !== undefined || value.enum !== undefined)) return;
+  if (!['object', 'array', 'string', 'boolean', 'number', 'integer'].includes(String(value.type))) {
+    throw new Error(`${label}: unsupported structured output type`);
+  }
+  if (value.type === 'object') {
+    if (value.additionalProperties !== false || !isRecord(value.properties) || !Array.isArray(value.required)) {
+      throw new Error(`${label}: object schema must be strict`);
+    }
+    const propertyKeys = Object.keys(value.properties);
+    const required = value.required;
+    if (
+      new Set(required).size !== required.length
+      || required.some((key) => typeof key !== 'string' || !Object.prototype.hasOwnProperty.call(value.properties, key))
+      || propertyKeys.some((key) => !required.includes(key))
+    ) {
+      throw new Error(`${label}: object schema has inconsistent required fields`);
+    }
+    for (const [key, nested] of Object.entries(value.properties)) {
+      validateStructuredOutputSchema(nested, `${label}.${key}`, depth + 1);
+    }
+  }
+  if (value.type === 'array') {
+    validateStructuredOutputSchema(value.items, `${label}[]`, depth + 1);
+  }
+}
+
 export function isInstalledCompanyOsAgentId(
   agentId: string,
 ): agentId is CompanyOsInstalledAgentId {
@@ -962,6 +1014,7 @@ export function validateCompanyOsRuntimeContract(
 
   validateStrictSchema(value.inputSchema, 'inputSchema');
   validateStrictSchema(value.outputSchema, 'outputSchema');
+  validateStructuredOutputSchema(value.outputSchema, 'outputSchema');
   const inputSchema = value.inputSchema as Record<string, unknown>;
   const inputProperties = inputSchema.properties as Record<string, unknown>;
   const inputAgentId = inputProperties.agentId;

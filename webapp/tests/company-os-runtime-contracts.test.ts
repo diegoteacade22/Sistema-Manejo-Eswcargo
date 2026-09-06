@@ -29,7 +29,7 @@ const DATA_CONTRACT_MIGRATION_URL = new URL(
   import.meta.url,
 );
 const GENERAL_CONTRACT_MIGRATION_URL = new URL(
-  '../../supabase/migrations/20260904120000_company_os_specialist_plane.sql',
+  '../../supabase/migrations/20260906040410_company_os_general_manager_runtime_3_1_4.sql',
   import.meta.url,
 );
 
@@ -156,6 +156,20 @@ test('fails closed for unknown, uninstalled, malformed, and over-permissive cont
   assert.throws(
     () => validateCompanyOsRuntimeContract(writeEnabled),
     /advisoryOnly must be true/,
+  );
+
+  const optionalStructuredOutputField = structuredClone(
+    COMPANY_OS_RUNTIME_CONTRACTS['general-manager-ai-v3'],
+  ) as Record<string, unknown>;
+  const outputSchema = optionalStructuredOutputField.outputSchema as {
+    properties: { delegations: { items: { properties: Record<string, unknown> } } };
+  };
+  outputSchema.properties.delegations.items.properties.capability = {
+    type: 'string',
+  };
+  assert.throws(
+    () => validateCompanyOsRuntimeContract(optionalStructuredOutputField),
+    /outputSchema\.delegations\[\]: object schema has inconsistent required fields/,
   );
 });
 

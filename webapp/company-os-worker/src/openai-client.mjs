@@ -231,32 +231,36 @@ function runtimeOutputError(message) {
   return new OpenAiWorkerError(message, { code: 'OPENAI_INVALID_RUNTIME_OUTPUT' });
 }
 
+function runtimeSchemaDefinitionError(message) {
+  return new OpenAiWorkerError(message, { code: 'RUNTIME_OUTPUT_SCHEMA_INVALID' });
+}
+
 function isRecord(value) {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
 function validateRuntimeSchemaDefinition(schema, path = '$', depth = 0) {
-  if (!isRecord(schema) || depth > 20) throw runtimeOutputError(`Runtime output schema is invalid at ${path}`);
+  if (!isRecord(schema) || depth > 20) throw runtimeSchemaDefinitionError(`Runtime output schema is invalid at ${path}`);
   for (const key of Object.keys(schema)) {
-    if (!SUPPORTED_SCHEMA_KEYS.has(key)) throw runtimeOutputError(`Runtime output schema keyword is unsupported at ${path}.${key}`);
+    if (!SUPPORTED_SCHEMA_KEYS.has(key)) throw runtimeSchemaDefinitionError(`Runtime output schema keyword is unsupported at ${path}.${key}`);
   }
   if (schema.enum !== undefined && (!Array.isArray(schema.enum) || schema.enum.length === 0)) {
-    throw runtimeOutputError(`Runtime output schema enum is invalid at ${path}`);
+    throw runtimeSchemaDefinitionError(`Runtime output schema enum is invalid at ${path}`);
   }
   const type = schema.type;
   if (type === undefined && (schema.const !== undefined || schema.enum !== undefined)) return schema;
   if (!['object', 'array', 'string', 'boolean', 'number', 'integer'].includes(type)) {
-    throw runtimeOutputError(`Runtime output schema type is unsupported at ${path}`);
+    throw runtimeSchemaDefinitionError(`Runtime output schema type is unsupported at ${path}`);
   }
   if (type === 'object') {
     if (schema.additionalProperties !== false || !isRecord(schema.properties) || !Array.isArray(schema.required)) {
-      throw runtimeOutputError(`Runtime output object schema is not strict at ${path}`);
+      throw runtimeSchemaDefinitionError(`Runtime output object schema is not strict at ${path}`);
     }
     const propertyKeys = Object.keys(schema.properties);
     if (new Set(schema.required).size !== schema.required.length
       || schema.required.some((key) => typeof key !== 'string' || !Object.hasOwn(schema.properties, key))
       || propertyKeys.some((key) => !schema.required.includes(key))) {
-      throw runtimeOutputError(`Runtime output object schema has inconsistent required fields at ${path}`);
+      throw runtimeSchemaDefinitionError(`Runtime output object schema has inconsistent required fields at ${path}`);
     }
     for (const [key, nested] of Object.entries(schema.properties)) validateRuntimeSchemaDefinition(nested, `${path}.${key}`, depth + 1);
   }

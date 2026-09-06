@@ -130,6 +130,33 @@ test('salidas inválidas del modelo consumen intentos restantes y reconciliació
   assert.match(store, /NOT EXISTS \(SELECT 1 FROM public\."CompanyOsLease"/);
 });
 
+test('una revisión de contrato devuelve una sola vez los intentos consumidos antes del modelo', () => {
+  const store = readFileSync('lib/company-os/runtime-store.ts', 'utf8');
+  assert.match(store, /recoverExhaustedGeneralManagerContract313Failures/);
+  assert.match(store, /GENERAL_MANAGER_CONTRACT_RECOVERY_VERSION = '3\.1\.4'/);
+  assert.match(store, /contractVersion: '3\.1\.3'/);
+  assert.match(store, /WORK_RUNTIME_CONTRACT_AUTO_RECOVERED/);
+  assert.match(store, /RUNTIME_CONTRACT_FAILURE_AUTO_RECOVERED/);
+  assert.match(store, /failedContractVersion: '3\.1\.3'/);
+  assert.match(store, /recoveredContractVersion: currentContract\.version/);
+  assert.match(store, /restoredAttemptAllowance: 3/);
+  assert.match(store, /execution\.model IS NOT NULL/);
+  assert.match(store, /execution\."totalTokens" IS NOT NULL/);
+  assert.match(store, /execution\."errorCode" IS DISTINCT FROM 'OPENAI_INVALID_RUNTIME_OUTPUT'/);
+  assert.match(store, /JOIN public\."CompanyOsUsage" usage ON usage\."attemptId"=execution\.id/);
+  assert.match(store, /execution\."startedAt"<\$\{failedContract\.createdAt\}/);
+  assert.match(store, /execution\."startedAt">=\$\{installedContract\.createdAt\}/);
+  assert.match(store, /execution\."finishedAt" IS NULL/);
+  assert.match(store, /event\."eventType"='WORK_RUNTIME_CONTRACT_AUTO_RECOVERED'/);
+  assert.match(store, /company-os-runtime-contract-recovery:3\.1\.3:3\.1\.4/);
+  assert.match(store, /pending\.status IN \('QUEUED','CLAIMED','RUNNING','FAILED_RETRYABLE'\)/);
+  assert.match(store, /recovered_case\."caseType" <> 'CONTINUOUS_OBJECTIVE'/);
+  assert.match(store, /objective\.status <> 'ACTIVE'/);
+  assert.match(store, /if \(recoveryState\?\.inFlight\) return 0/);
+  assert.match(store, /ORDER BY family_service\."lastCompletedAt" ASC NULLS FIRST,work\."updatedAt",work\.id/);
+  assert.match(store, /FOR UPDATE OF work SKIP LOCKED LIMIT 1/);
+});
+
 test('usage local conserva provider Ollama y el servidor asigna costo cero', () => {
   const usage = normalizeRuntimeUsage({
     provider: 'ollama',

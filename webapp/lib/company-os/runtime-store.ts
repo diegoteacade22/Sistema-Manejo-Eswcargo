@@ -44,6 +44,7 @@ const DAILY_AGENT_TOKEN_LIMIT = 48_000;
 const MONTHLY_AGENT_TOKEN_LIMIT = 1_000_000;
 const REQUESTS_PER_MINUTE = 240;
 const AUTO_RETRYABLE_MODEL_ERRORS = new Set(['OPENAI_INVALID_RUNTIME_OUTPUT', 'OPENAI_INVALID_JSON']);
+const GENERAL_MANAGER_CONTRACT_RECOVERY_VERSION = '3.1.4';
 
 // An explicit rollout scope prevents a budget fix from activating other goals.
 function adaptiveLocalGoalIds() {
@@ -1509,6 +1510,180 @@ async function recoverPrematureTerminalModelFailures(tx: Tx, now: Date) {
   return recovered;
 }
 
+async function recoverExhaustedGeneralManagerContract313Failures(tx: Tx, now: Date) {
+  const currentContract = getCompanyOsRuntimeContract(GENERAL_MANAGER_ID);
+  if (currentContract.version !== GENERAL_MANAGER_CONTRACT_RECOVERY_VERSION) return 0;
+  await tx.$queryRaw(Prisma.sql`
+    SELECT 1 AS locked
+    FROM pg_catalog.pg_advisory_xact_lock(
+      pg_catalog.hashtextextended('company-os-runtime-contract-recovery:3.1.3:3.1.4', 0)
+    )
+  `);
+  const installedContract = await tx.companyOsAgentContract.findUnique({
+    where: {
+      agentId_contractVersion: {
+        agentId: GENERAL_MANAGER_ID,
+        contractVersion: currentContract.version,
+      },
+    },
+  });
+  if (!installedContract || installedContract.status !== 'INSTALLED'
+    || canonicalJson(installedContract.contract) !== canonicalJson(currentContract)) return 0;
+  const failedContract = await tx.companyOsAgentContract.findUnique({
+    where: {
+      agentId_contractVersion: {
+        agentId: GENERAL_MANAGER_ID,
+        contractVersion: '3.1.3',
+      },
+    },
+  });
+  if (!failedContract || failedContract.createdAt >= installedContract.createdAt) return 0;
+
+  // Recover one complete case chain at a time. A recovered manager result can
+  // enqueue a specialist and a manager return, so opening the next incident
+  // before that chain settles would let the repair cohort consume the budget.
+  const [recoveryState] = await tx.$queryRaw<Array<{ inFlight: boolean }>>(Prisma.sql`
+    SELECT EXISTS (
+      SELECT 1
+      FROM public."CompanyOsCaseEvent" recovery
+      JOIN public."CompanyOsWorkItem" pending ON pending."caseId"=recovery."caseId"
+      JOIN public."CompanyOsCase" recovered_case ON recovered_case.id=recovery."caseId"
+      WHERE recovery."eventType"='WORK_RUNTIME_CONTRACT_AUTO_RECOVERED'
+        AND pending.status IN ('QUEUED','CLAIMED','RUNNING','FAILED_RETRYABLE')
+        AND (recovered_case."caseType" <> 'CONTINUOUS_OBJECTIVE' OR EXISTS (
+          SELECT 1 FROM public."CompanyOsObjectiveUnit" linked WHERE linked."caseId"=recovered_case.id
+        ))
+        AND NOT EXISTS (
+          SELECT 1 FROM public."CompanyOsObjectiveUnit" unit
+          JOIN public."CompanyOsContinuousObjective" objective ON objective.id=unit."goalId"
+          WHERE unit."caseId"=recovered_case.id
+            AND (objective.status <> 'ACTIVE' OR objective."startsAt" > clock_timestamp()
+              OR objective."endsAt" <= clock_timestamp())
+        )
+    ) AS "inFlight"
+  `);
+  if (recoveryState?.inFlight) return 0;
+
+  const failures = await tx.$queryRaw<Array<{
+    workItemId: string;
+    caseId: string;
+    requestId: string;
+    agentId: string;
+    attemptCount: number;
+    maxAttempts: number;
+  }>>(Prisma.sql`
+    WITH family_service AS MATERIALIZED (
+      SELECT
+        COALESCE('goal:' || served_unit."goalId", 'case-type:' || served_case."caseType") AS "familyKey",
+        MAX(served_work."completedAt") AS "lastCompletedAt"
+      FROM public."CompanyOsWorkItem" served_work
+      JOIN public."CompanyOsCase" served_case ON served_case.id=served_work."caseId"
+      LEFT JOIN public."CompanyOsObjectiveUnit" served_unit ON served_unit."caseId"=served_work."caseId"
+      WHERE served_work.status='COMPLETED'
+      GROUP BY COALESCE('goal:' || served_unit."goalId", 'case-type:' || served_case."caseType")
+    )
+    SELECT work.id AS "workItemId",work."caseId",company_case."requestId",work."agentId",
+      work."attemptCount",work."maxAttempts"
+    FROM public."CompanyOsWorkItem" work
+    JOIN public."CompanyOsCase" company_case ON company_case.id=work."caseId"
+    LEFT JOIN public."CompanyOsObjectiveUnit" scheduling_unit ON scheduling_unit."caseId"=work."caseId"
+    LEFT JOIN family_service ON family_service."familyKey"=COALESCE(
+      'goal:' || scheduling_unit."goalId", 'case-type:' || company_case."caseType"
+    )
+    WHERE work.status='FAILED_FINAL' AND work."agentId"=${GENERAL_MANAGER_ID}
+      AND work."attemptCount"=3 AND work."maxAttempts"=3
+      AND company_case.status='FAILED_FINAL'
+      AND (company_case."caseType" <> 'CONTINUOUS_OBJECTIVE' OR EXISTS (
+        SELECT 1 FROM public."CompanyOsObjectiveUnit" linked WHERE linked."caseId"=company_case.id
+      ))
+      AND NOT EXISTS (
+        SELECT 1 FROM public."CompanyOsObjectiveUnit" unit
+        JOIN public."CompanyOsContinuousObjective" objective ON objective.id=unit."goalId"
+        WHERE unit."caseId"=company_case.id
+          AND (objective.status <> 'ACTIVE' OR objective."startsAt" > clock_timestamp()
+            OR objective."endsAt" <= clock_timestamp())
+      )
+      AND (SELECT count(*) FROM public."CompanyOsExecutionAttempt" execution
+        WHERE execution."workItemId"=work.id)=work."attemptCount"
+      AND NOT EXISTS (
+        SELECT 1 FROM public."CompanyOsExecutionAttempt" execution
+        WHERE execution."workItemId"=work.id AND (
+          execution.outcome IS DISTINCT FROM 'FAILED'
+          OR execution."errorCode" IS DISTINCT FROM 'OPENAI_INVALID_RUNTIME_OUTPUT'
+          OR execution.detail IS DISTINCT FROM 'Runtime output object schema has inconsistent required fields at $.delegations[]'
+          OR execution.model IS NOT NULL OR execution."durationMs" IS NOT NULL
+          OR execution."inputTokens" IS NOT NULL OR execution."outputTokens" IS NOT NULL
+          OR execution."totalTokens" IS NOT NULL OR execution."estimatedCostUsd" IS NOT NULL
+          OR execution."startedAt"<${failedContract.createdAt}
+          OR execution."startedAt">=${installedContract.createdAt}
+          OR execution."finishedAt" IS NULL
+        )
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM public."CompanyOsExecutionAttempt" execution
+        JOIN public."CompanyOsUsage" usage ON usage."attemptId"=execution.id
+        WHERE execution."workItemId"=work.id
+      )
+      AND NOT EXISTS (SELECT 1 FROM public."CompanyOsLease" lease WHERE lease."workItemId"=work.id
+        AND lease.status='ACTIVE' AND lease."expiresAt">${now})
+      AND NOT EXISTS (
+        SELECT 1 FROM public."CompanyOsCaseEvent" event
+        WHERE event."caseId"=work."caseId" AND event."eventType"='WORK_RUNTIME_CONTRACT_AUTO_RECOVERED'
+          AND event.payload->>'workItemId'=work.id
+      )
+    ORDER BY family_service."lastCompletedAt" ASC NULLS FIRST,work."updatedAt",work.id
+    FOR UPDATE OF work SKIP LOCKED LIMIT 1
+  `);
+  let recovered = 0;
+  for (const failure of failures) {
+    const restoredMaxAttempts = failure.attemptCount + 3;
+    await tx.companyOsWorkItem.update({ where: { id: failure.workItemId }, data: {
+      status: 'QUEUED', maxAttempts: restoredMaxAttempts, availableAt: now, nextAttemptAt: null,
+    } });
+    await tx.companyOsCase.update({ where: { id: failure.caseId }, data: {
+      status: 'QUEUED', nextAttemptAt: null,
+    } });
+    await appendRuntimeEvent(tx, {
+      caseId: failure.caseId,
+      requestId: failure.requestId,
+      eventType: 'WORK_RUNTIME_CONTRACT_AUTO_RECOVERED',
+      fromStatus: 'FAILED_FINAL',
+      toStatus: 'QUEUED',
+      payload: {
+        workItemId: failure.workItemId,
+        agentId: failure.agentId,
+        failedContractVersion: '3.1.3',
+        recoveredContractVersion: currentContract.version,
+        previousMaxAttempts: failure.maxAttempts,
+        restoredMaxAttempts,
+        restoredAttemptAllowance: 3,
+        modelCalls: 0,
+      },
+      idempotencyKey: `runtime:${failure.requestId}:contract-failure-auto-recovered:${failure.workItemId}`,
+    });
+    const idempotencyKey = `audit:runtime:${failure.workItemId}:contract-failure-auto-recovered`;
+    if (!await tx.companyOsAuditEvent.findUnique({ where: { idempotencyKey } })) {
+      await tx.companyOsAuditEvent.create({ data: {
+        requestId: failure.requestId,
+        action: 'RUNTIME_CONTRACT_FAILURE_AUTO_RECOVERED',
+        actorRef: 'company-os-reconciler',
+        metadata: jsonValue({
+          agentId: failure.agentId,
+          workItemId: failure.workItemId,
+          failedContractVersion: '3.1.3',
+          recoveredContractVersion: currentContract.version,
+          restoredAttemptAllowance: 3,
+          businessWrites: 0,
+          infrastructureWrites: 0,
+        }),
+        idempotencyKey,
+      } });
+    }
+    recovered += 1;
+  }
+  return recovered;
+}
+
 /** Reconsider only a budget-imposed delay, never a human pause or retry backoff. */
 export async function reconsiderLocalObjectiveBudget(tx: Tx, now: Date) {
   const goalIds = adaptiveLocalGoalIds();
@@ -1597,6 +1772,7 @@ export async function reconcileCompanyOsRuntime(workerId: string) {
   return db.$transaction(async (tx) => {
     const now = new Date();
     const expiredLeases = await expireLeases(tx, now);
+    const contractFailuresRecovered = await recoverExhaustedGeneralManagerContract313Failures(tx, now);
     const modelFailuresRecovered = await recoverPrematureTerminalModelFailures(tx, now);
     const budgetRecovered = await recoverBudgetBlockedWork(tx, now);
     const runtimeControl = await tx.companyOsRuntimeControl.findUniqueOrThrow({ where: { id: 'primary' } });
@@ -1684,13 +1860,19 @@ export async function reconcileCompanyOsRuntime(workerId: string) {
       summary: `${modelFailuresRecovered} fallos de salida del modelo volvieron a la cola con intentos restantes`,
       detail: { recovered: modelFailuresRecovered, reconciledBy: workerId },
     });
+    if (contractFailuresRecovered > 0) detected.push({
+      dedupeKey: `runtime-contract-auto-recovered:${now.toISOString().slice(0, 13)}`,
+      type: 'RUNTIME_CONTRACT_AUTO_RECOVERED', severity: 'WARNING',
+      summary: `${contractFailuresRecovered} trabajos recuperaron sus intentos tras corregir el contrato runtime`,
+      detail: { recovered: contractFailuresRecovered, contractVersion: '3.1.4', reconciledBy: workerId },
+    });
     for (const incident of detected) await upsertIncident(tx, incident, now);
     const activeKeys = detected.map((item) => item.dedupeKey);
     await tx.companyOsIncident.updateMany({
       where: { status: { in: ['OPEN', 'ACKNOWLEDGED'] }, ...(activeKeys.length ? { dedupeKey: { notIn: activeKeys } } : {}) },
       data: { status: 'RESOLVED', lastSeenAt: now },
     });
-    return { reconciledAt: now.toISOString(), expiredLeases, modelFailuresRecovered, budgetRecovered, budgetReconsidered, incidentsOpen: detected.length };
+    return { reconciledAt: now.toISOString(), expiredLeases, contractFailuresRecovered, modelFailuresRecovered, budgetRecovered, budgetReconsidered, incidentsOpen: detected.length };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
