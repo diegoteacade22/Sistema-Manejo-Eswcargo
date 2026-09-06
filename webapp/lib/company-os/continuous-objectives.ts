@@ -307,6 +307,28 @@ async function latestExternalObservation(tx: Tx, sourceId: ContinuousObjectiveEx
   return observed;
 }
 
+async function observableExternalSourceIds(
+  tx: Tx,
+  sourceIds: readonly ContinuousObjectiveExternalSourceId[],
+  now: Date,
+) {
+  const uniqueSourceIds = [...new Set(sourceIds)];
+  if (uniqueSourceIds.length === 0) return [];
+  const dependencyKeys = uniqueSourceIds.map((sourceId) => `external-${sourceId.toLowerCase().replaceAll('_', '-')}`);
+  const rows = await tx.$queryRaw<Array<{ dependencyKey: string; status: string; detail: string | null; observedAt: Date }>>(Prisma.sql`
+    SELECT DISTINCT ON ("dependencyKey") "dependencyKey",status,detail,"observedAt"
+    FROM public."CompanyOsDependencyObservation"
+    WHERE "dependencyKey" IN (${Prisma.join(dependencyKeys)})
+    ORDER BY "dependencyKey","observedAt" DESC,"createdAt" DESC,id DESC
+  `);
+  const latestByKey = new Map(rows.map((row) => [row.dependencyKey, row]));
+  return uniqueSourceIds.filter((sourceId) => isFreshExternalSnapshot(
+    sourceId,
+    latestByKey.get(`external-${sourceId.toLowerCase().replaceAll('_', '-')}`),
+    now,
+  ));
+}
+
 export function isFreshExternalSnapshot(sourceId: ContinuousObjectiveExternalSourceId, observed: {
   status: string; detail: string | null; observedAt: Date | string;
 } | null | undefined, now: Date) {
@@ -393,6 +415,7 @@ export async function planContinuousObjectiveUnits(input: {
       let plannedForGoal = 0;
       let externalPlannedForGoal = 0;
       let blockedExternalForGoal = 0;
+      const observableExternalSources = await observableExternalSourceIds(tx, goal.externalSources, now);
       if (new Date(goal.nextScanAt) <= now && scannedObjectives < limit) {
         const candidates = await sourceCandidates(tx, goal);
         const uniqueCandidates = deduplicateObjectiveSources(candidates);
@@ -414,8 +437,7 @@ export async function planContinuousObjectiveUnits(input: {
         }
         const complete = candidates.length < SCAN_PAGE_SIZE;
         if (complete) for (const sourceId of goal.externalSources) {
-          const observation = await latestExternalObservation(tx, sourceId, now);
-          if (!observation) {
+          if (!observableExternalSources.includes(sourceId)) {
             const inserted = await insertBlockedExternalUnit(tx, goal, sourceId);
             planned += inserted;
             plannedForGoal += inserted;
@@ -470,8 +492,17 @@ export async function planContinuousObjectiveUnits(input: {
           reconciliationStatus = 'QUIESCENT'; generationReason = 'NO_ELIGIBLE_SOURCE';
         }
       }
+      const externalUnitIsObservable = observableExternalSources.length > 0
+        ? Prisma.sql`unit.source->>'externalSourceId' IN (${Prisma.join(observableExternalSources)}) AND EXISTS (
+            SELECT 1 FROM public."CompanyOsExternalSourceItem" observable
+            WHERE observable."sourceId"=unit.source->>'externalSourceId'
+              AND observable."itemKey"=unit.source->>'itemKey'
+              AND observable."lastObservedAt">=${new Date(now.getTime() - 30 * 60_000)}
+          )`
+        : Prisma.sql`false`;
       const candidates = await tx.$queryRaw<UnitRow[]>(Prisma.sql`
         SELECT * FROM public."CompanyOsObjectiveUnit" unit WHERE "goalId"=${goal.id} AND status='PLANNED'
+        AND (unit.source->>'kind' IS DISTINCT FROM 'EXTERNAL_ITEM_METADATA' OR (${externalUnitIsObservable}))
         AND NOT EXISTS (SELECT 1 FROM public."CompanyOsObjectiveUnit" active LEFT JOIN public."CompanyOsCase" c ON c.id=active."caseId"
           WHERE active."goalId"=${goal.id} AND (active.status='QUEUED'
             OR c.status NOT IN (${Prisma.join(OBJECTIVE_SETTLED_CASE_STATUSES)})

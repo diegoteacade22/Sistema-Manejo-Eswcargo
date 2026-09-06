@@ -169,6 +169,32 @@ test('BLOCKED sin trabajo pendiente libera siguiente unidad; presupuesto diferid
   assert.equal(service.match(/c.status NOT IN \(\$\{Prisma.join\(OBJECTIVE_SETTLED_CASE_STATUSES\)\}\)/g)?.length, 2);
 });
 
+test('una revisión externa no observable no bloquea las revisiones frescas que siguen en la cola', async () => {
+  const futureGoal = { ...goal, externalSources: ['GOOGLE_DRIVE'] as const, nextScanAt: new Date(now.getTime() + 15 * 60_000) };
+  const detail = 'read_only=true;items_schema=v1;items_count=1;snapshot_id=snapshot:' + 'a'.repeat(32)
+    + ';evidence_hash=' + 'b'.repeat(64) + ';complete=false;authority_mode=GOOGLE_SERVICE_ACCOUNT_READONLY;cursor_hash=' + 'c'.repeat(64);
+  const planned = planExternalSourceItem({ id: 'external-row', sourceId: 'GOOGLE_DRIVE', itemKey: 'd'.repeat(64),
+    revisionFingerprint: 'e'.repeat(64), itemKind: 'FILE_METADATA', changeKind: 'UPDATED', sourceUpdatedAt: observedIso() }, goal.endsAt);
+  const externalUnit = { ...unit, ...planned };
+  for (const [status, selected] of [['UNAVAILABLE', []], ['HEALTHY', [externalUnit]]] as const) {
+    await withFakeDb([[futureGoal], [], [{ dependencyKey: 'external-google-drive', status, detail, observedAt: new Date(observedIso()) }], selected], async (calls) => {
+      const result = await planContinuousObjectiveUnits({ now });
+      const sourceGate = calls.find((sql) => sql.includes('DISTINCT ON ("dependencyKey")')) ?? '';
+      const selection = calls.find((sql) => sql.includes("status='PLANNED'") && sql.includes("unit.source->>'kind'")) ?? '';
+      assert.match(sourceGate, /ORDER BY "dependencyKey","observedAt" DESC,"createdAt" DESC,id DESC/);
+      assert.match(selection, /unit\.source->>'kind' IS DISTINCT FROM 'EXTERNAL_ITEM_METADATA'/);
+      if (status === 'HEALTHY') {
+        assert.match(selection, /observable\."sourceId"=unit\.source->>'externalSourceId'/);
+        assert.match(selection, /observable\."itemKey"=unit\.source->>'itemKey'/);
+        assert.match(selection, /observable\."lastObservedAt">=/);
+      } else {
+        assert.doesNotMatch(selection, /CompanyOsExternalSourceItem/);
+      }
+      assert.equal(result.pendingUnits.length, selected.length);
+    });
+  }
+});
+
 // A narrow transaction double verifies callback boundaries; SQL locks/constraints are also checked below.
 const goal = { id: 'goal-123456', version: 1, controlRevision: 0, ...input, status: 'ACTIVE', startsAt: now, endsAt: new Date('2026-10-03T04:00:00Z'),
   scanIntervalMinutes: 15, nextScanAt: now, createdBy: 'actor:test', createdAt: now, updatedAt: now,
