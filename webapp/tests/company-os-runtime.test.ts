@@ -149,12 +149,11 @@ test('una revisión de contrato devuelve una sola vez los intentos consumidos an
   assert.match(store, /execution\."finishedAt" IS NULL/);
   assert.match(store, /event\."eventType"='WORK_RUNTIME_CONTRACT_AUTO_RECOVERED'/);
   assert.match(store, /company-os-runtime-contract-recovery:3\.1\.3:3\.1\.4/);
-  assert.match(store, /pending\.status IN \('QUEUED','CLAIMED','RUNNING','FAILED_RETRYABLE'\)/);
-  assert.match(store, /recovered_case\."caseType" <> 'CONTINUOUS_OBJECTIVE'/);
   assert.match(store, /objective\.status <> 'ACTIVE'/);
-  assert.match(store, /if \(recoveryState\?\.inFlight\) return 0/);
+  assert.doesNotMatch(store, /if \(recoveryState\?\.inFlight\) return 0/);
+  assert.match(store, /regular claim path still serializes the/);
   assert.match(store, /ORDER BY family_service\."lastCompletedAt" ASC NULLS FIRST,work\."updatedAt",work\.id/);
-  assert.match(store, /FOR UPDATE OF work SKIP LOCKED LIMIT 1/);
+  assert.match(store, /FOR UPDATE OF work SKIP LOCKED LIMIT 25/);
 });
 
 test('usage local conserva provider Ollama y el servidor asigna costo cero', () => {

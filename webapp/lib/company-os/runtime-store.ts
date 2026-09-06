@@ -1538,31 +1538,9 @@ async function recoverExhaustedGeneralManagerContract313Failures(tx: Tx, now: Da
   });
   if (!failedContract || failedContract.createdAt >= installedContract.createdAt) return 0;
 
-  // Recover one complete case chain at a time. A recovered manager result can
-  // enqueue a specialist and a manager return, so opening the next incident
-  // before that chain settles would let the repair cohort consume the budget.
-  const [recoveryState] = await tx.$queryRaw<Array<{ inFlight: boolean }>>(Prisma.sql`
-    SELECT EXISTS (
-      SELECT 1
-      FROM public."CompanyOsCaseEvent" recovery
-      JOIN public."CompanyOsWorkItem" pending ON pending."caseId"=recovery."caseId"
-      JOIN public."CompanyOsCase" recovered_case ON recovered_case.id=recovery."caseId"
-      WHERE recovery."eventType"='WORK_RUNTIME_CONTRACT_AUTO_RECOVERED'
-        AND pending.status IN ('QUEUED','CLAIMED','RUNNING','FAILED_RETRYABLE')
-        AND (recovered_case."caseType" <> 'CONTINUOUS_OBJECTIVE' OR EXISTS (
-          SELECT 1 FROM public."CompanyOsObjectiveUnit" linked WHERE linked."caseId"=recovered_case.id
-        ))
-        AND NOT EXISTS (
-          SELECT 1 FROM public."CompanyOsObjectiveUnit" unit
-          JOIN public."CompanyOsContinuousObjective" objective ON objective.id=unit."goalId"
-          WHERE unit."caseId"=recovered_case.id
-            AND (objective.status <> 'ACTIVE' OR objective."startsAt" > clock_timestamp()
-              OR objective."endsAt" <= clock_timestamp())
-        )
-    ) AS "inFlight"
-  `);
-  if (recoveryState?.inFlight) return 0;
-
+  // Reclassify the exact broken-contract cohort in one bounded batch. This is
+  // administrative recovery only: the regular claim path still serializes the
+  // agent, reserves tokens and defers every execution that exceeds budget.
   const failures = await tx.$queryRaw<Array<{
     workItemId: string;
     caseId: string;
@@ -1631,7 +1609,7 @@ async function recoverExhaustedGeneralManagerContract313Failures(tx: Tx, now: Da
           AND event.payload->>'workItemId'=work.id
       )
     ORDER BY family_service."lastCompletedAt" ASC NULLS FIRST,work."updatedAt",work.id
-    FOR UPDATE OF work SKIP LOCKED LIMIT 1
+    FOR UPDATE OF work SKIP LOCKED LIMIT 25
   `);
   let recovered = 0;
   for (const failure of failures) {
