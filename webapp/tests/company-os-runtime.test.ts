@@ -345,7 +345,7 @@ test('delegación y retorno auténticos adelantan un punto, pero no dos', () => 
   assert.equal(runtimeQueuePolicyKey({ ...delegation, priority: 48 }, input)[0], 1);
 });
 
-test('continuación pendiente, falsificada, cruzada o reintentada no recibe preferencia', () => {
+test('continuación pendiente, falsificada o cruzada no recibe preferencia; su retry auténtico sí', () => {
   const authentic = queueCandidate({
     agentId: 'systems-manager-ai-v1', priority: 49,
     causalKind: 'ORDER', causalMessageType: 'DELEGATION', causalFromAgentId: 'general-manager-ai-v3',
@@ -355,7 +355,13 @@ test('continuación pendiente, falsificada, cruzada o reintentada no recibe pref
   assert.equal(isAuthenticatedRuntimeContinuation({ ...authentic, causalDeliveryStatus: 'PENDING' }), false);
   assert.equal(isAuthenticatedRuntimeContinuation({ ...authentic, causalFromAgentId: 'data-manager-ai-v1' }), false);
   assert.equal(isAuthenticatedRuntimeContinuation({ ...authentic, causalCaseId: 'case-other' }), false);
-  assert.equal(isAuthenticatedRuntimeContinuation({ ...authentic, attemptCount: 1 }), false);
+  assert.equal(isAuthenticatedRuntimeContinuation({ ...authentic, attemptCount: 1 }), true);
+  const freshRoot = queueCandidate({ workItemId: 'fresh-root', priority: 50 });
+  assert.ok(compareRuntimeQueuePolicy(
+    { ...authentic, attemptCount: 1, nextAttemptAt: new Date('2026-09-06T04:00:00Z') },
+    freshRoot,
+    { now: new Date('2026-09-06T04:00:01Z'), maxEligiblePriority: 50 },
+  ) < 0);
 });
 
 test('familia sin servicio obtiene un turno antes de familias ya atendidas', () => {

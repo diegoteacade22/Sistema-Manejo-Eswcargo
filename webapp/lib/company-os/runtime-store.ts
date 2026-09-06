@@ -433,10 +433,9 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
         LIMIT 1
       ) contract ON true
       WHERE (${workItemId}::text IS NULL OR work.id = ${workItemId})
-      -- Finish only authentic first-attempt handoffs, and never jump more than the
-      -- single priority point assigned by the runtime itself.
-      ORDER BY CASE WHEN work."attemptCount" = 0
-          AND causal."caseId" = work."caseId"
+      -- Finish authentic handoffs, including bounded retries after their backoff,
+      -- and never jump more than the single priority point assigned by the runtime.
+      ORDER BY CASE WHEN causal."caseId" = work."caseId"
           AND causal."deliveryStatus" = 'DELIVERED'
           AND causal."correlationId" = company_case."requestId"
           AND causal."expectsResponse" = true

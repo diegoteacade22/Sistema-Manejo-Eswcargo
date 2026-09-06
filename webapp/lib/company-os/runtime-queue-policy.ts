@@ -35,8 +35,7 @@ function eligibleAt(candidate: RuntimeQueuePolicyCandidate) {
 }
 
 function hasAuthenticCausalEnvelope(candidate: RuntimeQueuePolicyCandidate) {
-  return candidate.attemptCount === 0
-    && candidate.causalCaseId === candidate.caseId
+  return candidate.causalCaseId === candidate.caseId
     && candidate.causalDeliveryStatus === 'DELIVERED'
     && candidate.causalCorrelationId === candidate.requestId
     && candidate.causalExpectsResponse === true
