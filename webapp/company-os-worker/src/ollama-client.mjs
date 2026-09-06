@@ -1,13 +1,41 @@
 import {
   advisoryRequestBody,
   advisoryRulesForClaim,
+  dataAdvisoryOutputSchemaFor,
   validateAdvisoryOutput,
   validateRuntimeContractOutput,
   validateSystemsAdvisoryOutput,
+  validateDataAdvisoryOutput,
 } from './openai-client.mjs';
+import { requiresLocalInference } from './data-policy.mjs';
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', '[::1]']);
 const DEFAULT_FALLBACK_RESERVE_MS = 30_000;
+const CONCISE_LOCAL_OUTPUT_RULE = ' Respond in Spanish with one complete compact JSON object. Keep explanatory fields to one short sentence and titles brief. Cover every material finding once; avoid repeating evidence or facts across fields. Summarize healthy coverage; never reproduce the source inventory or create a finding for every healthy source. Preserve all required fields, confidence rules and material findings; never invent facts to fill the schema.';
+
+export function localDecodingSchema(schema, evidencePayload) {
+  const copy = structuredClone(schema);
+  const evidenceCount = Object.keys(evidencePayload ?? {}).length;
+  function narrow(node, key = '') {
+    if (!node || typeof node !== 'object') return;
+    if (node.type === 'string' && !node.enum && node.const === undefined) {
+      const preferred = key === 'title' ? 120 : /Id$/.test(key) ? 80 : 240;
+      const limit = Math.max(node.minLength ?? 0, preferred);
+      node.maxLength = Math.min(node.maxLength ?? limit, limit);
+    }
+    if (node.type === 'array') {
+      const preferred = key === 'evidenceRefs' ? evidenceCount : key === 'missions' ? 10 : null;
+      if (preferred !== null) {
+        const limit = Math.max(node.minItems ?? 0, preferred);
+        node.maxItems = Math.min(node.maxItems ?? limit, limit);
+      }
+      narrow(node.items, key);
+    }
+    for (const [childKey, child] of Object.entries(node.properties ?? {})) narrow(child, childKey);
+  }
+  narrow(copy);
+  return copy;
+}
 
 export class OllamaWorkerError extends Error {
   constructor(message, { retryable = false, code = 'OLLAMA_ERROR', status = null } = {}) {
@@ -86,16 +114,51 @@ export class OllamaAdvisoryClient {
   }
 
   requestBody(claim) {
+    if (claim.agentId === 'data-manager-ai-v1') {
+      const runtimePolicy = claim.contract?.lowConfidencePolicy?.minConfidence
+        ? ` Follow the signed runtime output contract exactly. Set needsHumanDecision=true whenever confidence is below ${claim.contract.lowConfidencePolicy.minConfidence}.`
+        : '';
+      return {
+        model: this.model,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are Gerente de Datos AI (data-manager-ai-v1), reporting to general-manager-ai-v3 inside Company OS. Analyze only the supplied closed business snapshot. Identify data quality, freshness, consistency, and coverage findings with evidence references. Review every quality metric: each nonzero duplicate, missing-value or inconsistent-record count and each material freshness gap needs a finding; a higher-priority issue does not erase the others. Never execute, claim execution, change, delete, import, or expose business data. Every mission must remain PLANNED.' + runtimePolicy + CONCISE_LOCAL_OUTPUT_RULE,
+          },
+          {
+            role: 'user',
+            content: JSON.stringify({
+              caseId: claim.caseId,
+              agentId: claim.agentId,
+              objective: claim.objective,
+              evidencePayload: claim.evidencePayload,
+              contextMessages: claim.contextMessages || [],
+            }),
+          },
+        ],
+        stream: false,
+        think: false,
+        format: localDecodingSchema(dataAdvisoryOutputSchemaFor(claim.evidencePayload), claim.evidencePayload),
+        options: {
+          temperature: 0,
+          num_predict: claim.budgets?.maxOutputTokens || 3000,
+        },
+      };
+    }
     const advisory = advisoryRequestBody(claim, {
       model: this.model,
       requireClaimOutputSchema: this.requireClaimOutputSchema,
     });
     return {
       model: this.model,
-      messages: advisory.input,
+      messages: requiresLocalInference(claim)
+        ? [...advisory.input, { role: 'system', content: CONCISE_LOCAL_OUTPUT_RULE }]
+        : advisory.input,
       stream: false,
       think: false,
-      format: advisory.text.format.schema,
+      format: requiresLocalInference(claim)
+        ? localDecodingSchema(advisory.text.format.schema, claim.evidencePayload)
+        : advisory.text.format.schema,
       options: {
         temperature: 0,
         num_predict: advisory.max_output_tokens,
@@ -163,7 +226,8 @@ export class OllamaAdvisoryClient {
         rules_applied: [
           ...advisoryRulesForClaim(claim, this.requireClaimOutputSchema),
           'local-loopback-inference',
-          'openai-retryable-fallback-only',
+          claim.dataPolicy?.reason === 'CONTINUOUS_OBJECTIVE' ? 'continuous-objective-local-only'
+            : requiresLocalInference(claim) ? 'data-manager-lineage-local-only' : 'openai-retryable-fallback-only',
         ],
       };
       const parsed = parseOllamaOutput(raw);
@@ -173,6 +237,8 @@ export class OllamaAdvisoryClient {
           ? validateRuntimeContractOutput(claim, parsed)
           : claim.agentId === 'systems-manager-ai-v1'
             ? validateSystemsAdvisoryOutput(parsed)
+            : claim.agentId === 'data-manager-ai-v1'
+              ? validateDataAdvisoryOutput(parsed)
             : validateAdvisoryOutput(parsed);
       } catch (error) {
         const validationError = new OllamaWorkerError('Ollama output violated the signed runtime contract', {

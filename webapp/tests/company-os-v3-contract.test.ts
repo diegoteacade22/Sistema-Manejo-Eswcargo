@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { signCompanyOsWorkerPayload, verifyCompanyOsWorkerRequest } from '../lib/company-os/v3-auth';
 import { estimateCompanyOsCost, startOfCompanyOsDay } from '../lib/company-os/v3-store';
-import { buildSystemsSnapshot, deterministicRiskScore } from '../lib/company-os/systems-snapshot';
+import { buildSystemsSnapshot, deterministicRiskScore, SYSTEMS_DEPENDENCY_TYPES } from '../lib/company-os/systems-snapshot';
+import { deriveSystemsRuntimeObservation, type SystemsRuntimeWorkerRow } from '../lib/company-os/systems-runtime-observation';
 import {
   COMPANY_OS_MISSION_STATUSES,
   COMPANY_OS_REQUEST_STATUSES,
@@ -164,22 +165,49 @@ test('store selecciona agente persistido, materializa snapshot y no tiene DML em
   assert.doesNotMatch(source, /(?:INSERT INTO|UPDATE|DELETE FROM)\s+public\."?(?:Order|Product|Shipment|Purchase|Expense)/i);
 });
 
-test('inventario declara Hostinger y DiegoServer activos, AWS archivado y Qwen local sin materializar secretos', async () => {
+test('inventario separa runtime DiegoServer y referencia Hostinger, AWS archivado y Qwen local sin secretos', async () => {
   const source = readFileSync('lib/company-os/systems-snapshot.ts', 'utf8');
   assert.match(source, /assetId:'aws-archive'[\s\S]*lifecycleStatus:'ARCHIVED'/);
-  assert.match(source, /assetId:'company-os-worker'[\s\S]*provider:'Hostinger'[\s\S]*lifecycleStatus:'ACTIVE'/);
+  assert.match(source, /assetId:'company-os-worker'[\s\S]*provider:runtimeHost/);
+  assert.match(source, /assetId:'openclaw-hostinger-legacy'[\s\S]*provider:'Hostinger'/);
   assert.match(source, /assetId:'diegoserver-node'[\s\S]*lifecycleStatus:'ACTIVE'/);
-  assert.match(source, /assetId:'ollama-qwen-local'[\s\S]*runtime:'qwen3:14b-q4_K_M'/);
+  assert.match(source, /assetId:'ollama-qwen-local'[\s\S]*runtime:'qwen3:4b-q4_K_M \(Data y retornos locales\); qwen3:14b-q4_K_M \(fallback\)'/);
   assert.match(source, /valueIncluded:false/);
   assert.doesNotMatch(source, /process\.env\.COMPANY_OS_V3_HMAC_SECRET\s*[),]/);
   const priorWorkerUrl = process.env.COMPANY_OS_V3_WORKER_URL;
   delete process.env.COMPANY_OS_V3_WORKER_URL;
-  const snapshot = await buildSystemsSnapshot();
+  const snapshot = await buildSystemsSnapshot({ loadRuntimeWorkers: async () => ({ observed:true, workers:[] }) });
   if (priorWorkerUrl === undefined) delete process.env.COMPANY_OS_V3_WORKER_URL;
   else process.env.COMPANY_OS_V3_WORKER_URL = priorWorkerUrl;
   assert.deepEqual(snapshot.lifecycle, { aws: 'ARCHIVED', diegoServer: 'ACTIVE', macMini: 'ACTIVE' });
   assert.equal(snapshot.assets.find((asset) => asset.assetId === 'diegoserver-node')?.lifecycleStatus, 'ACTIVE');
   assert.equal(snapshot.assets.find((asset) => asset.assetId === 'aws-archive')?.lifecycleStatus, 'ARCHIVED');
+});
+
+test('dependencias del inventario respetan el CHECK persistido e incluyen Qwen local como MODEL_API', async () => {
+  const sql = readFileSync('../supabase/migrations/20260816175940_systems_manager_ai_v1.sql', 'utf8');
+  const checkValues = sql.match(/"dependencyType" text NOT NULL CHECK \("dependencyType" IN \(([\s\S]*?)\)\)/)?.[1];
+  assert.ok(checkValues, 'No se encontró el CHECK canónico de dependencyType');
+  const allowedTypes = Array.from(checkValues.matchAll(/'([^']+)'/g), (match) => match[1]);
+  assert.deepEqual([...SYSTEMS_DEPENDENCY_TYPES], allowedTypes);
+  assert.equal(allowedTypes.includes('LOCAL_MODEL_API'), false);
+  const priorWorkerUrl = process.env.COMPANY_OS_V3_WORKER_URL;
+  delete process.env.COMPANY_OS_V3_WORKER_URL;
+  try {
+    const snapshot = await buildSystemsSnapshot({ loadRuntimeWorkers: async () => ({ observed:true, workers:[] }) });
+    for (const dependency of snapshot.dependencies) {
+      assert.ok(allowedTypes.includes(dependency.dependencyType), `${dependency.dependencyId} viola el CHECK de PostgreSQL`);
+      assert.ok(snapshot.assets.some((asset) => asset.assetId === dependency.sourceAssetId));
+      assert.ok(snapshot.assets.some((asset) => asset.assetId === dependency.targetAssetId));
+    }
+    const localModel = snapshot.dependencies.find((dependency) => dependency.dependencyId === 'dep-worker-qwen');
+    assert.equal(localModel?.dependencyType, 'MODEL_API');
+    assert.equal(localModel?.sourceAssetId, 'diegoserver-node');
+    assert.equal(localModel?.targetAssetId, 'ollama-qwen-local');
+  } finally {
+    if (priorWorkerUrl === undefined) delete process.env.COMPANY_OS_V3_WORKER_URL;
+    else process.env.COMPANY_OS_V3_WORKER_URL = priorWorkerUrl;
+  }
 });
 
 test('score técnico es determinístico y responde a todos los factores requeridos', () => {
@@ -188,4 +216,55 @@ test('score técnico es determinístico y responde a todos los factores requerid
   assert.equal(score, deterministicRiskScore(base));
   assert.ok(score >= 75 && score <= 100);
   assert.ok(deterministicRiskScore({ ...base, fallbackCoverage: 1, impact: .2 }) < score);
+});
+
+const runtimeNow = new Date('2026-09-03T01:00:00Z');
+const observedWorker: SystemsRuntimeWorkerRow = {
+  workerId:'diegoserver-company-os', host:'DiegoServer.local', state:'BUSY', version:'1.1.0',
+  allowedAgentIds:['general-manager-ai-v3','systems-manager-ai-v1','data-manager-ai-v1'],
+  lastHeartbeatAt:'2026-09-03T00:59:50Z', lastErrorCode:null,
+};
+
+test('heartbeat fresco materializa DiegoServer, tres gerentes y host de recuperación sin consultar LAN', async () => {
+  const observation = deriveSystemsRuntimeObservation({ observed:true, workers:[observedWorker] }, runtimeNow);
+  assert.equal(observation.healthStatus, 'HEALTHY');
+  assert.equal(observation.host, 'DiegoServer.local');
+  assert.equal(observation.allowedAgentIds.length, 3);
+  assert.equal(observation.observationMode, 'LIVE_OBSERVED');
+  const snapshot = await buildSystemsSnapshot({ now:runtimeNow, loadRuntimeWorkers:async()=>({observed:true,workers:[observedWorker]}) });
+  const worker = snapshot.assets.find((asset)=>asset.assetId==='company-os-worker');
+  const recovery = snapshot.assets.find((asset)=>asset.assetId==='company-os-recovery');
+  assert.equal(worker?.provider,'DiegoServer.local');
+  assert.equal(worker?.maxSourceUpdatedAt,'2026-09-03T00:59:50.000Z');
+  assert.equal(recovery?.provider,'DiegoServer.local');
+  assert.equal(recovery?.healthStatus,'UNOBSERVED');
+  assert.equal(snapshot.assets.find((asset)=>asset.assetId==='openclaw-hostinger-legacy')?.healthStatus,'UNOBSERVED');
+  assert.match(snapshot.risks[0].description,/DiegoServer.local/);
+  assert.doesNotMatch(snapshot.risks[0].description,/runtime Hostinger/);
+});
+
+test('heartbeat vencido no afirma OFFLINE ni salud y conserva fecha real de la observación', () => {
+  const result = deriveSystemsRuntimeObservation({observed:true,workers:[{...observedWorker,lastHeartbeatAt:'2026-09-03T00:50:00Z'}]},runtimeNow);
+  assert.equal(result.healthStatus,'UNKNOWN');
+  assert.equal(result.observationMode,'UNOBSERVED');
+  assert.equal(result.freshnessStatus,'STALE');
+  assert.equal(result.heartbeatAt,'2026-09-03T00:50:00.000Z');
+  assert.equal(result.observedHostCount,0);
+});
+
+test('worker ausente o lectura DB fallida se representa UNOBSERVED', () => {
+  for (const observed of [true,false]) {
+    const result=deriveSystemsRuntimeObservation({observed,workers:[]},runtimeNow);
+    assert.equal(result.healthStatus,'UNOBSERVED');
+    assert.equal(result.host,null);
+    assert.equal(result.heartbeatAt,null);
+  }
+});
+
+test('heartbeat fresco con allowlist incompleta o error conserva degradación explícita', () => {
+  const incomplete=deriveSystemsRuntimeObservation({observed:true,workers:[{...observedWorker,allowedAgentIds:['systems-manager-ai-v1']}]},runtimeNow);
+  assert.equal(incomplete.healthStatus,'DEGRADED');
+  assert.equal(incomplete.missingAgentIds.length,2);
+  const failed=deriveSystemsRuntimeObservation({observed:true,workers:[{...observedWorker,state:'DEGRADED',lastErrorCode:'MODEL_ERROR'}]},runtimeNow);
+  assert.equal(failed.healthStatus,'DEGRADED');
 });

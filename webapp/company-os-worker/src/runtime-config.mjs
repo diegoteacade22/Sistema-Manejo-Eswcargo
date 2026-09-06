@@ -7,6 +7,14 @@ export const COMPANY_OS_RUNTIME_CONTRACT_VERSION = 'runtime-v1';
 export const COMPANY_OS_RUNTIME_VERSION = COMPANY_OS_RUNTIME_BINARY_VERSION;
 export const DEFAULT_RUNTIME_API_BASE_URL = 'https://webapp-weld-psi.vercel.app';
 export const DEFAULT_RUNTIME_ALLOWED_HOSTS = ['webapp-weld-psi.vercel.app', 'app.eswcargo.com'];
+export const DEFAULT_LOCAL_LINEAGE_MODEL = 'qwen3:4b-q4_K_M';
+
+export function validateLocalLineageModel(value) {
+  if (value !== DEFAULT_LOCAL_LINEAGE_MODEL) {
+    throw new Error('COMPANY_OS_RUNTIME_LOCAL_LINEAGE_MODEL must be the allowlisted local model qwen3:4b-q4_K_M');
+  }
+  return value;
+}
 
 function required(name, env) {
   const value = env[name]?.trim();
@@ -94,13 +102,14 @@ export function loadRuntimeConfig(env = process.env) {
     ollamaFallbackEnabled: booleanValue(env.COMPANY_OS_RUNTIME_OLLAMA_FALLBACK_ENABLED, true, 'COMPANY_OS_RUNTIME_OLLAMA_FALLBACK_ENABLED'),
     ollamaBaseUrl: validateOllamaBaseUrl(env.COMPANY_OS_RUNTIME_OLLAMA_BASE_URL?.trim() || 'http://127.0.0.1:11434'),
     ollamaModel: modelIdentifier(env.COMPANY_OS_RUNTIME_OLLAMA_MODEL?.trim() || 'qwen3:14b-q4_K_M', 'COMPANY_OS_RUNTIME_OLLAMA_MODEL'),
+    localLineageModel: validateLocalLineageModel(env.COMPANY_OS_RUNTIME_LOCAL_LINEAGE_MODEL?.trim() || DEFAULT_LOCAL_LINEAGE_MODEL),
     ollamaTimeoutMs: integerInRange(env.COMPANY_OS_RUNTIME_OLLAMA_TIMEOUT_MS, 120_000, 'COMPANY_OS_RUNTIME_OLLAMA_TIMEOUT_MS', 5_000, 600_000),
     stateDir,
     logDir: env.COMPANY_OS_RUNTIME_LOG_DIR?.trim() || join(stateDir, 'logs'),
     logMaxBytes: integerInRange(env.COMPANY_OS_RUNTIME_LOG_MAX_BYTES, 5_242_880, 'COMPANY_OS_RUNTIME_LOG_MAX_BYTES', 1_024, 104_857_600),
     logMaxFiles: integerInRange(env.COMPANY_OS_RUNTIME_LOG_MAX_FILES, 5, 'COMPANY_OS_RUNTIME_LOG_MAX_FILES', 1, 20),
     consoleLogEnabled: booleanValue(env.COMPANY_OS_RUNTIME_CONSOLE_LOG_ENABLED, true, 'COMPANY_OS_RUNTIME_CONSOLE_LOG_ENABLED'),
-    allowedAgentIds: (env.COMPANY_OS_RUNTIME_ALLOWED_AGENT_IDS || 'general-manager-ai-v3,systems-manager-ai-v1')
+    allowedAgentIds: (env.COMPANY_OS_RUNTIME_ALLOWED_AGENT_IDS || 'general-manager-ai-v3,systems-manager-ai-v1,data-manager-ai-v1')
       .split(',').map((value) => identifier(value.trim(), 'COMPANY_OS_RUNTIME_ALLOWED_AGENT_IDS')).filter(Boolean),
     externalNotificationsEnabled,
     telegramTarget: null,

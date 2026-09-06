@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { normalizeRuntimeUsage } from '../app/api/company-os/runtime/v1/_request';
-import { estimateRuntimeCost, normalizeUsageForPersistence } from '../lib/company-os/runtime-store';
+import { estimateRuntimeCost, normalizeUsageForPersistence, validateRuntimeControlIdempotencyKey } from '../lib/company-os/runtime-store';
+import { sanitizeCompanyText } from '../lib/company-os/objective';
+import { deriveRuntimeAgentState, type RuntimeAgentStateWork } from '../lib/company-os/runtime-agent-status';
 import {
   signCompanyOsEngineeringPayload,
   signCompanyOsRuntimePayload,
@@ -180,4 +182,74 @@ test('estado desconocido no se infiere como offline', () => {
   assert.match(store, /\? 'UNKNOWN' : worker\.state/);
   assert.doesNotMatch(store, /'OFFLINE'/);
   assert.match(controlCenter, /UNOBSERVED/);
+});
+
+test('control acepta exactamente la clave UI aunque el UUID contenga segmentos numéricos largos', () => {
+  const key = 'ui:12345678-1234-4123-8123-123456789012';
+  // This is the production regression: text redaction invalidated a legal UUID.
+  assert.match(sanitizeCompanyText(key, 160).safeText, /NUMBER_REDACTED/);
+  assert.equal(validateRuntimeControlIdempotencyKey(key), key);
+  assert.equal(validateRuntimeControlIdempotencyKey(`  ${key}  `), key);
+});
+
+test('control rechaza claves inválidas o demasiado largas sin truncarlas a otra identidad', () => {
+  for (const key of ['ui:123', 'ui:valid/key', 'ui:valid key', `ui:${'a'.repeat(158)}`]) {
+    assert.throws(() => validateRuntimeControlIdempotencyKey(key), /idempotencyKey inválido/);
+  }
+  const limitKey = `ui:${'a'.repeat(157)}`;
+  assert.equal(validateRuntimeControlIdempotencyKey(limitKey), limitKey);
+});
+
+const statusNow = new Date('2026-09-02T12:10:00Z');
+const agentStatusFixture = {
+  agentId: 'systems-manager-ai-v1', installed: true, paused: false,
+  now: statusNow, staleMs: 150_000,
+  workers: [{ workerId: 'worker-24x7', state: 'IDLE', allowedAgentIds: ['systems-manager-ai-v1'], lastHeartbeatAt: new Date('2026-09-02T12:09:55Z') }],
+};
+const historicalBlocked: RuntimeAgentStateWork = {
+  agentId: 'systems-manager-ai-v1', status: 'BLOCKED', requestId: 'historical-budget-failure',
+  updatedAt: new Date('2026-08-28T12:00:36Z'), completedAt: null, leaseWorkerId: null, leaseExpiresAt: null,
+};
+const laterCompleted: RuntimeAgentStateWork = {
+  ...historicalBlocked, status: 'COMPLETED', requestId: 'later-success',
+  updatedAt: new Date('2026-09-02T12:01:19Z'), completedAt: new Date('2026-09-02T12:01:19Z'),
+};
+
+test('worker habilitado y éxito posterior muestran IDLE sin alterar el fallo histórico', () => {
+  const workItems = [historicalBlocked, laterCompleted];
+  assert.deepEqual(deriveRuntimeAgentState({ ...agentStatusFixture, workItems }), { status: 'IDLE', currentCaseId: null });
+  assert.equal(workItems[0].status, 'BLOCKED');
+  assert.equal(workItems.length, 2);
+  const recentFailure = { ...historicalBlocked, updatedAt: new Date('2026-09-02T12:02:00Z') };
+  assert.equal(deriveRuntimeAgentState({ ...agentStatusFixture, workItems: [laterCompleted, recentFailure] }).status, 'BLOCKED');
+});
+
+test('heartbeat de otro agente o vencido no prueba disponibilidad del especialista', () => {
+  const input = { ...agentStatusFixture, workItems: [historicalBlocked, laterCompleted] };
+  assert.equal(deriveRuntimeAgentState({ ...input, workers: [{ ...input.workers[0], allowedAgentIds: ['general-manager-ai-v3'] }] }).status, 'UNKNOWN');
+  assert.equal(deriveRuntimeAgentState({ ...input, workers: [{ ...input.workers[0], allowedAgentIds: [] }] }).status, 'UNKNOWN');
+  assert.equal(deriveRuntimeAgentState({ ...input, workers: [{ ...input.workers[0], lastHeartbeatAt: new Date('2026-09-02T12:00:00Z') }] }).status, 'UNKNOWN');
+});
+
+test('actividad actual requiere lease vigente del worker habilitado y tiene prioridad sobre histórico', () => {
+  const live: RuntimeAgentStateWork = {
+    ...historicalBlocked, status: 'RUNNING', requestId: 'current-case', updatedAt: statusNow,
+    leaseWorkerId: 'worker-24x7', leaseExpiresAt: new Date('2026-09-02T12:15:00Z'),
+  };
+  const input = { ...agentStatusFixture, workItems: [historicalBlocked, live] };
+  assert.deepEqual(deriveRuntimeAgentState(input), { status: 'RUNNING', currentCaseId: 'current-case' });
+  assert.equal(deriveRuntimeAgentState({ ...input, workItems: [{ ...live, status: 'CLAIMED' }] }).status, 'RUNNING');
+  assert.equal(deriveRuntimeAgentState({ ...input, workItems: [{ ...live, leaseExpiresAt: statusNow }] }).status, 'UNKNOWN');
+  assert.equal(deriveRuntimeAgentState({ ...input, workItems: [{ ...live, leaseWorkerId: 'other-worker' }] }).status, 'UNKNOWN');
+  assert.equal(deriveRuntimeAgentState({ ...input, workers: [{ ...input.workers[0], allowedAgentIds: [] }] }).status, 'UNKNOWN');
+  assert.equal(deriveRuntimeAgentState({ ...input, paused: true }).status, 'PAUSED');
+  assert.equal(deriveRuntimeAgentState({ ...input, installed: false }).status, 'NOT_INSTALLED');
+});
+
+test('worker detenido, iniciando o drenando sin trabajo vivo no se presenta disponible', () => {
+  for (const state of ['STOPPED', 'STARTING', 'DRAINING']) {
+    assert.equal(deriveRuntimeAgentState({
+      ...agentStatusFixture, workers: [{ ...agentStatusFixture.workers[0], state }], workItems: [laterCompleted],
+    }).status, 'UNKNOWN');
+  }
 });

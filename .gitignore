@@ -17,3 +17,4 @@ webapp/logs/
 
 # read-only audit artifacts
 /audit-output/
+.env*

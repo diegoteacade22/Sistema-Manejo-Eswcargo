@@ -14,13 +14,31 @@ cuando la cola está vacía.
 - concurrencia global: 2; concurrencia por agente: 1;
 - health local: `http://127.0.0.1:8794/health`;
 - fallback local: Ollama sólo en loopback y modelo exacto `qwen3:14b-q4_K_M`;
+- Data y cualquier retorno o continuación de su caso: `qwen3:4b-q4_K_M` local;
 - apagado: `DRAINING`, espera máxima 30 segundos y `STOPPED`;
 - lock local: `~/.company-os-runtime/runtime.lock`;
 - logs JSONL saneados y rotados en `~/.company-os-runtime/logs/`;
 - notificaciones externas: deshabilitadas en la instalación Mac genérica.
 
+El allowlist predeterminado incluye `general-manager-ai-v3`,
+`systems-manager-ai-v1` y `data-manager-ai-v1`. Data Manager se enruta sólo al
+modelo Ollama local `qwen3:4b-q4_K_M`; el cliente OpenAI rechaza ese claim y
+cualquier continuación de su caso antes de efectuar egress. La variable
+`COMPANY_OS_RUNTIME_LOCAL_LINEAGE_MODEL` sólo admite ese modelo y queda
+persistida en el plist. El modelo de fallback permanece separado en
+`COMPANY_OS_RUNTIME_OLLAMA_MODEL`.
+
 El servidor conserva la autoridad sobre claims, slots, leases, reintentos,
 presupuestos y transiciones. Obtener `204` en `claim` no llama OpenAI.
+El presupuesto por agente sigue en 48.000 tokens diarios y 1.000.000 mensuales.
+Cuando la siguiente reserva no cabe, el trabajo permanece `QUEUED` con
+`availableAt` en el próximo reset de Nueva York; si también agotó el mes,
+espera al primer día del mes siguiente. No crea lease, intento ni llamada al
+modelo. El reconciliador recupera bloqueos antiguos sólo cuando el evento
+demuestra agotamiento de presupuesto y no existe otro bloqueo posterior,
+lease activo o límite de turnos agotado. El consumo y las aprobaciones permanecen
+intactos. Una reserva mayor que todo el límite sigue bloqueada como error de
+configuración, porque esperar un reset nunca la haría admisible.
 Cada claim debe traer el contrato instalado completo y
 `contract.outputSchema`; el worker usa ese schema firmado en Responses API y
 falla cerrado, sin llamar al modelo, si falta o no es estricto. `fail` persiste
@@ -82,9 +100,10 @@ listener pertenece al LaunchAgent. Un rollback acepta una versión propia previa
 pero exige el mismo readback operativo; si un cutover falla, la restauración se
 verifica antes de informar que el estado anterior fue recuperado.
 
-Con el fallback habilitado (valor por defecto), `doctor` exige un origen Ollama
-HTTP loopback puro y verifica mediante `/api/tags` que exista exactamente
-`qwen3:14b-q4_K_M`. No imprime la respuesta ni datos de credenciales. Un runtime
+`doctor` exige un origen Ollama HTTP loopback puro y verifica mediante
+`/api/tags` que exista exactamente `qwen3:4b-q4_K_M` para Data. Con el fallback
+habilitado (valor por defecto), exige también `qwen3:14b-q4_K_M`. No imprime
+la respuesta ni datos de credenciales. Un runtime
 propio de versión previa puede ocupar el puerto durante un cutover; cualquier
 listener cuyo PID no coincida con `com.esw.company-os-runtime` se rechaza.
 

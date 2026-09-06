@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { deriveAuditSummary, deriveCompanyOsGlobalState } from '../components/company-os-dashboard';
+import { deriveAuditSummary, deriveCompanyOsGlobalState, deriveCompanyOsRuntimeOverview } from '../components/company-os-dashboard';
+import { formatCompanyOsTimestamp } from '../lib/company-os/runtime-display';
 import { CompanyOsRuntimeControlCenter, deriveRuntimeFreshness, flattenRuntimeAgentHierarchy, normalizeRuntimeControlCenterSnapshot } from '../components/company-os-runtime-control-center';
 import { buildSystemsSnapshot, SYSTEMS_OBSERVATION_MODES } from '../lib/company-os/systems-snapshot';
 
@@ -26,7 +27,14 @@ test('snapshot distingue las cuatro procedencias y no declara Vercel saludable',
   process.env.COMPANY_OS_V3_WORKER_URL='https://worker.example.test';
   global.fetch=async()=>new Response(JSON.stringify({ok:true,service:'company-os-v3-worker',contract:'systems-manager-ai-v1'}),{status:200,headers:{'content-type':'application/json'}});
   try {
-    const snapshot=await buildSystemsSnapshot();
+    const snapshot=await buildSystemsSnapshot({
+      now:new Date('2026-09-03T01:00:00Z'),
+      loadRuntimeWorkers:async()=>({observed:true,workers:[{
+        workerId:'diegoserver-company-os',host:'DiegoServer.local',state:'BUSY',version:'1.1.0',
+        allowedAgentIds:['general-manager-ai-v3','systems-manager-ai-v1','data-manager-ai-v1'],
+        lastHeartbeatAt:'2026-09-03T00:59:50Z',lastErrorCode:null,
+      }]}),
+    });
     assert.deepEqual(SYSTEMS_OBSERVATION_MODES,['LIVE_OBSERVED','DECLARED_FROM_CONFIG','INFERRED','UNOBSERVED']);
     assert.deepEqual(new Set(snapshot.assets.map((asset)=>asset.observationMode)),new Set(SYSTEMS_OBSERVATION_MODES));
     const vercel=snapshot.assets.find((asset)=>asset.assetId==='company-os-webapp');
@@ -105,6 +113,54 @@ test('centro runtime usa polling de 15 segundos y controles humanos idempotentes
   assert.match(source,/observation === "OBSERVED"/);
   assert.doesNotMatch(source,/workerStates[\s\S]*"OFFLINE"/);
   assert.match(dashboard,/CompanyOsRuntimeControlCenter/);
+  assert.match(dashboard,/onSnapshotChange=\{setRuntimeSnapshot\}/);
+  assert.match(dashboard,/deriveCompanyOsRuntimeOverview\(runtimeSnapshot\)/);
+});
+
+test('hero usa cola y resultados runtime aunque los casos legacy indiquen otro estado', () => {
+  const now = Date.parse('2026-09-03T00:40:00Z');
+  const legacy = companyCase({ status: 'BLOCKED', updatedAt: '2026-08-28T12:00:00Z', mission: 'PLANNED' });
+  assert.equal(deriveCompanyOsGlobalState([legacy], now).state, 'DEGRADED');
+  const snapshot = normalizeRuntimeControlCenterSnapshot({
+    generatedAt: '2026-09-03T00:39:55Z', runtime: { overallHealth: 'HEALTHY' },
+    summary: { inQueue: 0, workingNow: 1, solvedToday: 43, approvals: 25 },
+    queue: { queued: 0, running: 1, needsReview: 25 },
+    workers: [{ workerId: 'runtime-24x7', lastHeartbeatAt: '2026-09-03T00:39:50Z' }],
+    workItems: [
+      { id: 'older', requestId: 'older-result', agentId: 'systems-manager-ai-v1', status: 'COMPLETED', completedAt: '2026-08-25T12:00:00Z' },
+      { id: 'latest', requestId: 'runtime-result', agentId: 'general-manager-ai-v3', status: 'COMPLETED', completedAt: '2026-09-03T00:39:00Z' },
+      { id: 'active', requestId: 'data-active', agentId: 'data-manager-ai-v1', status: 'RUNNING', updatedAt: '2026-09-03T00:39:59Z' },
+    ],
+  });
+  const overview = deriveCompanyOsRuntimeOverview(snapshot, now);
+  assert.equal(overview.state, 'HEALTHY');
+  assert.equal(overview.active, 1);
+  assert.equal(overview.queued, 0);
+  assert.equal(overview.reviews, 25);
+  assert.equal(overview.completedToday, 43);
+  assert.equal(overview.latestCompletedWork?.requestId, 'runtime-result');
+  assert.equal(overview.lastCompletedWorkAt, '2026-09-03T00:39:00Z');
+  assert.equal(overview.lastHeartbeat, '2026-09-03T00:39:50.000Z');
+  assert.equal(legacy.missions[0].status, 'PLANNED');
+});
+
+test('hero no rellena telemetría runtime ausente o vencida con ceros o datos legacy', () => {
+  const missing = deriveCompanyOsRuntimeOverview(null);
+  assert.equal(missing.state, 'UNOBSERVED');
+  assert.equal(missing.active, null);
+  assert.equal(missing.queued, null);
+  assert.equal(missing.lastCompletedWorkAt, null);
+  const stale = normalizeRuntimeControlCenterSnapshot({ generatedAt: '2026-09-03T00:00:00Z', runtime: { overallHealth: 'HEALTHY' }, summary: { workingNow: 1 } });
+  assert.equal(deriveCompanyOsRuntimeOverview(stale, Date.parse('2026-09-03T00:40:00Z')).state, 'UNOBSERVED');
+});
+
+test('fechas Company OS usan New York y hora 24 sin AM/PM ambiguo', () => {
+  const evening = formatCompanyOsTimestamp('2026-09-03T00:40:00Z');
+  assert.match(evening, /20:40:00/);
+  assert.doesNotMatch(evening, /08:40|AM|PM/);
+  assert.match(formatCompanyOsTimestamp('2026-09-03T04:00:00Z'), /00:00:00/);
+  assert.equal(formatCompanyOsTimestamp(null), 'UNOBSERVED');
+  assert.equal(formatCompanyOsTimestamp('invalid', 'Sin registro'), 'Sin registro');
 });
 
 test('tablero Autonomous Operations clasifica freshness sin inventar salud', () => {
@@ -156,7 +212,10 @@ test('auditoría visible se deriva de eventos y estados, no de texto constante',
   assert.match(source,/45_000/); assert.match(source,/type="datetime-local"/); assert.match(source,/Motivo obligatorio/); assert.match(source,/max-h-\[90dvh\]/);
   assert.match(source,/"Resumen"\s*,\s*"Inbox"\s*,\s*"Caso"\s*,\s*"Sistemas"/); assert.match(source,/<details/); assert.match(source,/Score \$\{risk\.priority\}/);
   assert.match(source,/names\.get\(item\.sourceAssetId\)/);
-  assert.match(source,/setAllCases\(received\)/); assert.match(source,/deriveCompanyOsGlobalState\(sourceCases\)/);
+  assert.match(source,/setAllCases\(received\)/); assert.match(source,/deriveCompanyOsRuntimeOverview\(runtimeSnapshot\)/);
+  assert.match(source,/Último trabajo completado visible/); assert.match(source,/Últimos 100 trabajos/);
+  assert.match(source,/casos con revisión.*propuestas registradas/);
+  assert.doesNotMatch(source,/deriveCompanyOsGlobalState\(sourceCases\)/);
   assert.doesNotMatch(source,/Cero escrituras verificadas por auditoría/);
   assert.match(source,/Auditoría interna sin escrituras declaradas/);
   const storeSource=readFileSync('lib/company-os/v3-store.ts','utf8');

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Activity,
   Ban,
@@ -38,7 +39,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { CompanyOsRuntimeControlCenter } from "@/components/company-os-runtime-control-center";
+import { CompanyOsRuntimeControlCenter, deriveRuntimeFreshness, type RuntimeControlCenterSnapshot } from "@/components/company-os-runtime-control-center";
+import { formatCompanyOsTimestamp } from "@/lib/company-os/runtime-display";
 
 type RequestStatus =
   | "QUEUED"
@@ -300,6 +302,25 @@ export function deriveCompanyOsGlobalState(
   };
 }
 
+export function deriveCompanyOsRuntimeOverview(snapshot: RuntimeControlCenterSnapshot | null, now = Date.now()) {
+  const observed = snapshot && deriveRuntimeFreshness(snapshot.generatedAt, now) !== 'UNOBSERVED' ? snapshot : null;
+  const latestCompletedWork = observed?.workItems.filter((work) => work.status === 'COMPLETED'
+    && work.completedAt && Number.isFinite(Date.parse(work.completedAt)))
+    .sort((left, right) => Date.parse(right.completedAt!) - Date.parse(left.completedAt!))[0] ?? null;
+  const heartbeats = observed?.workers.map((worker) => worker.lastHeartbeatAt)
+    .filter((value): value is string => Boolean(value) && Number.isFinite(Date.parse(value!))) ?? [];
+  return {
+    state: observed?.runtime.overallHealth ?? 'UNOBSERVED',
+    queued: observed?.summary.inQueue ?? null,
+    active: observed?.summary.workingNow ?? null,
+    reviews: observed?.queue.needsReview ?? null,
+    completedToday: observed?.summary.solvedToday ?? null,
+    latestCompletedWork,
+    lastCompletedWorkAt: latestCompletedWork?.completedAt ?? null,
+    lastHeartbeat: heartbeats.length ? new Date(Math.max(...heartbeats.map(Date.parse))).toISOString() : null,
+  };
+}
+
 export function deriveAuditSummary(cases: CaseSummary[]) {
   const events = cases.reduce((sum, item) => sum + item.events.length, 0);
   const executionStates = cases.reduce(
@@ -365,14 +386,16 @@ function priorityBand(score: number) {
           : "P4";
 }
 function formatDate(value: string | null) {
-  return value ? new Date(value).toLocaleString("es-AR") : "Sin registro";
+  return formatCompanyOsTimestamp(value, "Sin registro");
 }
 function resultContent(content: string) {
   try {
     return JSON.parse(content) as {
       summary?: string;
       primaryDataQualityProblem?: string;
+      primaryFreshnessGap?: string;
       recommendedNextStep?: string;
+      dataFindings?: Array<{ findingId?: string; title?: string; classification?: string; priority?: number; evidenceRefs?: string[] }>;
       primaryConfirmedRisk?: string;
       primaryCoverageGap?: string;
       confirmedRiskNextStep?: string;
@@ -703,6 +726,7 @@ function SystemsEvidence({
 }
 
 export function CompanyOsDashboard() {
+  const [runtimeSnapshot, setRuntimeSnapshot] = useState<RuntimeControlCenterSnapshot | null>(null);
   const [agentId, setAgentId] = useState<ManagerId>("systems-manager-ai-v1");
   const [allCases, setAllCases] = useState<CaseSummary[]>([]);
   const [cases, setCases] = useState<CaseSummary[]>([]);
@@ -765,11 +789,8 @@ export function CompanyOsDashboard() {
     return () => clearInterval(timer);
   }, [refresh]);
   const operations = useMemo(
-    () => {
-      const sourceCases = agentId === "general-manager-ai-v3" ? allCases : cases;
-      return deriveCompanyOsGlobalState(sourceCases);
-    },
-    [agentId, allCases, cases],
+    () => deriveCompanyOsRuntimeOverview(runtimeSnapshot),
+    [runtimeSnapshot],
   );
   const audit = useMemo(() => deriveAuditSummary(agentId === "general-manager-ai-v3" ? allCases : cases), [agentId, allCases, cases]);
   const totals = useMemo(
@@ -963,13 +984,16 @@ export function CompanyOsDashboard() {
                 Company OS
               </h1>
               <p className="mt-3 max-w-3xl text-sm text-slate-300">
-                {manager.label} AI · {manager.description} Análisis advisory-only, sin ejecución autónoma.
+                {manager.label} AI · {manager.description} Análisis advisory-only; ejecución durable en el worker 24/7 y sin mutaciones empresariales.
               </p>
             </div>
-            <Badge variant="outline" className="p-3 text-base">
-              <Activity className="mr-2 h-4 w-4" />
-              {operations.state}
-            </Badge>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button asChild variant="outline"><Link href="/company-os/objectives">Objetivos continuos</Link></Button>
+              <Badge variant="outline" className="p-3 text-base">
+                <Activity className="mr-2 h-4 w-4" />
+                {operations.state}
+              </Badge>
+            </div>
           </div>
         </section>
         {error && (
@@ -1020,84 +1044,83 @@ export function CompanyOsDashboard() {
 
         {view === "Resumen" && (
           <div className="space-y-5">
-            <CompanyOsRuntimeControlCenter />
+            <CompanyOsRuntimeControlCenter onSnapshotChange={setRuntimeSnapshot} />
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <Card
                 role="button"
                 tabIndex={0}
                 onClick={() => setDetail({
-                  title: "Estado global",
-                  description: "Estado derivado de casos, actividad y telemetría observada.",
+                  title: "Estado runtime 24/7",
+                  description: "Mismo snapshot de CentroControl, compartido por los tres gerentes.",
                   lines: [
                     `Estado: ${operations.state}`,
-                    `En cola: ${operations.queued}`,
-                    `Activos: ${operations.active}`,
-                    `Revisiones pendientes: ${operations.reviews}`,
+                    `En cola: ${operations.queued ?? 'Sin observar'}`,
+                    `Activos: ${operations.active ?? 'Sin observar'}`,
+                    `Casos con revisión: ${operations.reviews ?? 'Sin observar'}`,
                     `Último heartbeat: ${formatDate(operations.lastHeartbeat)}`,
                   ],
                 })}
                 onKeyDown={(event) => event.key === "Enter" && setDetail({
-                  title: "Estado global",
-                  description: "Estado derivado de casos, actividad y telemetría observada.",
-                  lines: [`Estado: ${operations.state}`, `Revisiones pendientes: ${operations.reviews}`],
+                  title: "Estado runtime 24/7",
+                  description: "Mismo snapshot de CentroControl, compartido por los tres gerentes.",
+                  lines: [`Estado: ${operations.state}`, `Casos con revisión: ${operations.reviews ?? 'Sin observar'}`],
                 })}
                 className="cursor-pointer border-white/10 bg-slate-950/80 text-slate-100 transition hover:border-cyan-400/50"
               >
                 <CardHeader>
-                  <CardDescription>Estado global</CardDescription>
+                  <CardDescription>Estado runtime 24/7</CardDescription>
                   <CardTitle>{operations.state}</CardTitle>
                 </CardHeader>
                 <CardContent className="text-xs text-slate-400">
-                  Todos los agentes · refresco permanente cada 45 segundos.
+                  Tres gerentes · mismo snapshot de CentroControl cada 15 segundos.
                 </CardContent>
               </Card>
               <Card
                 role="button"
                 tabIndex={0}
                 onClick={() => setDetail({
-                  title: "Operación y revisiones",
-                  description: "Casos y misiones que requieren seguimiento desde esta pantalla.",
+                  title: "Propuestas registradas",
+                  description: "Histórico de misiones PLANNED o REVIEW. No son trabajos activos ni aprobaciones concedidas.",
                   lines: pendingReviews.length
                     ? pendingReviews.map(({ companyCase, mission }) => `${mission.title} · ${companyCase.objective}`)
-                    : ["No hay revisiones pendientes."],
+                    : ["No hay propuestas pendientes en los casos cargados."],
                   caseIds: pendingReviews.map(({ companyCase }) => companyCase.requestId),
                 })}
                 className="cursor-pointer border-white/10 bg-slate-950/80 text-slate-100 transition hover:border-cyan-400/50"
               >
                 <CardHeader>
-                  <CardDescription>Operación</CardDescription>
+                  <CardDescription>Operación 24/7</CardDescription>
                   <CardTitle>
-                    {operations.queued} cola · {operations.active} activos
+                    {operations.queued ?? '—'} cola · {operations.active ?? '—'} activos
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="text-xs text-slate-400">
-                  {operations.reviews} revisiones pendientes
+                  {operations.reviews ?? '—'} casos con revisión · {pendingReviews.length} propuestas registradas
                 </CardContent>
               </Card>
               <Card
                 role="button"
                 tabIndex={0}
                 onClick={() => {
-                  const latest = allCases
-                    .slice()
-                    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+                  const latest = operations.latestCompletedWork;
                   if (latest) {
+                    if (latest.agentId in managerConfig) setAgentId(latest.agentId as ManagerId);
                     setSelectedId(latest.requestId);
                     setView("Caso");
                   } else {
-                    setDetail({ title: "Último ciclo exitoso", description: "Todavía no hay un caso registrado.", lines: ["Sin registro"] });
+                    setDetail({ title: "Último trabajo completado visible", description: "Sin trabajo COMPLETED observado entre los últimos 100 trabajos del runtime.", lines: ["Sin registro"] });
                   }
                 }}
                 className="cursor-pointer border-white/10 bg-slate-950/80 text-slate-100 transition hover:border-cyan-400/50"
               >
                 <CardHeader>
-                  <CardDescription>Último ciclo exitoso</CardDescription>
+                  <CardDescription>Último trabajo completado visible</CardDescription>
                   <CardTitle className="text-base">
-                    {formatDate(operations.lastSuccessfulCycle)}
+                    {formatDate(operations.lastCompletedWorkAt)}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="text-xs text-slate-400">
-                  Heartbeat: {formatDate(operations.lastHeartbeat)}
+                  Últimos 100 trabajos · {operations.completedToday ?? '—'} completados hoy en total · Heartbeat: {formatDate(operations.lastHeartbeat)}
                 </CardContent>
               </Card>
               <Card
@@ -1322,7 +1345,7 @@ export function CompanyOsDashboard() {
                         {item.status}
                       </Badge>
                       <span className="text-[10px] text-slate-500">
-                        {new Date(item.createdAt).toLocaleString("es-AR")}
+                        {formatDate(item.createdAt)}
                       </span>
                     </div>
                     <p className="mt-2 line-clamp-2 text-sm">
@@ -1351,7 +1374,7 @@ export function CompanyOsDashboard() {
                   </div>
                   <CardDescription className="text-slate-500">
                     Creado{" "}
-                    {new Date(selected.createdAt).toLocaleString("es-AR")} ·
+                    {formatDate(selected.createdAt)} ·
                     webhook {selected.webhookDeliveryStatus}
                   </CardDescription>
                 </CardHeader>
@@ -1371,9 +1394,7 @@ export function CompanyOsDashboard() {
                             {message.role} · {message.kind}
                           </span>
                           <span>
-                            {new Date(message.createdAt).toLocaleString(
-                              "es-AR",
-                            )}
+                            {formatDate(message.createdAt)}
                           </span>
                         </div>
                         {parsed ? (

@@ -1,3 +1,6 @@
+import { requiresLocalInference } from './data-policy.mjs';
+import { continuousIntegrationResults, CONTINUOUS_INTEGRATION_RULE, integrationContext } from './continuous-integration.mjs';
+
 export const ADVISORY_OUTPUT_SCHEMA = Object.freeze({
   type: 'object',
   additionalProperties: false,
@@ -56,6 +59,38 @@ export const SYSTEMS_ADVISORY_OUTPUT_SCHEMA = Object.freeze({
   },
 });
 
+export const DATA_ADVISORY_OUTPUT_SCHEMA = Object.freeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['summary', 'primaryDataQualityProblem', 'primaryFreshnessGap', 'recommendedNextStep', 'evidenceRefs', 'dataFindings', 'missions', 'needsHumanDecision', 'confidence'],
+  properties: {
+    summary: { type: 'string' },
+    primaryDataQualityProblem: { type: 'string' },
+    primaryFreshnessGap: { type: 'string' },
+    recommendedNextStep: { type: 'string' },
+    evidenceRefs: { type: 'array', items: { type: 'string' } },
+    dataFindings: {
+      type: 'array',
+      maxItems: 10,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['findingId', 'title', 'classification', 'priority', 'evidenceRefs'],
+        properties: {
+          findingId: { type: 'string' },
+          title: { type: 'string' },
+          classification: { type: 'string', enum: ['ACTION_REQUIRED', 'REVIEW', 'INFO'] },
+          priority: { type: 'integer', minimum: 0, maximum: 100 },
+          evidenceRefs: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
+    missions: ADVISORY_OUTPUT_SCHEMA.properties.missions,
+    needsHumanDecision: { type: 'boolean' },
+    confidence: { type: 'number', minimum: 0, maximum: 1 },
+  },
+});
+
 export function advisoryOutputSchemaFor(evidencePayload) {
   const keys = Object.keys(evidencePayload || {}).filter((key) => typeof key === 'string' && key.length > 0);
   const schema = structuredClone(ADVISORY_OUTPUT_SCHEMA);
@@ -73,6 +108,15 @@ export function systemsAdvisoryOutputSchemaFor(evidencePayload) {
   schema.properties.actionableRisks.items.properties.assetId = { type: 'string', enum: assetIds };
   schema.properties.actionableRisks.items.properties.riskId = { type: 'string', enum: riskIds };
   schema.properties.actionableRisks.items.properties.evidenceRefs.items = { type: 'string', enum: keys };
+  schema.properties.missions.items.properties.evidenceRefs.items = { type: 'string', enum: keys };
+  return schema;
+}
+
+export function dataAdvisoryOutputSchemaFor(evidencePayload) {
+  const keys = Object.keys(evidencePayload || {}).filter((key) => typeof key === 'string' && key.length > 0);
+  const schema = structuredClone(DATA_ADVISORY_OUTPUT_SCHEMA);
+  schema.properties.evidenceRefs.items = { type: 'string', enum: keys };
+  schema.properties.dataFindings.items.properties.evidenceRefs.items = { type: 'string', enum: keys };
   schema.properties.missions.items.properties.evidenceRefs.items = { type: 'string', enum: keys };
   return schema;
 }
@@ -135,6 +179,38 @@ export function validateSystemsAdvisoryOutput(value) {
       || !Number.isInteger(risk.priority) || risk.priority < 0 || risk.priority > 100 || !isStringArray(risk.evidenceRefs)) {
       throw new OpenAiWorkerError('OpenAI systems risk violates policy', { code: 'OPENAI_INVALID_OUTPUT' });
     }
+  }
+  for (const mission of value.missions) {
+    if (!mission || typeof mission !== 'object' || Array.isArray(mission)
+      || Object.keys(mission).some((key) => !['title', 'objective', 'evidenceRefs', 'status'].includes(key))
+      || mission.status !== 'PLANNED' || typeof mission.title !== 'string' || typeof mission.objective !== 'string' || !isStringArray(mission.evidenceRefs)) {
+      throw new OpenAiWorkerError('OpenAI mission violates advisory policy', { code: 'OPENAI_INVALID_OUTPUT' });
+    }
+  }
+  return value;
+}
+
+export function validateDataAdvisoryOutput(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new OpenAiWorkerError('OpenAI data output is not an object', { code: 'OPENAI_INVALID_OUTPUT' });
+  const allowed = ['summary', 'primaryDataQualityProblem', 'primaryFreshnessGap', 'recommendedNextStep', 'evidenceRefs', 'dataFindings', 'missions', 'needsHumanDecision', 'confidence'];
+  if (Object.keys(value).some((key) => !allowed.includes(key))) throw new OpenAiWorkerError('OpenAI data output contains unsupported fields', { code: 'OPENAI_INVALID_OUTPUT' });
+  const textFields = allowed.slice(0, 4);
+  if (!textFields.every((key) => typeof value[key] === 'string' && value[key].length > 0)) throw new OpenAiWorkerError('OpenAI data output is missing advisory text', { code: 'OPENAI_INVALID_OUTPUT' });
+  if (!isStringArray(value.evidenceRefs) || !Array.isArray(value.dataFindings) || value.dataFindings.length > 10 || !Array.isArray(value.missions)) {
+    throw new OpenAiWorkerError('OpenAI data output has invalid collections', { code: 'OPENAI_INVALID_OUTPUT' });
+  }
+  for (const finding of value.dataFindings) {
+    if (!finding || typeof finding !== 'object' || Array.isArray(finding)
+      || Object.keys(finding).some((key) => !['findingId', 'title', 'classification', 'priority', 'evidenceRefs'].includes(key))
+      || typeof finding.findingId !== 'string' || typeof finding.title !== 'string'
+      || !['ACTION_REQUIRED', 'REVIEW', 'INFO'].includes(finding.classification)
+      || !Number.isInteger(finding.priority) || finding.priority < 0 || finding.priority > 100
+      || !isStringArray(finding.evidenceRefs)) {
+      throw new OpenAiWorkerError('OpenAI data finding violates policy', { code: 'OPENAI_INVALID_OUTPUT' });
+    }
+  }
+  if (typeof value.needsHumanDecision !== 'boolean' || typeof value.confidence !== 'number' || !Number.isFinite(value.confidence) || value.confidence < 0 || value.confidence > 1) {
+    throw new OpenAiWorkerError('OpenAI data output has invalid confidence policy', { code: 'OPENAI_INVALID_OUTPUT' });
   }
   for (const mission of value.missions) {
     if (!mission || typeof mission !== 'object' || Array.isArray(mission)
@@ -281,6 +357,9 @@ export function validateRuntimeContractOutput(claim, value) {
   const schema = runtimeOutputSchemaForClaim(claim);
   validateValueAgainstSchema(value, schema);
   verifyEvidenceReferences(value, new Set(Object.keys(claim.evidencePayload || {})));
+  if (continuousIntegrationResults(claim).length && Array.isArray(value.delegations) && value.delegations.length) {
+    throw runtimeOutputError('Continuous integration cannot delegate an already completed specialist review');
+  }
   const minimumConfidence = Number(claim.contract?.lowConfidencePolicy?.minConfidence);
   if (Number.isFinite(minimumConfidence) && typeof value.confidence === 'number'
     && value.confidence < minimumConfidence && value.needsHumanDecision !== true) {
@@ -296,6 +375,10 @@ function retryableStatus(status) {
 export function advisoryRequestBody(claim, { model = 'gpt-5.6-sol', requireClaimOutputSchema = false } = {}) {
   const systemsManager = claim.agentId === 'systems-manager-ai-v1';
   const runtimeSchema = requireClaimOutputSchema ? runtimeOutputSchemaForClaim(claim) : null;
+  const integrating = continuousIntegrationResults(claim).length > 0;
+  if (integrating && runtimeSchema?.properties?.delegations) {
+    runtimeSchema.properties.delegations.maxItems = 0;
+  }
   const confidenceThreshold = Number(claim.contract?.lowConfidencePolicy?.minConfidence);
   const runtimePolicy = runtimeSchema
     ? ` Follow the signed runtime output contract exactly. Set needsHumanDecision=true whenever confidence is below ${Number.isFinite(confidenceThreshold) ? confidenceThreshold : 0.75}.`
@@ -310,7 +393,7 @@ export function advisoryRequestBody(claim, { model = 'gpt-5.6-sol', requireClaim
         role: 'system',
         content: (systemsManager
           ? 'You are Gerente de Sistemas AI (systems-manager-ai-v1), reporting to general-manager-ai-v3 inside Company OS. Analyze only the supplied closed technical evidence. Distinguish a confirmed risk from a coverage gap. Never execute, claim execution, mutate business or infrastructure data, deploy, rotate credentials, expose secrets, or infer OFFLINE from missing telemetry. Deterministic risk classifications and scores in evidence are authoritative. Return at most five ACTION_REQUIRED risks. Every mission must remain PLANNED.'
-          : 'You are Company OS V3. Produce advisory analysis only. Never execute, claim execution, change business data, send messages, buy, pay, price, deploy, or expose secrets. Use only supplied evidence references. Every mission must remain PLANNED.') + runtimePolicy,
+          : 'You are Company OS V3. Produce advisory analysis only. Never execute, claim execution, change business data, send messages, buy, pay, price, deploy, or expose secrets. Use only supplied evidence references. Every mission must remain PLANNED.') + runtimePolicy + (integrating ? CONTINUOUS_INTEGRATION_RULE : ''),
       },
       {
         role: 'user',
@@ -319,7 +402,7 @@ export function advisoryRequestBody(claim, { model = 'gpt-5.6-sol', requireClaim
           agentId: claim.agentId || 'general-manager-ai-v3',
           objective: claim.objective,
           evidencePayload: claim.evidencePayload,
-          contextMessages: claim.contextMessages || [],
+          contextMessages: integrationContext(claim),
         }),
       },
     ],
@@ -361,6 +444,12 @@ export class OpenAiAdvisoryClient {
   }
 
   async generate(claim, { signal: externalSignal, deadlineAt = null } = {}) {
+    if (requiresLocalInference(claim)) {
+      throw new OpenAiWorkerError('Data Manager lineage is local-only; case evidence and results are not sent to OpenAI', {
+        retryable: false,
+        code: 'OPENAI_DATA_EXPORT_DISABLED',
+      });
+    }
     let lastError;
     const startedAt = Date.now();
     const claimTimeoutMs = Number.isSafeInteger(claim.timeoutMs) && claim.timeoutMs > 0 ? claim.timeoutMs : this.timeoutMs;

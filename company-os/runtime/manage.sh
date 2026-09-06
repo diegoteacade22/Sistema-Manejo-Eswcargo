@@ -15,12 +15,13 @@ RUNTIME_API_BASE_URL="${COMPANY_OS_RUNTIME_API_BASE_URL:-https://webapp-weld-psi
 RUNTIME_ALLOWED_HOSTS="${COMPANY_OS_RUNTIME_ALLOWED_HOSTS:-webapp-weld-psi.vercel.app,app.eswcargo.com}"
 RUNTIME_WORKER_ID="${COMPANY_OS_RUNTIME_WORKER_ID:-diegoserver-company-os}"
 RUNTIME_HEALTH_PORT="${COMPANY_OS_RUNTIME_HEALTH_PORT:-8794}"
-RUNTIME_ALLOWED_AGENT_IDS="${COMPANY_OS_RUNTIME_ALLOWED_AGENT_IDS:-general-manager-ai-v3,systems-manager-ai-v1}"
+RUNTIME_ALLOWED_AGENT_IDS="${COMPANY_OS_RUNTIME_ALLOWED_AGENT_IDS:-general-manager-ai-v3,systems-manager-ai-v1,data-manager-ai-v1}"
 RUNTIME_HMAC_KEYCHAIN_SERVICE="${COMPANY_OS_RUNTIME_HMAC_KEYCHAIN_SERVICE:-com.esw.company-os-runtime.hmac}"
 RUNTIME_OPENAI_KEYCHAIN_SERVICE="${COMPANY_OS_RUNTIME_OPENAI_KEYCHAIN_SERVICE:-OPENAI_API_KEY}"
 RUNTIME_OLLAMA_FALLBACK_ENABLED="${COMPANY_OS_RUNTIME_OLLAMA_FALLBACK_ENABLED:-true}"
 RUNTIME_OLLAMA_BASE_URL="${COMPANY_OS_RUNTIME_OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
 RUNTIME_OLLAMA_MODEL="${COMPANY_OS_RUNTIME_OLLAMA_MODEL:-qwen3:14b-q4_K_M}"
+RUNTIME_LOCAL_LINEAGE_MODEL="${COMPANY_OS_RUNTIME_LOCAL_LINEAGE_MODEL:-qwen3:4b-q4_K_M}"
 RUNTIME_KEYCHAIN_ACCOUNT="${COMPANY_OS_RUNTIME_KEYCHAIN_ACCOUNT:-$(id -un)}"
 EXTERNAL_NOTIFICATIONS_ENABLED="${COMPANY_OS_RUNTIME_EXTERNAL_NOTIFICATIONS_ENABLED:-false}"
 NODE_BIN="${COMPANY_OS_RUNTIME_NODE_BIN:-$(command -v node 2>/dev/null || true)}"
@@ -94,11 +95,12 @@ check_ollama_fallback() {
   case "${RUNTIME_OLLAMA_FALLBACK_ENABLED:l}" in
     false|0|no)
       RUNTIME_OLLAMA_FALLBACK_ENABLED=false
-      return
       ;;
     true|1|yes) RUNTIME_OLLAMA_FALLBACK_ENABLED=true ;;
     *) die "COMPANY_OS_RUNTIME_OLLAMA_FALLBACK_ENABLED debe ser true o false" ;;
   esac
+  [[ "$RUNTIME_LOCAL_LINEAGE_MODEL" == "qwen3:4b-q4_K_M" ]] \
+    || die "COMPANY_OS_RUNTIME_LOCAL_LINEAGE_MODEL debe ser el modelo local permitido qwen3:4b-q4_K_M"
 
   "$NODE_BIN" -e '
     try {
@@ -118,13 +120,13 @@ check_ollama_fallback() {
     let input=""; process.stdin.on("data", (chunk) => input += chunk); process.stdin.on("end", () => {
       try {
         const value = JSON.parse(input);
-        const expected = process.argv[1];
-        const exact = Array.isArray(value.models) && value.models.some((item) => item && item.name === expected);
+        const required = [process.argv[2], ...(process.argv[3] === "true" ? [process.argv[1]] : [])];
+        const exact = Array.isArray(value.models) && required.every((expected) => value.models.some((item) => item && item.name === expected));
         process.exit(exact ? 0 : 1);
       } catch { process.exit(1); }
     });
-  ' "$RUNTIME_OLLAMA_MODEL" \
-    || die "Ollama local no contiene el modelo exacto requerido: $RUNTIME_OLLAMA_MODEL"
+  ' "$RUNTIME_OLLAMA_MODEL" "$RUNTIME_LOCAL_LINEAGE_MODEL" "$RUNTIME_OLLAMA_FALLBACK_ENABLED" \
+    || die "Ollama local no contiene los modelos requeridos para linaje Data y fallback habilitado"
 }
 
 keychain_has() {
@@ -313,6 +315,7 @@ render_plist() {
     <key>COMPANY_OS_RUNTIME_OLLAMA_FALLBACK_ENABLED</key><string>$RUNTIME_OLLAMA_FALLBACK_ENABLED</string>
     <key>COMPANY_OS_RUNTIME_OLLAMA_BASE_URL</key><string>$(xml_escape "$RUNTIME_OLLAMA_BASE_URL")</string>
     <key>COMPANY_OS_RUNTIME_OLLAMA_MODEL</key><string>$(xml_escape "$RUNTIME_OLLAMA_MODEL")</string>
+    <key>COMPANY_OS_RUNTIME_LOCAL_LINEAGE_MODEL</key><string>$(xml_escape "$RUNTIME_LOCAL_LINEAGE_MODEL")</string>
   </dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>

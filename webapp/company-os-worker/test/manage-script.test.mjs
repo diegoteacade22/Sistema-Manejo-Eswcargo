@@ -89,6 +89,10 @@ test('doctor permite cutover de runtime propio previo, rechaza puerto ajeno y va
   assert.match(ollama, /item\.name === expected/);
   assert.doesNotMatch(ollama, /say .*\$tags/);
   assert.match(ollama, /print -rn -- "\$tags" \| "\$NODE_BIN"/);
+  assert.match(ollama, /RUNTIME_LOCAL_LINEAGE_MODEL.*qwen3:4b-q4_K_M/);
+  assert.match(ollama, /required\.every/);
+  assert.doesNotMatch(ollama, /FALLBACK_ENABLED=false\s+return/);
+  assert.match(functionBody(script, 'render_plist'), /COMPANY_OS_RUNTIME_LOCAL_LINEAGE_MODEL/);
 });
 
 test('install y restart esperan versión objetivo; rollback y restauración esperan runtime propio genérico', async () => {

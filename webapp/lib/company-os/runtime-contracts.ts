@@ -1,9 +1,11 @@
 import {
   COMPANY_OS_AGENT_CONTRACTS,
+  COMPANY_OS_DATA_MANAGER_IDENTITY,
   COMPANY_OS_SYSTEMS_MANAGER_IDENTITY,
   COMPANY_OS_V3_IDENTITY,
 } from './v3-types';
 import type {
+  CompanyOsDataManagerWorkerResult,
   CompanyOsSystemsWorkerResult,
   CompanyOsWorkerResult,
 } from './v3-types';
@@ -14,14 +16,16 @@ export const COMPANY_OS_TIME_ZONE = 'America/New_York' as const;
 export const COMPANY_OS_INSTALLED_AGENT_IDS = [
   COMPANY_OS_V3_IDENTITY,
   COMPANY_OS_SYSTEMS_MANAGER_IDENTITY,
+  COMPANY_OS_DATA_MANAGER_IDENTITY,
 ] as const;
 
 export type CompanyOsInstalledAgentId =
   (typeof COMPANY_OS_INSTALLED_AGENT_IDS)[number];
 
 export const COMPANY_OS_RUNTIME_CONTRACT_VERSIONS = {
-  [COMPANY_OS_V3_IDENTITY]: '3.1.1',
+  [COMPANY_OS_V3_IDENTITY]: '3.1.2',
   [COMPANY_OS_SYSTEMS_MANAGER_IDENTITY]: '1.1.1',
+  [COMPANY_OS_DATA_MANAGER_IDENTITY]: '1.0.0',
 } as const satisfies Record<CompanyOsInstalledAgentId, string>;
 
 export const COMPANY_OS_TRIGGER_TYPES = [
@@ -50,9 +54,15 @@ export type CompanyOsSystemsManagerRuntimeOutput = CompanyOsSystemsWorkerResult 
   confidence: number;
 };
 
+export type CompanyOsDataManagerRuntimeOutput = CompanyOsDataManagerWorkerResult & {
+  needsHumanDecision: boolean;
+  confidence: number;
+};
+
 export type CompanyOsRuntimeOutput =
   | CompanyOsGeneralManagerRuntimeOutput
-  | CompanyOsSystemsManagerRuntimeOutput;
+  | CompanyOsSystemsManagerRuntimeOutput
+  | CompanyOsDataManagerRuntimeOutput;
 
 export const COMPANY_OS_MANDATORY_PROHIBITED_TABLES = [
   'Client',
@@ -133,7 +143,8 @@ export type CompanyOsRuntimeContract = Readonly<{
   escalationRules: readonly string[];
   handlerKey:
     | 'general-manager-advisory'
-    | 'systems-manager-advisory';
+    | 'systems-manager-advisory'
+    | 'data-manager-advisory';
   advisoryOnly: true;
   timeZone: typeof COMPANY_OS_TIME_ZONE;
   scheduleObjective?: string;
@@ -226,7 +237,7 @@ const GENERAL_MANAGER_OUTPUT_SCHEMA = {
         properties: {
           agentId: {
             type: 'string',
-            enum: [COMPANY_OS_SYSTEMS_MANAGER_IDENTITY],
+            enum: [COMPANY_OS_SYSTEMS_MANAGER_IDENTITY, COMPANY_OS_DATA_MANAGER_IDENTITY],
           },
           objective: { type: 'string', minLength: 1 },
           evidenceRefs: { type: 'array', items: { type: 'string', minLength: 1 } },
@@ -339,6 +350,79 @@ const SYSTEMS_MANAGER_INPUT_SCHEMA = {
   },
 } as const satisfies StrictJsonObjectSchema;
 
+const DATA_MANAGER_OUTPUT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'summary',
+    'primaryDataQualityProblem',
+    'primaryFreshnessGap',
+    'recommendedNextStep',
+    'evidenceRefs',
+    'dataFindings',
+    'missions',
+    'needsHumanDecision',
+    'confidence',
+  ],
+  properties: {
+    summary: { type: 'string', minLength: 1 },
+    primaryDataQualityProblem: { type: 'string', minLength: 1 },
+    primaryFreshnessGap: { type: 'string', minLength: 1 },
+    recommendedNextStep: { type: 'string', minLength: 1 },
+    evidenceRefs: { type: 'array', items: { type: 'string', minLength: 1 } },
+    dataFindings: {
+      type: 'array',
+      maxItems: 10,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['findingId', 'title', 'classification', 'priority', 'evidenceRefs'],
+        properties: {
+          findingId: { type: 'string', minLength: 1 },
+          title: { type: 'string', minLength: 1 },
+          classification: { type: 'string', enum: ['ACTION_REQUIRED', 'REVIEW', 'INFO'] },
+          priority: { type: 'integer', minimum: 0, maximum: 100 },
+          evidenceRefs: { type: 'array', items: { type: 'string', minLength: 1 } },
+        },
+      },
+    },
+    missions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['title', 'objective', 'evidenceRefs', 'status'],
+        properties: {
+          title: { type: 'string' },
+          objective: { type: 'string', minLength: 1 },
+          evidenceRefs: { type: 'array', items: { type: 'string', minLength: 1 } },
+          status: { type: 'string', enum: ['PLANNED'] },
+        },
+      },
+    },
+    needsHumanDecision: { type: 'boolean' },
+    confidence: { type: 'number', minimum: 0, maximum: 1 },
+  },
+} as const satisfies StrictJsonObjectSchema;
+
+const DATA_MANAGER_INPUT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'requestId',
+    'caseId',
+    'leaseToken',
+    'agentId',
+    'objective',
+    'evidencePayload',
+    'budgets',
+  ],
+  properties: {
+    ...COMMON_INPUT_PROPERTIES,
+    agentId: { const: COMPANY_OS_DATA_MANAGER_IDENTITY },
+  },
+} as const satisfies StrictJsonObjectSchema;
+
 const CONTRACT_DEFINITIONS = {
   [COMPANY_OS_V3_IDENTITY]: {
     agentId: COMPANY_OS_V3_IDENTITY,
@@ -346,12 +430,13 @@ const CONTRACT_DEFINITIONS = {
     version: COMPANY_OS_RUNTIME_CONTRACT_VERSIONS[COMPANY_OS_V3_IDENTITY],
     reportsToAgentId: null,
     domain: 'GENERAL_MANAGEMENT',
-    acceptedTriggers: ['MANUAL', 'EVENT', 'AGENT_MESSAGE'],
+    acceptedTriggers: ['MANUAL', 'SCHEDULE', 'EVENT', 'AGENT_MESSAGE'],
     requiredSources: [
       'CompanyOsCase.objective',
       'CompanyOsEvidenceRef.payload',
       'CompanyOsMessage.context',
       'server-materialized-business-snapshot',
+      'CompanyOsAgentSchedule',
     ],
     allowedTools: [
       'openai.responses.structured-output',
@@ -388,6 +473,8 @@ const CONTRACT_DEFINITIONS = {
     handlerKey: 'general-manager-advisory',
     advisoryOnly: true,
     timeZone: COMPANY_OS_TIME_ZONE,
+    scheduleObjective:
+      'Revisá la evidencia empresarial y los resultados de los especialistas. Priorizá calidad de datos, ingesta y dependencia operativa. Delegá al Gerente de Datos una revisión concreta cuando falte evidencia; integrá su respuesta y cerrá con resultados y próximos pasos acotados. No repitas una delegación ya respondida ni solicites aprobación para analizar.',
   },
   [COMPANY_OS_SYSTEMS_MANAGER_IDENTITY]: {
     agentId: COMPANY_OS_SYSTEMS_MANAGER_IDENTITY,
@@ -456,6 +543,59 @@ const CONTRACT_DEFINITIONS = {
     scheduleObjective:
       'Actualizá determinísticamente el inventario técnico, la salud, la cobertura y los riesgos observables. No ejecutes cambios ni reveles secretos.',
   },
+  [COMPANY_OS_DATA_MANAGER_IDENTITY]: {
+    agentId: COMPANY_OS_DATA_MANAGER_IDENTITY,
+    name: COMPANY_OS_AGENT_CONTRACTS[COMPANY_OS_DATA_MANAGER_IDENTITY].displayName,
+    version: COMPANY_OS_RUNTIME_CONTRACT_VERSIONS[COMPANY_OS_DATA_MANAGER_IDENTITY],
+    reportsToAgentId: COMPANY_OS_V3_IDENTITY,
+    domain: 'DATA_QUALITY_FRESHNESS_AND_COVERAGE',
+    acceptedTriggers: ['MANUAL', 'SCHEDULE', 'EVENT', 'AGENT_MESSAGE'],
+    requiredSources: [
+      'CompanyOsCase.objective',
+      'CompanyOsEvidenceRef.payload',
+      'CompanyOsMessage.context',
+      'server-materialized-business-snapshot',
+      'CompanyOsAgentSchedule',
+    ],
+    allowedTools: [
+      'ollama.chat.structured-output',
+      'company-os.evidence.read',
+      'company-os.data-quality.snapshot.read',
+      'company-os.mission.append',
+    ],
+    allowedInternalTables: COMMON_INTERNAL_TABLES,
+    prohibitedTables: COMPANY_OS_MANDATORY_PROHIBITED_TABLES,
+    prohibitedActions: COMPANY_OS_MANDATORY_PROHIBITED_ACTIONS,
+    timeoutMs: 120_000,
+    concurrency: 1,
+    budgets: {
+      dailyTokens: 48_000,
+      monthlyTokens: 1_000_000,
+      maxOutputTokens: 3_000,
+      targetTotalTokensPerAttempt: 12_000,
+    },
+    lowConfidencePolicy: {
+      minConfidence: 0.75,
+      action: 'ABSTAIN_AND_ESCALATE',
+      caseStatus: 'NEEDS_REVIEW',
+      escalationTarget: COMPANY_OS_V3_IDENTITY,
+      createReviewMessage: true,
+    },
+    inputSchemaVersion: 1,
+    outputSchemaVersion: 1,
+    inputSchema: DATA_MANAGER_INPUT_SCHEMA,
+    outputSchema: DATA_MANAGER_OUTPUT_SCHEMA,
+    escalationRules: [
+      'Escalate datos ausentes, obsoletos, contradictorios o con cobertura desconocida al Gerente General.',
+      'Escalate antes de corregir, borrar, importar o mutar cualquier dato empresarial.',
+      'No infieras stock, precios, costos, clientes o proveedores cuando la evidencia no esté materializada.',
+    ],
+    handlerKey: 'data-manager-advisory',
+    advisoryOnly: true,
+    timeZone: COMPANY_OS_TIME_ZONE,
+    scheduleObjective:
+      'Actualizá determinísticamente la calidad, frescura, consistencia y cobertura de las fuentes observables. No modifiques datos empresariales ni ejecutes compras.',
+  },
 } as const satisfies Record<CompanyOsInstalledAgentId, CompanyOsRuntimeContract>;
 
 export const COMPANY_OS_RUNTIME_CONTRACTS: Readonly<
@@ -478,11 +618,11 @@ export const COMPANY_OS_TEAM_MANIFEST = [
     reason: 'Dedicated systems snapshot path and strict Systems Manager output contract exist.',
   },
   {
-    agentId: 'data-manager-ai-v1',
-    name: 'Data Manager AI v1',
+    agentId: COMPANY_OS_DATA_MANAGER_IDENTITY,
+    name: COMPANY_OS_AGENT_CONTRACTS[COMPANY_OS_DATA_MANAGER_IDENTITY].displayName,
     reportsToAgentId: COMPANY_OS_V3_IDENTITY,
-    status: 'NOT_INSTALLED',
-    reason: 'No dedicated executable handler and no dedicated strict output contract.',
+    status: 'INSTALLED',
+    reason: 'Dedicated data snapshot inputs, executable handler, and strict Data Manager output contract exist.',
   },
   {
     agentId: 'ingestion-sync-ai-v1',
@@ -548,6 +688,7 @@ const CONTRACT_ALLOWED_KEYS = new Set<string>([
 const HANDLER_BY_AGENT: Record<CompanyOsInstalledAgentId, string> = {
   [COMPANY_OS_V3_IDENTITY]: 'general-manager-advisory',
   [COMPANY_OS_SYSTEMS_MANAGER_IDENTITY]: 'systems-manager-advisory',
+  [COMPANY_OS_DATA_MANAGER_IDENTITY]: 'data-manager-advisory',
 };
 
 const REPORTS_TO_BY_AGENT: Record<
@@ -556,6 +697,7 @@ const REPORTS_TO_BY_AGENT: Record<
 > = {
   [COMPANY_OS_V3_IDENTITY]: null,
   [COMPANY_OS_SYSTEMS_MANAGER_IDENTITY]: COMPANY_OS_V3_IDENTITY,
+  [COMPANY_OS_DATA_MANAGER_IDENTITY]: COMPANY_OS_V3_IDENTITY,
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1033,6 +1175,55 @@ function validateSystemsManagerOutput(
   return value as CompanyOsSystemsManagerRuntimeOutput;
 }
 
+function validateDataManagerOutput(
+  value: Record<string, unknown>,
+): CompanyOsDataManagerRuntimeOutput {
+  const keys = [
+    'summary',
+    'primaryDataQualityProblem',
+    'primaryFreshnessGap',
+    'recommendedNextStep',
+    'evidenceRefs',
+    'dataFindings',
+    'missions',
+    'needsHumanDecision',
+    'confidence',
+  ] as const;
+  requireExactKeys(value, keys, new Set(keys), 'Data Manager output');
+  for (const key of keys.slice(0, 4)) {
+    requireNonEmptyString(value[key], `Data Manager output.${key}`);
+  }
+  requireStringArray(value.evidenceRefs, 'Data Manager output.evidenceRefs');
+  if (!Array.isArray(value.dataFindings) || value.dataFindings.length > 10) {
+    throw new Error('Data Manager output.dataFindings: expected at most ten items');
+  }
+  value.dataFindings.forEach((finding, index) => {
+    const label = `Data Manager output.dataFindings[${index}]`;
+    if (!isRecord(finding)) throw new Error(`${label}: expected finding object`);
+    const findingKeys = ['findingId', 'title', 'classification', 'priority', 'evidenceRefs'] as const;
+    requireExactKeys(finding, findingKeys, new Set(findingKeys), label);
+    requireNonEmptyString(finding.findingId, `${label}.findingId`);
+    requireNonEmptyString(finding.title, `${label}.title`);
+    if (!['ACTION_REQUIRED', 'REVIEW', 'INFO'].includes(String(finding.classification))) {
+      throw new Error(`${label}.classification: unsupported classification`);
+    }
+    if (!Number.isInteger(finding.priority) || (finding.priority as number) < 0 || (finding.priority as number) > 100) {
+      throw new Error(`${label}.priority: expected integer from 0 to 100`);
+    }
+    requireStringArray(finding.evidenceRefs, `${label}.evidenceRefs`);
+  });
+  if (!Array.isArray(value.missions)) throw new Error('Data Manager output.missions: expected array');
+  value.missions.forEach((mission, index) =>
+    validateMission(mission, `Data Manager output.missions[${index}]`),
+  );
+  validateDecisionAndConfidence(
+    value,
+    COMPANY_OS_RUNTIME_CONTRACTS[COMPANY_OS_DATA_MANAGER_IDENTITY],
+    'Data Manager output',
+  );
+  return value as CompanyOsDataManagerRuntimeOutput;
+}
+
 function validateDecisionAndConfidence(
   value: Record<string, unknown>,
   contract: CompanyOsRuntimeContract,
@@ -1070,6 +1261,9 @@ export function validateCompanyOsRuntimeOutput(
   }
   if (agentId === COMPANY_OS_SYSTEMS_MANAGER_IDENTITY) {
     return validateSystemsManagerOutput(value);
+  }
+  if (agentId === COMPANY_OS_DATA_MANAGER_IDENTITY) {
+    return validateDataManagerOutput(value);
   }
   throw new Error(`No installed output validator for Company OS agent ${agentId}`);
 }

@@ -2,18 +2,30 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { sanitizeCompanyText } from './objective';
 import {
+  COMPANY_OS_INSTALLED_AGENT_IDS,
   COMPANY_OS_TEAM_MANIFEST,
   getCompanyOsRuntimeContract,
   validateCompanyOsRuntimeOutput,
 } from './runtime-contracts';
 import { companyOsV3Prisma } from './v3-prisma';
-import { companyOsV3BudgetConfig, type CompanyOsWorkerUsage } from './v3-types';
+import { resolveCompanyOsRuntimeDataPolicy } from './runtime-data-policy';
+import { runtimeResultNeedsReview } from './runtime-outcome';
+import { findCompletedRuntimeDelegation, runtimeFollowUpCapacity } from './runtime-delegation';
+import { deriveRuntimeAgentState, type RuntimeAgentStateWork } from './runtime-agent-status';
+import { planRuntimeBudget, startOfZonedPeriod } from './runtime-budget';
+import { withRuntimeObjectiveClaimFence } from './runtime-objective-guard';
+import {
+  COMPANY_OS_SYSTEMS_MANAGER_IDENTITY,
+  COMPANY_OS_V3_IDENTITY,
+  companyOsV3BudgetConfig,
+  type CompanyOsWorkerUsage,
+} from './v3-types';
 
 type Tx = Prisma.TransactionClient;
 
-const INSTALLED_AGENT_IDS = ['general-manager-ai-v3', 'systems-manager-ai-v1'] as const;
-const GENERAL_MANAGER_ID = INSTALLED_AGENT_IDS[0];
-const SYSTEMS_MANAGER_ID = INSTALLED_AGENT_IDS[1];
+const INSTALLED_AGENT_IDS = COMPANY_OS_INSTALLED_AGENT_IDS;
+const GENERAL_MANAGER_ID = COMPANY_OS_V3_IDENTITY;
+const SYSTEMS_MANAGER_ID = COMPANY_OS_SYSTEMS_MANAGER_IDENTITY;
 const ACTIVE_WORK_STATUSES = ['CLAIMED', 'RUNNING'] as const;
 const TERMINAL_CASE_STATUSES = new Set(['COMPLETED', 'CANCELLED']);
 const WORKER_STALE_MS = 150_000;
@@ -73,25 +85,6 @@ function positiveInteger(value: unknown, fallback: number) {
 function asRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Objeto de runtime inválido');
   return value as Record<string, unknown>;
-}
-
-function startOfZonedPeriod(now: Date, period: 'day' | 'month') {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).formatToParts(now).filter((part) => part.type !== 'literal').map((part) => [part.type, Number(part.value)]));
-  const day = period === 'month' ? 1 : parts.day;
-  const desired = Date.UTC(parts.year, parts.month - 1, day, 0, 0, 0);
-  let candidate = desired;
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York', year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-  });
-  for (let iteration = 0; iteration < 2; iteration += 1) {
-    const represented = Object.fromEntries(formatter.formatToParts(new Date(candidate))
-      .filter((part) => part.type !== 'literal').map((part) => [part.type, Number(part.value)]));
-    candidate += desired - Date.UTC(represented.year, represented.month - 1, represented.day, represented.hour, represented.minute, represented.second);
-  }
-  return new Date(candidate);
 }
 
 async function appendRuntimeEvent(tx: Tx, input: {
@@ -264,6 +257,7 @@ type ClaimCandidate = {
   objective: string;
   workObjective: string | null;
   caseStatus: string;
+  caseType: string;
   maxOutputTokens: number;
   targetTotalTokens: number;
   turnCount: number;
@@ -296,11 +290,11 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
     `);
     const slot = slots[0];
     if (!slot) return null;
-    const candidates = await tx.$queryRaw<ClaimCandidate[]>(Prisma.sql`
+    const selectCandidates = (workItemId: string | null) => tx.$queryRaw<ClaimCandidate[]>(Prisma.sql`
       SELECT
         work.id AS "workItemId", work."caseId", company_case."requestId", work."agentId",
         company_case.objective, work."inputPayload"->>'objective' AS "workObjective",
-        company_case.status AS "caseStatus",
+        company_case.status AS "caseStatus", company_case."caseType",
         company_case."maxOutputTokens", company_case."targetTotalTokens",
         company_case."turnCount", company_case."maxTurns",
         work.status AS "workStatus", work."attemptCount", work."maxAttempts",
@@ -316,18 +310,30 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
         LIMIT 1
       ) contract ON true
       WHERE work.status IN ('QUEUED','FAILED_RETRYABLE')
+        AND (${workItemId}::text IS NULL OR work.id = ${workItemId})
         AND COALESCE(work."nextAttemptAt", work."availableAt") <= ${now}
         AND company_case.status NOT IN ('COMPLETED','CANCELLED','FAILED_FINAL')
+        AND (company_case."caseType" <> 'CONTINUOUS_OBJECTIVE' OR EXISTS (
+          SELECT 1 FROM public."CompanyOsObjectiveUnit" linked WHERE linked."caseId" = work."caseId"
+        ))
+        AND NOT EXISTS (
+          SELECT 1 FROM public."CompanyOsObjectiveUnit" unit
+          JOIN public."CompanyOsContinuousObjective" objective ON objective.id = unit."goalId"
+          WHERE unit."caseId" = work."caseId"
+            AND (objective.status <> 'ACTIVE' OR objective."startsAt" > clock_timestamp() OR objective."endsAt" <= clock_timestamp())
+        )
         AND NOT EXISTS (
           SELECT 1 FROM public."CompanyOsLease" active
           WHERE active."agentId" = work."agentId"
             AND active.status = 'ACTIVE' AND active."expiresAt" > ${now}
         )
       ORDER BY work.priority DESC, work."availableAt", work."createdAt"
-      FOR UPDATE OF work SKIP LOCKED
+      ${workItemId === null ? Prisma.empty : Prisma.sql`FOR UPDATE OF work SKIP LOCKED`}
       LIMIT 1
     `);
-    const candidate = candidates[0];
+    const observed = (await selectCandidates(null))[0];
+    if (!observed) return null;
+    const candidate = await withRuntimeObjectiveClaimFence(tx, observed, async () => (await selectCandidates(observed.workItemId))[0] ?? null);
     if (!candidate) return null;
     if (candidate.turnCount >= candidate.maxTurns) {
       await tx.companyOsWorkItem.update({ where: { id: candidate.workItemId }, data: { status: 'BLOCKED' } });
@@ -361,8 +367,21 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
     const dailyUsed = dailyUsage.totalTokens;
     const monthlyUsed = monthlyUsage.totalTokens;
     const reserved = activeReserved._sum.reservedTokens ?? 0;
-    if (dailyUsed + reserved + candidate.reservedTokens > dailyLimit
-      || monthlyUsed + reserved + candidate.reservedTokens > monthlyLimit) {
+    const budgetPlan = planRuntimeBudget({ now, dailyUsed, monthlyUsed, reserved, requested: candidate.reservedTokens, dailyLimit, monthlyLimit });
+    if (!budgetPlan.allowed && budgetPlan.retryAt) {
+      await tx.companyOsWorkItem.update({ where: { id: candidate.workItemId }, data: {
+        status: 'QUEUED', availableAt: budgetPlan.retryAt, nextAttemptAt: null,
+      } });
+      await appendRuntimeEvent(tx, {
+        caseId: candidate.caseId, requestId: candidate.requestId,
+        eventType: 'WORK_DEFERRED_RUNTIME_BUDGET',
+        fromStatus: candidate.caseStatus, toStatus: candidate.caseStatus,
+        payload: { workItemId: candidate.workItemId, agentId: candidate.agentId, dailyUsed, monthlyUsed, reserved, requested: candidate.reservedTokens, reason: budgetPlan.reason, retryAt: budgetPlan.retryAt.toISOString(), modelCalls: 0 },
+        idempotencyKey: `runtime:${candidate.requestId}:budget-deferred:${candidate.workItemId}:${budgetPlan.retryAt.toISOString()}`,
+      });
+      return null;
+    }
+    if (!budgetPlan.allowed) {
       await tx.companyOsWorkItem.update({ where: { id: candidate.workItemId }, data: { status: 'BLOCKED' } });
       if (!TERMINAL_CASE_STATUSES.has(candidate.caseStatus)) {
         await tx.companyOsCase.update({ where: { id: candidate.caseId }, data: { status: 'BLOCKED' } });
@@ -373,11 +392,12 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
         eventType: 'CASE_BLOCKED_RUNTIME_BUDGET',
         fromStatus: candidate.caseStatus,
         toStatus: 'BLOCKED',
-        payload: { agentId: candidate.agentId, dailyUsed, monthlyUsed, reserved, requested: candidate.reservedTokens },
+        payload: { workItemId: candidate.workItemId, agentId: candidate.agentId, dailyUsed, monthlyUsed, reserved, requested: candidate.reservedTokens, reason: budgetPlan.reason },
         idempotencyKey: `runtime:${candidate.requestId}:budget:${candidate.workItemId}:${candidate.attemptCount + 1}`,
       });
       return null;
     }
+    const dataPolicy = await resolveCompanyOsRuntimeDataPolicy(tx, candidate.caseId, candidate.agentId);
     const evidence = await tx.companyOsEvidenceRef.findMany({ where: { caseId: candidate.caseId }, orderBy: { evidenceKey: 'asc' } });
     const contextMessages = await tx.companyOsMessage.findMany({
       where: { caseId: candidate.caseId },
@@ -467,7 +487,7 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
       eventType: 'RUNTIME_WORK_CLAIMED',
       fromStatus: candidate.caseStatus,
       toStatus: caseToStatus,
-      payload: { workItemId: candidate.workItemId, agentId: candidate.agentId, workAttempt, slotNo: slot.slotNo, workerId: input.workerId },
+      payload: { workItemId: candidate.workItemId, agentId: candidate.agentId, workAttempt, slotNo: slot.slotNo, workerId: input.workerId, dataPolicy },
       idempotencyKey: `runtime:${candidate.requestId}:claim:${candidate.workItemId}:${workAttempt}`,
     });
     return {
@@ -484,6 +504,7 @@ export async function claimCompanyOsRuntimeWork(input: { workerId: string; insta
       handlerKey: candidate.handlerKey,
       contractVersion: candidate.contractVersion,
       contract: runtimeContract,
+      dataPolicy,
       evidencePayload,
       contextMessages: orderedContextMessages,
       budgets: {
@@ -695,7 +716,10 @@ function validateRuntimeOutput(
   if (delegations.length > 1) throw new Error('Sólo se permite una delegación durable por turno');
   if (agentId !== GENERAL_MANAGER_ID && delegations.length > 0) throw new Error('Sólo el Gerente General puede delegar trabajo');
   for (const delegation of delegations) {
-    if (delegation.agentId !== SYSTEMS_MANAGER_ID) throw new Error(`Agente delegado ${String(delegation.agentId)} NOT_INSTALLED`);
+    if (!INSTALLED_AGENT_IDS.includes(delegation.agentId as typeof INSTALLED_AGENT_IDS[number])
+      || delegation.agentId === GENERAL_MANAGER_ID) {
+      throw new Error(`Agente delegado ${String(delegation.agentId)} NOT_INSTALLED`);
+    }
     if (typeof delegation.objective !== 'string' || !delegation.objective.trim() || delegation.objective.length > 600) throw new Error('Objetivo delegado inválido');
   }
   if (agentId === SYSTEMS_MANAGER_ID) {
@@ -736,7 +760,7 @@ export async function completeCompanyOsRuntimeWork(input: {
     if (companyCase.id !== workItem.caseId || companyCase.status === 'CANCELLED') throw new Error('Caso incompatible con el work item');
     const evidence = await tx.companyOsEvidenceRef.findMany({
       where: { caseId: companyCase.id },
-      select: { evidenceKey: true, value: true },
+      select: { evidenceKey: true, value: true, createdAt: true },
     });
     const { result, delegations } = validateRuntimeOutput(workItem.agentId, input.output, evidence);
     const safeResult = asRecord(sanitizeRuntimeValue(result));
@@ -751,6 +775,13 @@ export async function completeCompanyOsRuntimeWork(input: {
       leaseToken: input.leaseToken,
       finishedAt: null,
     } });
+    const nextTurn = companyCase.turnCount + 1;
+    const pendingTurns = await tx.companyOsWorkItem.count({ where: {
+      caseId: companyCase.id, id: { not: workItem.id },
+      status: { in: ['QUEUED', 'CLAIMED', 'RUNNING', 'FAILED_RETRYABLE'] },
+    } });
+    const followUpCapacity = runtimeFollowUpCapacity(nextTurn, companyCase.maxTurns, pendingTurns);
+    const canContinue = followUpCapacity.canReturnToGeneral;
     const messageKey = `runtime-message:${workItem.id}:attempt:${workItem.attemptCount}:result`;
     const priorResultMessage = await tx.companyOsMessage.findUnique({ where: { idempotencyKey: messageKey } });
     const resultMessage = priorResultMessage ?? await tx.companyOsMessage.create({
@@ -761,8 +792,8 @@ export async function completeCompanyOsRuntimeWork(input: {
         content: cleanText(safeResult, 12_000),
         actorRef: input.workerId,
         fromAgentId: workItem.agentId,
-        toAgentId: workItem.agentId === SYSTEMS_MANAGER_ID ? GENERAL_MANAGER_ID : null,
-        messageType: workItem.agentId === SYSTEMS_MANAGER_ID ? 'SPECIALIST_RESULT' : 'MANAGER_RESULT',
+        toAgentId: workItem.agentId === GENERAL_MANAGER_ID ? null : GENERAL_MANAGER_ID,
+        messageType: workItem.agentId === GENERAL_MANAGER_ID ? 'MANAGER_RESULT' : 'SPECIALIST_RESULT',
         payload: jsonValue(safeResult),
         schemaVersion: 1,
         evidenceRefs: jsonValue(Array.isArray(result.evidenceRefs) ? result.evidenceRefs : []),
@@ -770,20 +801,62 @@ export async function completeCompanyOsRuntimeWork(input: {
         causationId: workItem.causalMessageId,
         deliveryStatus: 'DELIVERED',
         idempotencyKey: messageKey,
-        expectsResponse: workItem.agentId === SYSTEMS_MANAGER_ID,
+        expectsResponse: workItem.agentId !== GENERAL_MANAGER_ID && canContinue,
         deliveredAt: new Date(),
       },
     });
-    const nextTurn = companyCase.turnCount + 1;
-    const canContinue = nextTurn < companyCase.maxTurns;
     let followUpCount = 0;
-    if (workItem.agentId === GENERAL_MANAGER_ID && canContinue) {
+    let duplicateDelegations = 0;
+    let turnBudgetSuppressed = 0;
+    const effectiveDelegations: typeof delegations = [];
+    if (workItem.agentId === GENERAL_MANAGER_ID && delegations.length) {
+      const completedWorks = await tx.companyOsWorkItem.findMany({
+        where: { caseId: companyCase.id, status: 'COMPLETED', agentId: { not: GENERAL_MANAGER_ID } },
+        select: { id: true, agentId: true, inputPayload: true, createdAt: true,
+          attempts: { where: { outcome: 'SUCCEEDED' }, orderBy: { startedAt: 'desc' }, take: 1, select: { startedAt: true } } },
+      });
+      const completedDelegations = completedWorks.map((prior) => {
+        const priorInput = asRecord(prior.inputPayload);
+        const evidenceAt = prior.attempts[0]?.startedAt ?? prior.createdAt;
+        return {
+          workItemId: prior.id, agentId: prior.agentId,
+          objective: typeof priorInput.objective === 'string' ? priorInput.objective : companyCase.objective,
+          evidenceRefs: Array.isArray(priorInput.evidenceRefs)
+            ? priorInput.evidenceRefs.filter((ref): ref is string => typeof ref === 'string')
+            : evidence.filter((ref) => ref.createdAt <= evidenceAt).map((ref) => ref.evidenceKey),
+        };
+      });
       for (const [index, delegation] of delegations.entries()) {
         const objective = cleanText(delegation.objective, 600);
         const delegationEvidenceRefs = (delegation.evidenceRefs as unknown[])
           .filter((value): value is string => typeof value === 'string')
           .map((value) => cleanText(value, 200));
-        const delegationKey = `runtime-message:${workItem.id}:delegation:${index}:${SYSTEMS_MANAGER_ID}`;
+        const targetAgentId = delegation.agentId as typeof INSTALLED_AGENT_IDS[number];
+        const completed = findCompletedRuntimeDelegation({ agentId: targetAgentId, objective, evidenceRefs: delegationEvidenceRefs }, completedDelegations);
+        if (completed) {
+          duplicateDelegations += 1;
+          await appendRuntimeEvent(tx, {
+            caseId: companyCase.id, requestId: companyCase.requestId,
+            eventType: 'DUPLICATE_DELEGATION_SUPPRESSED',
+            payload: { workItemId: workItem.id, completedWorkItemId: completed.workItemId,
+              agentId: targetAgentId, evidenceRefs: delegationEvidenceRefs, modelCalls: 0 },
+            idempotencyKey: `runtime:${companyCase.requestId}:delegation-suppressed:${workItem.id}:${index}`,
+          });
+          continue;
+        }
+        effectiveDelegations.push(delegation);
+        if (!runtimeFollowUpCapacity(nextTurn, companyCase.maxTurns, pendingTurns + followUpCount * 2).canDelegateToSpecialist) {
+          turnBudgetSuppressed += 1;
+          await appendRuntimeEvent(tx, {
+            caseId: companyCase.id, requestId: companyCase.requestId,
+            eventType: 'DELEGATION_TURN_BUDGET_SUPPRESSED',
+            payload: { workItemId: workItem.id, agentId: targetAgentId, turn: nextTurn,
+              maxTurns: companyCase.maxTurns, pendingTurns, reservedForGeneralIntegration: true },
+            idempotencyKey: `runtime:${companyCase.requestId}:delegation-turn-limit:${workItem.id}:${index}`,
+          });
+          continue;
+        }
+        const delegationKey = `runtime-message:${workItem.id}:delegation:${index}:${targetAgentId}`;
         const priorDelegationMessage = await tx.companyOsMessage.findUnique({ where: { idempotencyKey: delegationKey } });
         const delegationMessage = priorDelegationMessage ?? await tx.companyOsMessage.create({
           data: {
@@ -793,7 +866,7 @@ export async function completeCompanyOsRuntimeWork(input: {
             content: objective,
             actorRef: workItem.agentId,
             fromAgentId: GENERAL_MANAGER_ID,
-            toAgentId: SYSTEMS_MANAGER_ID,
+            toAgentId: targetAgentId,
             messageType: 'DELEGATION',
             payload: jsonValue({ objective, evidenceRefs: delegationEvidenceRefs }),
             schemaVersion: 1,
@@ -807,17 +880,17 @@ export async function completeCompanyOsRuntimeWork(input: {
           },
         });
         await tx.companyOsWorkItem.upsert({
-          where: { idempotencyKey: `work:${companyCase.requestId}:delegation:${workItem.id}:${index}:${SYSTEMS_MANAGER_ID}` },
+          where: { idempotencyKey: `work:${companyCase.requestId}:delegation:${workItem.id}:${index}:${targetAgentId}` },
           update: {},
           create: {
             id: randomUUID(),
             caseId: companyCase.id,
-            agentId: SYSTEMS_MANAGER_ID,
+            agentId: targetAgentId,
             triggerType: 'AGENT_MESSAGE',
             priority: Math.max(0, workItem.priority - 1),
             causalMessageId: delegationMessage.id,
             inputPayload: jsonValue({ objective, fromAgentId: GENERAL_MANAGER_ID, evidenceRefs: delegationEvidenceRefs }),
-            idempotencyKey: `work:${companyCase.requestId}:delegation:${workItem.id}:${index}:${SYSTEMS_MANAGER_ID}`,
+            idempotencyKey: `work:${companyCase.requestId}:delegation:${workItem.id}:${index}:${targetAgentId}`,
             maxAttempts: 3,
             timeoutMs: 120_000,
             reservedTokens: companyCase.targetTotalTokens,
@@ -826,7 +899,8 @@ export async function completeCompanyOsRuntimeWork(input: {
         followUpCount += 1;
       }
     }
-    if (workItem.agentId === SYSTEMS_MANAGER_ID && canContinue) {
+    if (workItem.agentId !== GENERAL_MANAGER_ID && canContinue) {
+      const specialistAgentId = workItem.agentId as typeof INSTALLED_AGENT_IDS[number];
       await tx.companyOsWorkItem.upsert({
         where: { idempotencyKey: `work:${companyCase.requestId}:specialist-return:${workItem.id}:${GENERAL_MANAGER_ID}` },
         update: {},
@@ -837,7 +911,7 @@ export async function completeCompanyOsRuntimeWork(input: {
           triggerType: 'AGENT_MESSAGE',
           priority: workItem.priority,
           causalMessageId: resultMessage.id,
-          inputPayload: jsonValue({ objective: 'Integrar la respuesta del especialista y cerrar o escalar el caso.', fromAgentId: SYSTEMS_MANAGER_ID }),
+          inputPayload: jsonValue({ objective: 'Integrar la respuesta del especialista y cerrar o escalar el caso.', fromAgentId: specialistAgentId }),
           idempotencyKey: `work:${companyCase.requestId}:specialist-return:${workItem.id}:${GENERAL_MANAGER_ID}`,
           maxAttempts: 3,
           timeoutMs: 120_000,
@@ -856,10 +930,12 @@ export async function completeCompanyOsRuntimeWork(input: {
         status: 'PLANNED',
       })) });
     }
-    const needsHumanDecision = result.needsHumanDecision === true
-      || Number(result.confidence) < 0.7
-      || (Array.isArray(result.missions) && result.missions.length > 0)
-      || (!canContinue && (delegations.length > 0 || workItem.agentId === SYSTEMS_MANAGER_ID));
+    const needsHumanDecision = turnBudgetSuppressed > 0 || runtimeResultNeedsReview({
+      output: { ...result, delegations: effectiveDelegations },
+      agentId: workItem.agentId,
+      canContinue,
+      minConfidence: getCompanyOsRuntimeContract(workItem.agentId).lowConfidencePolicy.minConfidence,
+    });
     await tx.companyOsWorkItem.update({ where: { id: workItem.id }, data: { status: 'COMPLETED', completedAt: new Date() } });
     const [remainingRunnable, remainingBlocked] = await Promise.all([
       tx.companyOsWorkItem.count({ where: {
@@ -912,6 +988,8 @@ export async function completeCompanyOsRuntimeWork(input: {
         workItemId: workItem.id,
         agentId: workItem.agentId,
         followUpCount,
+        duplicateDelegations,
+        turnBudgetSuppressed,
         remainingRunnable,
         remainingBlocked,
         turn: nextTurn,
@@ -1144,11 +1222,71 @@ async function upsertIncident(tx: Tx, input: {
   });
 }
 
+async function recoverBudgetBlockedWork(tx: Tx, now: Date) {
+  const blocked = await tx.$queryRaw<Array<{
+    workItemId: string; caseId: string; requestId: string; agentId: string;
+    caseStatus: string; reservedTokens: number; budgetAt: Date; payload: Prisma.JsonValue;
+  }>>(Prisma.sql`
+    SELECT work.id AS "workItemId", work."caseId", company_case."requestId", work."agentId",
+      company_case.status AS "caseStatus", work."reservedTokens", budget."createdAt" AS "budgetAt", budget.payload
+    FROM public."CompanyOsWorkItem" work
+    JOIN public."CompanyOsCase" company_case ON company_case.id = work."caseId"
+    JOIN LATERAL (
+      SELECT event.sequence, event."createdAt", event.payload
+      FROM public."CompanyOsCaseEvent" event
+      WHERE event."caseId" = work."caseId" AND event."eventType" = 'CASE_BLOCKED_RUNTIME_BUDGET'
+        AND event."idempotencyKey" = 'runtime:' || company_case."requestId" || ':budget:' || work.id || ':' || (work."attemptCount" + 1)::text
+      ORDER BY event.sequence DESC LIMIT 1
+    ) budget ON true
+    WHERE work.status = 'BLOCKED' AND company_case.status IN ('BLOCKED','QUEUED')
+      AND company_case."turnCount" < company_case."maxTurns"
+      AND NOT EXISTS (
+        SELECT 1 FROM public."CompanyOsCaseEvent" newer
+        WHERE newer."caseId" = work."caseId" AND newer.sequence > budget.sequence
+          AND newer."toStatus" IN ('BLOCKED','CANCELLED','FAILED_FINAL','NEEDS_REVIEW')
+          AND newer."eventType" <> 'CASE_BLOCKED_RUNTIME_BUDGET'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM public."CompanyOsLease" lease
+        WHERE lease."caseId" = work."caseId" AND lease.status = 'ACTIVE' AND lease."expiresAt" > ${now}
+      )
+    ORDER BY budget."createdAt", work.id
+    FOR UPDATE OF work SKIP LOCKED LIMIT 25
+  `);
+  let recovered = 0;
+  for (const work of blocked) {
+    if (!isCompanyOsRuntimeAgentInstalled(work.agentId)) continue;
+    const payload = work.payload && typeof work.payload === 'object' && !Array.isArray(work.payload) ? work.payload : {};
+    const { dailyUsed, monthlyUsed, reserved } = payload;
+    if (![dailyUsed, monthlyUsed, reserved].every((value) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)) continue;
+    const contract = getCompanyOsRuntimeContract(work.agentId);
+    const plan = planRuntimeBudget({
+      now: work.budgetAt, dailyUsed: dailyUsed as number, monthlyUsed: monthlyUsed as number, reserved: reserved as number,
+      requested: work.reservedTokens, dailyLimit: contract.budgets.dailyTokens, monthlyLimit: contract.budgets.monthlyTokens,
+    });
+    if (plan.allowed || !plan.retryAt) continue;
+    const availableAt = new Date(Math.max(now.getTime(), plan.retryAt.getTime()));
+    await tx.companyOsWorkItem.update({ where: { id: work.workItemId }, data: { status: 'QUEUED', availableAt, nextAttemptAt: null } });
+    if (work.caseStatus === 'BLOCKED') {
+      await tx.companyOsCase.update({ where: { id: work.caseId }, data: { status: 'QUEUED', nextAttemptAt: null } });
+    }
+    await appendRuntimeEvent(tx, {
+      caseId: work.caseId, requestId: work.requestId, eventType: 'WORK_BUDGET_AUTO_RECOVERED',
+      fromStatus: work.caseStatus, toStatus: work.caseStatus === 'BLOCKED' ? 'QUEUED' : work.caseStatus,
+      payload: { workItemId: work.workItemId, agentId: work.agentId, retryAt: availableAt.toISOString(), reason: plan.reason, modelCalls: 0 },
+      idempotencyKey: `runtime:${work.requestId}:budget-auto-recovered:${work.workItemId}:${work.budgetAt.toISOString()}`,
+    });
+    recovered += 1;
+  }
+  return recovered;
+}
+
 export async function reconcileCompanyOsRuntime(workerId: string) {
   const db = companyOsV3Prisma();
   return db.$transaction(async (tx) => {
     const now = new Date();
     const expiredLeases = await expireLeases(tx, now);
+    const budgetRecovered = await recoverBudgetBlockedWork(tx, now);
     const detected: Array<{ dedupeKey: string; type: string; severity: 'INFO' | 'WARNING' | 'CRITICAL'; summary: string; detail?: Record<string, unknown> }> = [];
     const staleWorkers = await tx.companyOsWorker.findMany({ where: { lastHeartbeatAt: { lt: new Date(now.getTime() - WORKER_STALE_MS) }, state: { not: 'STOPPED' } } });
     for (const worker of staleWorkers) detected.push({
@@ -1158,7 +1296,7 @@ export async function reconcileCompanyOsRuntime(workerId: string) {
       summary: `Telemetría del worker ${worker.workerId} vencida; estado real UNKNOWN`,
       detail: { lastHeartbeatAt: worker.lastHeartbeatAt.toISOString(), priorState: worker.state },
     });
-    const oldQueue = await tx.companyOsWorkItem.count({ where: { status: 'QUEUED', createdAt: { lt: new Date(now.getTime() - 15 * 60_000) } } });
+    const oldQueue = await tx.companyOsWorkItem.count({ where: { status: 'QUEUED', availableAt: { lt: new Date(now.getTime() - 15 * 60_000) } } });
     if (oldQueue > 0) detected.push({
       dedupeKey: 'queue-age:15m', type: 'QUEUE_AGE', severity: 'WARNING',
       summary: `${oldQueue} trabajos en cola superan 15 minutos`, detail: { count: oldQueue },
@@ -1232,7 +1370,7 @@ export async function reconcileCompanyOsRuntime(workerId: string) {
       where: { status: { in: ['OPEN', 'ACKNOWLEDGED'] }, ...(activeKeys.length ? { dedupeKey: { notIn: activeKeys } } : {}) },
       data: { status: 'RESOLVED', lastSeenAt: now },
     });
-    return { reconciledAt: now.toISOString(), expiredLeases, incidentsOpen: detected.length };
+    return { reconciledAt: now.toISOString(), expiredLeases, budgetRecovered, incidentsOpen: detected.length };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 
@@ -1279,6 +1417,7 @@ export async function getCompanyOsRuntimeControlCenter() {
     reviewCaseCount,
     completedToday,
     oldestQueued,
+    agentStateWorkItems,
   ] = await Promise.all([
     db.companyOsRuntimeControl.findUniqueOrThrow({ where: { id: 'primary' } }),
     db.companyOsWorker.findMany({ orderBy: { lastHeartbeatAt: 'desc' } }),
@@ -1335,28 +1474,42 @@ export async function getCompanyOsRuntimeControlCenter() {
       orderBy: { availableAt: 'asc' },
       select: { availableAt: true },
     }),
+    // Agent health must not depend on the pagination of the visible work history.
+    db.$queryRaw<RuntimeAgentStateWork[]>(Prisma.sql`
+      SELECT DISTINCT ON (work."agentId", work.status)
+        work."agentId", work.status, company_case."requestId", work."updatedAt", work."completedAt",
+        active_lease."workerId" AS "leaseWorkerId", active_lease."expiresAt" AS "leaseExpiresAt"
+      FROM public."CompanyOsWorkItem" work
+      JOIN public."CompanyOsCase" company_case ON company_case.id = work."caseId"
+      LEFT JOIN LATERAL (
+        SELECT lease."workerId", lease."expiresAt"
+        FROM public."CompanyOsLease" lease
+        WHERE lease."workItemId" = work.id AND lease.status = 'ACTIVE' AND lease."expiresAt" > ${now}
+        ORDER BY lease."createdAt" DESC LIMIT 1
+      ) active_lease ON true
+      WHERE work."agentId" IN (${Prisma.join(INSTALLED_AGENT_IDS)})
+        AND work.status IN ('CLAIMED', 'RUNNING', 'COMPLETED', 'BLOCKED', 'FAILED_RETRYABLE', 'FAILED_FINAL')
+      ORDER BY work."agentId", work.status, work."updatedAt" DESC, work.id DESC
+    `),
   ]);
   const counts = new Map(queueGroups.map((item) => [item.status, item._count._all]));
   const freshWorkers = workers.filter((worker) => now.getTime() - worker.lastHeartbeatAt.getTime() <= WORKER_STALE_MS && worker.state !== 'STOPPED');
-  const activeByAgent = new Map<string, typeof workItems[number]>();
-  for (const work of workItems) if (ACTIVE_WORK_STATUSES.includes(work.status as typeof ACTIVE_WORK_STATUSES[number]) && !activeByAgent.has(work.agentId)) activeByAgent.set(work.agentId, work);
-  const blockedByAgent = new Set(workItems.filter((work) => ['BLOCKED', 'FAILED_RETRYABLE', 'FAILED_FINAL'].includes(work.status)).map((work) => work.agentId));
   const agents = COMPANY_OS_TEAM_MANIFEST.map((agent) => {
-    const active = activeByAgent.get(agent.agentId);
-    const installed = agent.status === 'INSTALLED';
-    let status = 'NOT_INSTALLED';
-    if (installed && control.paused) status = 'PAUSED';
-    else if (installed && active) status = 'RUNNING';
-    else if (installed && blockedByAgent.has(agent.agentId)) status = 'BLOCKED';
-    else if (installed && freshWorkers.length === 0) status = 'UNKNOWN';
-    else if (installed) status = 'IDLE';
+    const current = deriveRuntimeAgentState({
+      agentId: agent.agentId,
+      installed: agent.status === 'INSTALLED',
+      paused: control.paused,
+      now,
+      staleMs: WORKER_STALE_MS,
+      workers,
+      workItems: agentStateWorkItems,
+    });
     return {
       agentId: agent.agentId,
       name: agent.name,
       reportsToAgentId: agent.reportsToAgentId,
       installationStatus: agent.status,
-      status,
-      currentCaseId: active?.case.requestId ?? null,
+      ...current,
     };
   });
   const usageByAgentModel = usageRows.map((row) => ({
@@ -1499,14 +1652,21 @@ export async function getCompanyOsRuntimeControlCenter() {
   };
 }
 
+export function validateRuntimeControlIdempotencyKey(raw: string) {
+  // Opaque identifiers must remain byte-for-byte stable. Content redaction can
+  // mistake numeric UUID segments for phone numbers and break valid UI keys.
+  const key = raw.trim();
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,159}$/.test(key)) throw new Error('idempotencyKey inválido');
+  return key;
+}
+
 export async function applyCompanyOsRuntimeControl(input: {
   action: 'PAUSE' | 'RESUME' | 'RETRY_CASE';
   requestId?: string;
   idempotencyKey: string;
   actorRef: string;
 }) {
-  const key = cleanText(input.idempotencyKey, 160);
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{7,159}$/.test(key)) throw new Error('idempotencyKey inválido');
+  const key = validateRuntimeControlIdempotencyKey(input.idempotencyKey);
   const normalizedRequestId = input.requestId?.trim() || null;
   const requestHash = hash(JSON.stringify({ action: input.action, requestId: normalizedRequestId }));
   const db = companyOsV3Prisma();

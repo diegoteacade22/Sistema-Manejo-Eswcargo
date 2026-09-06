@@ -6,9 +6,10 @@ import { CompanyOsApiClient } from './api-client.mjs';
 import { createJsonLogger } from './json-logger.mjs';
 import { OpenAiAdvisoryClient } from './openai-client.mjs';
 import { OllamaAdvisoryClient, RetryableModelFallbackClient } from './ollama-client.mjs';
+import { requiresLocalInference } from './data-policy.mjs';
 import { TelegramNotificationClient } from './notification-client.mjs';
 import { CompanyOsRuntimeApiClient } from './runtime-api-client.mjs';
-import { loadRuntimeConfig } from './runtime-config.mjs';
+import { loadRuntimeConfig, validateLocalLineageModel } from './runtime-config.mjs';
 import { CompanyOsRuntimeDaemon } from './runtime-daemon.mjs';
 import { SIGNATURE_HEADER, TIMESTAMP_HEADER, verifySignedBody } from './signing.mjs';
 import { CompanyOsWorker, SerialWebhookQueue } from './worker.mjs';
@@ -118,24 +119,41 @@ export function buildDaemonRuntime(config, overrides = {}) {
     timeoutMs: config.apiTimeoutMs,
     fetchImpl: overrides.fetchImpl,
   });
-  const openai = overrides.openai || new RetryableModelFallbackClient({
-    enabled: config.ollamaFallbackEnabled,
-    primary: new OpenAiAdvisoryClient({
-      apiKey: config.openAiApiKey,
-      baseUrl: config.openAiBaseUrl,
-      model: config.model,
-      timeoutMs: config.openAiTimeoutMs,
-      requireClaimOutputSchema: true,
-      fetchImpl: overrides.fetchImpl,
-    }),
-    fallback: new OllamaAdvisoryClient({
+  const openai = overrides.openai || (() => {
+    const localData = new OllamaAdvisoryClient({
       baseUrl: config.ollamaBaseUrl,
-      model: config.ollamaModel,
+      model: validateLocalLineageModel(config.localLineageModel),
       timeoutMs: config.ollamaTimeoutMs,
       requireClaimOutputSchema: true,
       fetchImpl: overrides.fetchImpl,
-    }),
-  });
+    });
+    const routed = new RetryableModelFallbackClient({
+      enabled: config.ollamaFallbackEnabled,
+      primary: new OpenAiAdvisoryClient({
+        apiKey: config.openAiApiKey,
+        baseUrl: config.openAiBaseUrl,
+        model: config.model,
+        timeoutMs: config.openAiTimeoutMs,
+        requireClaimOutputSchema: true,
+        fetchImpl: overrides.fetchImpl,
+      }),
+      fallback: new OllamaAdvisoryClient({
+        baseUrl: config.ollamaBaseUrl,
+        model: config.ollamaModel,
+        timeoutMs: config.ollamaTimeoutMs,
+        requireClaimOutputSchema: true,
+        fetchImpl: overrides.fetchImpl,
+      }),
+    });
+    const routeGenerate = routed.generate.bind(routed);
+    return Object.assign(routed, {
+      generate(claim, options = {}) {
+        return requiresLocalInference(claim)
+          ? localData.generate(claim, options)
+          : routeGenerate(claim, options);
+      },
+    });
+  })();
   const notifier = overrides.notifier !== undefined
     ? overrides.notifier
     : null;
