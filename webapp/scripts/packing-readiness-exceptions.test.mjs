@@ -3,6 +3,7 @@ import test from 'node:test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  buildSourcePackingFingerprints,
   buildSourceStatuses,
   loadKnownEmptyPackingExceptions,
   matchesKnownEmptyPackingException,
@@ -21,6 +22,17 @@ test('agrupa y normaliza los estados de fuente por envío', () => {
   assert.deepEqual(statuses.get(700), ['SALIENDO']);
 });
 
+test('conserva el número de cabeceras para no ocultar duplicados de fuente', () => {
+  const fingerprints = buildSourcePackingFingerprints([
+    { shipment_number: 659, status: null },
+    { shipment_number: 659, status: null },
+    { shipment_number: 660, status: null },
+  ]);
+
+  assert.deepEqual(fingerprints.get(659), { statuses: [''], recordCount: 2 });
+  assert.deepEqual(fingerprints.get(660), { statuses: [''], recordCount: 1 });
+});
+
 test('acepta únicamente la excepción histórica con su huella exacta', () => {
   const exception = {
     reason: 'Registro histórico no imprimible.',
@@ -28,6 +40,7 @@ test('acepta únicamente la excepción histórica con su huella exacta', () => {
       database_status: 'ENTREGADO',
       item_count: 1,
       source_statuses: ['COMPRAR'],
+      source_record_count: 1,
     },
   };
 
@@ -35,7 +48,7 @@ test('acepta únicamente la excepción histórica con su huella exacta', () => {
     matchesKnownEmptyPackingException(
       { status: 'ENTREGADO', item_count: 1 },
       exception,
-      ['COMPRAR']
+      { statuses: ['COMPRAR'], recordCount: 1 }
     ),
     true
   );
@@ -43,7 +56,7 @@ test('acepta únicamente la excepción histórica con su huella exacta', () => {
     matchesKnownEmptyPackingException(
       { status: 'SALIENDO', item_count: 1 },
       exception,
-      ['COMPRAR']
+      { statuses: ['COMPRAR'], recordCount: 1 }
     ),
     false
   );
@@ -51,7 +64,7 @@ test('acepta únicamente la excepción histórica con su huella exacta', () => {
     matchesKnownEmptyPackingException(
       { status: 'ENTREGADO', item_count: 1 },
       exception,
-      ['SALIENDO']
+      { statuses: ['SALIENDO'], recordCount: 1 }
     ),
     false
   );
@@ -59,7 +72,15 @@ test('acepta únicamente la excepción histórica con su huella exacta', () => {
     matchesKnownEmptyPackingException(
       { status: 'ENTREGADO', item_count: 2 },
       exception,
-      ['COMPRAR']
+      { statuses: ['COMPRAR'], recordCount: 1 }
+    ),
+    false
+  );
+  assert.equal(
+    matchesKnownEmptyPackingException(
+      { status: 'ENTREGADO', item_count: 1 },
+      exception,
+      { statuses: ['COMPRAR'], recordCount: 2 }
     ),
     false
   );
@@ -82,5 +103,22 @@ test('expande la configuración agrupada de los 27 históricos verificados', () 
   assert.equal(exceptions.size, 28);
   assert.equal(exceptions.get(579).expected.database_status, 'MIAMI');
   assert.equal(exceptions.get(660).expected.database_status, 'ENTREGADO');
+  assert.equal(exceptions.get(659).expected.source_record_count, 2);
+  assert.equal(
+    matchesKnownEmptyPackingException(
+      { status: 'ENTREGADO', item_count: 1 },
+      exceptions.get(659),
+      { statuses: [''], recordCount: 2 }
+    ),
+    true
+  );
+  assert.equal(
+    matchesKnownEmptyPackingException(
+      { status: 'ENTREGADO', item_count: 1 },
+      exceptions.get(659),
+      { statuses: [''], recordCount: 1 }
+    ),
+    false
+  );
   assert.equal(exceptions.get(1048).expected, null);
 });

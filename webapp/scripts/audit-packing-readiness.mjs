@@ -2,7 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  buildSourceStatuses,
+  buildSourcePackingFingerprints,
   loadKnownEmptyPackingExceptions,
   matchesKnownEmptyPackingException,
 } from './packing-readiness-exceptions.mjs';
@@ -30,7 +30,7 @@ async function main() {
       }
     }
   }
-  const sourceStatusesByShipment = buildSourceStatuses(sourceShipmentRecords);
+  const sourceFingerprintsByShipment = buildSourcePackingFingerprints(sourceShipmentRecords);
 
   if (!auditAll && sourceShipmentNumbers.size === 0) {
     console.log('✅ Auditoría de packing omitida: la actualización no contiene envíos afectados.');
@@ -99,7 +99,7 @@ async function main() {
   const isKnownMissingContent = (shipment) => matchesKnownEmptyPackingException(
     shipment,
     knownEmptyPackingExceptions.get(shipment.shipment_number),
-    sourceStatusesByShipment.get(shipment.shipment_number) || []
+    sourceFingerprintsByShipment.get(shipment.shipment_number) || { statuses: [], recordCount: 0 }
   );
   const knownMissingContent = missingContent.filter(isKnownMissingContent);
   const blockingMissingContent = missingContent.filter((shipment) => !isKnownMissingContent(shipment));

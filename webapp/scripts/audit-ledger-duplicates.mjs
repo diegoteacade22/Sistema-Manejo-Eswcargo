@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { readFileSync } from 'node:fs';
+import { documentKey, shipmentNumberFromTransaction } from './ledger-audit-reference.mjs';
 
 const prisma = new PrismaClient();
 const LOOKBACK_DAYS = Number(process.env.LEDGER_DUPLICATE_LOOKBACK_DAYS || 0);
@@ -34,26 +35,11 @@ function normalize(value) {
     .trim();
 }
 
-function documentKey(tx) {
-  const text = ledgerSearchText(tx);
-  const invoice = text.match(/(?:INV(?:OICE)?|PEDIDO|ORDER)\s*#?\s*(\d+)/i);
-  if (invoice) return `DOCUMENT:${invoice[1]}`;
-
-  const shipment = text.match(/(?:ENV[IÍ]O|SHIPMENT|PACKING\s*LIST|\bPL)\s*#?\s*(\d+)/i);
-  return shipment ? `SHIPMENT:${shipment[1]}` : null;
-}
-
 function orderNumberFromTransaction(tx) {
   const reference = String(tx.reference || '').trim();
   if (/^\d+$/.test(reference)) return Number(reference);
 
   const match = ledgerSearchText(tx).match(/(?:PEDIDO|ORDER)\s*#?\s*(\d+)/i);
-  return match ? Number(match[1]) : null;
-}
-
-function shipmentNumberFromTransaction(tx) {
-  const reference = String(tx.reference || '').trim();
-  const match = reference.match(/^SHIP-(\d+)$/i);
   return match ? Number(match[1]) : null;
 }
 

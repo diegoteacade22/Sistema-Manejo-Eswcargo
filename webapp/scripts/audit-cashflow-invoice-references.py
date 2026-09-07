@@ -22,6 +22,7 @@ HISTORICAL_SALES_SPREADSHEET_ID = os.environ.get("HISTORICAL_SALES_SPREADSHEET_I
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
 EPSILON = 0.01
 ROUNDING_TOLERANCE = float(os.environ.get("CASHFLOW_INVOICE_ROUNDING_TOLERANCE", "1"))
+GOOGLE_API_RETRIES = int(os.environ.get("CASHFLOW_INVOICE_GOOGLE_API_RETRIES", "3"))
 INVOICE_PATTERN = re.compile(r"\bINV(?:OICE)?\s*#?\s*(\d+)\b", re.IGNORECASE)
 REVERSAL_PATTERN = re.compile(r"\b(?:DEVOL(?:UCION)?|RETORNO|REFUND|REVERS)\b", re.IGNORECASE)
 
@@ -53,14 +54,19 @@ def cell(row, index):
     return row[index] if isinstance(index, int) and index < len(row) else ""
 
 
+def execute_values_get(request):
+    """Reintenta lecturas transitorias de Google Sheets antes de abortar la auditoria."""
+    return request.execute(num_retries=GOOGLE_API_RETRIES).get("values", [])
+
+
 def source_invoice_rows(service, config):
     invoices = []
     skipped = []
     for account in config["cashFlowAccounts"]:
         sheet = account["sheet"]
-        values = service.spreadsheets().values().get(
+        values = execute_values_get(service.spreadsheets().values().get(
             spreadsheetId=config["spreadsheetId"], range=f"'{sheet}'!A1:Z1000", majorDimension="ROWS"
-        ).execute().get("values", [])
+        ))
         header_row, headers = find_header(values, "SALDO")
         indexes = {
             "date": headers.index("FECHA") if "FECHA" in headers else None,
@@ -100,9 +106,9 @@ def source_invoice_rows(service, config):
 
 
 def sales_by_invoice(service, spreadsheet_id):
-    values = service.spreadsheets().values().get(
+    values = execute_values_get(service.spreadsheets().values().get(
         spreadsheetId=spreadsheet_id, range="'CABE_VENTAS'!A1:N2000", majorDimension="ROWS"
-    ).execute().get("values", [])
+    ))
     header_row, headers = find_header(values, "INVOICE")
     indexes = {name: headers.index(name) for name in ("INVOICE", "CLIENTE", "NRO CLI", "FECHA", "TOTAL USD")}
     rows = defaultdict(list)
